@@ -4,7 +4,7 @@ This manifest is generated from the release source tree.
 
 | File | Bytes | Purpose |
 |---|---:|---|
-| `.github/workflows/verify.yml` | 513 | Continuous-integration verification |
+| `.github/workflows/verify.yml` | 444 | Continuous-integration verification |
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 706 | Project metadata or handoff |
 | `BUILD-VALIDATION.json` | 4247 | Project metadata or handoff |
