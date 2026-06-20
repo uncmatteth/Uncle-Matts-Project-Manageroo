@@ -54,6 +54,9 @@ umsmfburasbofe token-mode set caveman
 umsmfburasbofe token-mode set curse
 ```
 
+If a different local `SKILL.md` already exists for one of those names, the tool
+backs it up before installing the bundled copy.
+
 ## Initialize a Git-backed project
 
 ```bash

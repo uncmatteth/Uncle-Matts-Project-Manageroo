@@ -52,3 +52,6 @@ The package includes both bundled token modes:
 They are local skill files, not network dependencies. The installer can select a
 mode with `--token-mode caveman` or `--token-mode curse`. Users can switch later
 with `umsmfburasbofe token-mode set ...`.
+
+Existing different local skill files are backed up before the bundled files are
+installed.

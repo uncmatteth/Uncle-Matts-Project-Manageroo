@@ -32,6 +32,18 @@ class TokenModeTests(unittest.TestCase):
             self.assertTrue((skills / "caveman" / "SKILL.md").exists())
             self.assertTrue((skills / "uncle-matts-caveman-curse" / "SKILL.md").exists())
 
+    def test_existing_user_skill_is_backed_up_before_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            skills = Path(temp)
+            target = skills / "caveman" / "SKILL.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("custom local caveman skill\n", encoding="utf-8")
+            install_token_skills(skills)
+            backups = list(target.parent.glob("SKILL.md.umsmfburasbofe-backup-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(encoding="utf-8"), "custom local caveman skill\n")
+            self.assertIn("Ultra-compressed communication mode", target.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

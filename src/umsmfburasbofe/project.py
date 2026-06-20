@@ -79,9 +79,6 @@ def initialize_project(repo: Path, agent: str = "codex") -> dict:
     )
 
     _append_managed_block(repo / "AGENTS.md", AGENTS_BLOCK)
-    claude = repo / "CLAUDE.md"
-    if not claude.exists():
-        atomic_write_text(claude, "@AGENTS.md\n")
 
     gitignore = repo / ".gitignore"
     additions = [".umsmfburasbofe/runs/", ".umsmfburasbofe/cache/"]

@@ -375,6 +375,9 @@ class Orchestrator:
                 f"Review chunk {index}/{len(chunks)} paths: {chunk_paths}\n\n"
                 f"Patch diff for this chunk:\n```diff\n{diff_result.stdout}\n```"
             )
+            token_prompt = token_mode_prompt()
+            if token_prompt:
+                instructions = token_prompt + "\n\n" + instructions
             self._call_index += 1
             name = f"{self._call_index:03d}-reviewer-{index}"
             compiler = self._compiler(repo=review_repo, packet_root=review_packet_root)

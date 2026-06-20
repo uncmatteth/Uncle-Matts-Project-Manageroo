@@ -24,6 +24,7 @@ class ProjectInitializationTests(unittest.TestCase):
                 ).exists()
             )
             self.assertFalse((repo / ".vscode").exists())
+            self.assertFalse((repo / "CLAUDE.md").exists())
 
 
 if __name__ == "__main__":

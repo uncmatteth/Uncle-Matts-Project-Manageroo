@@ -79,7 +79,6 @@ For broken existing code, change `build` to `repair`.
 .umsmfburasbofe/ideas/
 .agents/skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md
 AGENTS.md managed block
-CLAUDE.md when absent
 ```
 
 It creates no IDE-specific directory.

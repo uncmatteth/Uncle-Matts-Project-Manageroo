@@ -86,6 +86,18 @@ def token_mode_skills_dir() -> Path:
     return Path.home() / ".agents" / "skills"
 
 
+def _backup_path(destination: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = destination.with_name(f"{destination.name}.umsmfburasbofe-backup-{stamp}")
+    index = 2
+    while candidate.exists():
+        candidate = destination.with_name(
+            f"{destination.name}.umsmfburasbofe-backup-{stamp}-{index}"
+        )
+        index += 1
+    return candidate
+
+
 def install_token_skills(skills_dir: Path | None = None) -> dict[str, str]:
     root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
     installed: dict[str, str] = {}
@@ -94,7 +106,10 @@ def install_token_skills(skills_dir: Path | None = None) -> dict[str, str]:
             continue
         destination = root / mode.skill_name / "SKILL.md"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(asset_path(mode.asset), destination)
+        source = asset_path(mode.asset)
+        if destination.exists() and destination.read_bytes() != source.read_bytes():
+            shutil.copy2(destination, _backup_path(destination))
+        shutil.copy2(source, destination)
         installed[mode.id] = str(destination)
     return installed
 

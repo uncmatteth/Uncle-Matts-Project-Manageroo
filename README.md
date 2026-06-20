@@ -73,8 +73,8 @@ pile of loose chat.
 
 ## Choose the correct package
 
-- **GitHub source repository:** commit the source tree itself to GitHub. Do not upload the source ZIP as the repository contents without extracting it first.
-- **End-user release archive:** attach the generated release ZIP and checksum file to a GitHub Release. End users download and extract that archive.
+- **GitHub source repository:** the checked-out source tree is what gets committed to GitHub. If you seed it from a ZIP, extract the ZIP first and commit the files, not the ZIP file itself.
+- **End-user release archive:** the generated release ZIP and checksum file go on a GitHub Release. Normal users download that ZIP, extract it, and run the installer.
 
 See [`PUBLISH_TO_GITHUB.md`](PUBLISH_TO_GITHUB.md).
 
@@ -148,7 +148,9 @@ umsmfburasbofe token-mode set curse
 ```
 
 The switch command installs the bundled `caveman` and
-`uncle-matts-caveman-curse` skills under `~/.agents/skills` when needed.
+`uncle-matts-caveman-curse` skills under `~/.agents/skills` when needed. If a
+different local skill file already exists there, it is backed up before the
+bundled copy is installed.
 
 Complete `.umsmfburasbofe/PRODUCT-BRIEF.md`, then run one of:
 

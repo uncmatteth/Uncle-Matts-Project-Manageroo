@@ -1,6 +1,7 @@
 # Publish UMSMFBURASBOFE to GitHub
 
-Use the **GitHub source repository ZIP**, not the end-user release ZIP, for the initial repository contents.
+Use the source tree for the GitHub repository. If you start from a ZIP, extract it
+first and commit the files; do not commit the ZIP as the repository contents.
 
 Recommended repository name:
 
@@ -14,11 +15,19 @@ Create it without a generated README, license, or `.gitignore`, because those fi
 
 Keep it private while performing the first live Codex validation. Change visibility only after the validation result is acceptable.
 
-## 2. Extract the source ZIP and push it
+## 2. Push the source tree
+
+If you are using the prepared `GitHub-Upload` folder, start inside that folder.
+If you are starting from a source ZIP, extract it first:
 
 ```bash
 unzip UMSMFBURASBOFE-GitHub-Source-v2026.6.20.1.zip
 cd Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition
+```
+
+Then push the source tree:
+
+```bash
 git init -b main
 git add .
 git commit -m "Initial UMSMFBURASBOFE source release"
