@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$SkipCodex,
+    [switch]$InstallCodex,
     [switch]$SkipTests,
     [switch]$NoMusic,
     [switch]$NoAnimation
@@ -55,6 +56,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 $InstallArgs = @((Join-Path $Root "scripts\install.py"))
 if ($SkipCodex) { $InstallArgs += "--skip-codex" }
+if ($InstallCodex) { $InstallArgs += "--install-codex" }
 if ($SkipTests) { $InstallArgs += "--skip-tests" }
 if ($NoMusic) { $InstallArgs += "--no-music" }
 if ($NoAnimation) { $InstallArgs += "--no-animation" }

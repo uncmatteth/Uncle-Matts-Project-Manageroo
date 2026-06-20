@@ -30,6 +30,8 @@ umsmfburasbofe init --agent codex
 umsmfburasbofe doctor --json
 ```
 
+Use `--agent codex` only when Codex is the selected runtime. Use `--agent generic` for another CLI and configure `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+
 PowerShell users can run `.\install.ps1`; it starts the same installer.
 
 ## Stop conditions
@@ -42,7 +44,7 @@ PowerShell users can run `.\install.ps1`; it starts the same installer.
 ## Do not
 
 - Do not weaken or skip tests.
-- Do not install optional integrations during core setup.
+- Do not silently install stack integrations during core setup.
 - Do not create IDE-specific configuration.
 - Do not invent verification gates.
 - Do not run a product build with the template brief.
@@ -55,7 +57,7 @@ Return:
 - operating system;
 - UMSMFBURASBOFE version;
 - Python version;
-- Codex version and executable path;
+- selected agent adapter, version when discoverable, and executable path;
 - UMSMFBURASBOFE executable path;
 - install-lock path;
 - self-test result;

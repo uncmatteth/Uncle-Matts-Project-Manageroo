@@ -4,7 +4,7 @@
 
 - Python 3.11 or newer
 - Git
-- Internet access if Codex must be installed or updated
+- Internet access only if installing or updating a selected external agent/tool
 
 Install Python 3.11+ and Git with the normal package manager for the machine before running UMSMFBURASBOFE.
 
@@ -21,7 +21,7 @@ PowerShell users can run `.\install.ps1`; it starts the same installer.
 ```bash
 ./install.sh --no-music
 ./install.sh --no-animation
-./install.sh --skip-codex
+./install.sh --install-codex
 ./install.sh --skip-tests
 ```
 
@@ -42,6 +42,10 @@ cd /absolute/path/to/product
 umsmfburasbofe init --agent codex
 umsmfburasbofe doctor
 ```
+
+Use `--agent codex` only when Codex is the runtime UMSMFBURASBOFE should launch itself. Use `--agent generic` for another CLI and configure `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+
+If an AI IDE is driving UMSMFBURASBOFE by running commands, no special vendor adapter is needed. Give that agent the installed command plus the repo-local skill.
 
 No IDE-specific directory is created.
 

@@ -32,15 +32,17 @@ umsmfburasbofe self-test
 
 The self-test must return `"ok": true` and `"status": "COMPLETE"`.
 
-## 4. Authenticate Codex
+## 4. Choose how agents will use it
 
-Run Codex directly and complete its normal authentication flow:
+For Codex, install/authenticate Codex and initialize with `--agent codex`:
 
 ```bash
 codex
 ```
 
-Exit after authentication succeeds.
+For another CLI that UMSMFBURASBOFE should launch itself, initialize with `--agent generic`, then configure `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+
+For an AI IDE that is already running in the repo, no special adapter is needed. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created by `umsmfburasbofe init`.
 
 ## 5. Initialize an existing product repository
 
@@ -91,4 +93,4 @@ Run artifacts and evidence are stored under `.umsmfburasbofe/runs/RUN_ID/`.
 
 ## Important boundary
 
-The included package was verified with its deterministic test and mock workflow. A live Codex run must still be validated on the actual computer and target repository. Do not use the first live run on an irreplaceable production worktree; use a backup, clone, branch, or disposable copy.
+The included package was verified with its deterministic test and mock workflow. A live agent-adapter run must still be validated on the actual computer and target repository. Do not use the first live run on an irreplaceable production worktree; use a backup, clone, branch, or disposable copy.

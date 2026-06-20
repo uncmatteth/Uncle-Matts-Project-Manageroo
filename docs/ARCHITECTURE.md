@@ -57,7 +57,7 @@ Tasks are dependency ordered and executed sequentially in the same isolated inte
 
 ## External systems
 
-Optional systems are adapters, not authorities:
+The surrounding stack provides lanes, not authorities:
 
 - GBrain: durable memory retrieval/capture.
 - GitNexus: supplementary code graph analysis.

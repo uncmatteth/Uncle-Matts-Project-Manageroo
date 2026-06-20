@@ -203,7 +203,8 @@ def main() -> int:
     )
     parser.add_argument("--skip-tests", action="store_true")
     parser.add_argument("--skip-self-test", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--skip-codex", action="store_true")
+    parser.add_argument("--install-codex", action="store_true")
+    parser.add_argument("--skip-codex", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
     args = parser.parse_args()
@@ -229,17 +230,18 @@ def main() -> int:
                 env=source_env,
             )
 
-        if args.skip_codex:
+        if args.install_codex and not args.skip_codex:
+            external_tools.append({"name": "codex", **install_codex_latest(downloads)})
+        else:
             external_tools.append(
                 {
                     "name": "codex",
                     "path": shutil.which("codex"),
                     "version": command_version("codex"),
                     "skipped": True,
+                    "reason": "Codex is an adapter choice, not a core installer requirement.",
                 }
             )
-        else:
-            external_tools.append({"name": "codex", **install_codex_latest(downloads)})
 
         prefix = args.prefix.expanduser().resolve()
         venv_root = prefix / "venv"
@@ -281,7 +283,12 @@ def main() -> int:
             "self_test_output": self_test_output,
             "external_tools": external_tools,
             "network_downloads": downloads,
-            "dependency_policy": "Core install is UMSMFBURASBOFE + Codex; all other systems remain optional adapters.",
+            "dependency_policy": (
+                "Core install is UMSMFBURASBOFE. Real runs require a configured agent "
+                "adapter, a Git-backed target repo, and deterministic verification gates. "
+                "The intended local stack includes GBrain, GitNexus, Obsidian, AUTOREVIEW, "
+                "and Clawpatch when configured."
+            ),
         }
         (prefix / "install-lock.json").write_text(
             json.dumps(lock, indent=2, sort_keys=True) + "\n",
@@ -298,6 +305,7 @@ def main() -> int:
     print("  umsmfburasbofe --version")
     print("  umsmfburasbofe self-test")
     print("  cd /path/to/project && umsmfburasbofe init --agent codex && umsmfburasbofe doctor")
+    print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
     return 0
 
 

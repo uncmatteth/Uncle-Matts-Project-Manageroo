@@ -57,4 +57,4 @@ Planning agents may reference gate IDs. They may not introduce argv commands.
 
 ## `[integrations]`
 
-Optional integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery must work before optional integrations are enabled.
+Stack integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery still belongs to UMSMFBURASBOFE state, scope, gates, and evidence.

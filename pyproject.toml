@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
 version = "2026.6.20.1"
-description = "A cross-platform coding-agent control plane: Ultimate Remix All-Star Booty of Fire Edition."
+description = "A local agent-stack controller: Ultimate Remix All-Star Booty of Fire Edition."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Uncle Matt"}]
-keywords = ["coding-agent", "codex", "orchestration", "software-delivery", "agent-harness"]
+keywords = ["coding-agent", "gbrain", "gitnexus", "obsidian", "autoreview", "clawpatch", "codex", "orchestration", "software-delivery", "agent-harness"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",

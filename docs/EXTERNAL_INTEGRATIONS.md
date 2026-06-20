@@ -1,28 +1,32 @@
-# External integrations
+# Stack integrations
 
-The core harness does not require any optional integration.
+UMSMFBURASBOFE was built for a local agent stack. The controller remains the authority, but these systems are not random extras; they are the intended surrounding tools.
+
+## AI IDEs and CLI agents
+
+Any AI IDE or agent that can read the repository and run shell commands can use UMSMFBURASBOFE through the same installed `umsmfburasbofe` CLI and repo-local skill. There should not be a special UMSMFBURASBOFE build per AI vendor.
 
 ## Codex
 
-Default execution adapter. UMSMFBURASBOFE starts a fresh `codex exec` process per role, supplies a repository directory, sandbox mode, JSON schema, and output-last-message path. `umsmfburasbofe doctor` checks that the installed CLI exposes the required flags before a live run.
+One execution adapter. UMSMFBURASBOFE can start a fresh `codex exec` process per role, supply a repository directory, sandbox mode, JSON schema, and output-last-message path. `umsmfburasbofe doctor` checks that the installed CLI exposes the required flags when the project selects the Codex adapter.
 
 Official reference: https://developers.openai.com/codex/noninteractive
 
 ## OpenClaw
 
-OpenClaw may invoke the `umsmfburasbofe` CLI or host the same Agent Skill. OpenClaw is not the state authority; UMSMFBURASBOFE remains the controller.
+OpenClaw may invoke the `umsmfburasbofe` CLI, host the same Agent Skill, or act as an execution surface. OpenClaw is not the state authority; UMSMFBURASBOFE remains the controller.
 
 Official reference: https://docs.openclaw.ai/
 
 ## GBrain
 
-Use as optional long-term memory. Configure explicit argv templates only after the core workflow is operational. Retrieved memories are bounded context evidence; they do not override current code or locked contracts.
+Durable memory and retrieval lane. Retrieved memories become bounded context evidence with explicit provenance; they do not override current code or locked contracts.
 
 Project reference: https://github.com/garrytan/gbrain
 
 ## GitNexus
 
-Use as optional supplemental impact and graph analysis. UMSMFBURASBOFE already includes deterministic repository inventory and map/reduce, so GitNexus is an accelerator rather than a boot dependency.
+Code graph and impact lane. UMSMFBURASBOFE includes deterministic inventory and map/reduce, while GitNexus provides deeper graph context when configured.
 
 Project reference: https://github.com/abhigyanpatwari/GitNexus
 
@@ -30,13 +34,13 @@ Review GitNexus licensing before commercial embedding.
 
 ## Obsidian
 
-UMSMFBURASBOFE can read and write the vault as ordinary Markdown. No Obsidian plugin is required. Set `integrations.obsidian_vault` in project configuration after installation.
+Human-readable operator notes. UMSMFBURASBOFE can read and write the vault as ordinary Markdown. No Obsidian plugin is required. Set `integrations.obsidian_vault` in project configuration after installation.
 
 Official reference: https://obsidian.md/help/data-storage
 
 ## AUTOREVIEW and Clawpatch
 
-Optional supplementary reviewers can be configured as argv-only external commands. Built-in isolated Codex review remains the default. External findings must still pass UMSMFBURASBOFE's evidence and scope validation.
+Review and patch lanes. AUTOREVIEW and Clawpatch can be configured as argv-only external commands. External findings must still pass UMSMFBURASBOFE's evidence and scope validation.
 
 AUTOREVIEW reference: https://github.com/openclaw/agent-skills
 Clawpatch reference: https://github.com/openclaw/clawpatch

@@ -11,7 +11,7 @@ Full funny acronym: `UMSMFBURASBOFE`.
 ```text
 You define product behavior.
 UMSMFBURASBOFE compiles and enforces delivery.
-Codex or another adapter performs bounded coding roles.
+An AI IDE, CLI agent, or configured runtime performs bounded agent roles.
 Git and deterministic checks provide ground truth.
 A fresh independent role reviews the result.
 ```
@@ -37,6 +37,10 @@ cd /absolute/path/to/product
 umsmfburasbofe init --agent codex
 umsmfburasbofe doctor
 ```
+
+Use `--agent codex` for Codex. Use `--agent generic` for another CLI and configure `[agent].argv_template`.
+
+If an AI IDE is driving the work itself, it does not need a special adapter. It can use the installed `umsmfburasbofe` command and the repo-local skill.
 
 Do not run a product build until `umsmfburasbofe doctor` reports `READY`.
 

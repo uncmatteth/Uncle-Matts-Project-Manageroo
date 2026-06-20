@@ -34,7 +34,7 @@
 - Codex read-only review sandbox;
 - exact changed-file checks;
 - redaction of common secret assignments and bearer tokens;
-- no automatic installation of optional integrations;
+- no silent installation of stack integrations;
 - fixed repair limits;
 - source freshness check before application.
 

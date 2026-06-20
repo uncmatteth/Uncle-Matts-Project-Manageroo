@@ -3,15 +3,16 @@
 
 **UMSMFBURASBOFE** is the acronym, the command, and the public name.
 
-By **bttlabs.fun**, this is a local control plane for coding agents. It gives
-Codex a safer, more organized way to work on a real product repo.
+By **bttlabs.fun**, this is a local controller for an agent stack: AI IDEs or
+CLI agents, GBrain memory, GitNexus graph context, Obsidian notes,
+AUTOREVIEW/Clawpatch review lanes, Git safety, and deterministic checks.
 
 ## GitHub description
 
 Copy this into the GitHub repository description:
 
 ```text
-A local controller for Codex: turn one product brief into scoped agent work, tests, review, repair, and a final patch with evidence.
+A local controller for agentic builds: one brief into stack-aware context, scoped agent work, checks, review, repair, and evidence.
 ```
 
 ## Explain It Like I Am Five
@@ -19,11 +20,11 @@ A local controller for Codex: turn one product brief into scoped agent work, tes
 - You have an app, website, script, or repo you want improved.
 - You write one plain-English product brief.
 - UMSMFBURASBOFE reads the repo and makes a plan before code changes.
-- Codex does the coding work in small, bounded jobs.
-- UMSMFBURASBOFE keeps Codex away from unrelated files.
+- An AI IDE, CLI agent, or configured runtime does the work in small, bounded jobs.
+- UMSMFBURASBOFE keeps that agent away from unrelated files.
 - UMSMFBURASBOFE runs your real checks, such as tests, lint, typecheck, or build.
 - UMSMFBURASBOFE asks a fresh review role to look for problems.
-- If review finds a blocking problem, UMSMFBURASBOFE sends Codex back to repair it.
+- If review finds a blocking problem, UMSMFBURASBOFE sends the work back for repair.
 - UMSMFBURASBOFE writes a final patch, report, and evidence folder.
 - Your original repo is changed only after the controller reaches `COMPLETE`.
 - The fun installer has color, ASCII art, and generated chiptune music.
@@ -51,7 +52,7 @@ TESTS + INDEPENDENT REVIEW + REPAIR
 WORKING PRODUCT + EVIDENCE OUT
 ```
 
-UMSMFBURASBOFE is not an IDE and not a replacement for Codex. It launches coding agents, supplies bounded context, owns workflow state, rejects scope drift, runs deterministic verification, and decides whether a run may be marked complete.
+UMSMFBURASBOFE is not an IDE and not a replacement for GBrain, GitNexus, Obsidian, AUTOREVIEW, Clawpatch, CI, or whatever AI agent you already use. It is the controller those tools can operate through: one CLI, one repo-local skill, bounded jobs, durable state, verification gates, review loops, and evidence before anything is called complete.
 
 ## Choose the correct package
 
@@ -70,7 +71,7 @@ cd Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Ed
 
 PowerShell users can run `.\install.ps1`; it starts the same installer.
 
-The installer validates the source, runs the test suite, installs or updates Codex unless disabled, installs UMSMFBURASBOFE under the current user's local application directory, creates the `umsmfburasbofe` launcher, runs the deterministic self-test, and writes an `install-lock.json` record.
+The installer validates the source, runs the test suite, installs UMSMFBURASBOFE under the current user's local application directory, creates the `umsmfburasbofe` launcher, runs the deterministic self-test, and writes an `install-lock.json` record. It does not require Codex. Use `./install.sh --install-codex` only when Codex is the adapter you want this machine to use.
 
 Disable terminal presentation only when needed:
 
@@ -96,6 +97,10 @@ umsmfburasbofe init --agent codex
 umsmfburasbofe doctor
 ```
 
+Use `--agent codex` for the Codex adapter. Use `--agent generic` when another CLI will run the agent roles; then set `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+
+If you are using an AI IDE or another agent shell, it does not need a special UMSMFBURASBOFE build. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created by `umsmfburasbofe init`, and it can drive the same controller commands.
+
 Complete `.umsmfburasbofe/PRODUCT-BRIEF.md`, then run one of:
 
 ```bash
@@ -112,13 +117,13 @@ Each agent role receives a fresh, bounded context packet rather than an entire r
 
 See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).
 
-## Minimal-sprawl policy
+## Intended Local Stack
 
-The core install contains UMSMFBURASBOFE and Codex. OpenClaw, GBrain, GitNexus, Clawpatch, AUTOREVIEW, Obsidian, and IDE integrations remain optional adapters rather than mandatory machine-wide dependencies.
+UMSMFBURASBOFE was built around the local agent stack: GBrain for durable memory, GitNexus for graph and impact context, Obsidian for human-readable operator notes, AUTOREVIEW and Clawpatch for review/repair lanes, and any AI IDE or CLI agent that can run commands in the repo. Those tools are first-class in the design. They use the same controller instead of needing a special UMSMFBURASBOFE build for each vendor.
 
 ## Current maturity
 
-This is an **alpha source implementation**. The deterministic mock workflow and package tests are included. A real build requires an authenticated compatible Codex CLI, a Git-backed target repository, and valid verification commands for that repository. Review the limitations before using it on sensitive or production-critical software.
+This is an **alpha source implementation**. The deterministic mock workflow and package tests are included. A real build requires a configured agent adapter, a Git-backed target repository, and valid verification commands for that repository. Review the limitations before using it on sensitive or production-critical software.
 
 ## Documentation
 
