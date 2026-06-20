@@ -1,6 +1,6 @@
 # Local setup
 
-This is the exact path from downloaded files to a usable local UMSMFBURASBOFE installation.
+This is the straight path from the ZIP to a working local install.
 
 ## 1. Extract the end-user release archive
 
@@ -15,6 +15,16 @@ cd /path/to/Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-o
 
 PowerShell users can run `.\install.ps1`; it starts the same installer.
 
+Token-reduction mode is optional:
+
+```bash
+./install.sh --token-mode caveman
+./install.sh --token-mode curse
+```
+
+`caveman` is clean. `curse` is Uncle Matt's Caveman Curse, the funny profane
+version.
+
 When the shell cannot find `umsmfburasbofe` immediately afterward:
 
 ```bash
@@ -28,6 +38,7 @@ Persist that line in the shell profile used on the machine, such as `~/.zshrc` o
 ```bash
 umsmfburasbofe --version
 umsmfburasbofe self-test
+umsmfburasbofe token-mode status
 ```
 
 The self-test must return `"ok": true` and `"status": "COMPLETE"`.
@@ -40,9 +51,21 @@ For Codex, install/authenticate Codex and initialize with `--agent codex`:
 codex
 ```
 
-For another CLI that UMSMFBURASBOFE should launch itself, initialize with `--agent generic`, then configure `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+For another CLI that this tool should launch itself, initialize with
+`--agent generic`, then configure `[agent].argv_template` in
+`.umsmfburasbofe/config.toml`.
 
-For an AI IDE that is already running in the repo, no special adapter is needed. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created by `umsmfburasbofe init`.
+For an AI IDE that is already running in the repo, do not make this harder than
+it is. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created
+by `umsmfburasbofe init`.
+
+Switch token-reduction mode later:
+
+```bash
+umsmfburasbofe token-mode set off
+umsmfburasbofe token-mode set caveman
+umsmfburasbofe token-mode set curse
+```
 
 ## 5. Initialize an existing product repository
 
@@ -64,7 +87,9 @@ Edit:
 .umsmfburasbofe/PRODUCT-BRIEF.md
 ```
 
-Describe the desired user behavior, constraints, non-goals, unacceptable outcomes, and required demonstration. You do not need to specify functions or implementation patterns.
+Describe what the product should do, what it must not break, what is out of
+scope, and how you want the result demonstrated. You do not need to tell the
+agent which functions to edit.
 
 ## 7. Run UMSMFBURASBOFE
 
@@ -93,4 +118,6 @@ Run artifacts and evidence are stored under `.umsmfburasbofe/runs/RUN_ID/`.
 
 ## Important boundary
 
-The included package was verified with its deterministic test and mock workflow. A live agent-adapter run must still be validated on the actual computer and target repository. Do not use the first live run on an irreplaceable production worktree; use a backup, clone, branch, or disposable copy.
+The package tests pass, but that is not the same as proving your real repo and
+your real AI tool are ready. Do the first live run on a backup, clone, branch, or
+disposable copy.

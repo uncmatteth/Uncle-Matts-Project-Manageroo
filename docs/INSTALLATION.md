@@ -6,7 +6,8 @@
 - Git
 - Internet access only if installing or updating a selected external agent/tool
 
-Install Python 3.11+ and Git with the normal package manager for the machine before running UMSMFBURASBOFE.
+Install Python 3.11+ and Git first. The installer is supposed to be the easy
+part, not a treasure hunt.
 
 ## Install
 
@@ -22,10 +23,12 @@ PowerShell users can run `.\install.ps1`; it starts the same installer.
 ./install.sh --no-music
 ./install.sh --no-animation
 ./install.sh --install-codex
+./install.sh --token-mode caveman
+./install.sh --token-mode curse
 ./install.sh --skip-tests
 ```
 
-The normal installation uses none of these bypasses.
+Normal users should not need these.
 
 ## Validate
 
@@ -33,6 +36,22 @@ The normal installation uses none of these bypasses.
 umsmfburasbofe --version
 umsmfburasbofe banner --no-animation
 umsmfburasbofe self-test
+umsmfburasbofe token-mode status
+```
+
+## Token reduction
+
+The package includes both token-reduction skills:
+
+- `caveman`: terse, clean output.
+- `uncle-matts-caveman-curse`: terse output plus profanity.
+
+Switch later:
+
+```bash
+umsmfburasbofe token-mode set off
+umsmfburasbofe token-mode set caveman
+umsmfburasbofe token-mode set curse
 ```
 
 ## Initialize a Git-backed project
@@ -43,9 +62,12 @@ umsmfburasbofe init --agent codex
 umsmfburasbofe doctor
 ```
 
-Use `--agent codex` only when Codex is the runtime UMSMFBURASBOFE should launch itself. Use `--agent generic` for another CLI and configure `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+Use `--agent codex` only when this tool should launch Codex itself. Use
+`--agent generic` for another CLI and configure `[agent].argv_template` in
+`.umsmfburasbofe/config.toml`.
 
-If an AI IDE is driving UMSMFBURASBOFE by running commands, no special vendor adapter is needed. Give that agent the installed command plus the repo-local skill.
+If an AI IDE can read the repo and run commands, it does not need a special
+vendor build. Give it the installed command plus the repo-local skill.
 
 No IDE-specific directory is created.
 

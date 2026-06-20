@@ -1,55 +1,56 @@
 # Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition
 
-**UMSMFBURASBOFE** is the acronym, the command, and the public name.
+Use `umsmfburasbofe` at the terminal. The name is incredibly super serious.
 
-UMSMFBURASBOFE is a local command-line tool for people who use AI coding agents
-on real software projects.
+This is a local tool for putting an actual process around AI coding agents.
 
-It is for build and repair work. You write what you want the product to do in
-plain English. UMSMFBURASBOFE helps the agent read the repo, make a plan, work
-in small pieces, run checks, review the result, repair problems, and leave a
-clear report of what happened.
+Give it a Git repo, a plain-English brief, and real checks. It helps the agent
+read the project, make a plan, work in smaller pieces, run the checks, review
+the result, repair the bad parts, and leave a report you can inspect.
 
-The point is simple: do not throw a whole repo into one giant chat and hope the
-agent remembers everything. Give the agent the right files, the right job, and a
-way to prove the work.
+The whole point is to stop the usual AI coding mess: one giant chat, too much
+context, half-remembered requirements, surprise file changes, and a confident
+"done" with no proof.
 
 ## GitHub description
 
 Copy this into the GitHub repository description:
 
 ```text
-A local command-line tool that helps AI coding agents build or repair a Git repo from one plain-English brief, with checks, review, and evidence.
+A very serious local CLI that keeps AI coding agents on task: one brief in, repo-aware build or repair work, checks, review, and proof out.
 ```
 
 ## Explain It Like I Am Five
 
 - You have an app, website, script, or repo.
-- You want an AI coding agent to improve it without wandering all over the project.
-- You write one plain-English brief saying what should be built or fixed.
-- UMSMFBURASBOFE reads the repo and turns the request into smaller jobs.
-- The AI agent works on those jobs.
-- UMSMFBURASBOFE runs the checks you configured, such as tests, lint, typecheck, or build.
-- A fresh review pass looks for problems before the work is called done.
-- If something important is wrong, UMSMFBURASBOFE sends it back for repair.
-- It saves the plan, patch, checks, review notes, and final report so the work is inspectable.
-- The command is always `umsmfburasbofe`.
-- The installer is meant to be simple, but still fun: color, ASCII art, and generated chiptune music.
+- You want an AI coding agent to work on it without wandering off.
+- You write what you want in normal language.
+- `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
+- Your AI tool does the code work.
+- `umsmfburasbofe` runs the checks you told it to run: tests, lint, typecheck, build, or whatever your repo actually uses.
+- A separate review pass looks for problems before the run gets called done.
+- If the work is not good enough, it goes back through repair.
+- You get the patch, the checks, the review notes, and the report.
+- Optional token-reduction modes are included: clean `caveman` or profane `curse`.
+- The installer should be simple for normal users, but still fun: color, ASCII art, and generated chiptune music.
 
 ## What Problem It Solves
 
-- A normal AI chat can lose track of files, requirements, and proof.
-- A giant repo dump gives the agent too much unrelated information.
-- A tiny prompt gives the agent too little information to make good decisions.
-- UMSMFBURASBOFE tries to give the agent the right slice of the repo for the job.
-- It keeps planning, coding, review, repair, and final delivery as separate steps.
-- It records what files were used, what checks ran, what changed, and what still needs human judgment.
-- It is meant for local use first, on a Git-backed repo you control.
+AI coding agents are useful. They also drift.
+
+- They forget parts of the request.
+- They touch files they did not need to touch.
+- They miss the test that would have caught the bug.
+- They treat "looks plausible" like "works."
+- They leave you digging through a chat transcript to figure out what happened.
+
+This tool is meant to make that harder. It keeps the work tied to the repo, the
+brief, the checks, the review, and the final evidence.
 
 The idea came from the thing Clawpatch gets right: AI agents work better when
-they review or fix one real feature at a time, with evidence, tests, and a clear
-scope. UMSMFBURASBOFE uses that same kind of structure for build and repair
-runs, not only bug review.
+they look at one real slice of the product at a time, with the right files and
+some proof. UMSMFBURASBOFE uses that same kind of structure for build and repair
+work, not only bug review.
 
 ```text
 ONE PLAIN-ENGLISH BRIEF
@@ -65,10 +66,10 @@ REPAIR IF NEEDED
 PATCH + REPORT + EVIDENCE
 ```
 
-UMSMFBURASBOFE is not an IDE and not a replacement for GBrain, GitNexus,
-Obsidian, AUTOREVIEW, Clawpatch, CI, or whatever AI agent you already use. It is
-the local command those tools can work through so the job has a brief, a repo
-map, a plan, checks, review, repair, and evidence before anyone says it is done.
+UMSMFBURASBOFE is not trying to replace your AI tool, your IDE, GBrain,
+GitNexus, Obsidian, AUTOREVIEW, Clawpatch, CI, or your own judgment. It is the
+local command that makes those pieces follow a job instead of becoming one more
+pile of loose chat.
 
 ## Choose the correct package
 
@@ -87,13 +88,29 @@ cd Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Ed
 
 PowerShell users can run `.\install.ps1`; it starts the same installer.
 
-The installer validates the source, runs the test suite, installs UMSMFBURASBOFE under the current user's local application directory, creates the `umsmfburasbofe` launcher, runs the deterministic self-test, and writes an `install-lock.json` record. It does not require Codex. Use `./install.sh --install-codex` only when Codex is the adapter you want this machine to use.
+The installer validates the source, runs the tests, installs the command for the
+current user, runs `self-test`, and writes `install-lock.json`. It does not
+require Codex. Use `./install.sh --install-codex` only when you specifically
+want this machine to install or update Codex too.
 
 Disable terminal presentation only when needed:
 
 ```bash
 ./install.sh --no-music --no-animation
 ```
+
+Choose token-reduction mode during install:
+
+```bash
+./install.sh --token-mode caveman
+./install.sh --token-mode curse
+./install.sh --token-mode off
+```
+
+`caveman` is clean compressed output. `curse` is Uncle Matt's Caveman Curse:
+compressed output with profanity for people who want the funny version. Code,
+commands, JSON keys, exact errors, and quoted source stay clean unless you ask
+for profanity there.
 
 ## One-line installation after the GitHub repository exists
 
@@ -108,14 +125,30 @@ git clone --depth 1 https://github.com/uncmatteth/Uncle-Matts-Super-Mega-Forward
 ```bash
 umsmfburasbofe --version
 umsmfburasbofe self-test
+umsmfburasbofe token-mode status
 cd /absolute/path/to/your/git-project
 umsmfburasbofe init --agent codex
 umsmfburasbofe doctor
 ```
 
-Use `--agent codex` for the Codex adapter. Use `--agent generic` when another CLI will run the agent roles; then set `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+Use `--agent codex` when this tool should launch Codex itself. Use
+`--agent generic` for another CLI, then set `[agent].argv_template` in
+`.umsmfburasbofe/config.toml`.
 
-If you are using an AI IDE or another agent shell, it does not need a special UMSMFBURASBOFE build. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created by `umsmfburasbofe init`, and it can drive the same controller commands.
+If you are using an AI IDE or another agent shell, it does not need a special
+build of this thing. If it can read files and run commands in the repo, it can
+use `umsmfburasbofe`.
+
+Switch token-reduction mode later:
+
+```bash
+umsmfburasbofe token-mode set off
+umsmfburasbofe token-mode set caveman
+umsmfburasbofe token-mode set curse
+```
+
+The switch command installs the bundled `caveman` and
+`uncle-matts-caveman-curse` skills under `~/.agents/skills` when needed.
 
 Complete `.umsmfburasbofe/PRODUCT-BRIEF.md`, then run one of:
 
@@ -129,16 +162,16 @@ umsmfburasbofe run --repo . --mode repair --brief .umsmfburasbofe/PRODUCT-BRIEF.
 
 ## Context-window control
 
-Each agent role receives a fresh context packet with the files and instructions
-needed for that job. It does not rely on the previous chat staying perfect.
-UMSMFBURASBOFE stores state on disk, records source hashes and line ranges,
-tracks omitted files, refuses silent truncation, and rejects stale packets.
+Each role gets a fresh packet with the files and instructions for that job. The
+tool does not trust the chat to remember everything. It stores state on disk,
+records hashes and line ranges, tracks omitted files, refuses silent truncation,
+and rejects stale packets.
 
 See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).
 
 ## Intended Local Stack
 
-UMSMFBURASBOFE was built around the local agent stack you described:
+This was built around the local agent stack you actually wanted:
 
 - GBrain for durable memory.
 - GitNexus for code graph and impact context.
@@ -146,12 +179,14 @@ UMSMFBURASBOFE was built around the local agent stack you described:
 - AUTOREVIEW and Clawpatch for review and repair lanes.
 - Any AI IDE or CLI agent that can read files and run commands in the repo.
 
-Those tools do not need separate UMSMFBURASBOFE versions. They use the same
+Those tools do not need separate versions of this package. They use the same
 installed command and the same repo-local skill.
 
 ## Current maturity
 
-This is an **alpha source implementation**. The deterministic mock workflow and package tests are included. A real build requires a configured agent adapter, a Git-backed target repository, and valid verification commands for that repository. Review the limitations before using it on sensitive or production-critical software.
+This is **alpha software**. The mock workflow and package tests are included.
+Real use still depends on your target repo, your selected AI tool, and your real
+checks. Do the first live run on a clone, branch, or disposable copy.
 
 ## Documentation
 

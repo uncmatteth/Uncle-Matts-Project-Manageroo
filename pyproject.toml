@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
 version = "2026.6.20.1"
-description = "A local command-line tool that helps AI coding agents build or repair Git repos."
+description = "A local CLI that keeps AI coding agents on task while they build or repair Git repos."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

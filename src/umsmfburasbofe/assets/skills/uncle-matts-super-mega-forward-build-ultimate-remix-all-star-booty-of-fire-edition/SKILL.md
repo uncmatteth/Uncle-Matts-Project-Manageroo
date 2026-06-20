@@ -1,11 +1,12 @@
 ---
 name: uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition
-description: Run a product request through the repository's UMSMFBURASBOFE controller: durable intake, reuse-first research, bounded system mapping, plan review, locked task scopes, deterministic verification, isolated evidence review, repair, and product-level delivery. Use for any non-trivial build, repair, refactor, or rescue request.
+description: Use UMSMFBURASBOFE when an AI agent needs to build, repair, refactor, or rescue a repo without drifting away from the brief, files, checks, review, and final proof.
 ---
 
 # Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition
 
-The local `umsmfburasbofe` controller is authoritative. This skill explains how an agent participates in that controller; it does not replace the controller.
+The local `umsmfburasbofe` command owns the run. This skill tells an AI agent how
+to participate without freelancing.
 
 ## Mandatory operating model
 
@@ -30,4 +31,5 @@ Planning, implementation, verification, and review run in fresh processes. A rev
 
 ## Completion
 
-A successful agent response is only an input to UMSMFBURASBOFE. Completion requires controller-owned scope checks, deterministic gates, independent review, product demonstration, and a final evidence report.
+A successful agent response is only one piece of the run. Completion requires
+scope checks, real gates, review, product proof, and the final report.

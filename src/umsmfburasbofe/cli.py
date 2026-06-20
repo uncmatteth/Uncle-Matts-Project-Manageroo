@@ -14,6 +14,7 @@ from .ideas import IdeaInbox
 from .orchestrator import Orchestrator
 from .project import git_root, initialize_project
 from .selftest import run_self_test
+from .token_modes import install_token_skills, read_token_mode, set_token_mode
 from .util import read_json
 
 
@@ -69,6 +70,13 @@ def parser() -> argparse.ArgumentParser:
     music = sub.add_parser("music", help=f"Play the original Atari/NES-style {FULL_ACRONYM} theme.")
     music.add_argument("--cue", choices=["install", "build", "success"], default="install")
     music.add_argument("--variant", type=int, default=69)
+
+    token = sub.add_parser("token-mode", help="Choose token-reduction mode for agent prose.")
+    token_sub = token.add_subparsers(dest="token_command", required=True)
+    token_set = token_sub.add_parser("set", help="Switch token-reduction mode.")
+    token_set.add_argument("mode", choices=["off", "caveman", "curse"])
+    token_sub.add_parser("status", help="Show selected token-reduction mode.")
+    token_sub.add_parser("install-skills", help="Install bundled caveman token skills.")
 
     sub.add_parser("self-test", help="Run a deterministic mock end-to-end build.")
 
@@ -136,6 +144,16 @@ def main(argv: list[str] | None = None) -> int:
             if not played:
                 print("No supported host audio player was detected; music was skipped.")
                 return 2
+            return 0
+
+        if args.command == "token-mode":
+            if args.token_command == "set":
+                print(json.dumps(set_token_mode(args.mode), indent=2))
+                return 0
+            if args.token_command == "install-skills":
+                print(json.dumps({"installed_skills": install_token_skills()}, indent=2))
+                return 0
+            print(json.dumps(read_token_mode(), indent=2))
             return 0
 
         if args.command == "self-test":

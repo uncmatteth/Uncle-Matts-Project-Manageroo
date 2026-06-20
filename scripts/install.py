@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from umsmfburasbofe.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from umsmfburasbofe.chiptune import ThemePlayback, play_once  # noqa: E402
+from umsmfburasbofe.token_modes import set_token_mode  # noqa: E402
 
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 
@@ -189,6 +190,30 @@ def install_codex_latest(downloads: list[dict]) -> dict:
     return {"path": shutil.which("codex"), "version": after}
 
 
+def choose_token_mode(selection: str) -> str:
+    if selection != "ask":
+        return selection
+    if not sys.stdin.isatty():
+        return "off"
+    print("Token reduction mode:")
+    print("  1) off")
+    print("  2) caveman - terse, clean, fewer tokens")
+    print("  3) curse - Uncle Matt's Caveman Curse, terse plus profanity")
+    answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
+    return {
+        "": "off",
+        "1": "off",
+        "off": "off",
+        "none": "off",
+        "2": "caveman",
+        "caveman": "caveman",
+        "3": "curse",
+        "curse": "curse",
+        "uncle": "curse",
+        "uncle-matts-caveman-curse": "curse",
+    }.get(answer, "off")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"Install {FULL_NAME}")
     parser.add_argument(
@@ -205,6 +230,7 @@ def main() -> int:
     parser.add_argument("--skip-self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--install-codex", action="store_true")
     parser.add_argument("--skip-codex", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
     args = parser.parse_args()
@@ -220,6 +246,10 @@ def main() -> int:
     downloads: list[dict] = []
     external_tools: list[dict] = []
     with ThemePlayback(cue="install", enabled=not args.no_music, variant=69):
+        token_mode = choose_token_mode(args.token_mode)
+        token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
+        status_line("TOKEN MODE", token_mode_record["label"], ok=True)
+
         source_env = {"PYTHONPATH": str(ROOT / "src")}
         if not args.skip_tests:
             status_line("VERIFY", "compiling source")
@@ -280,6 +310,7 @@ def main() -> int:
             "launcher": str(launcher),
             "umsmfburasbofe_version_output": version.stdout.strip(),
             "self_test_output": self_test_output,
+            "token_mode": token_mode_record,
             "external_tools": external_tools,
             "network_downloads": downloads,
             "dependency_policy": (

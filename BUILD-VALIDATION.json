@@ -22,7 +22,7 @@
         "-v"
       ],
       "exit_code": 0,
-      "output": "test_plain_banner_contains_complete_brand (test_branding.BrandingTests.test_plain_banner_contains_complete_brand) ... ok\ntest_generates_valid_original_wav (test_chiptune.ChiptuneTests.test_generates_valid_original_wav) ... ok\ntest_note_frequency (test_chiptune.ChiptuneTests.test_note_frequency) ... ok\ntest_instructions_alone_cannot_overflow (test_context.ContextTests.test_instructions_alone_cannot_overflow) ... ok\ntest_manifest_contains_hashes_and_lines (test_context.ContextTests.test_manifest_contains_hashes_and_lines) ... ok\ntest_optional_context_records_omission (test_context.ContextTests.test_optional_context_records_omission) ... ok\ntest_partition_is_stable (test_context.ContextTests.test_partition_is_stable) ... ok\ntest_required_context_never_silently_truncates (test_context.ContextTests.test_required_context_never_silently_truncates) ... ok\ntest_stale_packet_is_rejected (test_context.ContextTests.test_stale_packet_is_rejected) ... ok\ntest_multiple_lockfiles_block (test_detector.DetectorTests.test_multiple_lockfiles_block) ... ok\ntest_node_scripts (test_detector.DetectorTests.test_node_scripts) ... ok\ntest_capture_and_attach (test_ideas.IdeaTests.test_capture_and_attach) ... ok\ntest_command_allowlist (test_policy.PolicyTests.test_command_allowlist) ... ok\ntest_scope_accepts_allowed (test_policy.PolicyTests.test_scope_accepts_allowed) ... ok\ntest_scope_blocks_controller_files (test_policy.PolicyTests.test_scope_blocks_controller_files) ... ok\ntest_scope_blocks_outside (test_policy.PolicyTests.test_scope_blocks_outside) ... ok\ntest_initialization_is_editor_independent (test_project.ProjectInitializationTests.test_initialization_is_editor_independent) ... ok\ntest_bad_quote_is_rejected (test_review.ReviewTests.test_bad_quote_is_rejected) ... ok\ntest_valid_finding (test_review.ReviewTests.test_valid_finding) ... ok\ntest_extracts_fenced_json (test_schema.SchemaTests.test_extracts_fenced_json) ... ok\ntest_nested_type (test_schema.SchemaTests.test_nested_type) ... ok\ntest_required_property (test_schema.SchemaTests.test_required_property) ... ok\ntest_mock_one_shot (test_selftest.EndToEndTests.test_mock_one_shot) ... ok\ntest_skip_is_rejected (test_state.StateTests.test_skip_is_rejected) ... ok\ntest_valid_path_and_persistence (test_state.StateTests.test_valid_path_and_persistence) ... ok\ntest_mirror_and_patch (test_workspace.WorkspaceTests.test_mirror_and_patch) ... ok\n\n----------------------------------------------------------------------\nRan 26 tests in 5.138s\n\nOK\n"
+      "output": "test_plain_banner_contains_complete_brand (test_branding.BrandingTests.test_plain_banner_contains_complete_brand) ... ok\ntest_generates_valid_original_wav (test_chiptune.ChiptuneTests.test_generates_valid_original_wav) ... ok\ntest_note_frequency (test_chiptune.ChiptuneTests.test_note_frequency) ... ok\ntest_instructions_alone_cannot_overflow (test_context.ContextTests.test_instructions_alone_cannot_overflow) ... ok\ntest_manifest_contains_hashes_and_lines (test_context.ContextTests.test_manifest_contains_hashes_and_lines) ... ok\ntest_optional_context_records_omission (test_context.ContextTests.test_optional_context_records_omission) ... ok\ntest_partition_is_stable (test_context.ContextTests.test_partition_is_stable) ... ok\ntest_required_context_never_silently_truncates (test_context.ContextTests.test_required_context_never_silently_truncates) ... ok\ntest_stale_packet_is_rejected (test_context.ContextTests.test_stale_packet_is_rejected) ... ok\ntest_multiple_lockfiles_block (test_detector.DetectorTests.test_multiple_lockfiles_block) ... ok\ntest_node_scripts (test_detector.DetectorTests.test_node_scripts) ... ok\ntest_capture_and_attach (test_ideas.IdeaTests.test_capture_and_attach) ... ok\ntest_command_allowlist (test_policy.PolicyTests.test_command_allowlist) ... ok\ntest_scope_accepts_allowed (test_policy.PolicyTests.test_scope_accepts_allowed) ... ok\ntest_scope_blocks_controller_files (test_policy.PolicyTests.test_scope_blocks_controller_files) ... ok\ntest_scope_blocks_outside (test_policy.PolicyTests.test_scope_blocks_outside) ... ok\ntest_initialization_is_editor_independent (test_project.ProjectInitializationTests.test_initialization_is_editor_independent) ... ok\ntest_bad_quote_is_rejected (test_review.ReviewTests.test_bad_quote_is_rejected) ... ok\ntest_valid_finding (test_review.ReviewTests.test_valid_finding) ... ok\ntest_extracts_fenced_json (test_schema.SchemaTests.test_extracts_fenced_json) ... ok\ntest_nested_type (test_schema.SchemaTests.test_nested_type) ... ok\ntest_required_property (test_schema.SchemaTests.test_required_property) ... ok\ntest_mock_one_shot (test_selftest.EndToEndTests.test_mock_one_shot) ... ok\ntest_skip_is_rejected (test_state.StateTests.test_skip_is_rejected) ... ok\ntest_valid_path_and_persistence (test_state.StateTests.test_valid_path_and_persistence) ... ok\ntest_installs_bundled_caveman_skills (test_token_modes.TokenModeTests.test_installs_bundled_caveman_skills) ... ok\ntest_set_and_read_token_mode (test_token_modes.TokenModeTests.test_set_and_read_token_mode) ... ok\ntest_mirror_and_patch (test_workspace.WorkspaceTests.test_mirror_and_patch) ... ok\n\n----------------------------------------------------------------------\nRan 28 tests in 7.809s\n\nOK\n"
     },
     {
       "argv": [
@@ -37,7 +37,7 @@
   ],
   "ok": true,
   "python_process_safety_violations": [],
-  "source_tree_sha256": "71cbd431c28ef04ba8b6404ae0852bd2b9fb2d5817f03e459d1c206589ff162e",
+  "source_tree_sha256": "a5a96986bb92ff1da4c35f6658a8604d5832cc2d852c7ede20af9f916c382648",
   "structural_checks": [
     {
       "name": "required:install.sh",
@@ -73,6 +73,18 @@
     },
     {
       "name": "required:src/umsmfburasbofe/chiptune.py",
+      "ok": true
+    },
+    {
+      "name": "required:src/umsmfburasbofe/token_modes.py",
+      "ok": true
+    },
+    {
+      "name": "required:src/umsmfburasbofe/assets/skills/caveman/SKILL.md",
+      "ok": true
+    },
+    {
+      "name": "required:src/umsmfburasbofe/assets/skills/uncle-matts-caveman-curse/SKILL.md",
       "ok": true
     },
     {

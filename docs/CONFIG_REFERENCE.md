@@ -24,6 +24,20 @@ Agents are forbidden from editing it during a run.
 
 `mock` exists only for deterministic harness validation.
 
+## Token Mode
+
+Global token-reduction mode is managed outside the project config:
+
+```bash
+umsmfburasbofe token-mode status
+umsmfburasbofe token-mode set off
+umsmfburasbofe token-mode set caveman
+umsmfburasbofe token-mode set curse
+```
+
+The setting lives under the current user's config directory and is recorded in
+`install-lock.json` during installation.
+
 ## `[context]`
 
 - `max_input_tokens`: total assumed provider input window available to a packet.

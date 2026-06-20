@@ -28,6 +28,7 @@ from .report import write_report
 from .review import run_isolated_review
 from .runner import CommandRunner
 from .state import Phase, RunState
+from .token_modes import token_mode_prompt
 from .util import atomic_write_json, atomic_write_text, new_run_id, read_json, safe_repo_relative, utc_now
 from .workspace import WorkspaceMirror
 
@@ -125,6 +126,9 @@ class Orchestrator:
         repo = cwd or self.workspace
         if repo is None:
             raise RuntimeError("Workspace has not been created.")
+        token_prompt = token_mode_prompt()
+        if token_prompt:
+            instructions = token_prompt + "\n\n" + instructions
         compiler = self._compiler(repo=repo, packet_root=packet_root)
         packet = compiler.compile(
             name,

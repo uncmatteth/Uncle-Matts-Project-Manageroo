@@ -2,18 +2,18 @@
 
 ## The product
 
-**Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition** is a local command-line tool for using AI coding agents on a Git repo.
+**Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition** is a local CLI for making AI coding agents follow the job.
 
-Short command: `umsmfburasbofe`.
+Run it with `umsmfburasbofe`.
 
-Full funny acronym: `UMSMFBURASBOFE`.
+The acronym is `UMSMFBURASBOFE` because this is incredibly super serious.
 
 ```text
 You write what should be built or fixed.
-UMSMFBURASBOFE reads the repo and makes smaller jobs.
-An AI IDE, CLI agent, or configured runtime does the code work.
-UMSMFBURASBOFE runs checks and keeps evidence.
-A fresh review pass looks for problems before the run is called done.
+The tool reads the repo and breaks the job up.
+Your AI agent does the code work.
+The tool runs checks and keeps the receipts.
+Bad work goes back through review and repair.
 ```
 
 ## Install
@@ -28,7 +28,18 @@ Then:
 
 ```bash
 umsmfburasbofe self-test
+umsmfburasbofe token-mode status
 ```
+
+Optional token modes:
+
+```bash
+umsmfburasbofe token-mode set caveman
+umsmfburasbofe token-mode set curse
+umsmfburasbofe token-mode set off
+```
+
+`caveman` is terse and clean. `curse` is terse and profane. Both are included.
 
 ## Initialize any product repository
 
@@ -38,9 +49,11 @@ umsmfburasbofe init --agent codex
 umsmfburasbofe doctor
 ```
 
-Use `--agent codex` for Codex. Use `--agent generic` for another CLI and configure `[agent].argv_template`.
+Use `--agent codex` when this tool should launch Codex. Use `--agent generic`
+for another CLI and configure `[agent].argv_template`.
 
-If an AI IDE is driving the work itself, it does not need a special adapter. It can use the installed `umsmfburasbofe` command and the repo-local skill.
+If an AI IDE is already driving the work, it does not need a special adapter. It
+can use the installed `umsmfburasbofe` command and the repo-local skill.
 
 Do not run a product build until `umsmfburasbofe doctor` reports `READY`.
 

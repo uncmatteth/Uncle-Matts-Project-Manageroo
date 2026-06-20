@@ -87,6 +87,9 @@ def structural_checks() -> list[dict]:
         "docs/TERMINAL_EXPERIENCE.md",
         "src/umsmfburasbofe/branding.py",
         "src/umsmfburasbofe/chiptune.py",
+        "src/umsmfburasbofe/token_modes.py",
+        "src/umsmfburasbofe/assets/skills/caveman/SKILL.md",
+        "src/umsmfburasbofe/assets/skills/uncle-matts-caveman-curse/SKILL.md",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
     readme = (ROOT / "README.md").read_text(encoding="utf-8")

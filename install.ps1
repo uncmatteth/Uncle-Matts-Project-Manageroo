@@ -4,7 +4,9 @@ param(
     [switch]$InstallCodex,
     [switch]$SkipTests,
     [switch]$NoMusic,
-    [switch]$NoAnimation
+    [switch]$NoAnimation,
+    [ValidateSet("ask", "off", "caveman", "curse")]
+    [string]$TokenMode = "ask"
 )
 $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
@@ -58,6 +60,7 @@ $InstallArgs = @((Join-Path $Root "scripts\install.py"))
 if ($SkipCodex) { $InstallArgs += "--skip-codex" }
 if ($InstallCodex) { $InstallArgs += "--install-codex" }
 if ($SkipTests) { $InstallArgs += "--skip-tests" }
+if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
 if ($NoMusic) { $InstallArgs += "--no-music" }
 if ($NoAnimation) { $InstallArgs += "--no-animation" }
 

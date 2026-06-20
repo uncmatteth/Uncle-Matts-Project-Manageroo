@@ -4,11 +4,11 @@
 
 > **Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition**
 
-Short command:
+Run it:
 
 > **umsmfburasbofe**
 
-Full funny acronym:
+Full incredibly super serious acronym:
 
 > **UMSMFBURASBOFE**
 
