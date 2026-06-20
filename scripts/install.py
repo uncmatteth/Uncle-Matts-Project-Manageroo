@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from umsmfburasbofe.branding import BRAND, FULL_NAME, print_banner, status_line  # noqa: E402
+from umsmfburasbofe.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from umsmfburasbofe.chiptune import ThemePlayback, play_once  # noqa: E402
 
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
@@ -210,7 +210,7 @@ def main() -> int:
     args = parser.parse_args()
 
     print_banner(animation=not args.no_animation)
-    print(f"Installing {FULL_NAME}\nby {BRAND}\n")
+    print(f"Installing {FULL_NAME}\n")
 
     if sys.version_info < (3, 11):
         raise SystemExit("Python 3.11 or newer is required.")
@@ -270,7 +270,6 @@ def main() -> int:
 
         lock = {
             "product": FULL_NAME,
-            "brand": BRAND,
             "installed_at": datetime.now(timezone.utc).isoformat(),
             "source_root": str(ROOT),
             "source_tree_sha256": tree_hash(ROOT),

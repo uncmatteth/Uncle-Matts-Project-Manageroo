@@ -2,18 +2,18 @@
 
 ## The product
 
-**Uncle Matt's Super Mega Forward Build: Ultimate Remix All-Star Booty of Fire Edition** is the program manager around coding agents.
+**Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition** is a local command-line tool for using AI coding agents on a Git repo.
 
 Short command: `umsmfburasbofe`.
 
 Full funny acronym: `UMSMFBURASBOFE`.
 
 ```text
-You define product behavior.
-UMSMFBURASBOFE compiles and enforces delivery.
-An AI IDE, CLI agent, or configured runtime performs bounded agent roles.
-Git and deterministic checks provide ground truth.
-A fresh independent role reviews the result.
+You write what should be built or fixed.
+UMSMFBURASBOFE reads the repo and makes smaller jobs.
+An AI IDE, CLI agent, or configured runtime does the code work.
+UMSMFBURASBOFE runs checks and keeps evidence.
+A fresh review pass looks for problems before the run is called done.
 ```
 
 ## Install

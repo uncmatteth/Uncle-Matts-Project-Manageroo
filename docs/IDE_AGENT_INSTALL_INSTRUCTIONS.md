@@ -4,7 +4,7 @@ Give the extracted folder and the target product repository to the IDE agent wit
 
 ---
 
-You are installing **Uncle Matt's Super Mega Forward Build: Ultimate Remix All-Star Booty of Fire Edition**, by **bttlabs.fun**.
+You are installing **Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition**.
 
 This is an execution task, not a redesign task. Do not rename, rewrite, replace, or re-architect the package.
 

@@ -2,7 +2,7 @@
 
 ## Name
 
-> **Uncle Matt's Super Mega Forward Build: Ultimate Remix All-Star Booty of Fire Edition**
+> **Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition**
 
 Short command:
 
@@ -12,13 +12,9 @@ Full funny acronym:
 
 > **UMSMFBURASBOFE**
 
-Brand:
-
-> **bttlabs.fun**
-
 ## Animation
 
-The installer and `umsmfburasbofe banner` use hand-authored ANSI artwork. No font package or terminal graphics dependency is installed.
+The installer and `umsmfburasbofe banner` use hand-authored UMSMFBURASBOFE ANSI artwork. No font package or terminal graphics dependency is installed.
 
 Animation disables automatically when output is not a TTY, `CI` is set, `TERM=dumb`, `NO_COLOR` is set, or `UMSMFBURASBOFE_ANIMATION=0` is set.
 

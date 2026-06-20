@@ -1,4 +1,4 @@
-# Uncle Matt's Super Mega Forward Build: Ultimate Remix All-Star Booty of Fire Edition repository
+# Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition repository
 
 This repository implements the UMSMFBURASBOFE controller.
 

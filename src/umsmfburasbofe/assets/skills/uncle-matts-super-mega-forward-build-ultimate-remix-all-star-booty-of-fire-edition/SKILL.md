@@ -3,7 +3,7 @@ name: uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire
 description: Run a product request through the repository's UMSMFBURASBOFE controller: durable intake, reuse-first research, bounded system mapping, plan review, locked task scopes, deterministic verification, isolated evidence review, repair, and product-level delivery. Use for any non-trivial build, repair, refactor, or rescue request.
 ---
 
-# Uncle Matt's Super Mega Forward Build: Ultimate Remix All-Star Booty of Fire Edition
+# Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition
 
 The local `umsmfburasbofe` controller is authoritative. This skill explains how an agent participates in that controller; it does not replace the controller.
 

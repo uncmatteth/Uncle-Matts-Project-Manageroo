@@ -96,7 +96,7 @@ def structural_checks() -> list[dict]:
                 "name": "complete-edition-name",
                 "ok": "Ultimate Remix All-Star Booty of Fire Edition" in readme,
             },
-            {"name": "bttlabs-brand", "ok": "bttlabs.fun" in readme},
+            {"name": "no-old-brand", "ok": "".join(("bt", "tlabs.fun")) not in readme},
             {"name": "no-editor-specific-root", "ok": not (ROOT / ".vscode").exists()},
             {
                 "name": "no-bundled-audio-assets",

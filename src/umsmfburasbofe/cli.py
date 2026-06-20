@@ -63,7 +63,7 @@ def parser() -> argparse.ArgumentParser:
     idea_list.add_argument("--status")
     idea_list.add_argument("--repo", default=".")
 
-    banner = sub.add_parser("banner", help="Show the animated bttlabs.fun terminal banner.")
+    banner = sub.add_parser("banner", help="Show the animated UMSMFBURASBOFE terminal banner.")
     banner.add_argument("--no-animation", action="store_true")
 
     music = sub.add_parser("music", help=f"Play the original Atari/NES-style {FULL_ACRONYM} theme.")

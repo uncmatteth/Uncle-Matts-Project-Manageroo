@@ -8,11 +8,10 @@ from typing import TextIO
 
 PRODUCT_NAME = "Uncle Matt's Super Mega Forward Build"
 EDITION_NAME = "Ultimate Remix All-Star Booty of Fire Edition"
-FULL_NAME = f"{PRODUCT_NAME}: {EDITION_NAME}"
+FULL_NAME = f"{PRODUCT_NAME} {EDITION_NAME}"
 FULL_ACRONYM = "UMSMFBURASBOFE"
 PUBLIC_COMMAND = "umsmfburasbofe"
 PROJECT_DIR = ".umsmfburasbofe"
-BRAND = "bttlabs.fun"
 TAGLINE = "ONE REQUEST IN. WORKING PRODUCT OUT."
 
 _RESET = "\033[0m"
@@ -28,23 +27,10 @@ _COLORS = (
 )
 
 _UMSMFBURASBOFE_ART = (
-    "╔══════════════════════════════════════════════════════════════╗",
-    "║                        UMSMFBURASBOFE                       ║",
-    "║          Uncle Matt's Super Mega Forward Build              ║",
-    "║       Ultimate Remix All-Star Booty of Fire Edition         ║",
-    "╚══════════════════════════════════════════════════════════════╝",
-)
-
-_BTT_ART = (
-    "┌──────────────────────────────────────────────────────────────┐",
-    "│  ██████╗ ████████╗████████╗██╗      █████╗ ██████╗ ███████╗ │",
-    "│  ██╔══██╗╚══██╔══╝╚══██╔══╝██║     ██╔══██╗██╔══██╗██╔════╝ │",
-    "│  ██████╔╝   ██║      ██║   ██║     ███████║██████╔╝███████╗ │",
-    "│  ██╔══██╗   ██║      ██║   ██║     ██╔══██║██╔══██╗╚════██║ │",
-    "│  ██████╔╝   ██║      ██║   ███████╗██║  ██║██████╔╝███████║ │",
-    "│  ╚═════╝    ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝ │",
-    "│                         bttlabs.fun                          │",
-    "└──────────────────────────────────────────────────────────────┘",
+    "╔════════════════════════════════════════════════════════════════════════════════════════════════╗",
+    "║                                      UMSMFBURASBOFE                                          ║",
+    "║ Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition          ║",
+    "╚════════════════════════════════════════════════════════════════════════════════════════════════╝",
 )
 
 
@@ -87,22 +73,18 @@ def print_banner(
     features = terminal_features(stream, animation=animation)
     if compact:
         lines = (
-            f"⚡ {PRODUCT_NAME}",
-            f"   {EDITION_NAME}",
+            f"⚡ {FULL_NAME}",
             f"   command: {PUBLIC_COMMAND} · acronym: {FULL_ACRONYM}",
-            f"   {BRAND} · {TAGLINE}",
+            f"   {TAGLINE}",
         )
     else:
         lines = (
             "",
             *_UMSMFBURASBOFE_ART,
             "",
-            f"  {PRODUCT_NAME.upper()}",
-            f"  {EDITION_NAME.upper()}",
+            f"  {FULL_NAME.upper()}",
             f"  COMMAND: {PUBLIC_COMMAND}   ACRONYM: {FULL_ACRONYM}",
             f"  {TAGLINE}",
-            "",
-            *_BTT_ART,
             "",
         )
     for index, line in enumerate(lines):
