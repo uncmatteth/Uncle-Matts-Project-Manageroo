@@ -1,0 +1,116 @@
+{
+  "properties": {
+    "demonstration": {
+      "properties": {
+        "gate_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "product_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "required",
+        "gate_ids",
+        "product_evidence"
+      ],
+      "type": "object"
+    },
+    "global_invariants": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "tasks": {
+      "items": {
+        "properties": {
+          "acceptance": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "allowed_paths": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "context_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dependencies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "gate_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "risk": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "goal",
+          "dependencies",
+          "allowed_paths",
+          "context_paths",
+          "acceptance",
+          "gate_ids",
+          "risk"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "tasks",
+    "demonstration",
+    "global_invariants"
+  ],
+  "type": "object"
+}

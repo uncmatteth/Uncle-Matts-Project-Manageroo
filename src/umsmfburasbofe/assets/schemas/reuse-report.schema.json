@@ -1,0 +1,62 @@
+{
+  "properties": {
+    "decisions": {
+      "items": {
+        "properties": {
+          "candidate": {
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "reuse-internal",
+              "reuse-external",
+              "platform-native",
+              "build-custom",
+              "defer"
+            ],
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "license": {
+            "type": "string"
+          },
+          "need": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "risk": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "need",
+          "decision",
+          "candidate",
+          "license",
+          "evidence",
+          "rationale",
+          "risk"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "decisions"
+  ],
+  "type": "object"
+}

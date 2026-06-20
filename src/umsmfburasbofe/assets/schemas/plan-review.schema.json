@@ -1,0 +1,52 @@
+{
+  "properties": {
+    "findings": {
+      "items": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "required_change": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "severity",
+          "problem",
+          "required_change"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "approved",
+        "changes-required"
+      ],
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "summary",
+    "findings"
+  ],
+  "type": "object"
+}

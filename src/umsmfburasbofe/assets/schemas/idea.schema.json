@@ -1,0 +1,27 @@
+{
+  "properties": {
+    "category": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "text",
+    "category",
+    "status",
+    "created_at"
+  ],
+  "type": "object"
+}

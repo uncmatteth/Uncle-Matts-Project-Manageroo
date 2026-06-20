@@ -1,0 +1,94 @@
+# Local setup
+
+This is the exact path from downloaded files to a usable local UMSMFBURASBOFE installation.
+
+## 1. Extract the end-user release archive
+
+The archive contains one folder named `Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition`.
+
+## 2. Run the installer
+
+```bash
+cd /path/to/Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition
+./install.sh
+```
+
+PowerShell users can run `.\install.ps1`; it starts the same installer.
+
+When the shell cannot find `umsmfburasbofe` immediately afterward:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Persist that line in the shell profile used on the machine, such as `~/.zshrc` or `~/.bashrc`.
+
+## 3. Confirm the core installation
+
+```bash
+umsmfburasbofe --version
+umsmfburasbofe self-test
+```
+
+The self-test must return `"ok": true` and `"status": "COMPLETE"`.
+
+## 4. Authenticate Codex
+
+Run Codex directly and complete its normal authentication flow:
+
+```bash
+codex
+```
+
+Exit after authentication succeeds.
+
+## 5. Initialize an existing product repository
+
+The target must already be a Git repository.
+
+```bash
+cd /absolute/path/to/product
+umsmfburasbofe init --agent codex
+umsmfburasbofe doctor --json
+```
+
+Do not continue until `doctor.ok` is `true`. If no verification gates were detected, add explicit `[[verification.gates]]` entries to `.umsmfburasbofe/config.toml` using the project's real test, lint, type-check, or build commands.
+
+## 6. Write the product request
+
+Edit:
+
+```text
+.umsmfburasbofe/PRODUCT-BRIEF.md
+```
+
+Describe the desired user behavior, constraints, non-goals, unacceptable outcomes, and required demonstration. You do not need to specify functions or implementation patterns.
+
+## 7. Run UMSMFBURASBOFE
+
+New product or feature:
+
+```bash
+umsmfburasbofe run --repo . --mode build --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+```
+
+Repair existing code:
+
+```bash
+umsmfburasbofe run --repo . --mode repair --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+```
+
+## 8. Read the result
+
+The command returns a run ID. Use:
+
+```bash
+umsmfburasbofe status RUN_ID --repo .
+umsmfburasbofe report RUN_ID --repo .
+```
+
+Run artifacts and evidence are stored under `.umsmfburasbofe/runs/RUN_ID/`.
+
+## Important boundary
+
+The included package was verified with its deterministic test and mock workflow. A live Codex run must still be validated on the actual computer and target repository. Do not use the first live run on an irreplaceable production worktree; use a backup, clone, branch, or disposable copy.

@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Iterable
+
+from .errors import ContextBudgetError, SafetyError
+from .util import atomic_write_json, atomic_write_text, safe_repo_relative, sha256_file, sha256_text
+
+
+@dataclass(frozen=True)
+class ContextRequest:
+    path: str
+    reason: str
+    required: bool = False
+    priority: int = 50
+    start_line: int | None = None
+    end_line: int | None = None
+
+
+@dataclass(frozen=True)
+class ContextEntry:
+    path: str
+    reason: str
+    required: bool
+    priority: int
+    start_line: int
+    end_line: int
+    source_sha256: str
+    excerpt_sha256: str
+    bytes: int
+    estimated_tokens: int
+
+
+class ContextCompiler:
+    """Builds auditable, bounded context packets. It never silently truncates required input."""
+
+    def __init__(
+        self,
+        repo: Path,
+        packet_root: Path,
+        *,
+        max_input_tokens: int,
+        reserve_output_tokens: int,
+        chars_per_token: float,
+        max_single_file_tokens: int,
+    ):
+        self.repo = repo.resolve()
+        self.packet_root = packet_root
+        self.max_input_tokens = max_input_tokens
+        self.reserve_output_tokens = reserve_output_tokens
+        self.chars_per_token = chars_per_token
+        self.max_single_file_tokens = max_single_file_tokens
+
+    @property
+    def usable_tokens(self) -> int:
+        usable = self.max_input_tokens - self.reserve_output_tokens
+        if usable <= 0:
+            raise ContextBudgetError("Context reserve leaves no usable input budget.")
+        return usable
+
+    def _excerpt(self, request: ContextRequest) -> tuple[str, int, int, str]:
+        relative = safe_repo_relative(request.path)
+        path = (self.repo / relative).resolve()
+        try:
+            path.relative_to(self.repo)
+        except ValueError as exc:
+            raise SafetyError(f"Context path escapes repository: {relative}") from exc
+        if not path.is_file():
+            raise ContextBudgetError(f"Required context file is missing: {relative}")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        start = request.start_line or 1
+        end = request.end_line or len(lines)
+        if start < 1 or end < start or end > max(1, len(lines)):
+            raise ContextBudgetError(f"Invalid line range for {relative}: {start}-{end}")
+        excerpt = "\n".join(lines[start - 1 : end])
+        if text.endswith("\n") and end == len(lines):
+            excerpt += "\n"
+        return excerpt, start, end, sha256_file(path)
+
+    def compile(
+        self,
+        packet_name: str,
+        *,
+        instructions: str,
+        requests: Iterable[ContextRequest],
+        metadata: dict | None = None,
+    ) -> Path:
+        packet = self.packet_root / packet_name
+        packet.mkdir(parents=True, exist_ok=False)
+
+        prepared: list[tuple[ContextRequest, str, int, int, str, int]] = []
+        omitted: list[dict] = []
+        for request in requests:
+            try:
+                excerpt, start, end, source_hash = self._excerpt(request)
+            except ContextBudgetError:
+                if request.required:
+                    raise
+                omitted.append({"path": request.path, "reason": "missing_or_invalid_optional"})
+                continue
+            tokens = max(1, int(len(excerpt) / self.chars_per_token))
+            if tokens > self.max_single_file_tokens:
+                if request.required:
+                    raise ContextBudgetError(
+                        f"Required file slice {request.path} is {tokens} estimated tokens; "
+                        "the plan must supply a narrower line range or decompose the task."
+                    )
+                omitted.append({"path": request.path, "reason": "optional_slice_too_large", "estimated_tokens": tokens})
+                continue
+            prepared.append((request, excerpt, start, end, source_hash, tokens))
+
+        prepared.sort(key=lambda item: (not item[0].required, -item[0].priority, item[0].path))
+        used = max(1, int(len(instructions) / self.chars_per_token))
+        if used > self.usable_tokens:
+            raise ContextBudgetError(
+                "Role instructions alone exceed the usable context budget. "
+                "The preceding artifact must be reduced or the task decomposed."
+            )
+        selected: list[tuple[ContextRequest, str, int, int, str, int]] = []
+        for item in prepared:
+            request, excerpt, start, end, source_hash, tokens = item
+            if used + tokens > self.usable_tokens:
+                if request.required:
+                    raise ContextBudgetError(
+                        f"Required context exceeds packet budget at {request.path}. "
+                        "The task must be split; silent truncation is forbidden."
+                    )
+                omitted.append({"path": request.path, "reason": "budget", "estimated_tokens": tokens})
+                continue
+            selected.append(item)
+            used += tokens
+
+        entries: list[ContextEntry] = []
+        sections = [instructions.rstrip(), "\n# Compiled context\n"]
+        for request, excerpt, start, end, source_hash, tokens in selected:
+            sections.append(
+                f"\n## FILE: {request.path} L{start}-L{end}\n"
+                f"Reason: {request.reason}\n"
+                f"Source SHA-256: {source_hash}\n\n"
+                f"```text\n{excerpt.rstrip()}\n```\n"
+            )
+            entries.append(
+                ContextEntry(
+                    path=request.path,
+                    reason=request.reason,
+                    required=request.required,
+                    priority=request.priority,
+                    start_line=start,
+                    end_line=end,
+                    source_sha256=source_hash,
+                    excerpt_sha256=sha256_text(excerpt),
+                    bytes=len(excerpt.encode("utf-8")),
+                    estimated_tokens=tokens,
+                )
+            )
+
+        prompt = "\n".join(sections).rstrip() + "\n"
+        atomic_write_text(packet / "prompt.md", prompt)
+        manifest = {
+            "packet": packet_name,
+            "usable_token_budget": self.usable_tokens,
+            "estimated_tokens": used,
+            "instructions_sha256": sha256_text(instructions),
+            "entries": [asdict(entry) for entry in entries],
+            "omitted": omitted,
+            "metadata": metadata or {},
+            "prompt_sha256": sha256_text(prompt),
+        }
+        atomic_write_json(packet / "manifest.json", manifest)
+        return packet
+
+    def validate_freshness(self, manifest: dict) -> None:
+        stale: list[str] = []
+        for entry in manifest.get("entries", []):
+            path = self.repo / entry["path"]
+            if not path.exists() or sha256_file(path) != entry["source_sha256"]:
+                stale.append(entry["path"])
+        if stale:
+            raise SafetyError("Context packet is stale: " + ", ".join(stale))
+
+    @staticmethod
+    def partition_paths(
+        files: Iterable[dict],
+        *,
+        max_tokens: int,
+    ) -> list[list[dict]]:
+        chunks: list[list[dict]] = []
+        current: list[dict] = []
+        used = 0
+        for item in sorted(files, key=lambda row: row["path"]):
+            tokens = int(item.get("estimated_tokens", 1))
+            if current and used + tokens > max_tokens:
+                chunks.append(current)
+                current = []
+                used = 0
+            if tokens > max_tokens:
+                chunks.append([item])
+                continue
+            current.append(item)
+            used += tokens
+        if current:
+            chunks.append(current)
+        return chunks

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
+version = "2026.6.20.1"
+description = "A cross-platform coding-agent control plane: Ultimate Remix All-Star Booty of Fire Edition."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Uncle Matt"}]
+keywords = ["coding-agent", "codex", "orchestration", "software-delivery", "agent-harness"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Build Tools",
+]
+
+[project.scripts]
+umsmfburasbofe = "umsmfburasbofe.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+umsmfburasbofe = [
+  "assets/schemas/*.json",
+  "assets/prompts/*.md",
+  "assets/skills/*/SKILL.md",
+  "assets/templates/*",
+]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,47 @@
+{
+  "properties": {
+    "commands_run": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "files_changed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "risks": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "scope_expansion_requested": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "implemented",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "summary",
+    "files_changed",
+    "commands_run",
+    "risks",
+    "scope_expansion_requested"
+  ],
+  "type": "object"
+}

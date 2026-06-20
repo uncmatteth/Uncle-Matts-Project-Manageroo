@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acceptance_outcomes": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "blocking_decisions": {
+      "items": {
+        "properties": {
+          "category": {
+            "enum": [
+              "product",
+              "security",
+              "legal",
+              "cost",
+              "data",
+              "cosmetic",
+              "implementation"
+            ],
+            "type": "string"
+          },
+          "chosen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "type": "array"
+          },
+          "question": {
+            "type": "string"
+          },
+          "recommended": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reversible": {
+            "type": "boolean"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "question",
+          "why",
+          "options",
+          "recommended",
+          "reversible",
+          "category"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "capabilities": {
+      "items": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "constraints": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "goal": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "non_goals": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "personas": {
+      "items": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "need": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "need"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "product_name": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "user_journeys": {
+      "items": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "success": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "steps",
+          "success"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "product_name",
+    "goal",
+    "personas",
+    "capabilities",
+    "user_journeys",
+    "non_goals",
+    "constraints",
+    "acceptance_outcomes",
+    "assumptions",
+    "blocking_decisions"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,112 @@
+{
+  "properties": {
+    "chunk_id": {
+      "type": "string"
+    },
+    "data_flows": {
+      "items": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "interfaces": {
+      "items": {
+        "properties": {
+          "contract": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "from",
+          "to",
+          "contract"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "modules": {
+      "items": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "responsibility": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "paths",
+          "responsibility"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "risks": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "trust_boundaries": {
+      "items": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "chunk_id",
+    "modules",
+    "interfaces",
+    "data_flows",
+    "trust_boundaries",
+    "risks"
+  ],
+  "type": "object"
+}

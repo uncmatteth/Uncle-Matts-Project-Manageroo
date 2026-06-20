@@ -1,0 +1,66 @@
+# Context compiler
+
+## Problem
+
+A model context window is finite. Replaying an entire chat, repository, product notebook, and previous agent transcript causes omission, stale assumptions, lost-in-the-middle behavior, and expensive repetition.
+
+UMSMFBURASBOFE treats context as a compiled artifact.
+
+## Packet structure
+
+Every role receives a packet directory:
+
+```text
+packets/NNN-role/
+├── prompt.md
+└── manifest.json
+```
+
+The manifest records:
+
+- usable token budget;
+- reserved output budget;
+- estimated packet tokens;
+- instruction hash;
+- prompt hash;
+- each source path;
+- exact included line range;
+- source SHA-256;
+- excerpt SHA-256;
+- inclusion reason;
+- required/optional status;
+- every omitted optional source and reason.
+
+## Hard rules
+
+1. Required context is never silently truncated.
+2. A required file slice exceeding the single-file limit blocks the plan.
+3. A required packet exceeding the total budget blocks or forces decomposition.
+4. Optional context may be omitted only with an explicit manifest reason.
+5. A packet becomes stale when any included source hash changes.
+6. Fresh agent processes receive artifacts, not previous chat transcripts.
+7. Planning artifacts have explicit size limits and must be reduced before the next phase.
+8. Review is partitioned across changed-code chunks when the changed set exceeds the review packet budget.
+
+## Repository map/reduce
+
+For a large repository:
+
+```text
+Git-visible inventory
+→ deterministic token estimates
+→ bounded file chunks
+→ fresh repository-mapper role per chunk
+→ canonical map reducer
+→ locked system map
+```
+
+No mapper is expected to remember or inspect the entire repository.
+
+## Task context
+
+The plan compiler assigns `context_paths` and `allowed_paths` to each task. The context compiler builds a packet from those files. If a task cannot fit, the task is invalid and must be split before implementation.
+
+## External memory
+
+GBrain and Obsidian may contribute selected relevant notes. They do not dump all memory into the packet. Retrieved excerpts are treated as evidence with explicit provenance and can never override current repository facts or locked product decisions.

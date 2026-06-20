@@ -1,0 +1,80 @@
+{
+  "properties": {
+    "findings": {
+      "items": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "end_line": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "severity",
+          "confidence",
+          "category",
+          "path",
+          "start_line",
+          "end_line",
+          "quote",
+          "reason",
+          "action",
+          "blocking"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "approved",
+        "changes-required"
+      ],
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "summary",
+    "findings"
+  ],
+  "type": "object"
+}
