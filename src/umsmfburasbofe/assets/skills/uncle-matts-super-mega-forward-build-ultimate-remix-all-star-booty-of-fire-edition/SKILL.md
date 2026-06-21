@@ -25,6 +25,16 @@ to participate without freelancing.
 
 No role receives or relies on the full prior conversation. The packet is the complete authority for that role. Read its `manifest.json` when provenance or omissions matter.
 
+## Helper skill rule
+
+Use `$pimp-my-prompt` before a run when the human request is rough, overloaded,
+ambiguous, frustrated, or reusable and needs to become exact scope, acceptance
+criteria, fallback behavior, and stop rules.
+
+Use `$edit-skill` when a local skill becomes bloated, duplicated, stale, vague,
+or full of generic AI instructions. Tighten the skill without deleting hard
+rules that came from real failures.
+
 ## Role separation
 
 Planning, implementation, verification, and review run in fresh processes. A reviewer is not an implementer and must not mutate the reviewed repository.

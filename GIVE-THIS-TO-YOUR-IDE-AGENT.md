@@ -26,6 +26,7 @@ python3 scripts/verify_release.py
 export PATH="$HOME/.local/bin:$PATH"
 umsmfburasbofe --version
 umsmfburasbofe self-test
+umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status --json
 git -C "$TARGET_REPO" rev-parse --show-toplevel
@@ -48,6 +49,13 @@ If the operator requests token reduction, use one of:
 umsmfburasbofe token-mode set caveman
 umsmfburasbofe token-mode set curse
 ```
+
+If the operator's product request is rough, overloaded, or frustrated, use the
+bundled `$pimp-my-prompt` skill to turn it into exact scope, proof, and stop
+rules before filling the product brief.
+
+If a local skill is getting long, repetitive, or stale, use the bundled
+`$edit-skill` skill before adding more instructions.
 
 ## Stop conditions
 

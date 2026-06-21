@@ -15,6 +15,11 @@ Explain:
 
 You do not need to name functions, packages, databases, or design patterns.
 
+If the request is a mess, use the bundled `$pimp-my-prompt` skill first. It is
+for turning normal human input into exact scope, proof, fallback rules, and stop
+conditions. It should not make the request fancy; it should make the request
+runnable.
+
 ## A useful product brief
 
 Bad:
@@ -44,6 +49,13 @@ Pending ideas are attached to the next run and classified during product analysi
 - an architecture decision.
 
 The coding agent cannot decide to add the idea by itself.
+
+## Keeping skills from getting gross
+
+Use the bundled `$edit-skill` skill when a local skill starts getting long,
+duplicated, stale, or full of generic AI instructions. The point is to keep the
+skill short enough to trigger cleanly while preserving the hard rules that came
+from real failures.
 
 ## Reading the result
 

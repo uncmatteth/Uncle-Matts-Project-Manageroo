@@ -1,5 +1,9 @@
 # Product brief
 
+If this started as a messy or overloaded request, use `$pimp-my-prompt` to
+translate it into this brief. Do not make it fancy. Make scope, proof, fallback
+rules, and stop rules clear.
+
 ## What I want
 
 Describe the finished product or major change in normal language. Focus on what the user should be able to do and what a successful result looks like.
@@ -57,3 +61,8 @@ umsmfburasbofe idea add "Describe the idea"
 ```
 
 Mentioning a future idea does not silently add it to the active delivery scope.
+
+## Reusable instruction cleanup
+
+If this run reveals repeated agent drift, add the durable lesson to the right
+local skill and run `$edit-skill` so the skill stays short instead of bloating.

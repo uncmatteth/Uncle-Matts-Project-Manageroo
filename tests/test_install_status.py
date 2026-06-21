@@ -27,6 +27,21 @@ class InstallStatusTests(unittest.TestCase):
         self.assertTrue(summary["items"][1]["needs_action"])
         self.assertIn("npm install -g gitnexus", summary["items"][1]["next_commands"])
 
+    def test_stack_summary_surfaces_guidance_commands(self):
+        summary = summarize_external_tools(
+            [
+                {
+                    "name": "gbrain",
+                    "installed": True,
+                    "configured": True,
+                    "guidance_commands": ["Connect `gbrain serve` to the selected agent."],
+                },
+            ]
+        )
+        self.assertEqual(summary["counts"]["needs_action"], 1)
+        self.assertTrue(summary["items"][0]["needs_action"])
+        self.assertIn("gbrain serve", summary["items"][0]["next_commands"][0])
+
     def test_format_stack_status_is_plain_and_actionable(self):
         text = format_stack_status(
             {

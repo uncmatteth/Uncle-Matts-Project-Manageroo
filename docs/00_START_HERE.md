@@ -10,12 +10,14 @@ The acronym is `UMSMFBURASBOFE` because this is incredibly super serious.
 
 ```text
 You write what should be built or fixed.
+If the request is messy, $pimp-my-prompt can turn it into scope and proof.
 The tool reads the repo and breaks the job up.
 Independent map/review chunks can run in parallel.
 Media and big prose files are recorded as metadata or summaries.
 Your AI agent does the code work.
 The tool runs checks and keeps the receipts.
 Bad work goes back through review and repair.
+If skills get bloated, $edit-skill trims duplicate and stale instructions.
 ```
 
 ## Install
@@ -32,6 +34,7 @@ Then:
 
 ```bash
 umsmfburasbofe self-test
+umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
 ```
@@ -45,6 +48,14 @@ umsmfburasbofe token-mode set off
 ```
 
 `caveman` is terse and clean. `curse` is terse and profane. Both are included.
+
+Always-on helper skills:
+
+```bash
+umsmfburasbofe skills install
+```
+
+That installs `pimp-my-prompt` and `edit-skill` under `~/.agents/skills`.
 
 ## Initialize any product repository
 

@@ -41,9 +41,9 @@ Normal users should not need these.
 The installer can install or guide the surrounding stack that makes the whole
 thing useful:
 
-- GBrain: installed with `bun install -g github:garrytan/gbrain`, then initialized with `gbrain init --pglite` when possible.
+- GBrain: installed with `bun install -g github:garrytan/gbrain` when missing. If it already exists, the installer inspects config/status and does not reinitialize it.
 - GitNexus: installed with `npm install -g gitnexus`; run `gitnexus setup` afterward for MCP wiring.
-- AUTOREVIEW: installed from `openclaw/agent-skills` into `~/.agents/skills/autoreview`.
+- AUTOREVIEW: detected in `~/.agents/skills/autoreview` or `~/.codex/skills/autoreview`; installed from `openclaw/agent-skills` only when missing.
 - Clawpatch: installed with `pnpm add -g clawpatch`; the installer can install `pnpm` with npm when needed.
 - Loop Library: installed with `npx --yes skills add Forward-Future/loop-library --skill loop-library ...` for the selected agent.
 - Obsidian: installed through a detected package manager when possible, otherwise the installer prints the official install path.
@@ -55,12 +55,41 @@ The installer writes a stack summary into `install-lock.json`. It lists what was
 installed, what was skipped, what still needs action, and the next command for
 each unfinished piece.
 
+For an existing GBrain install, the lock records the detected engine, embedding
+model, schema pack, source count, unembedded chunks, and coverage summary. It
+also includes safe mapping commands:
+
+```bash
+gbrain sources list
+gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder
+gbrain sync --source YOUR_SOURCE_ID --json --yes
+gbrain status --json --section sync
+```
+
+The installer does not choose broad personal folders for you.
+
+## Bundled helper skills
+
+Normal install writes these local skills under `~/.agents/skills`:
+
+- `pimp-my-prompt`: turns rough requests into exact scope, acceptance criteria,
+  fallback rules, and runnable product briefs.
+- `edit-skill`: tightens existing skills by removing duplicate instructions,
+  stale rules, vague wording, and AI slop.
+
+They are available even when token mode is off. Reinstall them later with:
+
+```bash
+umsmfburasbofe skills install
+```
+
 ## Validate
 
 ```bash
 umsmfburasbofe --version
 umsmfburasbofe banner --no-animation
 umsmfburasbofe self-test
+umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
 ```

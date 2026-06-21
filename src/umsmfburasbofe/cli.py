@@ -31,7 +31,13 @@ from .loop_library import (
 from .orchestrator import Orchestrator
 from .project import git_root, initialize_project
 from .selftest import run_self_test
-from .token_modes import install_token_skills, read_token_mode, set_token_mode
+from .token_modes import (
+    CORE_HELPER_SKILLS,
+    install_core_helper_skills,
+    install_token_skills,
+    read_token_mode,
+    set_token_mode,
+)
 from .util import read_json
 
 
@@ -94,6 +100,11 @@ def parser() -> argparse.ArgumentParser:
     token_set.add_argument("mode", choices=["off", "caveman", "curse"])
     token_sub.add_parser("status", help="Show selected token-reduction mode.")
     token_sub.add_parser("install-skills", help="Install bundled caveman token skills.")
+
+    skills = sub.add_parser("skills", help="Install or list bundled helper skills.")
+    skills_sub = skills.add_subparsers(dest="skills_command", required=True)
+    skills_sub.add_parser("install", help="Install bundled prompt and skill-editing helpers.")
+    skills_sub.add_parser("list", help="List bundled helper skills.")
 
     stack = sub.add_parser("stack-status", help="Show installed/skipped/fix-next status for the guided local stack.")
     stack.add_argument("--lock", type=Path)
@@ -199,6 +210,13 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"installed_skills": install_token_skills()}, indent=2))
                 return 0
             print(json.dumps(read_token_mode(), indent=2))
+            return 0
+
+        if args.command == "skills":
+            if args.skills_command == "install":
+                print(json.dumps({"installed_skills": install_core_helper_skills()}, indent=2))
+            else:
+                print(json.dumps({"bundled_skills": sorted(CORE_HELPER_SKILLS)}, indent=2))
             return 0
 
         if args.command == "stack-status":

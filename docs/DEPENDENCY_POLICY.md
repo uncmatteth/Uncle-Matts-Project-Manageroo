@@ -58,6 +58,17 @@ with `umsmfburasbofe token-mode set ...`.
 Existing different local skill files are backed up before the bundled files are
 installed.
 
+## Helper skills
+
+Core install also writes two helper skills under `~/.agents/skills`:
+
+- `pimp-my-prompt` for rough request intake and reusable prompt cleanup.
+- `edit-skill` for keeping local skills short, clear, and non-duplicative.
+
+These are bundled files, not network dependencies. Existing different local
+versions are backed up before replacement. They are available even when token
+mode is off.
+
 ## Loop Library
 
 UMSMFBURASBOFE can read Matthew Berman / Forward Future's live Loop Library
@@ -69,6 +80,7 @@ itself remains optional and must be requested separately.
 ## AUTOREVIEW and Clawpatch
 
 The stack installer installs AUTOREVIEW from the canonical OpenClaw
-`agent-skills` repository when it is missing. Clawpatch uses the upstream
-package install path, `pnpm add -g clawpatch`, and records failures or missing
-package managers instead of claiming completion.
+`agent-skills` repository when it is missing. It checks both
+`~/.agents/skills/autoreview` and `~/.codex/skills/autoreview` first. Clawpatch
+uses the upstream package install path, `pnpm add -g clawpatch`, and records
+failures or missing package managers instead of claiming completion.

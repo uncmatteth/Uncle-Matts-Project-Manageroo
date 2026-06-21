@@ -49,11 +49,23 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Persist that line in the shell profile used on the machine, such as `~/.zshrc` or `~/.bashrc`.
 
+Core install also installs bundled helper skills under `~/.agents/skills`:
+
+- `pimp-my-prompt` for turning a rough request into exact scope, proof, and stop rules.
+- `edit-skill` for tightening local skills when they get duplicated, stale, or bloated.
+
+They can be reinstalled later with:
+
+```bash
+umsmfburasbofe skills install
+```
+
 ## 3. Confirm the core installation
 
 ```bash
 umsmfburasbofe --version
 umsmfburasbofe self-test
+umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
 ```

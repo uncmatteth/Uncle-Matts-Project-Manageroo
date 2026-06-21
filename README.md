@@ -25,6 +25,9 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - You have an app, website, script, or repo.
 - You want an AI coding agent to work on it without wandering off.
 - You write what you want in normal language.
+- If the request is messy, angry, long, or half-formed, the bundled
+  `pimp-my-prompt` skill helps turn it into exact scope, proof, and stop rules
+  without losing what you meant.
 - `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
 - Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
 - Pictures, PDFs, and big prose files are not invisible. The tool records media metadata and bounded prose summaries so the agent knows they exist and can ask for the right slice.
@@ -35,6 +38,8 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - A separate review pass looks for problems before the run gets called done.
 - If the work is not good enough, it goes back through repair.
 - You get the patch, the checks, the review notes, and the report.
+- The installer also includes `edit-skill`, a helper for keeping local skills
+  short, non-duplicative, and free of stale AI junk.
 - Optional token-reduction modes are included: clean `caveman` or profane `curse`.
 - The installer should be simple for normal users, but still fun: color, ASCII art, and generated chiptune music.
 
@@ -101,9 +106,17 @@ terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
 products.
 
 The installer validates the source, runs the tests, installs the command for the
-current user, runs `self-test`, and writes `install-lock.json`. It does not
-require Codex. Use `./install.sh --install-codex` only when you specifically
-want this machine to install or update Codex too.
+current user, installs bundled helper skills, runs `self-test`, and writes
+`install-lock.json`. It does not require Codex. Use `./install.sh
+--install-codex` only when you specifically want this machine to install or
+update Codex too.
+
+The bundled helper skills are installed under `~/.agents/skills`:
+
+- `pimp-my-prompt`: turns a rough request into exact scope, acceptance criteria,
+  fallback rules, and a product brief shape.
+- `edit-skill`: tightens skill files by removing duplicate rules, stale
+  instructions, vague wording, and AI slop.
 
 The installer also offers the recommended local stack:
 
@@ -124,6 +137,11 @@ guided stack lane:
 If Bun, Node/npm/npx/pnpm, Flatpak, Snap, Homebrew, or Winget is missing, the
 installer records the missing piece and prints the exact next commands instead
 of pretending it finished that part.
+
+If GBrain already exists, the stack lane inspects it instead of blindly running
+`gbrain init --pglite` over an existing Postgres/Ollama setup. It records the
+engine, embedding model, schema pack, source count, and embedding coverage, then
+prints source-mapping commands only when sources are missing.
 
 After install, inspect what happened:
 
@@ -164,6 +182,7 @@ git clone --depth 1 https://github.com/uncmatteth/Uncle-Matts-Super-Mega-Forward
 ```bash
 umsmfburasbofe --version
 umsmfburasbofe self-test
+umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 cd /absolute/path/to/your/git-project
 umsmfburasbofe init --agent codex
@@ -190,6 +209,16 @@ The switch command installs the bundled `caveman` and
 `uncle-matts-caveman-curse` skills under `~/.agents/skills` when needed. If a
 different local skill file already exists there, it is backed up before the
 bundled copy is installed.
+
+Reinstall the always-on helper skills later if needed:
+
+```bash
+umsmfburasbofe skills install
+```
+
+Then a compatible agent can call `$pimp-my-prompt` or `$edit-skill` directly.
+The intended workflow is long-running agent threads with compaction, plus small
+skills that get tightened instead of growing forever.
 
 Use Matthew Berman / Forward Future's Loop Library directly when a published
 loop is the right shape for the job:
@@ -238,6 +267,8 @@ This was built around the local agent stack you actually wanted:
 - AUTOREVIEW and Clawpatch for review and repair lanes.
 - Matthew Berman / Forward Future's Loop Library as a reference for clear
   agent loops, checks, and stopping conditions.
+- `pimp-my-prompt` for rough request intake.
+- `edit-skill` for keeping skills short, specific, and useful.
 - Any AI IDE or CLI agent that can read files and run commands in the repo.
 
 Those tools do not need separate versions of this package. They use the same

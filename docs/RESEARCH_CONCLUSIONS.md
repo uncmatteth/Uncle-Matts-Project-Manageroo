@@ -12,6 +12,9 @@ The ecosystem already contains strong individual components:
 - Matthew Berman / Forward Future's Loop Library and the loop-engineering
   discussion: clear language for goals, loops, routines, independent
   verification, budgets, anti-spin stops, completion contracts, and evidence.
+- Peter Yang's public skill-writing advice: long-running threads work better
+  when reusable skills have clear triggers and get periodically edited down
+  instead of growing duplicate, stale, or vague instructions.
 - Codex, Claude Code, OpenClaw, Gemini CLI, Cursor, and others: capable coding runtimes.
 - Git worktrees, containers, CI, linters, type systems, and tests: mechanical engineering controls.
 
@@ -20,6 +23,7 @@ The ecosystem already contains strong individual components:
 UMSMFBURASBOFE does not attempt to replace those systems. Its distinct role is the operator-facing control contract:
 
 - one product intake;
+- rough request cleanup through the bundled `pimp-my-prompt` skill;
 - externalized durable state;
 - reversible decision defaults;
 - reuse gate;
@@ -31,6 +35,7 @@ UMSMFBURASBOFE does not attempt to replace those systems. Its distinct role is t
 - evidence-validated findings;
 - bounded repair;
 - explicit budget and anti-spin controls for loop-shaped work;
+- skill hygiene through the bundled `edit-skill` skill;
 - product-level final report.
 
 ## Why the architecture is intentionally smaller

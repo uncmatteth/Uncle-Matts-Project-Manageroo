@@ -43,11 +43,15 @@ def summarize_external_tools(external_tools: list[dict[str, Any]]) -> dict[str, 
         installed = bool(tool.get("installed") or tool.get("path"))
         configured = bool(tool.get("configured"))
         skipped = bool(tool.get("skipped"))
+        next_commands = [
+            *tool.get("next_commands", []),
+            *tool.get("guidance_commands", []),
+        ]
         needs_action = bool(
             skipped
             or tool.get("guidance")
             or tool.get("error")
-            or tool.get("next_commands")
+            or next_commands
             or not installed
         )
         counts["installed"] += 1 if installed else 0
@@ -64,7 +68,7 @@ def summarize_external_tools(external_tools: list[dict[str, Any]]) -> dict[str, 
                 "path": tool.get("path"),
                 "version": tool.get("version"),
                 "reason": tool.get("reason") or tool.get("guidance") or tool.get("error") or "",
-                "next_commands": tool.get("next_commands", []),
+                "next_commands": next_commands,
                 "reference": tool.get("reference"),
             }
         )
@@ -81,8 +85,17 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
         name: shutil.which(name)
         for name in ("codex", "gbrain", "gitnexus", "clawpatch", "obsidian")
     }
-    autoreview = Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview"
-    probes["autoreview"] = str(autoreview) if autoreview.exists() else None
+    autoreview_candidates = [
+        Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
+        Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
+    ]
+    probes["autoreview"] = next(
+        (str(path) for path in autoreview_candidates if path.exists()),
+        None,
+    )
+    for skill in ("pimp-my-prompt", "edit-skill", "caveman", "uncle-matts-caveman-curse"):
+        path = Path.home() / ".agents" / "skills" / skill / "SKILL.md"
+        probes[skill] = str(path) if path.exists() else None
     return {
         "ok": True,
         "lock_path": loaded["lock_path"],
@@ -118,6 +131,9 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
         ],
         "skill_paths_to_review": [
             str(Path.home() / ".agents" / "skills" / "autoreview"),
+            str(Path.home() / ".codex" / "skills" / "autoreview"),
+            str(Path.home() / ".agents" / "skills" / "pimp-my-prompt"),
+            str(Path.home() / ".agents" / "skills" / "edit-skill"),
             str(Path.home() / ".agents" / "skills" / "caveman"),
             str(Path.home() / ".agents" / "skills" / "uncle-matts-caveman-curse"),
         ],

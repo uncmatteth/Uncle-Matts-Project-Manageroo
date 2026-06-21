@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from umsmfburasbofe.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from umsmfburasbofe.chiptune import ThemePlayback, play_once  # noqa: E402
 from umsmfburasbofe.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
-from umsmfburasbofe.token_modes import set_token_mode  # noqa: E402
+from umsmfburasbofe.token_modes import install_core_helper_skills, set_token_mode  # noqa: E402
 
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 GBRAIN_INSTALL_SOURCE = "github:garrytan/gbrain"
@@ -218,6 +218,100 @@ def optional_run(
     return {"ok": True, "argv": argv, "source": source}
 
 
+def probe_command(argv: list[str], cwd: Path = Path.home(), timeout: int = 30) -> dict:
+    try:
+        result = subprocess.run(
+            argv,
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=False,
+            timeout=timeout,
+        )
+        return {
+            "ok": result.returncode == 0,
+            "exit_code": result.returncode,
+            "argv": argv,
+            "output": (result.stdout or "").strip(),
+        }
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "argv": argv, "error": str(exc), "output": ""}
+
+
+def parse_gbrain_config(output: str) -> dict[str, str]:
+    config: dict[str, str] = {}
+    for line in output.splitlines():
+        if ":" not in line or not line.startswith("  "):
+            continue
+        key, value = line.strip().split(":", 1)
+        config[key.strip()] = value.strip()
+    return config
+
+
+def summarize_gbrain_sync(output: str) -> dict:
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return {"parse_error": "status output was not JSON"}
+    if not isinstance(payload, dict):
+        return {"parse_error": "status output was not a JSON object"}
+    sync = payload.get("sync")
+    if not isinstance(sync, dict):
+        return {
+            "parse_error": "status output did not include a sync section",
+            "warning_count": len(payload.get("warnings", [])) if isinstance(payload.get("warnings"), list) else 0,
+        }
+    sources = sync.get("sources")
+    if not isinstance(sources, list):
+        return {
+            "parse_error": "status sync section did not include a sources list",
+            "warning_count": len(payload.get("warnings", [])) if isinstance(payload.get("warnings"), list) else 0,
+        }
+    coverages = [
+        float(source["embedding_coverage_pct"])
+        for source in sources
+        if isinstance(source, dict) and source.get("embedding_coverage_pct") is not None
+    ]
+    return {
+        "sources": len(sources),
+        "chunks_total": sum(int(source.get("chunks_total") or 0) for source in sources if isinstance(source, dict)),
+        "chunks_unembedded": sum(
+            int(source.get("chunks_unembedded") or 0) for source in sources if isinstance(source, dict)
+        ),
+        "embedding_coverage_min_pct": min(coverages) if coverages else None,
+        "unacknowledged_failures": sync.get("unacknowledged_failures") if isinstance(sync, dict) else None,
+    }
+
+
+def safe_probe_record(probe: dict | None) -> dict | None:
+    if probe is None:
+        return None
+    return {
+        key: probe[key]
+        for key in ("ok", "exit_code", "argv", "error")
+        if key in probe
+    }
+
+
+def gbrain_probe_suggests_missing_init(probe: dict | None) -> bool:
+    output = str((probe or {}).get("output") or "").strip().lower()
+    if not output:
+        return False
+    return any(
+        marker in output
+        for marker in (
+            "not initialized",
+            "not been initialized",
+            "run gbrain init",
+            "could not find config",
+            "config was not found",
+            "no config",
+            "missing config",
+        )
+    )
+
+
 def prepend_tool_paths() -> None:
     candidates = [
         Path.home() / ".local" / "bin",
@@ -274,9 +368,11 @@ def guidance(tool: str, reason: str, commands: list[str], url: str | None = None
 
 def install_gbrain(downloads: list[dict]) -> dict:
     cwd = Path.home()
+    prepend_tool_paths()
     before = command_version("gbrain")
     status_line("GBRAIN", f"current: {before}")
-    installed = before != "not installed"
+    installed_before = before != "not installed"
+    installed = installed_before
     install_result: dict | None = None
     if not installed:
         bun = shutil.which("bun")
@@ -305,34 +401,109 @@ def install_gbrain(downloads: list[dict]) -> dict:
     init_result = None
     scaffold_result = None
     doctor_result = None
+    config_probe = None
+    sync_probe = None
+    config_summary: dict[str, str] = {}
+    sync_summary: dict = {}
     if gbrain:
-        init_result = optional_run(
-            [gbrain, "init", "--pglite"], downloads, "gbrain", "gbrain init --pglite", cwd=cwd
-        )
-        scaffold_result = optional_run(
-            [gbrain, "skillpack", "scaffold", "--all"],
-            downloads,
-            "gbrain",
-            "gbrain skillpack scaffold --all",
-            cwd=cwd,
-        )
-        doctor_result = optional_run([gbrain, "doctor"], downloads, "gbrain", "gbrain doctor", cwd=cwd)
+        if installed_before:
+            status_line("GBRAIN", "existing install detected; inspecting config without reinitializing", ok=True)
+            config_probe = probe_command([gbrain, "config", "show"], cwd=cwd)
+            sync_probe = probe_command([gbrain, "status", "--json", "--section", "sync"], cwd=cwd)
+            doctor_result = probe_command([gbrain, "doctor", "--json", "--fast"], cwd=cwd, timeout=60)
+            config_summary = parse_gbrain_config(config_probe.get("output", "")) if config_probe else {}
+            sync_summary = summarize_gbrain_sync(sync_probe.get("output", "")) if sync_probe else {}
+        else:
+            init_result = optional_run(
+                [gbrain, "init", "--pglite"], downloads, "gbrain", "gbrain init --pglite", cwd=cwd
+            )
+            scaffold_result = optional_run(
+                [gbrain, "skillpack", "scaffold", "--all"],
+                downloads,
+                "gbrain",
+                "gbrain skillpack scaffold --all",
+                cwd=cwd,
+            )
+            doctor_result = optional_run([gbrain, "doctor"], downloads, "gbrain", "gbrain doctor", cwd=cwd)
+            config_probe = probe_command([gbrain, "config", "show"], cwd=cwd)
+            sync_probe = probe_command([gbrain, "status", "--json", "--section", "sync"], cwd=cwd)
+            config_summary = parse_gbrain_config(config_probe.get("output", "")) if config_probe else {}
+            sync_summary = summarize_gbrain_sync(sync_probe.get("output", "")) if sync_probe else {}
     after = command_version("gbrain")
     status_line("GBRAIN", after, ok=after != "not installed")
+    config_ok = bool(config_probe and config_probe.get("ok") and config_summary)
+    sync_ok = bool(
+        sync_probe
+        and sync_probe.get("ok")
+        and "parse_error" not in sync_summary
+        and sync_summary.get("sources") is not None
+    )
+    doctor_ok = bool(doctor_result and doctor_result.get("ok"))
+    next_commands: list[str] = []
+    if after == "not installed":
+        next_commands.extend(
+            [
+                "Install Bun from https://bun.sh/",
+                f"bun install -g {GBRAIN_INSTALL_SOURCE}",
+                "gbrain init --pglite",
+            ]
+        )
+    elif not config_ok:
+        if installed_before and gbrain_probe_suggests_missing_init(config_probe):
+            next_commands.append("gbrain init --pglite")
+        next_commands.append("gbrain config show")
+    if after != "not installed" and not doctor_ok:
+        next_commands.append("gbrain doctor --json --fast")
+    if after != "not installed" and not sync_ok:
+        next_commands.append("gbrain status --json --section sync")
+    if sync_ok and sync_summary.get("sources", 0) == 0:
+        next_commands.extend(
+            [
+                "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
+                "gbrain sync --source YOUR_SOURCE_ID --json --yes",
+                "gbrain status --json --section sync",
+            ]
+        )
     return {
         "name": "gbrain",
         "installed": after != "not installed",
-        "configured": bool(init_result and init_result["ok"]),
+        "configured": bool(
+            after != "not installed"
+            and (
+                (installed_before and config_ok and sync_ok and doctor_ok)
+                or ((not installed_before) and init_result and init_result["ok"] and doctor_ok)
+            )
+        ),
         "version": after,
         "path": shutil.which("gbrain"),
+        "existing_install_detected": installed_before,
+        "config_summary": {
+            key: config_summary.get(key)
+            for key in (
+                "engine",
+                "embedding_model",
+                "embedding_dimensions",
+                "schema_pack",
+            )
+            if config_summary.get(key)
+        },
+        "sync_summary": sync_summary,
         "install_result": install_result,
         "init_result": init_result,
         "scaffold_result": scaffold_result,
-        "doctor_result": doctor_result,
-        "next_commands": [
-            "gbrain doctor",
+        "doctor_result": safe_probe_record(doctor_result) if installed_before else doctor_result,
+        "config_probe": safe_probe_record(config_probe),
+        "sync_probe": safe_probe_record(sync_probe),
+        "mapping_commands": [
+            "gbrain sources list",
+            "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
+            "gbrain sync --source YOUR_SOURCE_ID --json --yes",
+            "gbrain status --json --section sync",
+        ],
+        "guidance_commands": [
             "Connect `gbrain serve` to the MCP settings for the AI IDE or CLI agent you selected.",
         ],
+        "next_commands": next_commands,
         "reference": "https://github.com/garrytan/gbrain/blob/master/docs/INSTALL.md",
     }
 
@@ -379,14 +550,19 @@ def install_gitnexus(downloads: list[dict]) -> dict:
 
 def install_autoreview(downloads: list[dict], prefix: Path) -> dict:
     destination = Path.home() / ".agents" / "skills" / "autoreview"
-    script = destination / "scripts" / "autoreview"
-    if script.exists():
-        status_line("AUTOREVIEW", str(script), ok=True)
+    candidates = [
+        destination / "scripts" / "autoreview",
+        Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
+    ]
+    existing_script = next((path for path in candidates if path.exists()), None)
+    if existing_script:
+        status_line("AUTOREVIEW", str(existing_script), ok=True)
         return {
             "name": "autoreview",
             "installed": True,
             "configured": True,
-            "path": str(script),
+            "path": str(existing_script),
+            "detected_locations": [str(path) for path in candidates if path.exists()],
             "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
         }
 
@@ -444,6 +620,7 @@ def install_autoreview(downloads: list[dict], prefix: Path) -> dict:
         backup = backup_path(destination)
         shutil.move(str(destination), str(backup))
     shutil.copytree(source, destination)
+    script = destination / "scripts" / "autoreview"
     status_line("AUTOREVIEW", str(script), ok=script.exists())
     return {
         "name": "autoreview",
@@ -791,8 +968,6 @@ def main() -> int:
         prefix.mkdir(parents=True, exist_ok=True)
 
         token_mode = choose_token_mode(args.token_mode)
-        token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
-        status_line("TOKEN MODE", token_mode_record["label"], ok=True)
 
         source_env = {"PYTHONPATH": str(ROOT / "src")}
         if not args.skip_tests:
@@ -803,6 +978,11 @@ def main() -> int:
                 [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
                 env=source_env,
             )
+
+        token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
+        status_line("TOKEN MODE", token_mode_record["label"], ok=True)
+        helper_skills_record = install_core_helper_skills()
+        status_line("HELPER SKILLS", ", ".join(sorted(helper_skills_record)), ok=True)
 
         if args.install_codex and not args.skip_codex:
             external_tools.append({"name": "codex", **install_codex_latest(downloads)})
@@ -875,6 +1055,7 @@ def main() -> int:
             "umsmfburasbofe_version_output": version.stdout.strip(),
             "self_test_output": self_test_output,
             "token_mode": token_mode_record,
+            "helper_skills": helper_skills_record,
             "external_tools": external_tools,
             "stack_summary": stack_summary,
             "uninstall_plan": uninstall_plan(prefix, args.bin_dir.expanduser().resolve()),
@@ -882,6 +1063,8 @@ def main() -> int:
             "dependency_policy": (
                 "Core install is UMSMFBURASBOFE. Real runs require a configured agent "
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
+                "Core helper skills include Pimp My Prompt for rough request intake and "
+                "Edit Skill for keeping local skills short and useful. "
                 "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
                 "Obsidian, and Loop Library when configured."
             ),
@@ -900,6 +1083,7 @@ def main() -> int:
     print("\nNext commands:")
     print("  umsmfburasbofe --version")
     print("  umsmfburasbofe self-test")
+    print("  umsmfburasbofe skills list")
     print("  umsmfburasbofe stack-status")
     print("  cd /path/to/project && umsmfburasbofe init --agent codex && umsmfburasbofe doctor")
     print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")

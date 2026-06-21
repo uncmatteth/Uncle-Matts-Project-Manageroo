@@ -54,6 +54,11 @@ TOKEN_MODES = {
     ),
 }
 
+CORE_HELPER_SKILLS = {
+    "pimp-my-prompt": "skills/pimp-my-prompt/SKILL.md",
+    "edit-skill": "skills/edit-skill/SKILL.md",
+}
+
 ALIASES = {
     "none": "off",
     "normal": "off",
@@ -98,19 +103,43 @@ def _backup_path(destination: Path) -> Path:
     return candidate
 
 
+def _install_bundled_skill(root: Path, skill_name: str, asset: str) -> str:
+    root = root.expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    root_real = root.resolve()
+    skill_dir = root / skill_name
+    if skill_dir.is_symlink():
+        raise ValueError(f"Refusing to install through symlinked skill directory: {skill_dir}")
+    if skill_dir.exists() and not skill_dir.is_dir():
+        raise ValueError(f"Refusing to install over non-directory skill path: {skill_dir}")
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    if not skill_dir.resolve().is_relative_to(root_real):
+        raise ValueError(f"Refusing to install skill outside skills root: {skill_dir}")
+    destination = root / skill_name / "SKILL.md"
+    if destination.is_symlink():
+        raise ValueError(f"Refusing to overwrite symlinked skill file: {destination}")
+    source = asset_path(asset)
+    if destination.exists() and destination.read_bytes() != source.read_bytes():
+        shutil.copy2(destination, _backup_path(destination))
+    shutil.copy2(source, destination)
+    return str(destination)
+
+
+def install_core_helper_skills(skills_dir: Path | None = None) -> dict[str, str]:
+    root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
+    return {
+        skill_name: _install_bundled_skill(root, skill_name, asset)
+        for skill_name, asset in CORE_HELPER_SKILLS.items()
+    }
+
+
 def install_token_skills(skills_dir: Path | None = None) -> dict[str, str]:
     root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
     installed: dict[str, str] = {}
     for mode in TOKEN_MODES.values():
         if not mode.skill_name or not mode.asset:
             continue
-        destination = root / mode.skill_name / "SKILL.md"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        source = asset_path(mode.asset)
-        if destination.exists() and destination.read_bytes() != source.read_bytes():
-            shutil.copy2(destination, _backup_path(destination))
-        shutil.copy2(source, destination)
-        installed[mode.id] = str(destination)
+        installed[mode.id] = _install_bundled_skill(root, mode.skill_name, mode.asset)
     return installed
 
 
