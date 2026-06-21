@@ -108,6 +108,13 @@ def structural_checks() -> list[dict]:
                     for path in source_files()
                 ),
             },
+            {
+                "name": "no-github-actions-workflows",
+                "ok": not any(
+                    path.relative_to(ROOT).as_posix().startswith(".github/workflows/")
+                    for path in source_files()
+                ),
+            },
         ]
     )
     return checks

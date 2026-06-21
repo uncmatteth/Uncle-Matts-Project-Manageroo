@@ -13,7 +13,9 @@ cd /path/to/Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-o
 ./install.sh
 ```
 
-PowerShell users can run `.\install.ps1`; it starts the same installer.
+Same installer, same behavior. Use `./install.sh` from a normal Unix-style
+terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
+products.
 
 Token-reduction mode is optional:
 

@@ -37,7 +37,9 @@ Use `--agent codex` only when Codex is the selected runtime. Use
 `--agent generic` for another CLI and configure `[agent].argv_template` in
 `.umsmfburasbofe/config.toml`.
 
-PowerShell users can run `.\install.ps1`; it starts the same installer.
+Same installer, same behavior. Use `./install.sh` from a normal Unix-style
+terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
+products.
 
 If the operator requests token reduction, use one of:
 
@@ -66,7 +68,7 @@ umsmfburasbofe token-mode set curse
 
 Return:
 
-- operating system;
+- terminal/runtime environment;
 - UMSMFBURASBOFE version;
 - Python version;
 - selected agent adapter, version when discoverable, and executable path;

@@ -36,7 +36,7 @@ def purpose(relative: str) -> str:
     if relative in {"install.sh", "install.ps1"} or relative.startswith("scripts/"):
         return "Installation, validation, or packaging"
     if relative.startswith(".github/"):
-        return "Continuous-integration verification"
+        return "GitHub repository metadata"
     if relative.startswith("examples/"):
         return "Example product input"
     return "Project metadata or handoff"

@@ -91,7 +91,9 @@ cd Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Ed
 ./install.sh
 ```
 
-PowerShell users can run `.\install.ps1`; it starts the same installer.
+Same installer, same behavior. Use `./install.sh` from a normal Unix-style
+terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
+products.
 
 The installer validates the source, runs the tests, installs the command for the
 current user, runs `self-test`, and writes `install-lock.json`. It does not
@@ -226,7 +228,7 @@ installed command and the same repo-local skill.
 
 ## Current maturity
 
-This is **alpha software**. The mock workflow and package tests are included.
+This is **alpha software**. The mock run and package tests are included.
 Real use still depends on your target repo, your selected AI tool, and your real
 checks. Do the first live run on a clone, branch, or disposable copy.
 

@@ -4,20 +4,19 @@ This manifest is generated from the release source tree.
 
 | File | Bytes | Purpose |
 |---|---:|---|
-| `.github/workflows/verify.yml` | 444 | Continuous-integration verification |
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 705 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 5498 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 5573 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 1444 | Project metadata or handoff |
-| `GIVE-THIS-TO-YOUR-IDE-AGENT.md` | 2321 | Project metadata or handoff |
+| `GIVE-THIS-TO-YOUR-IDE-AGENT.md` | 2426 | Project metadata or handoff |
 | `LICENSE` | 1067 | Project metadata or handoff |
-| `LOCAL_SETUP.md` | 3524 | Project metadata or handoff |
-| `PUBLISH_TO_GITHUB.md` | 2479 | Project metadata or handoff |
-| `README.md` | 9152 | Project metadata or handoff |
+| `LOCAL_SETUP.md` | 3617 | Project metadata or handoff |
+| `PUBLISH_TO_GITHUB.md` | 2702 | Project metadata or handoff |
+| `README.md` | 9240 | Project metadata or handoff |
 | `SECURITY.md` | 724 | Project metadata or handoff |
-| `docs/00_START_HERE.md` | 1946 | Operator and engineering documentation |
+| `docs/00_START_HERE.md` | 2039 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 2674 | Operator and engineering documentation |
 | `docs/CODEX_RUNTIME.md` | 533 | Operator and engineering documentation |
 | `docs/CONFIG_REFERENCE.md` | 2303 | Operator and engineering documentation |
@@ -26,8 +25,8 @@ This manifest is generated from the release source tree.
 | `docs/DETERMINISM.md` | 853 | Operator and engineering documentation |
 | `docs/ENFORCEMENT_MATRIX.md` | 2072 | Operator and engineering documentation |
 | `docs/EXTERNAL_INTEGRATIONS.md` | 2873 | Operator and engineering documentation |
-| `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 2321 | Operator and engineering documentation |
-| `docs/INSTALLATION.md` | 3590 | Operator and engineering documentation |
+| `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 2426 | Operator and engineering documentation |
+| `docs/INSTALLATION.md` | 3683 | Operator and engineering documentation |
 | `docs/LIMITATIONS.md` | 1810 | Operator and engineering documentation |
 | `docs/ONE_SHOT_PROTOCOL.md` | 1670 | Operator and engineering documentation |
 | `docs/OPERATOR_GUIDE.md` | 1696 | Operator and engineering documentation |
@@ -44,8 +43,8 @@ This manifest is generated from the release source tree.
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
 | `scripts/install.py` | 33186 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
-| `scripts/package_release.py` | 3211 | Installation, validation, or packaging |
-| `scripts/verify_release.py` | 5029 | Installation, validation, or packaging |
+| `scripts/package_release.py` | 3202 | Installation, validation, or packaging |
+| `scripts/verify_release.py` | 5297 | Installation, validation, or packaging |
 | `sitecustomize.py` | 241 | Project metadata or handoff |
 | `src/umsmfburasbofe/__init__.py` | 120 | Harness runtime source |
 | `src/umsmfburasbofe/__main__.py` | 48 | Harness runtime source |

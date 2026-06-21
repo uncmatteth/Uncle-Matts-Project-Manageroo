@@ -13,7 +13,7 @@ Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Editi
 
 Create it without a generated README, license, or `.gitignore`, because those files already exist in this source tree.
 
-Keep it private while performing the first live Codex validation. Change visibility only after the validation result is acceptable.
+Keep it private while performing the first live agent validation. Change visibility only after the validation result is acceptable.
 
 ## 2. Push the source tree
 
@@ -41,9 +41,17 @@ Use an SSH remote instead when that is how GitHub authentication is configured:
 git remote set-url origin git@github.com:uncmatteth/Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition.git
 ```
 
-## 3. Confirm GitHub Actions
+## 3. Confirm the local release checks
 
-Wait for the included `verify` workflow to pass before creating a release.
+This repository does not use GitHub Actions. Before creating a release, run
+the local verification command and use the generated checksums:
+
+```bash
+python3 scripts/verify_release.py
+python3 scripts/package_release.py
+```
+
+Do not publish a release ZIP that contains `.github/workflows/`.
 
 ## 4. Create the first release
 
