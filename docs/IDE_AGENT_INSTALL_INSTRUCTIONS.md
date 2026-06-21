@@ -29,15 +29,17 @@ umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status --json
+umsmfburasbofe repair-install --no-apply --json
 git -C "$TARGET_REPO" rev-parse --show-toplevel
 cd "$TARGET_REPO"
-umsmfburasbofe init --agent codex
-umsmfburasbofe doctor --json
+umsmfburasbofe setup --agent codex
+umsmfburasbofe ready --json
 ```
 
 Use `--agent codex` only when Codex is the selected runtime. Use
-`--agent generic` for another CLI and configure `[agent].argv_template` in
-`.umsmfburasbofe/config.toml`.
+`umsmfburasbofe agent list` to see presets for another CLI. The non-Codex
+presets are command templates; configure `[agent].argv_template` in
+`.umsmfburasbofe/config.toml` when the default flags are wrong.
 
 Same installer, same behavior. Use `./install.sh` from a normal Unix-style
 terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
@@ -54,6 +56,24 @@ If the operator's product request is rough, overloaded, or frustrated, use the
 bundled `$pimp-my-prompt` skill to turn it into exact scope, proof, and stop
 rules before filling the product brief.
 
+If the operator wants a generated first brief, run:
+
+```bash
+umsmfburasbofe brief \
+  --want "OPERATOR_REQUEST_HERE" \
+  --outcome "VISIBLE_RESULT_HERE" \
+  --must-not "OUT_OF_SCOPE_OR_DO_NOT_TOUCH_HERE" \
+  --proof "CHECK_OR_DEMO_HERE" \
+  --force
+umsmfburasbofe ready --json
+```
+
+If GBrain should know this repo, map only the selected target repository:
+
+```bash
+umsmfburasbofe gbrain-setup --source-id target-repo --path "$TARGET_REPO" --apply --sync
+```
+
 If a local skill is getting long, repetitive, or stale, use the bundled
 `$edit-skill` skill before adding more instructions.
 
@@ -61,7 +81,7 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 
 - Stop on any release-verification failure.
 - Stop if the target is not already a Git repository.
-- Stop if `doctor.ok` is false and report every failed check exactly.
+- Stop if `ready.ok` is false and report every failed or action item exactly.
 - Do not run a real build until the operator completes `.umsmfburasbofe/PRODUCT-BRIEF.md`.
 
 ## Do not
@@ -84,8 +104,9 @@ Return:
 - UMSMFBURASBOFE executable path;
 - install-lock path;
 - complete `umsmfburasbofe stack-status --json` output;
+- complete `umsmfburasbofe repair-install --no-apply --json` output;
 - self-test result;
-- complete `umsmfburasbofe doctor --json` output;
+- complete `umsmfburasbofe ready --json` output;
 - target repository path;
 - readiness for a real product brief.
 

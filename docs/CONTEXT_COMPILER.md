@@ -72,6 +72,24 @@ summaries. A role may receive summary mode for discovery and planning. A task
 that needs exact prose still has to request line ranges that fit the context
 budget.
 
+## Summary cache
+
+Discovery caches file, media, and prose summaries here:
+
+```text
+.umsmfburasbofe/cache/file-summaries.json
+.umsmfburasbofe/cache/system-map.json
+```
+
+The cache key is the repository-relative path plus file size and SHA-256. An
+unchanged file reuses its summary on later runs. A changed file is summarized
+again.
+
+The system-map cache is exact-match only. It is reused only when the inventory
+fingerprint and product brief hash match the cached run. That avoids carrying a
+map from one product request into a different one. The cache does not replace
+source hashes or stale-packet checks.
+
 ## Task context
 
 The plan compiler assigns `context_paths` and `allowed_paths` to each task. The context compiler builds a packet from those files. If a task cannot fit, the task is invalid and must be split before implementation.

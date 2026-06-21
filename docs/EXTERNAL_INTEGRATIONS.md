@@ -13,7 +13,8 @@ be a special build for every AI logo.
 
 Codex is one adapter. When selected, this tool can start fresh `codex exec`
 processes and pass the repo path, sandbox mode, schema, and output path.
-`umsmfburasbofe doctor` checks the installed CLI before a run.
+`umsmfburasbofe ready` reports whether the selected CLI, brief, checks, and
+optional memory lane are ready before a run.
 
 Official reference: https://developers.openai.com/codex/noninteractive
 
@@ -43,11 +44,20 @@ That means a Postgres/Ollama setup is reported, not overwritten.
 Source mapping is guided, not guessed:
 
 ```bash
+umsmfburasbofe gbrain-setup
+umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
 gbrain sources list
 gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder
 gbrain sync --source YOUR_SOURCE_ID --json --yes
 gbrain status --json --section sync
 ```
+
+When `gbrain_search_command` is configured in `.umsmfburasbofe/config.toml`,
+`umsmfburasbofe run` asks GBrain for brief-related context during discovery and
+feeds the successful output into planning. When `gbrain_capture_command` is
+configured, the final report/result can be captured after a successful run.
+Both are optional. If the command is missing, fails, or times out, the run
+records that fact and continues through the normal controller path.
 
 Project reference: https://github.com/garrytan/gbrain
 
@@ -61,6 +71,12 @@ Run `gitnexus setup` afterward when you want its MCP wiring.
 Project reference: https://github.com/abhigyanpatwari/GitNexus
 
 Review GitNexus licensing before commercial embedding.
+
+When `gitnexus_analyze_command` or `gitnexus_query_command` is configured,
+`run` records the output under
+`.umsmfburasbofe/runs/<run-id>/artifacts/discovery/external-intelligence.json`
+and includes passing context in the product, reuse, and planning prompts. Git
+files and current command output still win if GitNexus is stale or unavailable.
 
 ## Obsidian
 

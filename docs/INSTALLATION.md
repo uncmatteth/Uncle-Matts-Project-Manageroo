@@ -92,6 +92,7 @@ umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
+umsmfburasbofe repair-install --no-apply
 ```
 
 ## Token reduction
@@ -116,18 +117,67 @@ backs it up before installing the bundled copy.
 
 ```bash
 cd /absolute/path/to/product
-umsmfburasbofe init --agent codex
-umsmfburasbofe doctor
+umsmfburasbofe setup
 ```
 
+Bare `setup` is the first-run wizard. It asks:
+
+- what AI you are using;
+- what repo should be initialized;
+- whether to check GBrain, GitNexus, Obsidian, or Loop Library.
+
 Use `--agent codex` only when this tool should launch Codex itself. Use
-`--agent generic` for another CLI and configure `[agent].argv_template` in
-`.umsmfburasbofe/config.toml`.
+`umsmfburasbofe agent list` to see starter presets:
+
+```bash
+umsmfburasbofe agent list
+umsmfburasbofe agent preset gemini
+umsmfburasbofe agent preset generic
+```
+
+The non-Codex presets are command templates. If your CLI needs different flags,
+edit `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
 
 If an AI IDE can read the repo and run commands, it does not need a special
 vendor build. Give it the installed command plus the repo-local skill.
 
 No IDE-specific directory is created.
+
+Create a normal-language brief:
+
+```bash
+umsmfburasbofe brief \
+  --want "Say exactly what should be built or fixed" \
+  --outcome "The result that must be true" \
+  --must-not "Anything the agent must not touch" \
+  --proof "The check or demo that proves it worked" \
+  --force
+```
+
+Check whether it is ready to run:
+
+```bash
+umsmfburasbofe ready
+```
+
+If GBrain should know this repo, inspect first and map only the selected folder:
+
+```bash
+umsmfburasbofe gbrain-setup
+umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
+```
+
+Run the default build flow:
+
+```bash
+umsmfburasbofe run --apply
+```
+
+For already-broken code:
+
+```bash
+umsmfburasbofe run --mode repair --apply
+```
 
 ## Use a Loop Library loop
 
@@ -162,6 +212,13 @@ third-party tools are separate.
 ```bash
 rm -rf "$HOME/.local/share/umsmfburasbofe"
 rm -f "$HOME/.local/bin/umsmfburasbofe" "$HOME/.local/bin/umsmfburasbofe.cmd"
+```
+
+If the launcher or helper skills get damaged, run:
+
+```bash
+umsmfburasbofe repair-install --no-apply
+umsmfburasbofe repair-install
 ```
 
 

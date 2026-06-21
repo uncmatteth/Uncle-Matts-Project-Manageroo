@@ -12,6 +12,7 @@ from .adapters.base import AgentAdapter, AgentRequest
 from .adapters.factory import build_adapter
 from .artifacts import ArtifactStore
 from .assets import asset_path
+from .branding import PROJECT_DIR
 from .config import load_config
 from .context import ContextCompiler, ContextRequest
 from .errors import (
@@ -23,8 +24,9 @@ from .errors import (
 )
 from .gates import Gate, GateRunner, gates_from_config
 from .ideas import IdeaInbox
-from .integrations import ObsidianIntegration
+from .integrations import ExternalCommandIntegration, ObsidianIntegration, command_record
 from .inventory import build_inventory, inventory_summary
+from .map_cache import load_system_map_cache, write_system_map_cache
 from .policy import CommandPolicy, ScopePolicy
 from .report import write_report
 from .review import run_isolated_review
@@ -70,6 +72,10 @@ def _compact_json(value: Any, max_chars: int = 180_000) -> str:
             "The preceding phase must reduce or partition it."
         )
     return text
+
+
+def _one_line_query(text: str, max_chars: int = 1200) -> str:
+    return " ".join(text.split())[:max_chars]
 
 
 class Orchestrator:
@@ -123,6 +129,16 @@ class Orchestrator:
     def _max_parallel_agent_calls(self) -> int:
         value = self.config.get("orchestration", {}).get("max_parallel_agent_calls", 1)
         return max(1, int(value))
+
+    def _summary_cache_path(self) -> Path:
+        path = self.source_repo / PROJECT_DIR / "cache" / "file-summaries.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _system_map_cache_path(self) -> Path:
+        path = self.source_repo / PROJECT_DIR / "cache" / "system-map.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     def _parallel_map(
         self,
@@ -301,7 +317,135 @@ class Orchestrator:
         gate_runner = GateRunner(self.runner, policy, self.logs)
         return [item.to_dict() for item in gate_runner.run(gates, workspace)]
 
+    def _external_values(self, *, brief: str) -> dict[str, str]:
+        assert self.workspace is not None
+        return {
+            "repo": str(self.source_repo),
+            "workspace": str(self.workspace),
+            "run_root": str(self.run_root),
+            "query": _one_line_query(brief),
+            "brief_file": str(self.artifacts.root / "intake" / "product-brief.md"),
+            "inventory_file": str(self.artifacts.root / "discovery" / "inventory.json"),
+            "obsidian_context_file": str(self.artifacts.root / "discovery" / "obsidian-context.json"),
+            "external_context_file": str(self.artifacts.root / "discovery" / "external-intelligence.json"),
+        }
+
+    def _run_optional_external_command(
+        self,
+        *,
+        name: str,
+        argv_template: list[str],
+        values: dict[str, str],
+        cwd: Path,
+        timeout_seconds: int = 180,
+    ) -> dict:
+        if not argv_template:
+            return {"name": name, "enabled": False, "ok": False}
+        try:
+            result = ExternalCommandIntegration(argv_template, self.runner).run(
+                cwd=cwd,
+                values=values,
+                timeout_seconds=timeout_seconds,
+                log_name=f"external-{name}",
+            )
+            return command_record(name, result)
+        except Exception as exc:
+            return {
+                "name": name,
+                "enabled": True,
+                "ok": False,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+    def _external_intelligence(self, brief: str) -> dict:
+        cfg = self.config.get("integrations", {})
+        values = self._external_values(brief=brief)
+        commands = [
+            ("gbrain-search", cfg.get("gbrain_search_command", [])),
+            ("gitnexus-analyze", cfg.get("gitnexus_analyze_command", [])),
+            ("gitnexus-query", cfg.get("gitnexus_query_command", [])),
+        ]
+        records = [
+            self._run_optional_external_command(
+                name=name,
+                argv_template=list(argv_template or []),
+                values=values,
+                cwd=self.source_repo,
+            )
+            for name, argv_template in commands
+        ]
+        summary = {
+            "enabled": [item["name"] for item in records if item.get("enabled")],
+            "passed": [item["name"] for item in records if item.get("ok")],
+            "failed_optional": [
+                item["name"]
+                for item in records
+                if item.get("enabled") and not item.get("ok")
+            ],
+        }
+        payload = {
+            "summary": summary,
+            "records": records,
+            "note": (
+                "These tools are optional context. Passing output may inform planning; "
+                "failed or missing tools do not block the core controller run."
+            ),
+        }
+        self.artifacts.write_json("discovery/external-intelligence.json", payload, lock=True)
+        return payload
+
+    def _capture_external_outcome(
+        self,
+        *,
+        report_path: Path,
+        result_path: Path,
+        patch_path: Path,
+        result: dict,
+    ) -> dict | None:
+        cfg = self.config.get("integrations", {})
+        argv_template = list(cfg.get("gbrain_capture_command", []) or [])
+        if not argv_template:
+            return None
+        values = {
+            "repo": str(self.source_repo),
+            "run_root": str(self.run_root),
+            "report_file": str(report_path),
+            "result_file": str(result_path),
+            "patch_file": str(patch_path),
+            "status": str(result.get("status", "")),
+            "summary": str(result.get("product_summary", "")),
+            "files_changed": ",".join(result.get("files_changed", [])),
+        }
+        record = self._run_optional_external_command(
+            name="gbrain-capture",
+            argv_template=argv_template,
+            values=values,
+            cwd=self.source_repo,
+        )
+        payload = {
+            "summary": {
+                "enabled": True,
+                "passed": bool(record.get("ok")),
+                "failed_optional": [] if record.get("ok") else ["gbrain-capture"],
+            },
+            "records": [record],
+        }
+        self.artifacts.write_json("delivery/external-capture.json", payload)
+        return payload
+
     def _map_repository(self, inventory: list[dict], brief: str) -> dict:
+        cache_path = self._system_map_cache_path()
+        cached = load_system_map_cache(cache_path, inventory=inventory, brief=brief)
+        if cached is not None:
+            self.artifacts.write_json("planning/system-map.json", cached, lock=True)
+            self.artifacts.write_json(
+                "planning/system-map-cache.json",
+                {"status": "hit", "path": str(cache_path)},
+                lock=True,
+            )
+            return cached
+
         cfg = self.config["context"]
         chunks = ContextCompiler.partition_paths(
             inventory, max_tokens=int(cfg["map_chunk_tokens"])
@@ -378,6 +522,12 @@ class Orchestrator:
             metadata={"all_paths": [item["path"] for item in inventory]},
         )
         self.artifacts.write_json("planning/system-map.json", reduced, lock=True)
+        write_system_map_cache(cache_path, inventory=inventory, brief=brief, system_map=reduced)
+        self.artifacts.write_json(
+            "planning/system-map-cache.json",
+            {"status": "miss", "path": str(cache_path)},
+            lock=True,
+        )
         return reduced
 
     def _perform_review(
@@ -532,8 +682,10 @@ class Orchestrator:
                     self.workspace,
                     self.runner,
                     float(self.config["context"]["chars_per_token"]),
+                    summary_cache_path=self._summary_cache_path(),
                 )
             )
+            raw_inventory["summary_cache"] = str(self._summary_cache_path())
             inventory_files = raw_inventory["files"]
             self.artifacts.write_json("discovery/inventory.json", raw_inventory, lock=True)
 
@@ -543,6 +695,7 @@ class Orchestrator:
             )
             memory = obsidian.search(brief)
             self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
+            external_intelligence = self._external_intelligence(brief)
 
             product = self._call(
                 role="product-analyst",
@@ -559,6 +712,7 @@ class Orchestrator:
                     f"Product brief:\n{brief}\n\n"
                     f"Captured evolving ideas:\n{_compact_json(pending_ideas)}\n\n"
                     f"Relevant human notes:\n{_compact_json(memory)}\n\n"
+                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
                     f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
                 ),
                 context=self._documentation_context(inventory_files),
@@ -588,6 +742,7 @@ class Orchestrator:
                     "components. Record license uncertainty rather than inventing facts. "
                     "Do not install anything and do not edit the repository.\n\n"
                     f"Product model:\n{_compact_json(product)}\n\n"
+                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
                     f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
                 ),
                 context=self._documentation_context(inventory_files),
@@ -613,6 +768,7 @@ class Orchestrator:
                     f"Product model:\n{_compact_json(product)}\n\n"
                     f"Reuse report:\n{_compact_json(reuse)}\n\n"
                     f"System map:\n{_compact_json(system_map)}\n\n"
+                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
                     f"Available gate IDs: {gate_ids}"
                 ),
                 metadata={
@@ -870,8 +1026,19 @@ class Orchestrator:
                 }
             )
             report_path = self.run_root / "delivery" / "FINAL-REPORT.md"
+            final_result_path = self.run_root / "delivery" / "final-result.json"
             markdown = write_report(report_path, result)
-            atomic_write_json(self.run_root / "delivery" / "final-result.json", result)
+            atomic_write_json(final_result_path, result)
+            external_capture = self._capture_external_outcome(
+                report_path=report_path,
+                result_path=final_result_path,
+                patch_path=patch_path,
+                result=result,
+            )
+            if external_capture is not None:
+                result["external_capture"] = external_capture
+                markdown = write_report(report_path, result)
+                atomic_write_json(final_result_path, result)
             obsidian.export(f"{self.run_id}.md", markdown)
             self._transition(Phase.COMPLETE, "All required evidence passed; delivery complete")
             return result

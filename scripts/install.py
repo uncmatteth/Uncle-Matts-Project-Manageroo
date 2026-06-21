@@ -1085,7 +1085,11 @@ def main() -> int:
     print("  umsmfburasbofe self-test")
     print("  umsmfburasbofe skills list")
     print("  umsmfburasbofe stack-status")
-    print("  cd /path/to/project && umsmfburasbofe init --agent codex && umsmfburasbofe doctor")
+    print("  umsmfburasbofe repair-install --no-apply")
+    print("  cd /path/to/project && umsmfburasbofe setup --agent codex")
+    print('  umsmfburasbofe brief --want "Describe the result" --force')
+    print("  umsmfburasbofe ready")
+    print("  umsmfburasbofe run --apply")
     print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
     return 0
 

@@ -12,6 +12,7 @@ The acronym is `UMSMFBURASBOFE` because this is incredibly super serious.
 You write what should be built or fixed.
 If the request is messy, $pimp-my-prompt can turn it into scope and proof.
 The tool reads the repo and breaks the job up.
+If configured, GBrain/GitNexus add memory and code-graph context.
 Independent map/review chunks can run in parallel.
 Media and big prose files are recorded as metadata or summaries.
 Your AI agent does the code work.
@@ -61,36 +62,57 @@ That installs `pimp-my-prompt` and `edit-skill` under `~/.agents/skills`.
 
 ```bash
 cd /absolute/path/to/product
-umsmfburasbofe init --agent codex
-umsmfburasbofe doctor
+umsmfburasbofe setup
 ```
 
-Use `--agent codex` when this tool should launch Codex. Use `--agent generic`
-for another CLI and configure `[agent].argv_template`.
+Bare `setup` is the wizard. It asks what AI you are using, which repo to use,
+and whether to check GBrain, GitNexus, Obsidian, or Loop Library.
+
+Use `--agent codex` when this tool should launch Codex. Use `umsmfburasbofe
+agent list` to see starter presets for other CLI agents. Use
+`umsmfburasbofe agent preset generic` when you want to edit the command template
+yourself.
 
 If an AI IDE is already driving the work, it does not need a special adapter. It
 can use the installed `umsmfburasbofe` command and the repo-local skill.
 
-Do not run a product build until `umsmfburasbofe doctor` reports `READY`.
-
-Edit:
-
-```text
-.umsmfburasbofe/PRODUCT-BRIEF.md
-```
-
-Tell it what done means and where to stop: proof required, max repair passes or
-time/cost budget, and anything the agent must not touch.
-
-Then:
+Make the brief:
 
 ```bash
-umsmfburasbofe run --repo . --mode build --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+umsmfburasbofe brief \
+  --want "Say exactly what you want built or fixed" \
+  --outcome "The visible result that must be true" \
+  --must-not "Anything the agent must not touch" \
+  --proof "The check or demo that proves it worked" \
+  --force
 ```
 
-For broken existing code, change `build` to `repair`.
+Check readiness:
 
-## What `umsmfburasbofe init` changes
+```bash
+umsmfburasbofe ready
+```
+
+If GBrain should know this repo, map only this folder:
+
+```bash
+umsmfburasbofe gbrain-setup
+umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
+```
+
+Run:
+
+```bash
+umsmfburasbofe run --apply
+```
+
+For broken existing code:
+
+```bash
+umsmfburasbofe run --mode repair --apply
+```
+
+## What `umsmfburasbofe setup` changes
 
 ```text
 .umsmfburasbofe/config.toml

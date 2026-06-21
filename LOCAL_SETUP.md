@@ -68,6 +68,7 @@ umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
+umsmfburasbofe repair-install --no-apply
 ```
 
 The self-test must return `"ok": true` and `"status": "COMPLETE"`.
@@ -80,13 +81,18 @@ For Codex, install/authenticate Codex and initialize with `--agent codex`:
 codex
 ```
 
-For another CLI that this tool should launch itself, initialize with
-`--agent generic`, then configure `[agent].argv_template` in
-`.umsmfburasbofe/config.toml`.
+For another CLI that this tool should launch itself, use a preset:
+
+```bash
+umsmfburasbofe agent list
+```
+
+The non-Codex presets are command templates. If your CLI needs different flags,
+edit `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
 
 For an AI IDE that is already running in the repo, do not make this harder than
 it is. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created
-by `umsmfburasbofe init`.
+by `umsmfburasbofe setup`.
 
 Switch token-reduction mode later:
 
@@ -102,39 +108,60 @@ The target must already be a Git repository.
 
 ```bash
 cd /absolute/path/to/product
-umsmfburasbofe init --agent codex
-umsmfburasbofe doctor --json
+umsmfburasbofe setup
 ```
 
-Use `--agent codex` only when Codex is the selected runtime. Use
-`--agent generic` for another CLI and configure `[agent].argv_template`.
+Bare `setup` asks what AI you are using, which repo to initialize, and whether
+to check GBrain, GitNexus, Obsidian, or Loop Library.
 
-Do not continue until `doctor.ok` is `true`. If no verification gates were detected, add explicit `[[verification.gates]]` entries to `.umsmfburasbofe/config.toml` using the project's real test, lint, type-check, or build commands.
+Use `--agent codex` only when Codex is the selected runtime. Use
+`umsmfburasbofe agent preset generic` for another CLI and configure
+`[agent].argv_template`.
+
+Do not continue until `umsmfburasbofe ready` reports `READY TO RUN`. If no
+verification gates were detected, add explicit `[[verification.gates]]` entries
+to `.umsmfburasbofe/config.toml` using the project's real test, lint,
+type-check, or build commands.
 
 ## 6. Write the product request
 
-Edit:
+Create the first brief:
 
-```text
-.umsmfburasbofe/PRODUCT-BRIEF.md
+```bash
+umsmfburasbofe brief \
+  --want "Describe what should be built or fixed" \
+  --outcome "The result that must be true" \
+  --must-not "Anything the agent must not touch" \
+  --proof "The check or demo that proves it worked" \
+  --force
 ```
 
-Describe what the product should do, what it must not break, what is out of
-scope, and how you want the result demonstrated. You do not need to tell the
-agent which functions to edit.
+You can still hand-edit `.umsmfburasbofe/PRODUCT-BRIEF.md` afterward.
+
+If GBrain should know this repo, map only the chosen folder:
+
+```bash
+umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
+```
+
+Then:
+
+```bash
+umsmfburasbofe ready
+```
 
 ## 7. Run UMSMFBURASBOFE
 
 New product or feature:
 
 ```bash
-umsmfburasbofe run --repo . --mode build --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+umsmfburasbofe run --apply
 ```
 
 Repair existing code:
 
 ```bash
-umsmfburasbofe run --repo . --mode repair --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+umsmfburasbofe run --mode repair --apply
 ```
 
 ## 8. Read the result

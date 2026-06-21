@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
 from . import __version__
 from .branding import FULL_ACRONYM, PROJECT_DIR, PUBLIC_COMMAND, print_banner
+from .brief_builder import build_product_brief, default_brief_path, write_product_brief
 from .chiptune import play_once
+from .config import AGENT_PRESETS, apply_agent_preset
 from .doctor import doctor
 from .errors import UMSMFBURASBOFEError
+from .gbrain_setup import format_gbrain_setup, gbrain_setup_status
 from .ideas import IdeaInbox
 from .install_status import (
     format_stack_status,
@@ -17,6 +21,7 @@ from .install_status import (
     stack_status,
     uninstall_plan,
 )
+from .install_repair import format_repair_install, repair_install
 from .loop_library import (
     DEFAULT_CATALOG_URL,
     find_loop,
@@ -30,6 +35,7 @@ from .loop_library import (
 )
 from .orchestrator import Orchestrator
 from .project import git_root, initialize_project
+from .readiness import format_readiness, readiness
 from .selftest import run_self_test
 from .token_modes import (
     CORE_HELPER_SKILLS,
@@ -39,10 +45,105 @@ from .token_modes import (
     set_token_mode,
 )
 from .util import read_json
+from .wizards import collect_gbrain_answers, collect_setup_answers
 
 
 def _repo(value: str | None) -> Path:
     return git_root(Path(value or ".").resolve())
+
+
+def _prompt_missing(value: str, prompt: str) -> str:
+    if value.strip() or not sys.stdin.isatty():
+        return value
+    return input(prompt).strip()
+
+
+def _integration_guidance(preferences: dict[str, bool], agent: str) -> list[dict]:
+    items: list[dict] = []
+    if preferences.get("gbrain"):
+        report = gbrain_setup_status()
+        source_count = report.get("status", {}).get("source_count", 0)
+        gbrain_ready = bool(report.get("ok") and source_count > 0)
+        next_command = (
+            "umsmfburasbofe gbrain-setup --source-id my-project "
+            "--path /absolute/path/to/repo --apply --sync"
+        )
+        if report.get("next_commands"):
+            next_command = report["next_commands"][0]
+        items.append(
+            {
+                "name": "gbrain",
+                "ok": gbrain_ready,
+                "detail": (
+                    "mapped sources ready"
+                    if gbrain_ready
+                    else "needs install, health fix, MCP wiring, or source mapping"
+                ),
+                "next": (
+                    "Connect `gbrain serve` to your selected agent."
+                    if gbrain_ready
+                    else next_command
+                ),
+            }
+        )
+    if preferences.get("gitnexus"):
+        installed = shutil.which("gitnexus")
+        items.append(
+            {
+                "name": "gitnexus",
+                "ok": bool(installed),
+                "detail": installed or "missing",
+                "next": "gitnexus setup" if installed else "npm install -g gitnexus",
+            }
+        )
+    if preferences.get("obsidian"):
+        installed = shutil.which("obsidian")
+        items.append(
+            {
+                "name": "obsidian",
+                "ok": bool(installed),
+                "detail": installed or "missing",
+                "next": "Install Obsidian from https://obsidian.md/download",
+            }
+        )
+    if preferences.get("loop_library"):
+        npx = shutil.which("npx")
+        candidates = [
+            Path.home() / ".agents" / "skills" / "loop-library" / "SKILL.md",
+            Path.home() / ".codex" / "skills" / "loop-library" / "SKILL.md",
+        ]
+        existing = next((path for path in candidates if path.is_file()), None)
+        command = (
+            "npx --yes skills add Forward-Future/loop-library "
+            f"--skill loop-library --agent {agent} -g -y"
+        )
+        items.append(
+            {
+                "name": "loop-library",
+                "ok": bool(existing),
+                "detail": str(existing) if existing else "missing agent skill",
+                "next": (
+                    ""
+                    if existing
+                    else command
+                    if npx
+                    else "Install Node.js/npm, then rerun setup."
+                ),
+            }
+        )
+    return items
+
+
+def _format_integration_guidance(items: list[dict]) -> str:
+    if not items:
+        return ""
+    lines = ["Selected integrations:"]
+    for item in items:
+        label = "OK" if item.get("ok") else "ACTION"
+        lines.append(f"{label} {item['name']}: {item['detail']}")
+        if item.get("next"):
+            lines.append(f"Next: {item['next']}")
+    return "\n".join(lines) + "\n"
 
 
 def parser() -> argparse.ArgumentParser:
@@ -55,7 +156,56 @@ def parser() -> argparse.ArgumentParser:
 
     init = sub.add_parser("init", help=f"Install project-local {FULL_ACRONYM} assets.")
     init.add_argument("repo", nargs="?", default=".")
-    init.add_argument("--agent", choices=["codex", "mock", "generic"], default="codex")
+    init.add_argument("--agent", choices=sorted(AGENT_PRESETS), default="codex")
+
+    setup = sub.add_parser("setup", help="Guided first-run setup for a product repository.")
+    setup.add_argument("repo", nargs="?")
+    setup.add_argument("--agent", choices=sorted(AGENT_PRESETS))
+    setup.add_argument("--token-mode", choices=["off", "caveman", "curse"])
+    setup.add_argument("--skip-skills", action="store_true")
+    setup.add_argument("--json", action="store_true")
+
+    ready = sub.add_parser("ready", help="Say exactly what is ready, missing, optional, and next.")
+    ready.add_argument("repo", nargs="?", default=".")
+    ready.add_argument("--require-gbrain", action="store_true")
+    ready.add_argument("--json", action="store_true")
+
+    brief = sub.add_parser(
+        "brief",
+        help="Turn a plain request into .umsmfburasbofe/PRODUCT-BRIEF.md.",
+    )
+    brief.add_argument("repo", nargs="?", default=".")
+    brief.add_argument("--want", default="")
+    brief.add_argument("--for", dest="audience", default="")
+    brief.add_argument("--outcome", action="append", default=[])
+    brief.add_argument("--must-not", action="append", default=[])
+    brief.add_argument("--proof", action="append", default=[])
+    brief.add_argument("--stop", default="")
+    brief.add_argument("--later", action="append", default=[])
+    brief.add_argument("--output", type=Path)
+    brief.add_argument("--force", action="store_true")
+    brief.add_argument("--print", dest="print_brief", action="store_true")
+
+    gbrain_setup = sub.add_parser(
+        "gbrain-setup",
+        help="Inspect and safely map selected folders into GBrain.",
+    )
+    gbrain_setup.add_argument("--source-id")
+    gbrain_setup.add_argument("--path", type=Path)
+    gbrain_setup.add_argument("--apply", action="store_true")
+    gbrain_setup.add_argument("--sync", action="store_true")
+    gbrain_setup.add_argument("--json", action="store_true")
+
+    agent = sub.add_parser("agent", help="Inspect or switch agent CLI presets.")
+    agent_sub = agent.add_subparsers(dest="agent_command", required=True)
+    agent_sub.add_parser("list", help="List built-in agent presets.")
+    agent_preset_cmd = agent_sub.add_parser(
+        "preset",
+        help="Apply one agent preset to an initialized repo.",
+    )
+    agent_preset_cmd.add_argument("name", choices=sorted(AGENT_PRESETS))
+    agent_preset_cmd.add_argument("repo", nargs="?", default=".")
+    agent_preset_cmd.add_argument("--json", action="store_true")
 
     doc = sub.add_parser("doctor", help="Validate the local environment without modifying code.")
     doc.add_argument("repo", nargs="?", default=".")
@@ -63,8 +213,8 @@ def parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="Run the complete one-request workflow.")
     run.add_argument("--repo", default=".")
-    run.add_argument("--brief", required=True)
-    run.add_argument("--mode", choices=["build", "repair"], required=True)
+    run.add_argument("--brief")
+    run.add_argument("--mode", choices=["build", "repair"], default="build")
     apply_group = run.add_mutually_exclusive_group()
     apply_group.add_argument("--apply", action="store_true")
     apply_group.add_argument("--no-apply", action="store_true")
@@ -115,6 +265,15 @@ def parser() -> argparse.ArgumentParser:
     uninstall.add_argument("--bin-dir", type=Path)
     uninstall.add_argument("--json", action="store_true")
 
+    repair = sub.add_parser(
+        "repair-install",
+        help="Inspect and repair the local launcher/helper install.",
+    )
+    repair.add_argument("--prefix", type=Path)
+    repair.add_argument("--bin-dir", type=Path)
+    repair.add_argument("--no-apply", action="store_true")
+    repair.add_argument("--json", action="store_true")
+
     loops = sub.add_parser("loop-library", help="Use Matthew Berman / Forward Future Loop Library loops.")
     loops.add_argument("--catalog-url", default=DEFAULT_CATALOG_URL)
     loops.add_argument("--catalog-file", type=Path)
@@ -147,6 +306,103 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2))
             return 0
 
+        if args.command == "setup":
+            answers = collect_setup_answers(
+                repo=args.repo,
+                agent=args.agent,
+                interactive=sys.stdin.isatty() and not args.json,
+            )
+            result = initialize_project(Path(answers["repo"]), agent=answers["agent"])
+            repo = Path(result["repo"])
+            agent_result = apply_agent_preset(repo, answers["agent"])
+            skills_result = [] if args.skip_skills else install_core_helper_skills()
+            token_result = set_token_mode(args.token_mode) if args.token_mode else read_token_mode()
+            integrations = _integration_guidance(answers["integrations"], answers["agent"])
+            ready_result = readiness(repo)
+            payload = {
+                "ok": True,
+                "init": result,
+                "agent": agent_result,
+                "installed_skills": skills_result,
+                "token_mode": token_result,
+                "selected_integrations": integrations,
+                "readiness": ready_result,
+            }
+            if args.json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print("SETUP COMPLETE")
+                print(f"Repo: {result['repo']}")
+                print(f"Brief: {result['brief']}")
+                print(f"Agent preset: {answers['agent']}")
+                if integrations:
+                    print("")
+                    print(_format_integration_guidance(integrations), end="")
+                print("")
+                print(format_readiness(ready_result), end="")
+            return 0
+
+        if args.command == "ready":
+            result = readiness(Path(args.repo).resolve(), require_gbrain=args.require_gbrain)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_readiness(result), end="")
+            return 0 if result["ok"] else 2
+
+        if args.command == "brief":
+            repo = _repo(args.repo)
+            want = _prompt_missing(args.want, "What do you want this repo to do/change? ")
+            audience = _prompt_missing(args.audience, "Who is it for? ")
+            markdown = build_product_brief(
+                want=want,
+                audience=audience,
+                outcomes=args.outcome,
+                must_not=args.must_not,
+                proof=args.proof,
+                stop_rule=args.stop,
+                later=args.later,
+            )
+            output = args.output or default_brief_path(repo)
+            if args.print_brief:
+                print(markdown)
+            else:
+                path = write_product_brief(output, markdown, force=args.force)
+                print(path)
+            return 0
+
+        if args.command == "gbrain-setup":
+            answers = collect_gbrain_answers(
+                source_id=args.source_id,
+                source_path=args.path,
+                apply=args.apply,
+                sync=args.sync,
+                interactive=sys.stdin.isatty() and not args.json,
+            )
+            result = gbrain_setup_status(
+                source_id=answers["source_id"],
+                source_path=answers["source_path"],
+                apply=answers["apply"],
+                sync=answers["sync"],
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_gbrain_setup(result), end="")
+            return 0 if result["ok"] else 2
+
+        if args.command == "agent":
+            if args.agent_command == "list":
+                print(json.dumps({"presets": sorted(AGENT_PRESETS)}, indent=2))
+                return 0
+            repo = _repo(args.repo)
+            result = apply_agent_preset(repo, args.name)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"Applied agent preset `{args.name}` to {result['config']}")
+            return 0
+
         if args.command == "doctor":
             result = doctor(_repo(args.repo))
             if args.json:
@@ -160,8 +416,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             repo = _repo(args.repo)
             apply_override = True if args.apply else False if args.no_apply else None
+            brief_path = (
+                Path(args.brief).resolve()
+                if args.brief
+                else repo / PROJECT_DIR / "PRODUCT-BRIEF.md"
+            )
             result = Orchestrator(repo).run(
-                brief_path=Path(args.brief),
+                brief_path=brief_path,
                 mode=args.mode,
                 apply_on_success=apply_override,
             )
@@ -234,6 +495,18 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_uninstall_plan(result), end="")
             return 0
+
+        if args.command == "repair-install":
+            result = repair_install(
+                prefix=args.prefix,
+                bin_dir=args.bin_dir,
+                apply=not args.no_apply,
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_repair_install(result), end="")
+            return 0 if result["ok"] else 2
 
         if args.command == "loop-library":
             catalog = load_catalog(

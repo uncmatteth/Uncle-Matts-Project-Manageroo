@@ -29,6 +29,8 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
   `pimp-my-prompt` skill helps turn it into exact scope, proof, and stop rules
   without losing what you meant.
 - `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
+- If GBrain or GitNexus commands are configured, it asks them for useful memory
+  or code-graph context during discovery and records what worked or failed.
 - Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
 - Pictures, PDFs, and big prose files are not invisible. The tool records media metadata and bounded prose summaries so the agent knows they exist and can ask for the right slice.
 - Most UMSMFBURASBOFE work is a `goal`: keep going until a verifiable outcome is true, then stop.
@@ -148,6 +150,7 @@ After install, inspect what happened:
 ```bash
 umsmfburasbofe stack-status
 umsmfburasbofe uninstall-plan
+umsmfburasbofe repair-install --no-apply
 ```
 
 Disable terminal presentation only when needed:
@@ -185,13 +188,27 @@ umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 cd /absolute/path/to/your/git-project
-umsmfburasbofe init --agent codex
-umsmfburasbofe doctor
+umsmfburasbofe setup
 ```
 
-Use `--agent codex` when this tool should launch Codex itself. Use
-`--agent generic` for another CLI, then set `[agent].argv_template` in
-`.umsmfburasbofe/config.toml`.
+Run bare `setup` for the wizard. It asks:
+
+- what AI you are using;
+- what repo you want to work on;
+- whether you want GBrain, GitNexus, Obsidian, or Loop Library help.
+
+Use `--agent codex` when this tool should launch Codex itself. Use another
+preset when the agent CLI is already installed and you do not want the prompt:
+
+```bash
+umsmfburasbofe agent list
+umsmfburasbofe setup --agent gemini
+umsmfburasbofe agent preset generic
+```
+
+The `generic`, `gemini`, and `claude-code` presets are command templates. They
+are useful starters, not separate vendor products. If your CLI needs different
+flags, edit `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
 
 If you are using an AI IDE or another agent shell, it does not need a special
 build of this thing. If it can read files and run commands in the repo, it can
@@ -220,6 +237,51 @@ Then a compatible agent can call `$pimp-my-prompt` or `$edit-skill` directly.
 The intended workflow is long-running agent threads with compaction, plus small
 skills that get tightened instead of growing forever.
 
+Make the first brief without hand-editing the template:
+
+```bash
+umsmfburasbofe brief \
+  --want "Make checkout less confusing without breaking admin exports." \
+  --outcome "One clear payment path" \
+  --must-not "Do not change admin order export" \
+  --proof "Run checkout tests" \
+  --force
+```
+
+Then check the whole setup:
+
+```bash
+umsmfburasbofe ready
+```
+
+If you want GBrain memory mapped for this repo, inspect first and add only the
+folder you choose. Run bare `gbrain-setup` for the prompt, or pass everything
+explicitly:
+
+```bash
+umsmfburasbofe gbrain-setup
+umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
+```
+
+If you want `run` to use your memory or code graph, wire the commands in
+`.umsmfburasbofe/config.toml`. Empty arrays mean off. Failed optional tools are
+recorded, but they do not block the normal controller path:
+
+```toml
+[integrations]
+gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
+gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
+gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
+gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
+```
+
+If the local command gets broken after install, inspect or repair it:
+
+```bash
+umsmfburasbofe repair-install --no-apply
+umsmfburasbofe repair-install
+```
+
 Use Matthew Berman / Forward Future's Loop Library directly when a published
 loop is the right shape for the job:
 
@@ -237,15 +299,21 @@ and states the verifier rule: the worker does not grade itself. The catalog is
 cached for offline fallback. It does not install Loop Library or make it a
 required dependency.
 
-Complete `.umsmfburasbofe/PRODUCT-BRIEF.md`, then run one of:
+Run the build:
 
 ```bash
-umsmfburasbofe run --repo . --mode build --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+umsmfburasbofe run --apply
 ```
 
+For already-broken code:
+
 ```bash
-umsmfburasbofe run --repo . --mode repair --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+umsmfburasbofe run --mode repair --apply
 ```
+
+`run` defaults to the current repo, `.umsmfburasbofe/PRODUCT-BRIEF.md`, and
+`build` mode. You can still pass `--repo`, `--brief`, and `--mode` explicitly
+when scripting.
 
 ## Context-window control
 
@@ -254,6 +322,25 @@ tool does not trust the chat to remember everything. It stores state on disk,
 records hashes and line ranges, tracks omitted files, refuses silent truncation,
 uses generated summaries for media and oversized prose when explicitly requested,
 and rejects stale packets.
+
+Unchanged file/media/prose summaries are cached under:
+
+```text
+.umsmfburasbofe/cache/file-summaries.json
+.umsmfburasbofe/cache/system-map.json
+```
+
+The cache is keyed by file path, size, and SHA-256. If a file changes, its
+summary is regenerated. If it does not change, the next run reuses the summary
+instead of doing that work again. The system-map cache is stricter: it reuses
+the repo map only when the inventory fingerprint and product brief hash match
+exactly.
+
+Configured GBrain and GitNexus commands are treated as optional context, not as
+the source of truth. Passing output is included in the planning prompts. Missing
+or failing tools are written to
+`.umsmfburasbofe/runs/<run-id>/artifacts/discovery/external-intelligence.json`
+so you can see exactly what happened.
 
 See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).
 

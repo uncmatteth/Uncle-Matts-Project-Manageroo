@@ -21,8 +21,21 @@ Agents are forbidden from editing it during a run.
 - `executable`: executable name or absolute path.
 - `model`: optional provider model override.
 - `timeout_seconds`: maximum time for one fresh role process.
+- `argv_template`: required for `generic` agents. Supported placeholders are
+  `{prompt}`, `{schema}`, `{output}`, `{cwd}`, `{role}`, and `{sandbox}`.
 
-`mock` exists only for deterministic harness validation.
+Built-in presets:
+
+```bash
+umsmfburasbofe agent list
+umsmfburasbofe agent preset codex
+umsmfburasbofe agent preset gemini
+umsmfburasbofe agent preset generic
+```
+
+`mock` exists only for deterministic harness validation. Non-Codex presets are
+starter command templates; edit `argv_template` when your agent CLI needs a
+different invocation.
 
 ## Token Mode
 
@@ -80,3 +93,43 @@ Planning agents may reference gate IDs. They may not introduce argv commands.
 ## `[integrations]`
 
 Stack integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery still belongs to UMSMFBURASBOFE state, scope, gates, and evidence.
+
+Configured commands are optional intelligence, not hard dependencies. They run
+with bounded timeouts, write redacted output artifacts, and do not block the
+core run if they fail.
+
+Discovery command placeholders:
+
+```text
+{repo}
+{workspace}
+{run_root}
+{query}
+{brief_file}
+{inventory_file}
+{obsidian_context_file}
+{external_context_file}
+```
+
+Final capture command placeholders:
+
+```text
+{repo}
+{run_root}
+{report_file}
+{result_file}
+{patch_file}
+{status}
+{summary}
+{files_changed}
+```
+
+Example:
+
+```toml
+[integrations]
+gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
+gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
+gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
+gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
+```

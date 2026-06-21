@@ -15,6 +15,12 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It includes `pimp-my-prompt`, so rough, long, frustrated, or half-formed requests can become clear scope, proof, and stop rules.
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
 - It includes two token-reduction modes: clean `caveman` and profane `curse`.
+- The normal path is simple: `setup`, `brief`, `ready`, then `run --apply`.
+- Bare `setup` is a wizard: AI choice, repo path, and optional stack checks.
+- If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.
+- `gbrain-setup` can prompt for one selected folder. No broad personal-folder crawl.
+- `agent list` and `agent preset` make Codex, Gemini, Claude Code, mock, or generic CLI setup visible instead of hidden in docs.
+- `repair-install` inspects and fixes the local launcher/helper install.
 - It was built around GBrain, GitNexus, Obsidian, AUTOREVIEW, Clawpatch, and any AI IDE or CLI agent that can run commands in the repo.
 - The installer can guide or install the recommended local stack: GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew Berman / Forward Future's Loop Library skill.
 - Credit to Matthew Berman / Forward Future's Loop Library for making the agent-loop idea easy to point at: bounded action, fixed check, stop condition, evidence.

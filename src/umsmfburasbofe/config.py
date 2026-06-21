@@ -58,6 +58,50 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
 }
 
+AGENT_PRESETS: dict[str, dict[str, Any]] = {
+    "codex": {
+        "adapter": "codex",
+        "executable": "codex",
+        "model": "",
+        "timeout_seconds": 3600,
+    },
+    "mock": {
+        "adapter": "mock",
+        "executable": "python",
+        "model": "",
+        "timeout_seconds": 3600,
+    },
+    "generic": {
+        "adapter": "generic",
+        "executable": "YOUR_AGENT",
+        "model": "",
+        "timeout_seconds": 3600,
+        "argv_template": [
+            "YOUR_AGENT",
+            "--prompt-file",
+            "{prompt}",
+            "--schema",
+            "{schema}",
+            "--output",
+            "{output}",
+        ],
+    },
+    "claude-code": {
+        "adapter": "generic",
+        "executable": "claude",
+        "model": "",
+        "timeout_seconds": 3600,
+        "argv_template": ["claude", "-p", "{prompt}"],
+    },
+    "gemini": {
+        "adapter": "generic",
+        "executable": "gemini",
+        "model": "",
+        "timeout_seconds": 3600,
+        "argv_template": ["gemini", "-p", "{prompt}"],
+    },
+}
+
 
 def _merge(base: dict, override: dict) -> dict:
     merged = copy.deepcopy(base)
@@ -78,6 +122,47 @@ def load_config(repo: Path) -> dict[str, Any]:
     return _merge(DEFAULT_CONFIG, raw)
 
 
+def agent_preset(name: str) -> dict[str, Any]:
+    try:
+        return copy.deepcopy(AGENT_PRESETS[name])
+    except KeyError as exc:
+        available = ", ".join(sorted(AGENT_PRESETS))
+        raise ConfigurationError(f"Unknown agent preset {name!r}. Available: {available}") from exc
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(json.dumps(item) for item in value) + "]"
+    return json.dumps(str(value))
+
+
+def _agent_block(preset_name: str, timeout_seconds: int | None = None) -> str:
+    preset = agent_preset(preset_name)
+    if timeout_seconds is not None:
+        preset["timeout_seconds"] = timeout_seconds
+    lines = ["[agent]"]
+    for key in ["adapter", "executable", "model", "timeout_seconds", "argv_template"]:
+        if key in preset:
+            lines.append(f"{key} = {_toml_value(preset[key])}")
+    return "\n".join(lines)
+
+
+def replace_agent_block(text: str, preset_name: str) -> str:
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines) if line.strip() == "[agent]"), None)
+    if start is None:
+        return _agent_block(preset_name) + "\n\n" + text.rstrip() + "\n"
+    end = start + 1
+    while end < len(lines) and not lines[end].lstrip().startswith("["):
+        end += 1
+    replacement = _agent_block(preset_name).splitlines()
+    return "\n".join([*lines[:start], *replacement, "", *lines[end:]]).rstrip() + "\n"
+
+
 def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
     lines = [
         f"# {FULL_ACRONYM} Ultimate Remix All-Star Booty of Fire Edition project configuration.",
@@ -89,11 +174,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "max_plan_review_cycles = 2",
         "require_demonstration = true",
         "",
-        "[agent]",
-        f'adapter = "{agent}"',
-        f'executable = "{agent if agent != "mock" else "python"}"',
-        'model = ""',
-        "timeout_seconds = 3600",
+        _agent_block(agent),
         "",
         "[context]",
         "max_input_tokens = 60000",
@@ -144,6 +225,20 @@ def write_config(repo: Path, agent: str, gates: list[dict[str, Any]]) -> Path:
     if not path.exists():
         atomic_write_text(path, config_template(agent, gates))
     return path
+
+
+def apply_agent_preset(repo: Path, preset_name: str) -> dict[str, Any]:
+    path = repo / PROJECT_DIR / "config.toml"
+    if not path.exists():
+        raise ConfigurationError(f"Missing {path}. Run `{PUBLIC_COMMAND} init` first.")
+    updated = replace_agent_block(path.read_text(encoding="utf-8", errors="replace"), preset_name)
+    atomic_write_text(path, updated)
+    return {
+        "repo": str(repo),
+        "config": str(path),
+        "preset": preset_name,
+        "agent": agent_preset(preset_name),
+    }
 
 
 def executable_exists(config: dict[str, Any]) -> bool:

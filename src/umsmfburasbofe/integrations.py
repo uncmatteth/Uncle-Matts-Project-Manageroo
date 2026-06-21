@@ -8,6 +8,9 @@ from .runner import CommandRunner
 from .util import atomic_write_text, safe_repo_relative
 
 
+MAX_EXTERNAL_TEXT_CHARS = 12_000
+
+
 def _terms(query: str) -> set[str]:
     return {item.lower() for item in re.findall(r"[a-zA-Z0-9_-]{3,}", query)}
 
@@ -62,8 +65,41 @@ class ExternalCommandIntegration:
     def enabled(self) -> bool:
         return bool(self.argv_template)
 
-    def run(self, *, cwd: Path, values: dict[str, str], timeout_seconds: int = 300):
+    def run(
+        self,
+        *,
+        cwd: Path,
+        values: dict[str, str],
+        timeout_seconds: int = 300,
+        log_name: str | None = None,
+    ):
         if not self.enabled:
             return None
         argv = [item.format(**values) for item in self.argv_template]
-        return self.runner.run(argv, cwd=cwd, timeout_seconds=timeout_seconds)
+        return self.runner.run(
+            argv,
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+            log_name=log_name,
+        )
+
+
+def command_record(name: str, result) -> dict:
+    if result is None:
+        return {"name": name, "enabled": False, "ok": False}
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    return {
+        "name": name,
+        "enabled": True,
+        "ok": result.passed,
+        "exit_code": result.exit_code,
+        "timed_out": result.timed_out,
+        "argv": result.argv,
+        "stdout": stdout[:MAX_EXTERNAL_TEXT_CHARS],
+        "stderr": stderr[:MAX_EXTERNAL_TEXT_CHARS],
+        "truncated": (
+            len(stdout) > MAX_EXTERNAL_TEXT_CHARS
+            or len(stderr) > MAX_EXTERNAL_TEXT_CHARS
+        ),
+    }
