@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .errors import ContextBudgetError, SafetyError
+from .file_inspection import content_kind_for_path, summary_for_context
 from .util import atomic_write_json, atomic_write_text, safe_repo_relative, sha256_file, sha256_text
 
 
@@ -16,6 +17,7 @@ class ContextRequest:
     priority: int = 50
     start_line: int | None = None
     end_line: int | None = None
+    mode: str = "full"
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,7 @@ class ContextEntry:
     excerpt_sha256: str
     bytes: int
     estimated_tokens: int
+    mode: str
 
 
 class ContextCompiler:
@@ -59,7 +62,7 @@ class ContextCompiler:
             raise ContextBudgetError("Context reserve leaves no usable input budget.")
         return usable
 
-    def _excerpt(self, request: ContextRequest) -> tuple[str, int, int, str]:
+    def _excerpt(self, request: ContextRequest) -> tuple[str, int, int, str, str]:
         relative = safe_repo_relative(request.path)
         path = (self.repo / relative).resolve()
         try:
@@ -68,6 +71,12 @@ class ContextCompiler:
             raise SafetyError(f"Context path escapes repository: {relative}") from exc
         if not path.is_file():
             raise ContextBudgetError(f"Required context file is missing: {relative}")
+        mode = request.mode or "full"
+        if mode not in {"full", "summary"}:
+            raise ContextBudgetError(f"Invalid context mode for {relative}: {mode}")
+        if mode == "summary" or content_kind_for_path(path) == "media":
+            summary, line_count = summary_for_context(path, relative)
+            return summary, 1, max(1, line_count), sha256_file(path), "summary"
         text = path.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
         start = request.start_line or 1
@@ -77,7 +86,7 @@ class ContextCompiler:
         excerpt = "\n".join(lines[start - 1 : end])
         if text.endswith("\n") and end == len(lines):
             excerpt += "\n"
-        return excerpt, start, end, sha256_file(path)
+        return excerpt, start, end, sha256_file(path), "full"
 
     def compile(
         self,
@@ -90,17 +99,22 @@ class ContextCompiler:
         packet = self.packet_root / packet_name
         packet.mkdir(parents=True, exist_ok=False)
 
-        prepared: list[tuple[ContextRequest, str, int, int, str, int]] = []
+        prepared: list[tuple[ContextRequest, str, int, int, str, int, str]] = []
         omitted: list[dict] = []
         for request in requests:
             try:
-                excerpt, start, end, source_hash = self._excerpt(request)
+                excerpt, start, end, source_hash, mode = self._excerpt(request)
             except ContextBudgetError:
                 if request.required:
                     raise
                 omitted.append({"path": request.path, "reason": "missing_or_invalid_optional"})
                 continue
             tokens = max(1, int(len(excerpt) / self.chars_per_token))
+            if mode == "summary" and tokens > self.max_single_file_tokens:
+                max_chars = max(80, int(self.max_single_file_tokens * self.chars_per_token))
+                suffix = "\n[Generated summary clipped to fit the context budget. Source hash retained.]"
+                excerpt = excerpt[: max(0, max_chars - len(suffix))].rstrip() + suffix
+                tokens = max(1, int(len(excerpt) / self.chars_per_token))
             if tokens > self.max_single_file_tokens:
                 if request.required:
                     raise ContextBudgetError(
@@ -109,7 +123,7 @@ class ContextCompiler:
                     )
                 omitted.append({"path": request.path, "reason": "optional_slice_too_large", "estimated_tokens": tokens})
                 continue
-            prepared.append((request, excerpt, start, end, source_hash, tokens))
+            prepared.append((request, excerpt, start, end, source_hash, tokens, mode))
 
         prepared.sort(key=lambda item: (not item[0].required, -item[0].priority, item[0].path))
         used = max(1, int(len(instructions) / self.chars_per_token))
@@ -118,9 +132,9 @@ class ContextCompiler:
                 "Role instructions alone exceed the usable context budget. "
                 "The preceding artifact must be reduced or the task decomposed."
             )
-        selected: list[tuple[ContextRequest, str, int, int, str, int]] = []
+        selected: list[tuple[ContextRequest, str, int, int, str, int, str]] = []
         for item in prepared:
-            request, excerpt, start, end, source_hash, tokens = item
+            request, excerpt, start, end, source_hash, tokens, mode = item
             if used + tokens > self.usable_tokens:
                 if request.required:
                     raise ContextBudgetError(
@@ -134,10 +148,11 @@ class ContextCompiler:
 
         entries: list[ContextEntry] = []
         sections = [instructions.rstrip(), "\n# Compiled context\n"]
-        for request, excerpt, start, end, source_hash, tokens in selected:
+        for request, excerpt, start, end, source_hash, tokens, mode in selected:
             sections.append(
                 f"\n## FILE: {request.path} L{start}-L{end}\n"
                 f"Reason: {request.reason}\n"
+                f"Mode: {mode}\n"
                 f"Source SHA-256: {source_hash}\n\n"
                 f"```text\n{excerpt.rstrip()}\n```\n"
             )
@@ -153,6 +168,7 @@ class ContextCompiler:
                     excerpt_sha256=sha256_text(excerpt),
                     bytes=len(excerpt.encode("utf-8")),
                     estimated_tokens=tokens,
+                    mode=mode,
                 )
             )
 

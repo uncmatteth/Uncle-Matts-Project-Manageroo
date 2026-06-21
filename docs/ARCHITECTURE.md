@@ -51,9 +51,14 @@ Only verified artifacts move between roles. Conversational reasoning does not.
 
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
-## Sequential implementation by default
+## Parallel map/review, sequential implementation
 
 Tasks are dependency ordered and executed sequentially in the same isolated integration repository. This is slower than unconstrained parallel editing but avoids incompatible branches and hidden interface assumptions. Repository mapping may run as bounded map/reduce; implementation prioritizes correctness over theatrical agent count.
+
+Independent repository-mapper chunks and isolated reviewer chunks can run in
+parallel through separate fresh agent calls. Their packet names, output files,
+and artifact ledger writes stay controller-owned. The controller does not run
+parallel implementation branches against the same files.
 
 ## External systems
 

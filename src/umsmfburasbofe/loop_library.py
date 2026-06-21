@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .errors import ConfigurationError
 from .util import atomic_write_text, slugify
@@ -14,17 +15,45 @@ DEFAULT_CATALOG_URL = "https://signals.forwardfuture.ai/loop-library/catalog.jso
 LOOP_LIBRARY_URL = "https://signals.forwardfuture.ai/loop-library/"
 
 
-def load_catalog(catalog_url: str = DEFAULT_CATALOG_URL, catalog_file: Path | None = None) -> dict[str, Any]:
-    if catalog_file:
-        return json.loads(catalog_file.expanduser().read_text(encoding="utf-8"))
+def default_cache_file() -> Path:
+    root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return root / "umsmfburasbofe" / "loop-library-catalog.json"
+
+
+def _fetch_catalog(catalog_url: str) -> dict[str, Any]:
     request = urllib.request.Request(
         catalog_url,
         headers={"User-Agent": "UMSMFBURASBOFE Loop Library client"},
     )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def load_catalog(
+    catalog_url: str = DEFAULT_CATALOG_URL,
+    catalog_file: Path | None = None,
+    *,
+    cache_file: Path | None = None,
+    refresh: bool = False,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if catalog_file:
+        return json.loads(catalog_file.expanduser().read_text(encoding="utf-8"))
+    cache = (cache_file or default_cache_file()).expanduser()
+    fetch = fetcher or _fetch_catalog
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        catalog = fetch(catalog_url)
+        catalog_loops(catalog)
+        atomic_write_text(cache, json.dumps(catalog, indent=2, sort_keys=True) + "\n")
+        return catalog
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError, ConfigurationError) as exc:
+        if cache.exists() and not refresh:
+            try:
+                cached = json.loads(cache.read_text(encoding="utf-8"))
+                catalog_loops(cached)
+                return cached
+            except (OSError, json.JSONDecodeError, ConfigurationError):
+                pass
         raise ConfigurationError(
             "Could not read Matthew Berman / Forward Future's Loop Library catalog. "
             "Check the network, or pass --catalog-file with a saved catalog JSON."
@@ -143,8 +172,40 @@ def _quoted_catalog_list(value: Any) -> str:
     )
 
 
+def _plain_catalog_items(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [" ".join(str(item).split()) for item in value if str(item).strip()]
+    if isinstance(value, dict):
+        return [" ".join(str(item).split()) for item in value.values() if str(item).strip()]
+    if value:
+        return [" ".join(str(value).split())]
+    return []
+
+
+def loop_control_profile(loop: dict[str, Any]) -> dict[str, Any]:
+    item = loop_summary(loop)
+    verification = _plain_catalog_items(
+        loop.get("verification") or loop.get("checks") or loop.get("successCriteria")
+    )
+    steps = _plain_catalog_items(loop.get("steps"))
+    return {
+        "source": "Loop Library",
+        "loop_id": item["id"],
+        "title": item["title"],
+        "credit": item["author"],
+        "url": item["url"],
+        "controller_mode": "build_or_repair",
+        "execution_shape": "bounded action, deterministic check, stop condition, evidence",
+        "suggested_steps": steps,
+        "suggested_verification": verification
+        or ["Use the repo's real tests, lint, typecheck, build, or manual proof commands."],
+        "trust_boundary": "catalog reference only; operator request and repo-local rules win",
+    }
+
+
 def loop_brief(loop: dict[str, Any], request: str = "") -> str:
     item = loop_summary(loop)
+    profile = loop_control_profile(loop)
     prompt = loop.get("prompt") or loop.get("instructions") or loop.get("body") or ""
     verification = loop.get("verification") or loop.get("checks") or loop.get("successCriteria") or []
     steps = loop.get("steps") or []
@@ -189,6 +250,12 @@ This run should use the Matthew Berman / Forward Future Loop Library pattern as
 the job shape, then apply UMSMFBURASBOFE's local repo controls: current files,
 bounded scope, deterministic checks, review, repair if needed, and final
 evidence.
+
+## Controller Profile
+
+```json
+{json.dumps(profile, indent=2, sort_keys=True)}
+```
 
 ## Trust Boundary
 

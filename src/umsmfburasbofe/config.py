@@ -32,6 +32,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_single_file_tokens": 18000,
         "map_chunk_tokens": 32000,
     },
+    "orchestration": {
+        "max_parallel_agent_calls": 4,
+        "parallel_mapping": True,
+        "parallel_review": True,
+    },
     "safety": {
         "allowed_programs": [
             "python", "python3", "node", "npm", "pnpm", "yarn", "bun",
@@ -96,6 +101,11 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "chars_per_token = 3.5",
         "max_single_file_tokens = 18000",
         "map_chunk_tokens = 32000",
+        "",
+        "[orchestration]",
+        "max_parallel_agent_calls = 4",
+        "parallel_mapping = true",
+        "parallel_review = true",
         "",
         "[safety]",
         'allowed_programs = ["python", "python3", "node", "npm", "pnpm", "yarn", "bun", "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make"]',

@@ -30,6 +30,7 @@ The manifest records:
 - inclusion reason;
 - required/optional status;
 - every omitted optional source and reason.
+- context mode: full source or generated summary.
 
 ## Hard rules
 
@@ -41,6 +42,8 @@ The manifest records:
 6. Fresh agent processes receive artifacts, not previous chat transcripts.
 7. Planning artifacts have explicit size limits and must be reduced before the next phase.
 8. Review is partitioned across changed-code chunks when the changed set exceeds the review packet budget.
+9. Media files are represented as generated metadata summaries, not silently skipped.
+10. Oversized prose can be included through explicit summary mode; full required prose still must be sliced or decomposed.
 
 ## Repository map/reduce
 
@@ -56,6 +59,18 @@ Git-visible inventory
 ```
 
 No mapper is expected to remember or inspect the entire repository.
+
+## Media and prose
+
+Git-visible images, PDFs, audio/video assets, and design files are included in
+inventory as media. The context packet includes metadata such as path, suffix,
+bytes, SHA-256, image dimensions when available, and approximate PDF page count
+when available. This is not OCR, screenshot analysis, or vision interpretation.
+
+Long Markdown/text/prose files are inventoried with line counts and generated
+summaries. A role may receive summary mode for discovery and planning. A task
+that needs exact prose still has to request line ranges that fit the context
+budget.
 
 ## Task context
 

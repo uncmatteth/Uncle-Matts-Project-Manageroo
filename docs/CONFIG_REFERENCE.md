@@ -48,6 +48,14 @@ The setting lives under the current user's config directory and is recorded in
 
 Required context exceeding a limit is not truncated; the plan must decompose.
 
+## `[orchestration]`
+
+- `max_parallel_agent_calls`: maximum fresh agent calls for independent chunks.
+- `parallel_mapping`: run repository-mapper chunks concurrently when possible.
+- `parallel_review`: run isolated reviewer chunks concurrently when possible.
+
+Implementation tasks still run in dependency order in one integration workspace.
+
 ## `[safety]`
 
 - `allowed_programs`: executable basenames permitted for controller-run gates.

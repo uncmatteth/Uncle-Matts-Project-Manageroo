@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from umsmfburasbofe.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from umsmfburasbofe.chiptune import ThemePlayback, play_once  # noqa: E402
+from umsmfburasbofe.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
 from umsmfburasbofe.token_modes import set_token_mode  # noqa: E402
 
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
@@ -91,12 +92,14 @@ def command_version(executable: str) -> str:
         return f"unavailable: {exc}"
 
 
-def install_launcher(bin_dir: Path, python: Path, app_root: Path) -> Path:
+def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         launcher = bin_dir / "umsmfburasbofe.cmd"
         launcher.write_text(
-            f'@set "PYTHONPATH={app_root}"\r\n@"{python}" -m umsmfburasbofe %*\r\n',
+            f'@set "PYTHONPATH={app_root}"\r\n'
+            f'@set "UMSMFBURASBOFE_PREFIX={prefix}"\r\n'
+            f'@"{python}" -m umsmfburasbofe %*\r\n',
             encoding="utf-8",
         )
     else:
@@ -104,6 +107,7 @@ def install_launcher(bin_dir: Path, python: Path, app_root: Path) -> Path:
         launcher.write_text(
             "#!/bin/sh\n"
             f'export PYTHONPATH="{app_root}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
+            f'export UMSMFBURASBOFE_PREFIX="{prefix}"\n'
             f'exec "{python}" -m umsmfburasbofe "$@"\n',
             encoding="utf-8",
         )
@@ -327,7 +331,7 @@ def install_gbrain(downloads: list[dict]) -> dict:
         "doctor_result": doctor_result,
         "next_commands": [
             "gbrain doctor",
-            "codex mcp add gbrain -- gbrain serve",
+            "Connect `gbrain serve` to the MCP settings for the AI IDE or CLI agent you selected.",
         ],
         "reference": "https://github.com/garrytan/gbrain/blob/master/docs/INSTALL.md",
     }
@@ -573,7 +577,7 @@ def install_loop_library(downloads: list[dict], agents: list[str]) -> dict:
             "loop-library",
             "No Loop Library agent target was selected.",
             [
-                "npx --yes skills add Forward-Future/loop-library --skill loop-library --agent codex -g -y",
+                "npx --yes skills add Forward-Future/loop-library --skill loop-library --agent YOUR_AGENT -g -y",
                 "npx --yes skills add Forward-Future/loop-library --skill loop-library -g",
             ],
             "https://github.com/Forward-Future/loop-library",
@@ -751,8 +755,8 @@ def main() -> int:
     parser.add_argument(
         "--loop-library-agent",
         action="append",
-        choices=["codex", "cursor", "claude-code"],
         default=[],
+        help="Agent target for the optional Loop Library skill, such as codex, cursor, claude-code, gemini, or another skills-compatible agent.",
     )
     parser.add_argument(
         "--obsidian-method",
@@ -827,6 +831,16 @@ def main() -> int:
                 }
             )
 
+        stack_summary = summarize_external_tools(external_tools)
+        status_line("STACK", f"{stack_summary['counts']['needs_action']} item(s) need follow-up")
+        for item in stack_summary["items"]:
+            state = "OK" if item["installed"] and not item["needs_action"] else "ACTION"
+            print(f"  {state} {item['name']}")
+            if item.get("reason"):
+                print(f"    {item['reason']}")
+            for command in item.get("next_commands", []):
+                print(f"    next: {command}")
+
         if not venv_root.exists():
             status_line("INSTALL", f"creating isolated runtime at {venv_root}")
             venv.EnvBuilder(with_pip=False, clear=False).create(venv_root)
@@ -838,7 +852,7 @@ def main() -> int:
         python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")
-        launcher = install_launcher(args.bin_dir.expanduser().resolve(), python, app_root)
+        launcher = install_launcher(args.bin_dir.expanduser().resolve(), python, app_root, prefix)
 
         installed_env = {"PYTHONPATH": str(app_root)}
         version = run([str(python), "-m", "umsmfburasbofe", "--version"], cwd=prefix, env=installed_env)
@@ -862,6 +876,8 @@ def main() -> int:
             "self_test_output": self_test_output,
             "token_mode": token_mode_record,
             "external_tools": external_tools,
+            "stack_summary": stack_summary,
+            "uninstall_plan": uninstall_plan(prefix, args.bin_dir.expanduser().resolve()),
             "network_downloads": downloads,
             "dependency_policy": (
                 "Core install is UMSMFBURASBOFE. Real runs require a configured agent "
@@ -884,6 +900,7 @@ def main() -> int:
     print("\nNext commands:")
     print("  umsmfburasbofe --version")
     print("  umsmfburasbofe self-test")
+    print("  umsmfburasbofe stack-status")
     print("  cd /path/to/project && umsmfburasbofe init --agent codex && umsmfburasbofe doctor")
     print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
     return 0

@@ -11,12 +11,19 @@ from .chiptune import play_once
 from .doctor import doctor
 from .errors import UMSMFBURASBOFEError
 from .ideas import IdeaInbox
+from .install_status import (
+    format_stack_status,
+    format_uninstall_plan,
+    stack_status,
+    uninstall_plan,
+)
 from .loop_library import (
     DEFAULT_CATALOG_URL,
     find_loop,
     format_loop_list,
     load_catalog,
     loop_brief,
+    loop_control_profile,
     loop_summary,
     search_loops,
     write_loop_brief,
@@ -88,15 +95,28 @@ def parser() -> argparse.ArgumentParser:
     token_sub.add_parser("status", help="Show selected token-reduction mode.")
     token_sub.add_parser("install-skills", help="Install bundled caveman token skills.")
 
+    stack = sub.add_parser("stack-status", help="Show installed/skipped/fix-next status for the guided local stack.")
+    stack.add_argument("--lock", type=Path)
+    stack.add_argument("--json", action="store_true")
+
+    uninstall = sub.add_parser("uninstall-plan", help="Print the core uninstall plan without deleting anything.")
+    uninstall.add_argument("--prefix", type=Path)
+    uninstall.add_argument("--bin-dir", type=Path)
+    uninstall.add_argument("--json", action="store_true")
+
     loops = sub.add_parser("loop-library", help="Use Matthew Berman / Forward Future Loop Library loops.")
     loops.add_argument("--catalog-url", default=DEFAULT_CATALOG_URL)
     loops.add_argument("--catalog-file", type=Path)
+    loops.add_argument("--cache-file", type=Path)
+    loops.add_argument("--refresh", action="store_true", help="Fetch the live catalog instead of falling back to cache.")
     loops_sub = loops.add_subparsers(dest="loop_command", required=True)
     loop_search = loops_sub.add_parser("search", help="Search the live Loop Library catalog.")
     loop_search.add_argument("query", nargs="*", help="Search words. Omit to list the first loops.")
     loop_search.add_argument("--limit", type=int, default=10)
     loop_show = loops_sub.add_parser("show", help="Show one Loop Library loop as JSON.")
     loop_show.add_argument("loop")
+    loop_profile = loops_sub.add_parser("profile", help="Show the controller profile for one loop.")
+    loop_profile.add_argument("loop")
     loop_brief_cmd = loops_sub.add_parser("brief", help="Generate a product brief from a loop.")
     loop_brief_cmd.add_argument("loop")
     loop_brief_cmd.add_argument("--request", default="")
@@ -181,14 +201,38 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(read_token_mode(), indent=2))
             return 0
 
+        if args.command == "stack-status":
+            result = stack_status(args.lock)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_stack_status(result), end="")
+            return 0 if result.get("ok") else 2
+
+        if args.command == "uninstall-plan":
+            result = uninstall_plan(args.prefix, args.bin_dir)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_uninstall_plan(result), end="")
+            return 0
+
         if args.command == "loop-library":
-            catalog = load_catalog(args.catalog_url, args.catalog_file)
+            catalog = load_catalog(
+                args.catalog_url,
+                args.catalog_file,
+                cache_file=args.cache_file,
+                refresh=args.refresh,
+            )
             if args.loop_command == "search":
                 print(format_loop_list(search_loops(catalog, " ".join(args.query), limit=args.limit)), end="")
                 return 0
             selected = find_loop(catalog, args.loop)
             if args.loop_command == "show":
                 print(json.dumps(loop_summary(selected), indent=2))
+                return 0
+            if args.loop_command == "profile":
+                print(json.dumps(loop_control_profile(selected), indent=2))
                 return 0
             if args.output:
                 path = write_loop_brief(args.output, selected, request=args.request, force=args.force)

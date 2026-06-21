@@ -26,6 +26,8 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - You want an AI coding agent to work on it without wandering off.
 - You write what you want in normal language.
 - `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
+- Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
+- Pictures, PDFs, and big prose files are not invisible. The tool records media metadata and bounded prose summaries so the agent knows they exist and can ask for the right slice.
 - Your AI tool does the code work.
 - `umsmfburasbofe` runs the checks you told it to run: tests, lint, typecheck, build, or whatever your repo actually uses.
 - A separate review pass looks for problems before the run gets called done.
@@ -120,6 +122,13 @@ If Bun, Node/npm/npx/pnpm, Flatpak, Snap, Homebrew, or Winget is missing, the
 installer records the missing piece and prints the exact next commands instead
 of pretending it finished that part.
 
+After install, inspect what happened:
+
+```bash
+umsmfburasbofe stack-status
+umsmfburasbofe uninstall-plan
+```
+
 Disable terminal presentation only when needed:
 
 ```bash
@@ -185,12 +194,14 @@ loop is the right shape for the job:
 ```bash
 umsmfburasbofe loop-library search docs
 umsmfburasbofe loop-library show overnight-docs-sweep
+umsmfburasbofe loop-library profile overnight-docs-sweep
 umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
 ```
 
 That reads the live catalog, credits the source loop, and turns it into a
-repo-local UMSMFBURASBOFE brief. It does not install Loop Library or make it a
-required dependency.
+repo-local UMSMFBURASBOFE brief with a controller profile. The catalog is cached
+for offline fallback. It does not install Loop Library or make it a required
+dependency.
 
 Complete `.umsmfburasbofe/PRODUCT-BRIEF.md`, then run one of:
 
@@ -207,6 +218,7 @@ umsmfburasbofe run --repo . --mode repair --brief .umsmfburasbofe/PRODUCT-BRIEF.
 Each role gets a fresh packet with the files and instructions for that job. The
 tool does not trust the chat to remember everything. It stores state on disk,
 records hashes and line ranges, tracks omitted files, refuses silent truncation,
+uses generated summaries for media and oversized prose when explicitly requested,
 and rejects stale packets.
 
 See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).

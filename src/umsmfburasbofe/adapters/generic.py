@@ -49,7 +49,7 @@ class GenericAdapter(AgentAdapter):
             argv,
             cwd=request.cwd,
             timeout_seconds=request.timeout_seconds,
-            log_name=f"agent-{request.role}",
+            log_name=f"agent-{request.output_path.stem}",
         )
         if not result.passed:
             raise AgentExecutionError(

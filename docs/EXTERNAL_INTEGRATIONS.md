@@ -70,15 +70,18 @@ Clawpatch reference: https://github.com/openclaw/clawpatch
 Credit to Matthew Berman / Forward Future's Loop Library for the plain-language
 agent-loop framing: bounded action, fixed check, stop condition, and evidence.
 UMSMFBURASBOFE can read the live catalog and turn a selected loop into a
-repo-local product brief:
+repo-local product brief. It caches the catalog for offline fallback and can
+print a controller profile for a loop:
 
 ```bash
 umsmfburasbofe loop-library search docs
+umsmfburasbofe loop-library profile overnight-docs-sweep
 umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
 ```
 
 It does not require Loop Library for normal use. The guided installer can also
 install the Loop Library skill for selected agents, for example
-`--install-stack --loop-library-agent codex`.
+`--install-stack --loop-library-agent codex`. Other skills-compatible agents can
+be passed the same way.
 
 Reference: https://signals.forwardfuture.ai/loop-library/

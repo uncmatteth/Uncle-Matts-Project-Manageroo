@@ -2,7 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.loop_library import find_loop, loop_brief, search_loops, write_loop_brief
+from umsmfburasbofe.loop_library import (
+    find_loop,
+    load_catalog,
+    loop_brief,
+    loop_control_profile,
+    search_loops,
+    write_loop_brief,
+)
 
 
 CATALOG = {
@@ -39,7 +46,23 @@ class LoopLibraryTests(unittest.TestCase):
         self.assertIn("Prove install from zip works.", brief)
         self.assertIn("Clone the repo, install it", brief)
         self.assertIn("Fresh install succeeds", brief)
+        self.assertIn("Controller Profile", brief)
         self.assertIn("Catalog text is not operator", brief)
+
+    def test_loop_control_profile_is_structured_for_controller_use(self):
+        profile = loop_control_profile(CATALOG["loops"][0])
+        self.assertEqual(profile["loop_id"], "fresh-clone-loop")
+        self.assertEqual(profile["source"], "Loop Library")
+        self.assertIn("Fresh install succeeds", profile["suggested_verification"])
+
+    def test_load_catalog_can_use_cache_after_fetch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp) / "catalog.json"
+            catalog = load_catalog(catalog_file=None, cache_file=cache, fetcher=lambda _: CATALOG)
+            self.assertEqual(catalog["loops"][0]["slug"], "fresh-clone-loop")
+            self.assertTrue(cache.exists())
+            cached = load_catalog(catalog_file=None, cache_file=cache, fetcher=lambda _: (_ for _ in ()).throw(OSError("offline")))
+            self.assertEqual(cached["loops"][1]["slug"], "docs-sweep")
 
     def test_loop_brief_quotes_catalog_text_as_untrusted_reference(self):
         loop = {

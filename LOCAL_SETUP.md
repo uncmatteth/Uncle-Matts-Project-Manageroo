@@ -33,6 +33,9 @@ The recommended stack lane is optional:
 ./install.sh --install-stack --loop-library-agent codex
 ```
 
+Use a different `--loop-library-agent` value when your skills-compatible agent
+is not Codex.
+
 That covers GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew
 Berman / Forward Future's Loop Library skill when the needed package managers
 are available. If something is missing, the installer prints the exact next
@@ -52,6 +55,7 @@ Persist that line in the shell profile used on the machine, such as `~/.zshrc` o
 umsmfburasbofe --version
 umsmfburasbofe self-test
 umsmfburasbofe token-mode status
+umsmfburasbofe stack-status
 ```
 
 The self-test must return `"ok": true` and `"status": "COMPLETE"`.
@@ -89,6 +93,9 @@ cd /absolute/path/to/product
 umsmfburasbofe init --agent codex
 umsmfburasbofe doctor --json
 ```
+
+Use `--agent codex` only when Codex is the selected runtime. Use
+`--agent generic` for another CLI and configure `[agent].argv_template`.
 
 Do not continue until `doctor.ok` is `true`. If no verification gates were detected, add explicit `[[verification.gates]]` entries to `.umsmfburasbofe/config.toml` using the project's real test, lint, type-check, or build commands.
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, TypeVar
 
 from .adapters.base import AgentAdapter, AgentRequest
 from .adapters.factory import build_adapter
@@ -31,6 +33,9 @@ from .state import Phase, RunState
 from .token_modes import token_mode_prompt
 from .util import atomic_write_json, atomic_write_text, new_run_id, read_json, safe_repo_relative, utc_now
 from .workspace import WorkspaceMirror
+
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 def _topological_tasks(tasks: list[dict]) -> list[dict]:
@@ -93,6 +98,7 @@ class Orchestrator:
         self.mirror = WorkspaceMirror(self.source_repo, self.run_root, self.runner)
         self.workspace: Path | None = None
         self._call_index = 0
+        self._call_lock = threading.Lock()
 
     def _transition(self, phase: Phase, reason: str) -> None:
         self.state.transition(phase, reason)
@@ -109,6 +115,34 @@ class Orchestrator:
             max_single_file_tokens=int(cfg["max_single_file_tokens"]),
         )
 
+    def _next_call_name(self, role: str) -> str:
+        with self._call_lock:
+            self._call_index += 1
+            return f"{self._call_index:03d}-{role}"
+
+    def _max_parallel_agent_calls(self) -> int:
+        value = self.config.get("orchestration", {}).get("max_parallel_agent_calls", 1)
+        return max(1, int(value))
+
+    def _parallel_map(
+        self,
+        items: list[T],
+        worker: Callable[[int, T], R],
+        *,
+        enabled: bool,
+    ) -> list[R]:
+        if not enabled or len(items) <= 1 or self._max_parallel_agent_calls() <= 1:
+            return [worker(index, item) for index, item in enumerate(items)]
+        results: list[R | None] = [None] * len(items)
+        with ThreadPoolExecutor(max_workers=min(len(items), self._max_parallel_agent_calls())) as pool:
+            futures = {
+                pool.submit(worker, index, item): index
+                for index, item in enumerate(items)
+            }
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+        return [item for item in results if item is not None]
+
     def _call(
         self,
         *,
@@ -120,9 +154,9 @@ class Orchestrator:
         metadata: dict | None = None,
         cwd: Path | None = None,
         packet_root: Path | None = None,
+        call_name: str | None = None,
     ) -> dict:
-        self._call_index += 1
-        name = f"{self._call_index:03d}-{role}"
+        name = call_name or self._next_call_name(role)
         repo = cwd or self.workspace
         if repo is None:
             raise RuntimeError("Workspace has not been created.")
@@ -171,6 +205,13 @@ class Orchestrator:
                         reason="Repository-owned product, architecture, or operating guidance.",
                         required=False,
                         priority=priority_names.get(name, 60),
+                        mode=(
+                            "summary"
+                            if item.get("content_kind") == "media"
+                            or int(item.get("estimated_tokens", 0))
+                            > int(self.config["context"]["max_single_file_tokens"])
+                            else "full"
+                        ),
                     )
                 )
         return preferred[:30]
@@ -265,33 +306,63 @@ class Orchestrator:
         chunks = ContextCompiler.partition_paths(
             inventory, max_tokens=int(cfg["map_chunk_tokens"])
         )
-        maps: list[dict] = []
-        for index, chunk in enumerate(chunks, start=1):
+        names = [self._next_call_name("repository-mapper") for _ in chunks]
+
+        def map_chunk(offset: int, chunk: list[dict]) -> dict:
+            index = offset + 1
             requests = [
                 ContextRequest(
                     path=item["path"],
                     reason=f"Repository mapping chunk {index}; identify responsibility and relationships.",
                     required=False,
                     priority=50,
+                    mode=(
+                        "summary"
+                        if item.get("content_kind") == "media"
+                        or int(item.get("estimated_tokens", 0))
+                        > int(cfg["max_single_file_tokens"])
+                        else "full"
+                    ),
                 )
                 for item in chunk
             ]
-            mapped = self._call(
+            chunk_metadata = [
+                {
+                    "path": item["path"],
+                    "language": item.get("language", ""),
+                    "content_kind": item.get("content_kind", ""),
+                    "bytes": item.get("bytes", 0),
+                    "line_count": item.get("line_count", 0),
+                    "estimated_tokens": item.get("estimated_tokens", 0),
+                    "summary": item.get("summary", ""),
+                }
+                for item in chunk
+            ]
+            return self._call(
                 role="repository-mapper",
                 schema="repository-map-part.schema.json",
                 instructions=(
                     "# Repository mapping role\n\n"
                     "Map only the supplied repository slice. Identify modules, interfaces, "
                     "data flows, trust boundaries, and risks. Do not propose edits. "
-                    "Do not assume omitted files are absent from the product.\n\n"
+                    "Do not assume omitted files are absent from the product. Media and oversized "
+                    "prose may appear as generated summaries; treat those summaries as metadata, "
+                    "not full OCR or vision interpretation.\n\n"
                     f"Product brief:\n{brief}\n\n"
                     f"Chunk ID: chunk-{index}\n"
-                    f"Files assigned: {[item['path'] for item in chunk]}"
+                    f"Files assigned: {[item['path'] for item in chunk]}\n\n"
+                    f"Assigned file metadata:\n{_compact_json(chunk_metadata)}"
                 ),
                 context=requests,
                 metadata={"chunk_id": f"chunk-{index}", "paths": [item["path"] for item in chunk]},
+                call_name=names[offset],
             )
-            maps.append(mapped)
+
+        maps = self._parallel_map(
+            chunks,
+            map_chunk,
+            enabled=bool(self.config.get("orchestration", {}).get("parallel_mapping", True)),
+        )
 
         reduced = self._call(
             role="map-reducer",
@@ -343,14 +414,23 @@ class Orchestrator:
             inventory,
             max_tokens=review_chunk_tokens,
         ) or [[]]
+        names = [self._next_call_name(f"reviewer-{index}") for index in range(1, len(chunks) + 1)]
 
-        for index, chunk in enumerate(chunks, start=1):
+        def review_chunk(offset: int, chunk: list[dict]) -> dict:
+            index = offset + 1
             context = [
                 ContextRequest(
                     path=item["path"],
                     reason="Changed implementation under independent review.",
                     required=True,
                     priority=100,
+                    mode=(
+                        "summary"
+                        if item.get("content_kind") == "media"
+                        or int(item.get("estimated_tokens", 0))
+                        > int(self.config["context"]["max_single_file_tokens"])
+                        else "full"
+                    ),
                 )
                 for item in chunk
             ]
@@ -378,8 +458,7 @@ class Orchestrator:
             token_prompt = token_mode_prompt()
             if token_prompt:
                 instructions = token_prompt + "\n\n" + instructions
-            self._call_index += 1
-            name = f"{self._call_index:03d}-reviewer-{index}"
+            name = names[offset]
             compiler = self._compiler(repo=review_repo, packet_root=review_packet_root)
             packet = compiler.compile(name, instructions=instructions, requests=context)
             output = self.output_root / f"{name}.json"
@@ -393,9 +472,13 @@ class Orchestrator:
                 timeout_seconds=int(self.config["agent"]["timeout_seconds"]),
                 metadata={"chunk_index": index, "chunk_count": len(chunks)},
             )
-            review_outputs.append(
-                run_isolated_review(adapter=self.adapter, request=request, runner=self.runner)
-            )
+            return run_isolated_review(adapter=self.adapter, request=request, runner=self.runner)
+
+        review_outputs = self._parallel_map(
+            chunks,
+            review_chunk,
+            enabled=bool(self.config.get("orchestration", {}).get("parallel_review", True)),
+        )
 
         findings = []
         statuses = []

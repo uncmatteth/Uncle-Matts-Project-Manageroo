@@ -61,9 +61,10 @@ installed.
 ## Loop Library
 
 UMSMFBURASBOFE can read Matthew Berman / Forward Future's live Loop Library
-catalog and generate a local product brief from a selected loop. That is a
-network read of public catalog data, not a package dependency. Installing the
-Loop Library skill itself remains optional and must be requested separately.
+catalog, cache it locally for offline fallback, print a controller profile, and
+generate a local product brief from a selected loop. That is a network read of
+public catalog data, not a package dependency. Installing the Loop Library skill
+itself remains optional and must be requested separately.
 
 ## AUTOREVIEW and Clawpatch
 

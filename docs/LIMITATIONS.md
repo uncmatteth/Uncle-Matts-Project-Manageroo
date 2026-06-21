@@ -10,8 +10,10 @@
 8. The generic adapter cannot promise provider-level sandboxing.
 9. The isolated mirror excludes Git-ignored files. Applications that require ignored generated assets or local secrets must provide them through a controlled environment.
 10. Symlinks are excluded from the mirror in the current implementation to prevent path escape.
-11. The default controller runs implementation tasks sequentially for correctness. It does not promise maximum parallel throughput.
-12. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
-13. UMSMFBURASBOFE does not replace CI, production monitoring, backups, security review, or legal review.
-14. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
-15. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.
+11. Independent map and review chunks can run in parallel. Implementation tasks remain dependency ordered for correctness.
+12. Media support is metadata support. UMSMFBURASBOFE records images, PDFs, and design/media assets in inventory, but it does not perform OCR or vision interpretation.
+13. Long prose support includes line counts, summaries, and explicit summary context. Exact edits still require bounded line ranges or task decomposition.
+14. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
+15. UMSMFBURASBOFE does not replace CI, production monitoring, backups, security review, or legal review.
+16. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
+17. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.

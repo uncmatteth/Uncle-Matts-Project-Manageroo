@@ -27,6 +27,7 @@ export PATH="$HOME/.local/bin:$PATH"
 umsmfburasbofe --version
 umsmfburasbofe self-test
 umsmfburasbofe token-mode status
+umsmfburasbofe stack-status --json
 git -C "$TARGET_REPO" rev-parse --show-toplevel
 cd "$TARGET_REPO"
 umsmfburasbofe init --agent codex
@@ -74,6 +75,7 @@ Return:
 - selected agent adapter, version when discoverable, and executable path;
 - UMSMFBURASBOFE executable path;
 - install-lock path;
+- complete `umsmfburasbofe stack-status --json` output;
 - self-test result;
 - complete `umsmfburasbofe doctor --json` output;
 - target repository path;

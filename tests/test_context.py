@@ -65,6 +65,18 @@ class ContextTests(unittest.TestCase):
         manifest = read_json(packet / "manifest.json")
         self.assertEqual(manifest["omitted"][0]["reason"], "optional_slice_too_large")
 
+    def test_summary_mode_includes_large_prose_without_full_text(self):
+        packet = self.compiler().compile(
+            "summary",
+            instructions="x",
+            requests=[ContextRequest("big.txt", "summary", required=True, mode="summary")],
+        )
+        prompt = (packet / "prompt.md").read_text(encoding="utf-8")
+        manifest = read_json(packet / "manifest.json")
+        self.assertEqual(manifest["entries"][0]["mode"], "summary")
+        self.assertIn("Generated file summary", prompt)
+        self.assertNotIn("x" * 1000, prompt)
+
     def test_stale_packet_is_rejected(self):
         packet = self.compiler().compile(
             "fresh",

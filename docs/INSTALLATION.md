@@ -28,6 +28,7 @@ products.
 ./install.sh --install-stack
 ./install.sh --skip-stack
 ./install.sh --loop-library-agent codex
+./install.sh --loop-library-agent YOUR_AGENT
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
 ./install.sh --skip-tests
@@ -50,6 +51,10 @@ thing useful:
 Interactive installs ask whether to run this lane. Non-interactive installs skip
 it unless `--install-stack` is passed.
 
+The installer writes a stack summary into `install-lock.json`. It lists what was
+installed, what was skipped, what still needs action, and the next command for
+each unfinished piece.
+
 ## Validate
 
 ```bash
@@ -57,6 +62,7 @@ umsmfburasbofe --version
 umsmfburasbofe banner --no-animation
 umsmfburasbofe self-test
 umsmfburasbofe token-mode status
+umsmfburasbofe stack-status
 ```
 
 ## Token reduction
@@ -102,14 +108,25 @@ job pattern:
 ```bash
 umsmfburasbofe loop-library search docs
 umsmfburasbofe loop-library show overnight-docs-sweep
+umsmfburasbofe loop-library profile overnight-docs-sweep
 umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
 ```
 
 UMSMFBURASBOFE reads the catalog and turns the selected loop into a repo-local
-brief. Loop Library itself is not installed unless the operator separately asks
-for that exact tool.
+brief. It also caches the catalog for offline fallback and can print a structured
+controller profile for a loop. Loop Library itself is not installed unless the
+operator separately asks for that exact tool.
 
 ## Uninstall
+
+Print the plan first:
+
+```bash
+umsmfburasbofe uninstall-plan
+```
+
+The plan does not delete anything. It names the core files and reminds you that
+third-party tools are separate.
 
 ```bash
 rm -rf "$HOME/.local/share/umsmfburasbofe"
