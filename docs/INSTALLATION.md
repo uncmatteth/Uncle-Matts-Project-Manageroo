@@ -114,7 +114,9 @@ umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/
 
 UMSMFBURASBOFE reads the catalog and turns the selected loop into a repo-local
 brief. It also caches the catalog for offline fallback and can print a structured
-controller profile for a loop. Loop Library itself is not installed unless the
+controller profile for a loop. That profile calls out whether the pattern is a
+`goal`, `loop`, or `routine`, then adds budget/caps, verifier, anti-spin, and
+completion-contract fields. Loop Library itself is not installed unless the
 operator separately asks for that exact tool.
 
 ## Uninstall

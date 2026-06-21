@@ -28,6 +28,8 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
 - Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
 - Pictures, PDFs, and big prose files are not invisible. The tool records media metadata and bounded prose summaries so the agent knows they exist and can ask for the right slice.
+- Most UMSMFBURASBOFE work is a `goal`: keep going until a verifiable outcome is true, then stop.
+- A `loop` repeats while you are present. A `routine` runs later or on a schedule. UMSMFBURASBOFE can adapt those ideas into one bounded local repo run; it does not pretend to be a cloud scheduler.
 - Your AI tool does the code work.
 - `umsmfburasbofe` runs the checks you told it to run: tests, lint, typecheck, build, or whatever your repo actually uses.
 - A separate review pass looks for problems before the run gets called done.
@@ -54,10 +56,11 @@ they look at one real slice of the product at a time, with the right files and
 some proof. UMSMFBURASBOFE uses that same kind of structure for build and repair
 work, not only bug review.
 
-Credit where it is due: Matthew Berman / Forward Future's Loop Library helped
-name the bigger pattern clearly. Good agent work is a loop: a bounded action, a
-real check, a stop condition, and evidence. UMSMFBURASBOFE applies that loop
-idea to local build and repair runs.
+Credit where it is due: Matthew Berman / Forward Future's Loop Library and the
+larger loop-engineering discussion helped name the pattern clearly. Good agent
+work needs a bounded action, an independent verifier, a budget, a stop
+condition, and evidence. UMSMFBURASBOFE applies that goal-style loop idea to
+local build and repair runs.
 
 ```text
 ONE PLAIN-ENGLISH BRIEF
@@ -199,9 +202,11 @@ umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/
 ```
 
 That reads the live catalog, credits the source loop, and turns it into a
-repo-local UMSMFBURASBOFE brief with a controller profile. The catalog is cached
-for offline fallback. It does not install Loop Library or make it a required
-dependency.
+repo-local UMSMFBURASBOFE brief with a controller profile. The profile labels
+the pattern as `goal`, `loop`, or `routine`, adds budget and anti-spin stops,
+and states the verifier rule: the worker does not grade itself. The catalog is
+cached for offline fallback. It does not install Loop Library or make it a
+required dependency.
 
 Complete `.umsmfburasbofe/PRODUCT-BRIEF.md`, then run one of:
 

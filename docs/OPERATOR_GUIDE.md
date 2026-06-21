@@ -8,6 +8,8 @@ Explain:
 - what the user should be able to accomplish;
 - what a successful result looks like;
 - what must not break;
+- what evidence proves the work is complete;
+- what budget or stop rule should prevent runaway retries;
 - unacceptable privacy, cost, security, or data outcomes;
 - ideas that may belong later.
 
@@ -21,7 +23,7 @@ Bad:
 
 Better:
 
-> Build a client portal. A client signs in, sees only their own projects, uploads documents, views status history, and messages our team. Existing admin workflows must remain unchanged. A browser demonstration must show one successful client journey and one denied cross-client access attempt.
+> Build a client portal. A client signs in, sees only their own projects, uploads documents, views status history, and messages our team. Existing admin workflows must remain unchanged. A browser demonstration must show one successful client journey and one denied cross-client access attempt. Stop after two failed repair passes and report the blocker instead of trying random fixes.
 
 ## Adding ideas while the product is being built
 

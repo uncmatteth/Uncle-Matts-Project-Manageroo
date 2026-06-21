@@ -9,8 +9,9 @@ The ecosystem already contains strong individual components:
 - GitNexus: code graph and impact analysis.
 - GBrain: durable agent memory and retrieval.
 - Clawpatch and AUTOREVIEW: review and repair workflows.
-- Matthew Berman / Forward Future's Loop Library: clear language for bounded
-  agent loops, verification checks, stopping conditions, and evidence.
+- Matthew Berman / Forward Future's Loop Library and the loop-engineering
+  discussion: clear language for goals, loops, routines, independent
+  verification, budgets, anti-spin stops, completion contracts, and evidence.
 - Codex, Claude Code, OpenClaw, Gemini CLI, Cursor, and others: capable coding runtimes.
 - Git worktrees, containers, CI, linters, type systems, and tests: mechanical engineering controls.
 
@@ -29,6 +30,7 @@ UMSMFBURASBOFE does not attempt to replace those systems. Its distinct role is t
 - isolated author/reviewer contexts;
 - evidence-validated findings;
 - bounded repair;
+- explicit budget and anti-spin controls for loop-shaped work;
 - product-level final report.
 
 ## Why the architecture is intentionally smaller

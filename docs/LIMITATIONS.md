@@ -15,5 +15,6 @@
 13. Long prose support includes line counts, summaries, and explicit summary context. Exact edits still require bounded line ranges or task decomposition.
 14. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
 15. UMSMFBURASBOFE does not replace CI, production monitoring, backups, security review, or legal review.
-16. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
-17. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.
+16. UMSMFBURASBOFE does not run cloud schedules or timer loops by itself. Loop and routine patterns are adapted into bounded local goal-style runs unless the operator supplies a separate scheduler.
+17. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
+18. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.

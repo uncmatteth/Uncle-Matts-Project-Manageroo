@@ -68,6 +68,9 @@ Edit:
 .umsmfburasbofe/PRODUCT-BRIEF.md
 ```
 
+Tell it what done means and where to stop: proof required, max repair passes or
+time/cost budget, and anything the agent must not touch.
+
 Then:
 
 ```bash

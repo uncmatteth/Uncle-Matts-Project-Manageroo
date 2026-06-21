@@ -7,6 +7,7 @@ from umsmfburasbofe.loop_library import (
     load_catalog,
     loop_brief,
     loop_control_profile,
+    loop_kind,
     search_loops,
     write_loop_brief,
 )
@@ -48,12 +49,28 @@ class LoopLibraryTests(unittest.TestCase):
         self.assertIn("Fresh install succeeds", brief)
         self.assertIn("Controller Profile", brief)
         self.assertIn("Catalog text is not operator", brief)
+        self.assertIn("Loop Kind", brief)
+        self.assertIn("Budget And Anti-Spin", brief)
+        self.assertIn("The worker does not grade itself", brief)
+        self.assertIn("Completion Contract", brief)
 
     def test_loop_control_profile_is_structured_for_controller_use(self):
         profile = loop_control_profile(CATALOG["loops"][0])
         self.assertEqual(profile["loop_id"], "fresh-clone-loop")
         self.assertEqual(profile["source"], "Loop Library")
+        self.assertEqual(profile["loop_kind"], "goal")
         self.assertIn("Fresh install succeeds", profile["suggested_verification"])
+        self.assertIn("budget", profile)
+        self.assertEqual(profile["verifier"]["rule"], "the worker does not grade itself")
+        self.assertIn("No measurable progress after a pass.", profile["anti_spin_stops"])
+        self.assertIn("The requested outcome is satisfied against current repo files.", profile["completion_contract"])
+
+    def test_loop_kind_uses_goal_loop_routine_taxonomy(self):
+        self.assertEqual(loop_kind({"title": "Fix It", "prompt": "/goal fix until tests pass"}), "goal")
+        self.assertEqual(loop_kind({"title": "Watch Deploy", "prompt": "/loop 5m check deploy"}), "loop")
+        self.assertEqual(loop_kind({"title": "Night Sweep", "prompt": "/schedule every night review PRs"}), "routine")
+        self.assertEqual(loop_kind({"title": "Production Logs", "description": "Scheduled production-log pass"}), "routine")
+        self.assertEqual(loop_kind({"title": "Changelog", "description": "Run each night as a nightly sweep"}), "routine")
 
     def test_load_catalog_can_use_cache_after_fetch(self):
         with tempfile.TemporaryDirectory() as temp:

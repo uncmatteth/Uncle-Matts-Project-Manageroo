@@ -68,10 +68,18 @@ Clawpatch reference: https://github.com/openclaw/clawpatch
 ## Forward Future Loop Library
 
 Credit to Matthew Berman / Forward Future's Loop Library for the plain-language
-agent-loop framing: bounded action, fixed check, stop condition, and evidence.
-UMSMFBURASBOFE can read the live catalog and turn a selected loop into a
-repo-local product brief. It caches the catalog for offline fallback and can
-print a controller profile for a loop:
+agent-loop framing. The useful distinction is simple:
+
+- `goal`: keep working until a verifiable outcome is true, then stop.
+- `loop`: repeat a bounded task while the operator is present.
+- `routine`: run later or on a schedule outside this local controller.
+
+UMSMFBURASBOFE is native goal-style local build/repair control. It can read the
+live catalog and turn a selected Loop Library entry into a repo-local product
+brief. The controller profile labels the entry as `goal`, `loop`, or `routine`
+and adds the missing safety rails: budget/caps, independent verification,
+anti-spin stops, completion contract, and evidence. It caches the catalog for
+offline fallback and can print a controller profile for a loop:
 
 ```bash
 umsmfburasbofe loop-library search docs
