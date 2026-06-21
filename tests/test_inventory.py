@@ -3,7 +3,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from umsmfburasbofe.file_inspection import image_dimensions, pdf_page_count
 from umsmfburasbofe.inventory import build_inventory, inventory_summary
 from umsmfburasbofe.runner import CommandRunner
 
@@ -36,6 +38,17 @@ class InventoryTests(unittest.TestCase):
             summary = inventory_summary(files)
             self.assertEqual(summary["content_kinds"]["media"], 1)
             self.assertEqual(summary["content_kinds"]["prose"], 2)
+
+    def test_media_metadata_reads_are_bounded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image = root / "hero.png"
+            image.write_bytes(PNG_1X1 + (b"x" * 1024))
+            pdf = root / "book.pdf"
+            pdf.write_bytes(b"%PDF-1.7\n/Type /Page\n" + (b"x" * 1024))
+            with patch("pathlib.Path.read_bytes", side_effect=AssertionError("full read")):
+                self.assertEqual(image_dimensions(image), (1, 1))
+                self.assertEqual(pdf_page_count(pdf), 1)
 
 
 if __name__ == "__main__":

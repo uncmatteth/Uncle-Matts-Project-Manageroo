@@ -94,7 +94,8 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
 
 def image_dimensions(path: Path) -> tuple[int, int] | None:
     try:
-        data = path.read_bytes()[:512 * 1024]
+        with path.open("rb") as handle:
+            data = handle.read(512 * 1024)
     except OSError:
         return None
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
@@ -113,7 +114,8 @@ def image_dimensions(path: Path) -> tuple[int, int] | None:
 
 def pdf_page_count(path: Path) -> int | None:
     try:
-        text = path.read_bytes()[:8 * 1024 * 1024].decode("latin-1", errors="ignore")
+        with path.open("rb") as handle:
+            text = handle.read(8 * 1024 * 1024).decode("latin-1", errors="ignore")
     except OSError:
         return None
     matches = re.findall(r"/Type\s*/Page\b", text)

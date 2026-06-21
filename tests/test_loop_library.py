@@ -64,6 +64,17 @@ class LoopLibraryTests(unittest.TestCase):
             cached = load_catalog(catalog_file=None, cache_file=cache, fetcher=lambda _: (_ for _ in ()).throw(OSError("offline")))
             self.assertEqual(cached["loops"][1]["slug"], "docs-sweep")
 
+    def test_cache_write_failure_does_not_break_live_catalog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            not_a_dir = Path(temp) / "cache-parent"
+            not_a_dir.write_text("not a directory\n", encoding="utf-8")
+            catalog = load_catalog(
+                catalog_file=None,
+                cache_file=not_a_dir / "catalog.json",
+                fetcher=lambda _: CATALOG,
+            )
+            self.assertEqual(catalog["loops"][0]["slug"], "fresh-clone-loop")
+
     def test_loop_brief_quotes_catalog_text_as_untrusted_reference(self):
         loop = {
             "slug": "bad-loop",

@@ -44,8 +44,6 @@ def load_catalog(
     try:
         catalog = fetch(catalog_url)
         catalog_loops(catalog)
-        atomic_write_text(cache, json.dumps(catalog, indent=2, sort_keys=True) + "\n")
-        return catalog
     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError, ConfigurationError) as exc:
         if cache.exists() and not refresh:
             try:
@@ -58,6 +56,11 @@ def load_catalog(
             "Could not read Matthew Berman / Forward Future's Loop Library catalog. "
             "Check the network, or pass --catalog-file with a saved catalog JSON."
         ) from exc
+    try:
+        atomic_write_text(cache, json.dumps(catalog, indent=2, sort_keys=True) + "\n")
+    except OSError:
+        pass
+    return catalog
 
 
 def catalog_loops(catalog: dict[str, Any]) -> list[dict[str, Any]]:

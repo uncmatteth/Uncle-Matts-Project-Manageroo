@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 705 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 6568 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 6835 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 1444 | Project metadata or handoff |
@@ -86,13 +86,13 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/detector.py` | 3073 | Harness runtime source |
 | `src/umsmfburasbofe/doctor.py` | 2671 | Harness runtime source |
 | `src/umsmfburasbofe/errors.py` | 913 | Harness runtime source |
-| `src/umsmfburasbofe/file_inspection.py` | 6223 | Harness runtime source |
+| `src/umsmfburasbofe/file_inspection.py` | 6297 | Harness runtime source |
 | `src/umsmfburasbofe/gates.py` | 2152 | Harness runtime source |
 | `src/umsmfburasbofe/ideas.py` | 1565 | Harness runtime source |
 | `src/umsmfburasbofe/install_status.py` | 5748 | Harness runtime source |
 | `src/umsmfburasbofe/integrations.py` | 2451 | Harness runtime source |
 | `src/umsmfburasbofe/inventory.py` | 3574 | Harness runtime source |
-| `src/umsmfburasbofe/loop_library.py` | 11760 | Harness runtime source |
+| `src/umsmfburasbofe/loop_library.py` | 11798 | Harness runtime source |
 | `src/umsmfburasbofe/orchestrator.py` | 43294 | Harness runtime source |
 | `src/umsmfburasbofe/policy.py` | 2033 | Harness runtime source |
 | `src/umsmfburasbofe/project.py` | 3999 | Harness runtime source |
@@ -111,8 +111,8 @@ This manifest is generated from the release source tree.
 | `tests/test_detector.py` | 1181 | Deterministic harness test |
 | `tests/test_ideas.py` | 648 | Deterministic harness test |
 | `tests/test_install_status.py` | 2239 | Deterministic harness test |
-| `tests/test_inventory.py` | 1651 | Deterministic harness test |
-| `tests/test_loop_library.py` | 4347 | Deterministic harness test |
+| `tests/test_inventory.py` | 2311 | Deterministic harness test |
+| `tests/test_loop_library.py` | 4853 | Deterministic harness test |
 | `tests/test_policy.py` | 970 | Deterministic harness test |
 | `tests/test_project.py` | 1100 | Deterministic harness test |
 | `tests/test_review.py` | 1375 | Deterministic harness test |
