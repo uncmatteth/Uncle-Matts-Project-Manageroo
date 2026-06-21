@@ -14,8 +14,17 @@ ARCHIVE_ROOT = "Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Boo
 DEFAULT_DROP_DIR = ROOT.parent / ARCHIVE_ROOT
 END_USER_ZIP = "UMSMFBURASBOFE-End-User-Release-v2026.6.20.1.zip"
 SOURCE_ZIP = "UMSMFBURASBOFE-GitHub-Source-v2026.6.20.1.zip"
+SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
 EXCLUDED_PARTS = {".git", ".venv", "__pycache__", "dist", "build"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
+END_USER_EXCLUDED = {
+    "BUILD-VALIDATION.json",
+    "GITHUB_DESCRIPTION.md",
+    "SHA256SUMS.txt",
+    "docs/FILE_MANIFEST.md",
+    "scripts/package_release.py",
+    "tests/test_package_release.py",
+}
 
 
 def included_files() -> list[Path]:
@@ -24,6 +33,14 @@ def included_files() -> list[Path]:
         for path in ROOT.rglob("*")
         if path.is_file() and not any(part in EXCLUDED_PARTS for part in path.parts)
     )
+
+
+def end_user_files() -> list[Path]:
+    return [
+        path
+        for path in included_files()
+        if path.relative_to(ROOT).as_posix() not in END_USER_EXCLUDED
+    ]
 
 
 def purpose(relative: str) -> str:
@@ -63,22 +80,22 @@ def generate_manifest() -> None:
     (ROOT / "docs" / "FILE_MANIFEST.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_archive(output: Path) -> None:
+def write_archive(output: Path, files: list[Path]) -> None:
     if output.exists():
         output.unlink()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for path in included_files():
+        for path in files:
             archive.write(
                 path,
                 arcname=f"{ARCHIVE_ROOT}/{path.relative_to(ROOT).as_posix()}",
             )
 
 
-def refresh_drop_folder(drop_dir: Path, archive: Path) -> None:
+def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: Path) -> None:
     drop_dir.mkdir(parents=True, exist_ok=True)
     copies = {
-        END_USER_ZIP: archive,
-        SOURCE_ZIP: archive,
+        END_USER_ZIP: end_user_archive,
+        SOURCE_ZIP: source_archive,
         "UMSMFBURASBOFE-SOURCE-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
         "UMSMFBURASBOFE-FINAL-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
         "UMSMFBURASBOFE-LOCAL-SETUP.md": ROOT / "LOCAL_SETUP.md",
@@ -115,9 +132,11 @@ def main() -> int:
         checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative}")
     (ROOT / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="utf-8")
 
-    write_archive(OUTPUT)
-    refresh_drop_folder(DEFAULT_DROP_DIR, OUTPUT)
+    write_archive(OUTPUT, end_user_files())
+    write_archive(SOURCE_OUTPUT, included_files())
+    refresh_drop_folder(DEFAULT_DROP_DIR, OUTPUT, SOURCE_OUTPUT)
     print(OUTPUT)
+    print(SOURCE_OUTPUT)
     print(DEFAULT_DROP_DIR)
     return 0
 
