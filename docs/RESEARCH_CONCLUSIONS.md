@@ -9,6 +9,8 @@ The ecosystem already contains strong individual components:
 - GitNexus: code graph and impact analysis.
 - GBrain: durable agent memory and retrieval.
 - Clawpatch and AUTOREVIEW: review and repair workflows.
+- Matthew Berman / Forward Future's Loop Library: clear language for bounded
+  agent loops, verification checks, stopping conditions, and evidence.
 - Codex, Claude Code, OpenClaw, Gemini CLI, Cursor, and others: capable coding runtimes.
 - Git worktrees, containers, CI, linters, type systems, and tests: mechanical engineering controls.
 

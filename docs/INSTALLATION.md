@@ -23,12 +23,30 @@ PowerShell users can run `.\install.ps1`; it starts the same installer.
 ./install.sh --no-music
 ./install.sh --no-animation
 ./install.sh --install-codex
+./install.sh --install-stack
+./install.sh --skip-stack
+./install.sh --loop-library-agent codex
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
 ./install.sh --skip-tests
 ```
 
 Normal users should not need these.
+
+## Recommended stack
+
+The installer can install or guide the surrounding stack that makes the whole
+thing useful:
+
+- GBrain: installed with `bun install -g github:garrytan/gbrain`, then initialized with `gbrain init --pglite` when possible.
+- GitNexus: installed with `npm install -g gitnexus`; run `gitnexus setup` afterward for MCP wiring.
+- AUTOREVIEW: installed from `openclaw/agent-skills` into `~/.agents/skills/autoreview`.
+- Clawpatch: installed with `pnpm add -g clawpatch`; the installer can install `pnpm` with npm when needed.
+- Loop Library: installed with `npx --yes skills add Forward-Future/loop-library --skill loop-library ...` for the selected agent.
+- Obsidian: installed through a detected package manager when possible, otherwise the installer prints the official install path.
+
+Interactive installs ask whether to run this lane. Non-interactive installs skip
+it unless `--install-stack` is passed.
 
 ## Validate
 
@@ -73,6 +91,21 @@ If an AI IDE can read the repo and run commands, it does not need a special
 vendor build. Give it the installed command plus the repo-local skill.
 
 No IDE-specific directory is created.
+
+## Use a Loop Library loop
+
+Matthew Berman / Forward Future's Loop Library can be used as the source of a
+job pattern:
+
+```bash
+umsmfburasbofe loop-library search docs
+umsmfburasbofe loop-library show overnight-docs-sweep
+umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
+```
+
+UMSMFBURASBOFE reads the catalog and turns the selected loop into a repo-local
+brief. Loop Library itself is not installed unless the operator separately asks
+for that exact tool.
 
 ## Uninstall
 

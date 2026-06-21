@@ -29,11 +29,17 @@ Official reference: https://docs.openclaw.ai/
 Memory lane. GBrain can provide useful past context, but current repo files
 still win.
 
+The guided installer can run `bun install -g github:garrytan/gbrain` and
+`gbrain init --pglite` when Bun is available.
+
 Project reference: https://github.com/garrytan/gbrain
 
 ## GitNexus
 
 Code graph lane. GitNexus can help explain what code touches what.
+
+The guided installer can run `npm install -g gitnexus` when npm is available.
+Run `gitnexus setup` afterward when you want its MCP wiring.
 
 Project reference: https://github.com/abhigyanpatwari/GitNexus
 
@@ -51,5 +57,28 @@ Official reference: https://obsidian.md/help/data-storage
 Review and patch lanes. AUTOREVIEW and Clawpatch can be configured as external
 commands. Their findings still have to point at real files and real evidence.
 
+The guided installer installs AUTOREVIEW from `openclaw/agent-skills` into
+`~/.agents/skills/autoreview` when missing. It installs Clawpatch with
+`pnpm add -g clawpatch` when pnpm is available, or installs pnpm through npm
+when possible.
+
 AUTOREVIEW reference: https://github.com/openclaw/agent-skills
 Clawpatch reference: https://github.com/openclaw/clawpatch
+
+## Forward Future Loop Library
+
+Credit to Matthew Berman / Forward Future's Loop Library for the plain-language
+agent-loop framing: bounded action, fixed check, stop condition, and evidence.
+UMSMFBURASBOFE can read the live catalog and turn a selected loop into a
+repo-local product brief:
+
+```bash
+umsmfburasbofe loop-library search docs
+umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
+```
+
+It does not require Loop Library for normal use. The guided installer can also
+install the Loop Library skill for selected agents, for example
+`--install-stack --loop-library-agent codex`.
+
+Reference: https://signals.forwardfuture.ai/loop-library/

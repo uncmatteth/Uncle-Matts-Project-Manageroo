@@ -2,11 +2,19 @@
 param(
     [switch]$SkipCodex,
     [switch]$InstallCodex,
+    [switch]$InstallStack,
+    [switch]$SkipStack,
     [switch]$SkipTests,
     [switch]$NoMusic,
     [switch]$NoAnimation,
     [ValidateSet("ask", "off", "caveman", "curse")]
-    [string]$TokenMode = "ask"
+    [string]$TokenMode = "ask",
+    [ValidateSet("ask", "skip", "install")]
+    [string]$Stack = "ask",
+    [ValidateSet("auto", "guide", "flatpak", "snap", "brew", "winget")]
+    [string]$ObsidianMethod = "auto",
+    [ValidateSet("codex", "cursor", "claude-code")]
+    [string[]]$LoopLibraryAgent = @()
 )
 $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
@@ -59,8 +67,13 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 $InstallArgs = @((Join-Path $Root "scripts\install.py"))
 if ($SkipCodex) { $InstallArgs += "--skip-codex" }
 if ($InstallCodex) { $InstallArgs += "--install-codex" }
+if ($InstallStack) { $InstallArgs += "--install-stack" }
+if ($SkipStack) { $InstallArgs += "--skip-stack" }
 if ($SkipTests) { $InstallArgs += "--skip-tests" }
 if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
+if ($Stack) { $InstallArgs += @("--stack", $Stack) }
+if ($ObsidianMethod) { $InstallArgs += @("--obsidian-method", $ObsidianMethod) }
+foreach ($Agent in $LoopLibraryAgent) { $InstallArgs += @("--loop-library-agent", $Agent) }
 if ($NoMusic) { $InstallArgs += "--no-music" }
 if ($NoAnimation) { $InstallArgs += "--no-animation" }
 

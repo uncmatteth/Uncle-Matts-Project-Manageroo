@@ -15,10 +15,11 @@
 - Obsidian
 - AUTOREVIEW
 - Clawpatch
+- Loop Library catalog
 
-These are the intended surrounding tools. They are not installed silently because
-they touch memory, code graphs, notes, review output, and patch workflows. That
-should be explicit on each machine.
+These are the intended surrounding tools. Interactive installs ask before
+installing or guiding them. Non-interactive installs skip them unless
+`--install-stack` is passed.
 
 ## Agent surfaces
 
@@ -39,6 +40,7 @@ No single AI product is the point.
 - Any particular IDE
 - Codex specifically, unless the project config selects the Codex adapter
 - Node, npm, Cargo, Go, Maven, Gradle, or other build tools unless the target repo's verification gates call them
+- Bun or Node unless the user chooses the recommended stack lane
 
 The installer records selected external tools in `install-lock.json`. It installs Codex only when run with `--install-codex`.
 
@@ -55,3 +57,17 @@ with `umsmfburasbofe token-mode set ...`.
 
 Existing different local skill files are backed up before the bundled files are
 installed.
+
+## Loop Library
+
+UMSMFBURASBOFE can read Matthew Berman / Forward Future's live Loop Library
+catalog and generate a local product brief from a selected loop. That is a
+network read of public catalog data, not a package dependency. Installing the
+Loop Library skill itself remains optional and must be requested separately.
+
+## AUTOREVIEW and Clawpatch
+
+The stack installer installs AUTOREVIEW from the canonical OpenClaw
+`agent-skills` repository when it is missing. Clawpatch uses the upstream
+package install path, `pnpm add -g clawpatch`, and records failures or missing
+package managers instead of claiming completion.

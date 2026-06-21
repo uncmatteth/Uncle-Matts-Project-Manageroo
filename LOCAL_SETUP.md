@@ -25,6 +25,17 @@ Token-reduction mode is optional:
 `caveman` is clean. `curse` is Uncle Matt's Caveman Curse, the funny profane
 version.
 
+The recommended stack lane is optional:
+
+```bash
+./install.sh --install-stack --loop-library-agent codex
+```
+
+That covers GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew
+Berman / Forward Future's Loop Library skill when the needed package managers
+are available. If something is missing, the installer prints the exact next
+command instead of claiming that piece is done.
+
 When the shell cannot find `umsmfburasbofe` immediately afterward:
 
 ```bash

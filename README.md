@@ -52,6 +52,11 @@ they look at one real slice of the product at a time, with the right files and
 some proof. UMSMFBURASBOFE uses that same kind of structure for build and repair
 work, not only bug review.
 
+Credit where it is due: Matthew Berman / Forward Future's Loop Library helped
+name the bigger pattern clearly. Good agent work is a loop: a bounded action, a
+real check, a stop condition, and evidence. UMSMFBURASBOFE applies that loop
+idea to local build and repair runs.
+
 ```text
 ONE PLAIN-ENGLISH BRIEF
       ↓
@@ -92,6 +97,26 @@ The installer validates the source, runs the tests, installs the command for the
 current user, runs `self-test`, and writes `install-lock.json`. It does not
 require Codex. Use `./install.sh --install-codex` only when you specifically
 want this machine to install or update Codex too.
+
+The installer also offers the recommended local stack:
+
+- GBrain for memory.
+- GitNexus for code graph context.
+- AUTOREVIEW for independent review passes.
+- Clawpatch for feature-slice review and explicit fix loops.
+- Obsidian for human-readable notes.
+- Matthew Berman / Forward Future's Loop Library skill for published agent loops.
+
+Interactive installs ask before touching those third-party tools. To force the
+guided stack lane:
+
+```bash
+./install.sh --install-stack --loop-library-agent codex
+```
+
+If Bun, Node/npm/npx/pnpm, Flatpak, Snap, Homebrew, or Winget is missing, the
+installer records the missing piece and prints the exact next commands instead
+of pretending it finished that part.
 
 Disable terminal presentation only when needed:
 
@@ -152,6 +177,19 @@ The switch command installs the bundled `caveman` and
 different local skill file already exists there, it is backed up before the
 bundled copy is installed.
 
+Use Matthew Berman / Forward Future's Loop Library directly when a published
+loop is the right shape for the job:
+
+```bash
+umsmfburasbofe loop-library search docs
+umsmfburasbofe loop-library show overnight-docs-sweep
+umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
+```
+
+That reads the live catalog, credits the source loop, and turns it into a
+repo-local UMSMFBURASBOFE brief. It does not install Loop Library or make it a
+required dependency.
+
 Complete `.umsmfburasbofe/PRODUCT-BRIEF.md`, then run one of:
 
 ```bash
@@ -179,6 +217,8 @@ This was built around the local agent stack you actually wanted:
 - GitNexus for code graph and impact context.
 - Obsidian for notes a human can read.
 - AUTOREVIEW and Clawpatch for review and repair lanes.
+- Matthew Berman / Forward Future's Loop Library as a reference for clear
+  agent loops, checks, and stopping conditions.
 - Any AI IDE or CLI agent that can read files and run commands in the repo.
 
 Those tools do not need separate versions of this package. They use the same
