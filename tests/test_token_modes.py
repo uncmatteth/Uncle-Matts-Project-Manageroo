@@ -18,12 +18,20 @@ class TokenModeTests(unittest.TestCase):
             installed = install_core_helper_skills(Path(temp))
             self.assertIn("pimp-my-prompt", installed)
             self.assertIn("edit-skill", installed)
+            self.assertIn("write-a-skill", installed)
+            self.assertIn("skillify", installed)
             prompt = Path(temp) / "pimp-my-prompt" / "SKILL.md"
             editor = Path(temp) / "edit-skill" / "SKILL.md"
+            writer = Path(temp) / "write-a-skill" / "SKILL.md"
+            skillify = Path(temp) / "skillify" / "SKILL.md"
             self.assertTrue(prompt.exists())
             self.assertTrue(editor.exists())
+            self.assertTrue(writer.exists())
+            self.assertTrue(skillify.exists())
             self.assertIn("rough-draft users", prompt.read_text(encoding="utf-8"))
             self.assertIn("duplicate instructions", editor.read_text(encoding="utf-8"))
+            self.assertIn("Create a new local agent skill", writer.read_text(encoding="utf-8"))
+            self.assertIn("Skillify only when", skillify.read_text(encoding="utf-8"))
 
     def test_installs_bundled_caveman_skills(self):
         with tempfile.TemporaryDirectory() as temp:

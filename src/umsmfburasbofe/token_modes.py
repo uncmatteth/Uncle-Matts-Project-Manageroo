@@ -56,7 +56,9 @@ TOKEN_MODES = {
 
 CORE_HELPER_SKILLS = {
     "pimp-my-prompt": "skills/pimp-my-prompt/SKILL.md",
+    "write-a-skill": "skills/write-a-skill/SKILL.md",
     "edit-skill": "skills/edit-skill/SKILL.md",
+    "skillify": "skills/skillify/SKILL.md",
 }
 
 ALIASES = {

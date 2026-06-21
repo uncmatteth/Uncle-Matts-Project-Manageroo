@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import shutil
 import struct
 from pathlib import Path
 
+from .runner import CommandRunner
 from .util import sha256_file
 
 
@@ -13,6 +15,7 @@ AUDIO_SUFFIXES = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aac"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
 DESIGN_SUFFIXES = {".fig", ".sketch", ".psd", ".ai", ".indd"}
 PROSE_SUFFIXES = {".md", ".mdx", ".txt", ".rst", ".adoc", ".org"}
+MAX_EXTRACTED_TEXT_CHARS = 6000
 
 
 def looks_binary(path: Path) -> bool:
@@ -122,6 +125,84 @@ def pdf_page_count(path: Path) -> int | None:
     return len(matches) or None
 
 
+def prose_chunks(text: str, *, max_chars: int = 1600, max_chunks: int = 8) -> list[dict]:
+    lines = text.splitlines()
+    chunks: list[dict] = []
+    start = 1
+    current: list[str] = []
+    title = "Opening"
+
+    def flush(end_line: int) -> None:
+        nonlocal current, start, title
+        body = "\n".join(current).strip()
+        if not body:
+            current = []
+            start = end_line + 1
+            return
+        chunks.append(
+            {
+                "index": len(chunks) + 1,
+                "title": title[:120],
+                "start_line": start,
+                "end_line": end_line,
+                "chars": len(body),
+                "excerpt": " ".join(body.split())[:360],
+            }
+        )
+        current = []
+        start = end_line + 1
+
+    for offset, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        is_heading = bool(stripped.startswith("#") or re.match(r"^(chapter|part|section)\b", stripped, re.I))
+        if is_heading and current:
+            flush(offset - 1)
+            title = stripped.lstrip("#").strip() or f"Chunk {len(chunks) + 1}"
+        elif is_heading:
+            title = stripped.lstrip("#").strip() or f"Chunk {len(chunks) + 1}"
+            start = offset
+        current.append(line)
+        if len("\n".join(current)) >= max_chars and len(chunks) + 1 < max_chunks:
+            flush(offset)
+            title = f"Continuation {len(chunks) + 1}"
+        if len(chunks) >= max_chunks:
+            break
+    if current and len(chunks) < max_chunks:
+        flush(len(lines))
+    return chunks
+
+
+def _extract_with_tool(
+    runner: CommandRunner | None,
+    argv: list[str],
+    *,
+    cwd: Path,
+    timeout_seconds: int = 45,
+) -> str:
+    if runner is None or not shutil.which(argv[0]):
+        return ""
+    result = runner.run(argv, cwd=cwd, timeout_seconds=timeout_seconds)
+    if not result.passed:
+        return ""
+    return (result.stdout or "").strip()[:MAX_EXTRACTED_TEXT_CHARS]
+
+
+def pdf_text_extract(path: Path, runner: CommandRunner | None = None) -> str:
+    return _extract_with_tool(
+        runner,
+        ["pdftotext", "-layout", str(path), "-"],
+        cwd=path.parent,
+    )
+
+
+def image_ocr_extract(path: Path, runner: CommandRunner | None = None) -> str:
+    return _extract_with_tool(
+        runner,
+        ["tesseract", str(path), "stdout", "--psm", "6"],
+        cwd=path.parent,
+    )
+
+
 def text_summary(path: Path, relative: str = "") -> tuple[str, int]:
     text = path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
@@ -161,37 +242,55 @@ def text_summary(path: Path, relative: str = "") -> tuple[str, int]:
     if paragraphs:
         summary_lines.append("Opening prose excerpts:")
         summary_lines.extend(f"- {item[:300]}" for item in paragraphs)
+    chunks = prose_chunks(text)
+    if chunks:
+        summary_lines.append("Content chunks:")
+        for chunk in chunks[:8]:
+            summary_lines.append(
+                f"- chunk {chunk['index']}: lines {chunk['start_line']}-{chunk['end_line']}, "
+                f"{chunk['chars']} chars, {chunk['title']}: {chunk['excerpt']}"
+            )
     return "\n".join(summary_lines), len(lines)
 
 
-def media_summary(path: Path, relative: str = "") -> tuple[str, int]:
+def media_summary(path: Path, relative: str = "", runner: CommandRunner | None = None) -> tuple[str, int]:
     suffix = path.suffix.lower()
     language = language_for_media(path) or "binary"
     details = []
+    extracted_text = ""
     if language == "image":
         dimensions = image_dimensions(path)
         if dimensions:
             details.append(f"dimensions={dimensions[0]}x{dimensions[1]}")
+        extracted_text = image_ocr_extract(path, runner)
     elif language == "pdf":
         pages = pdf_page_count(path)
         if pages:
             details.append(f"approx_pages={pages}")
+        extracted_text = pdf_text_extract(path, runner)
     detail = ", ".join(details) if details else "content not decoded by local metadata reader"
-    return (
-        "\n".join(
+    lines = [
+        "Generated media summary.",
+        f"Path: {relative or path.name}",
+        f"Media type: {language}",
+        f"Suffix: {suffix or '(none)'}",
+        f"Bytes: {path.stat().st_size}",
+        f"Details: {detail}",
+        f"SHA-256: {sha256_file(path)}",
+    ]
+    if extracted_text:
+        lines.extend(
             [
-                "Generated media summary.",
-                f"Path: {relative or path.name}",
-                f"Media type: {language}",
-                f"Suffix: {suffix or '(none)'}",
-                f"Bytes: {path.stat().st_size}",
-                f"Details: {detail}",
-                f"SHA-256: {sha256_file(path)}",
-                "Note: this is metadata for agent context, not OCR or vision interpretation.",
+                "Extracted text:",
+                extracted_text,
+                "Note: extracted text came from local OCR/PDF tooling and may be incomplete.",
             ]
-        ),
-        1,
-    )
+        )
+    else:
+        lines.append(
+            "Note: no local OCR/PDF text extractor was available or extraction returned no text."
+        )
+    return ("\n".join(lines), max(1, extracted_text.count("\n") + 1 if extracted_text else 1))
 
 
 def summary_for_context(path: Path, relative: str = "") -> tuple[str, int]:

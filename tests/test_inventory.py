@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.file_inspection import image_dimensions, pdf_page_count
+from umsmfburasbofe.file_inspection import image_dimensions, media_summary, pdf_page_count, prose_chunks
 from umsmfburasbofe.inventory import build_inventory, inventory_summary
-from umsmfburasbofe.runner import CommandRunner
+from umsmfburasbofe.runner import CommandResult, CommandRunner
 
 
 PNG_1X1 = base64.b64decode(
@@ -38,6 +38,7 @@ class InventoryTests(unittest.TestCase):
             summary = inventory_summary(files)
             self.assertEqual(summary["content_kinds"]["media"], 1)
             self.assertEqual(summary["content_kinds"]["prose"], 2)
+            self.assertIn("Content chunks:", by_path["story.txt"].summary)
 
     def test_media_metadata_reads_are_bounded(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -49,6 +50,40 @@ class InventoryTests(unittest.TestCase):
             with patch("pathlib.Path.read_bytes", side_effect=AssertionError("full read")):
                 self.assertEqual(image_dimensions(image), (1, 1))
                 self.assertEqual(pdf_page_count(pdf), 1)
+
+    def test_prose_chunks_preserve_line_ranges(self):
+        text = "# Start\n\n" + ("alpha " * 120) + "\n\n## Next\n\n" + ("beta " * 120)
+        chunks = prose_chunks(text, max_chars=200, max_chunks=6)
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertEqual(chunks[0]["start_line"], 1)
+        self.assertIn("Start", chunks[0]["title"])
+        self.assertTrue(all(chunk["end_line"] >= chunk["start_line"] for chunk in chunks))
+
+    def test_media_summary_uses_local_extractors_when_available(self):
+        class FakeRunner:
+            def run(self, argv, *, cwd, timeout_seconds=1800, **kwargs):
+                return CommandResult(
+                    argv=list(argv),
+                    cwd=str(cwd),
+                    started_at="start",
+                    finished_at="finish",
+                    exit_code=0,
+                    stdout="OCR OR PDF TEXT",
+                    stderr="",
+                )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pdf = root / "book.pdf"
+            pdf.write_bytes(b"%PDF-1.7\n/Type /Page\n")
+            image = root / "hero.png"
+            image.write_bytes(PNG_1X1)
+            with patch("umsmfburasbofe.file_inspection.shutil.which", return_value="/usr/bin/tool"):
+                pdf_text, _ = media_summary(pdf, "book.pdf", runner=FakeRunner())
+                image_text, _ = media_summary(image, "hero.png", runner=FakeRunner())
+            self.assertIn("Extracted text:", pdf_text)
+            self.assertIn("OCR OR PDF TEXT", pdf_text)
+            self.assertIn("OCR OR PDF TEXT", image_text)
 
 
 if __name__ == "__main__":

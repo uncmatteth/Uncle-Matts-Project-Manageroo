@@ -25,6 +25,12 @@ where the work happens.
 
 Official reference: https://docs.openclaw.ai/
 
+License note: the OpenClaw core repository and official docs identify OpenClaw
+as MIT licensed. That means the public code can be used under the MIT license
+terms; it does not prove anything about private hiring, acquisition, sponsorship,
+or compensation arrangements around the project or its creator. Treat those as
+separate facts unless a primary source states the deal terms.
+
 ## GBrain
 
 Memory lane. GBrain can provide useful past context, but current repo files
@@ -132,15 +138,23 @@ Reference: https://signals.forwardfuture.ai/loop-library/
 
 ## Prompt and skill hygiene
 
-Two bundled local skills are installed during core setup:
+Four bundled local skills are installed during core setup:
 
 - `pimp-my-prompt`: converts a rough, frustrated, overloaded, or reusable
   request into clear scope, acceptance criteria, fallback behavior, and a
   runnable brief.
+- `write-a-skill`: creates a concise local skill when a workflow keeps coming
+  back and should not be rediscovered in every thread.
 - `edit-skill`: cleans up local skills by removing duplicate rules, stale
   instructions, vague requirements, and AI slop while preserving the behavior
   that actually matters.
+- `skillify`: checks whether a repeated feature, workflow, or local habit
+  deserves to become a skill, then makes sure it has triggers and proof.
 
 This is the small version of the long-thread workflow: let the agent keep
-working across compaction, but keep the reusable skills tight enough that future
-threads start clean.
+working across compaction, but turn repeated pain into reusable skills and keep
+those skills tight enough that future threads start clean.
+
+Codex's built-in `skill-creator` skill is also useful when it is present on a
+developer machine. UMSMFBURASBOFE does not copy that system skill into the
+public package; it ships its own smaller agent-neutral helpers instead.

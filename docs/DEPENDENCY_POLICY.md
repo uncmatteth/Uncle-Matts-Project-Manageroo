@@ -60,10 +60,12 @@ installed.
 
 ## Helper skills
 
-Core install also writes two helper skills under `~/.agents/skills`:
+Core install also writes four helper skills under `~/.agents/skills`:
 
 - `pimp-my-prompt` for rough request intake and reusable prompt cleanup.
+- `write-a-skill` for making a repeated workflow into a concise reusable skill.
 - `edit-skill` for keeping local skills short, clear, and non-duplicative.
+- `skillify` for deciding whether a workflow deserves a skill and checking its proof.
 
 These are bundled files, not network dependencies. Existing different local
 versions are backed up before replacement. They are available even when token

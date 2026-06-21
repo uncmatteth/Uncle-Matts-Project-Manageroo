@@ -130,7 +130,7 @@ def build_inventory(
         content_kind = content_kind_for_path(path)
         if content_kind == "media":
             language = language_for_media(path) or "binary"
-            summary, line_count = media_summary(path, relative)
+            summary, line_count = media_summary(path, relative, runner=runner)
             estimated_tokens = max(1, int(len(summary) / chars_per_token))
         else:
             if looks_binary(path):

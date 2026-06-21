@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from umsmfburasbofe.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from umsmfburasbofe.chiptune import ThemePlayback, play_once  # noqa: E402
+from umsmfburasbofe.credits import format_special_thanks  # noqa: E402
 from umsmfburasbofe.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
 from umsmfburasbofe.token_modes import install_core_helper_skills, set_token_mode  # noqa: E402
 
@@ -1063,8 +1064,9 @@ def main() -> int:
             "dependency_policy": (
                 "Core install is UMSMFBURASBOFE. Real runs require a configured agent "
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
-                "Core helper skills include Pimp My Prompt for rough request intake and "
-                "Edit Skill for keeping local skills short and useful. "
+                "Core helper skills include Pimp My Prompt for rough request intake, "
+                "Write A Skill and Skillify for turning repeated work into reusable skills, "
+                "and Edit Skill for keeping local skills short and useful. "
                 "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
                 "Obsidian, and Loop Library when configured."
             ),
@@ -1091,6 +1093,8 @@ def main() -> int:
     print("  umsmfburasbofe ready")
     print("  umsmfburasbofe run --apply")
     print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
+    print("")
+    print(format_special_thanks())
     return 0
 
 

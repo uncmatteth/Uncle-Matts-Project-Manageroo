@@ -93,7 +93,14 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
         (str(path) for path in autoreview_candidates if path.exists()),
         None,
     )
-    for skill in ("pimp-my-prompt", "edit-skill", "caveman", "uncle-matts-caveman-curse"):
+    for skill in (
+        "pimp-my-prompt",
+        "write-a-skill",
+        "edit-skill",
+        "skillify",
+        "caveman",
+        "uncle-matts-caveman-curse",
+    ):
         path = Path.home() / ".agents" / "skills" / skill / "SKILL.md"
         probes[skill] = str(path) if path.exists() else None
     return {

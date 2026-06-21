@@ -22,6 +22,7 @@ from .install_status import (
     uninstall_plan,
 )
 from .install_repair import format_repair_install, repair_install
+from .integration_config import configure_integrations, format_integration_config
 from .loop_library import (
     DEFAULT_CATALOG_URL,
     find_loop,
@@ -141,9 +142,19 @@ def _format_integration_guidance(items: list[dict]) -> str:
     for item in items:
         label = "OK" if item.get("ok") else "ACTION"
         lines.append(f"{label} {item['name']}: {item['detail']}")
-        if item.get("next"):
-            lines.append(f"Next: {item['next']}")
     return "\n".join(lines) + "\n"
+
+
+def _setup_next_command(readiness_report: dict, integration_config: dict) -> str:
+    for item in readiness_report.get("items", []):
+        if item.get("required", True) and not item.get("ok") and item.get("next"):
+            return item["next"]
+    if not integration_config.get("ok") and integration_config.get("next_command"):
+        return integration_config["next_command"]
+    if readiness_report.get("ok"):
+        return f"{PUBLIC_COMMAND} run --apply"
+    commands = readiness_report.get("next_commands", [])
+    return commands[0] if commands else f"{PUBLIC_COMMAND} ready"
 
 
 def parser() -> argparse.ArgumentParser:
@@ -195,6 +206,19 @@ def parser() -> argparse.ArgumentParser:
     gbrain_setup.add_argument("--apply", action="store_true")
     gbrain_setup.add_argument("--sync", action="store_true")
     gbrain_setup.add_argument("--json", action="store_true")
+
+    integrations = sub.add_parser("integrations", help="Configure optional GBrain/GitNexus command wiring.")
+    integrations_sub = integrations.add_subparsers(dest="integrations_command", required=True)
+    integrations_configure = integrations_sub.add_parser(
+        "configure",
+        help="Detect installed GBrain/GitNexus and write integration command templates.",
+    )
+    integrations_configure.add_argument("repo", nargs="?", default=".")
+    integrations_configure.add_argument("--no-gbrain", action="store_true")
+    integrations_configure.add_argument("--no-gitnexus", action="store_true")
+    integrations_configure.add_argument("--no-apply", action="store_true")
+    integrations_configure.add_argument("--force", action="store_true")
+    integrations_configure.add_argument("--json", action="store_true")
 
     agent = sub.add_parser("agent", help="Inspect or switch agent CLI presets.")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
@@ -318,7 +342,14 @@ def main(argv: list[str] | None = None) -> int:
             skills_result = [] if args.skip_skills else install_core_helper_skills()
             token_result = set_token_mode(args.token_mode) if args.token_mode else read_token_mode()
             integrations = _integration_guidance(answers["integrations"], answers["agent"])
+            integration_config = configure_integrations(
+                repo,
+                gbrain=bool(answers["integrations"].get("gbrain")),
+                gitnexus=bool(answers["integrations"].get("gitnexus")),
+                apply=True,
+            )
             ready_result = readiness(repo)
+            next_command = _setup_next_command(ready_result, integration_config)
             payload = {
                 "ok": True,
                 "init": result,
@@ -326,7 +357,9 @@ def main(argv: list[str] | None = None) -> int:
                 "installed_skills": skills_result,
                 "token_mode": token_result,
                 "selected_integrations": integrations,
+                "integration_config": integration_config,
                 "readiness": ready_result,
+                "next_command": next_command,
             }
             if args.json:
                 print(json.dumps(payload, indent=2))
@@ -339,7 +372,9 @@ def main(argv: list[str] | None = None) -> int:
                     print("")
                     print(_format_integration_guidance(integrations), end="")
                 print("")
-                print(format_readiness(ready_result), end="")
+                print(format_readiness(ready_result, include_next=False), end="")
+                print("")
+                print(f"Next: {next_command}")
             return 0
 
         if args.command == "ready":
@@ -389,6 +424,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_gbrain_setup(result), end="")
+            return 0 if result["ok"] else 2
+
+        if args.command == "integrations":
+            repo = _repo(args.repo)
+            result = configure_integrations(
+                repo,
+                gbrain=not args.no_gbrain,
+                gitnexus=not args.no_gitnexus,
+                apply=not args.no_apply,
+                force=args.force,
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_integration_config(result), end="")
             return 0 if result["ok"] else 2
 
         if args.command == "agent":

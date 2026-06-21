@@ -191,14 +191,14 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
     }
 
 
-def format_readiness(report: dict[str, Any]) -> str:
+def format_readiness(report: dict[str, Any], *, include_next: bool = True) -> str:
     lines = [report["status"], ""]
     for item in report["items"]:
         label = "OK" if item["ok"] else "ACTION"
         if not item.get("required", True) and not item["ok"]:
             label = "OPTIONAL"
         lines.append(f"{label} {item['name']}: {item['detail']}")
-    if report.get("next_commands"):
+    if include_next and report.get("next_commands"):
         lines.extend(["", "Next:"])
         lines.append(report["next_commands"][0])
     return "\n".join(lines) + "\n"

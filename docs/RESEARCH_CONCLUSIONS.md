@@ -24,6 +24,7 @@ UMSMFBURASBOFE does not attempt to replace those systems. Its distinct role is t
 
 - one product intake;
 - rough request cleanup through the bundled `pimp-my-prompt` skill;
+- reusable skill creation through the bundled `write-a-skill` and `skillify` skills;
 - externalized durable state;
 - reversible decision defaults;
 - reuse gate;

@@ -42,6 +42,8 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - You get the patch, the checks, the review notes, and the report.
 - The installer also includes `edit-skill`, a helper for keeping local skills
   short, non-duplicative, and free of stale AI junk.
+- It also includes `write-a-skill` and `skillify`, so repeated painful work can
+  become a small reusable skill instead of another giant thread.
 - Optional token-reduction modes are included: clean `caveman` or profane `curse`.
 - The installer should be simple for normal users, but still fun: color, ASCII art, and generated chiptune music.
 
@@ -68,6 +70,43 @@ larger loop-engineering discussion helped name the pattern clearly. Good agent
 work needs a bounded action, an independent verifier, a budget, a stop
 condition, and evidence. UMSMFBURASBOFE applies that goal-style loop idea to
 local build and repair runs.
+
+## Special Thanks: The UMSMFBURASBOFE Super Team
+
+These are the real-world powers this project remixes:
+
+- **Peter Yang / @petergyang as The Skill Smith**
+  - Stats: STR 8 | DEX 12 | CON 14 | INT 18 | WIS 17 | CHA 16
+  - Power: turns messy repeated agent behavior into tight reusable skills, then keeps those skills short with edit passes.
+  - Credit: skill hygiene, self-improving skill loops, and the edit-skill idea.
+- **Matthew Berman / Forward Future as Captain Looplight**
+  - Stats: STR 10 | DEX 13 | CON 15 | INT 17 | WIS 18 | CHA 17
+  - Power: makes agent loops easy to understand: bounded task, verifier, stop rule, and evidence.
+  - Credit: Loop Library and plain-language loop framing.
+- **Garry Tan / GBrain as The Memory Architect**
+  - Stats: STR 11 | DEX 11 | CON 18 | INT 18 | WIS 18 | CHA 14
+  - Power: gives agents durable memory without dumping the whole universe into the prompt.
+  - Credit: GBrain local memory and retrieval.
+- **Abhigyan Patwari / GitNexus as The Graph Cartographer**
+  - Stats: STR 9 | DEX 16 | CON 14 | INT 18 | WIS 16 | CHA 13
+  - Power: turns codebases into navigable graphs so agents can reason about impact.
+  - Credit: GitNexus code graph and impact-analysis direction.
+- **OpenClaw Agent Skills, AUTOREVIEW, and Clawpatch as The Patch Council**
+  - Stats: STR 15 | DEX 15 | CON 16 | INT 17 | WIS 17 | CHA 12
+  - Power: maps work into bounded slices, reviews with evidence, and keeps patching explicit.
+  - Credit: agent skill packaging, structured review, and Clawpatch-style fix loops.
+- **OpenAI Codex skill system as The Skill Forge**
+  - Stats: STR 10 | DEX 14 | CON 15 | INT 18 | WIS 16 | CHA 15
+  - Power: gives local agents a simple skill format: trigger text first, then instructions and resources only when needed.
+  - Credit: Codex skill routing, skill-creator guidance, and agent-readable skill packaging.
+- **Obsidian as The Vault Keeper**
+  - Stats: STR 8 | DEX 13 | CON 17 | INT 16 | WIS 17 | CHA 15
+  - Power: keeps human notes in plain Markdown that the user can read and own.
+  - Credit: Markdown-vault notes as a human-readable context lane.
+
+Together they are the local-agent super team: skills shape the ask, loops define
+the mission, memory remembers the map, graphs show the blast radius, review
+catches the bad stuff, and notes keep a human-readable trail.
 
 ```text
 ONE PLAIN-ENGLISH BRIEF
@@ -119,6 +158,10 @@ The bundled helper skills are installed under `~/.agents/skills`:
   fallback rules, and a product brief shape.
 - `edit-skill`: tightens skill files by removing duplicate rules, stale
   instructions, vague wording, and AI slop.
+- `write-a-skill`: creates a concise reusable skill when a workflow keeps
+  coming back.
+- `skillify`: checks whether a feature or repeated habit deserves to become a
+  proper skill, then makes sure there is proof.
 
 The installer also offers the recommended local stack:
 
@@ -233,9 +276,10 @@ Reinstall the always-on helper skills later if needed:
 umsmfburasbofe skills install
 ```
 
-Then a compatible agent can call `$pimp-my-prompt` or `$edit-skill` directly.
-The intended workflow is long-running agent threads with compaction, plus small
-skills that get tightened instead of growing forever.
+Then a compatible agent can call `$pimp-my-prompt`, `$write-a-skill`,
+`$edit-skill`, or `$skillify` directly. The intended workflow is long-running
+agent threads with compaction, plus small skills that get created and tightened
+instead of growing forever.
 
 Make the first brief without hand-editing the template:
 
@@ -355,6 +399,7 @@ This was built around the local agent stack you actually wanted:
 - Matthew Berman / Forward Future's Loop Library as a reference for clear
   agent loops, checks, and stopping conditions.
 - `pimp-my-prompt` for rough request intake.
+- `write-a-skill` and `skillify` for turning repeated work into reusable skills.
 - `edit-skill` for keeping skills short, specific, and useful.
 - Any AI IDE or CLI agent that can read files and run commands in the repo.
 
@@ -378,3 +423,4 @@ checks. Do the first live run on a clone, branch, or disposable copy.
 - [`docs/ENFORCEMENT_MATRIX.md`](docs/ENFORCEMENT_MATRIX.md)
 - [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md)
 - [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)
+- [`docs/CREDITS.md`](docs/CREDITS.md)

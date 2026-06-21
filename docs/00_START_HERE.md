@@ -19,6 +19,7 @@ Your AI agent does the code work.
 The tool runs checks and keeps the receipts.
 Bad work goes back through review and repair.
 If skills get bloated, $edit-skill trims duplicate and stale instructions.
+If a painful workflow repeats, $write-a-skill and $skillify package it.
 ```
 
 ## Install
@@ -56,7 +57,8 @@ Always-on helper skills:
 umsmfburasbofe skills install
 ```
 
-That installs `pimp-my-prompt` and `edit-skill` under `~/.agents/skills`.
+That installs `pimp-my-prompt`, `write-a-skill`, `edit-skill`, and `skillify`
+under `~/.agents/skills`.
 
 ## Initialize any product repository
 

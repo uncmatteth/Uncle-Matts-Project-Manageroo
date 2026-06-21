@@ -89,7 +89,9 @@ def structural_checks() -> list[dict]:
         "src/umsmfburasbofe/chiptune.py",
         "src/umsmfburasbofe/token_modes.py",
         "src/umsmfburasbofe/assets/skills/pimp-my-prompt/SKILL.md",
+        "src/umsmfburasbofe/assets/skills/write-a-skill/SKILL.md",
         "src/umsmfburasbofe/assets/skills/edit-skill/SKILL.md",
+        "src/umsmfburasbofe/assets/skills/skillify/SKILL.md",
         "src/umsmfburasbofe/assets/skills/caveman/SKILL.md",
         "src/umsmfburasbofe/assets/skills/uncle-matts-caveman-curse/SKILL.md",
     ]

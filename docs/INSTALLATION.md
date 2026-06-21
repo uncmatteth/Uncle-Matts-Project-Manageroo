@@ -74,8 +74,12 @@ Normal install writes these local skills under `~/.agents/skills`:
 
 - `pimp-my-prompt`: turns rough requests into exact scope, acceptance criteria,
   fallback rules, and runnable product briefs.
+- `write-a-skill`: creates a concise reusable skill when a workflow keeps
+  coming back.
 - `edit-skill`: tightens existing skills by removing duplicate instructions,
   stale rules, vague wording, and AI slop.
+- `skillify`: checks whether a repeated workflow deserves a skill, then makes
+  sure it has triggers and proof.
 
 They are available even when token mode is off. Reinstall them later with:
 
