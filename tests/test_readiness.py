@@ -38,7 +38,7 @@ class ReadinessTests(unittest.TestCase):
             self.assertFalse(report["ok"])
             checks = [item for item in report["items"] if item["name"] == "checks"][0]
             self.assertFalse(checks["ok"])
-            self.assertIn("[[verification.gates]]", checks["next"])
+            self.assertIn("umsmfburasbofe checks add smoke", checks["next"])
             gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
             self.assertFalse(gbrain["required"])
 

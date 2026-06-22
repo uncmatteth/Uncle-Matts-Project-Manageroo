@@ -11,8 +11,8 @@
 9. The isolated mirror excludes Git-ignored files. Applications that require ignored generated assets or local secrets must provide them through a controlled environment.
 10. Symlinks are excluded from the mirror in the current implementation to prevent path escape.
 11. Independent map and review chunks can run in parallel. Implementation tasks remain dependency ordered for correctness.
-12. Media support is metadata support. UMSMFBURASBOFE records images, PDFs, and design/media assets in inventory, but it does not perform OCR or vision interpretation.
-13. Long prose support includes line counts, summaries, and explicit summary context. Exact edits still require bounded line ranges or task decomposition.
+12. Media support is bounded support. UMSMFBURASBOFE records images, PDFs, and design/media assets in inventory and can use local OCR/PDF text extractors when installed, but it does not perform real vision interpretation or design understanding.
+13. Long prose support includes line counts, summaries, explicit summary context, and task decomposition. Exact edits still require bounded line ranges or a document-specific workflow.
 14. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
 15. UMSMFBURASBOFE does not replace CI, production monitoring, backups, security review, or legal review.
 16. UMSMFBURASBOFE does not run cloud schedules or timer loops by itself. Loop and routine patterns are adapted into bounded local goal-style runs unless the operator supplies a separate scheduler.

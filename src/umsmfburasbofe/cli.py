@@ -9,6 +9,7 @@ from pathlib import Path
 from . import __version__
 from .branding import FULL_ACRONYM, PROJECT_DIR, PUBLIC_COMMAND, print_banner
 from .brief_builder import build_product_brief, default_brief_path, write_product_brief
+from .checks import add_check_gate, format_add_check_gate, format_check_gate_list, list_check_gates
 from .chiptune import play_once
 from .config import AGENT_PRESETS, apply_agent_preset
 from .doctor import doctor
@@ -36,8 +37,9 @@ from .loop_library import (
 )
 from .orchestrator import Orchestrator
 from .project import git_root, initialize_project
-from .readiness import format_readiness, readiness
+from .readiness import brief_is_template, format_readiness, readiness
 from .selftest import run_self_test
+from .solo import format_solo_report, solo_next_command
 from .token_modes import (
     CORE_HELPER_SKILLS,
     install_core_helper_skills,
@@ -46,7 +48,7 @@ from .token_modes import (
     set_token_mode,
 )
 from .util import read_json
-from .wizards import collect_gbrain_answers, collect_setup_answers
+from .wizards import collect_gbrain_answers, collect_setup_answers, collect_solo_answers
 
 
 def _repo(value: str | None) -> Path:
@@ -157,6 +159,24 @@ def _setup_next_command(readiness_report: dict, integration_config: dict) -> str
     return commands[0] if commands else f"{PUBLIC_COMMAND} ready"
 
 
+def _extract_check_repo_arg(argv: list[str], repo: str) -> tuple[str, list[str]]:
+    values = list(argv)
+    command_start = values.index("--") if "--" in values else len(values)
+    prefix = values[:command_start]
+    suffix = values[command_start:]
+    cleaned: list[str] = []
+    index = 0
+    selected_repo = repo
+    while index < len(prefix):
+        if prefix[index] == "--repo" and index + 1 < len(prefix):
+            selected_repo = prefix[index + 1]
+            index += 2
+            continue
+        cleaned.append(prefix[index])
+        index += 1
+    return selected_repo, cleaned + suffix
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog=PUBLIC_COMMAND,
@@ -176,10 +196,54 @@ def parser() -> argparse.ArgumentParser:
     setup.add_argument("--skip-skills", action="store_true")
     setup.add_argument("--json", action="store_true")
 
+    solo = sub.add_parser(
+        "solo",
+        help="Solo-operator flow: project, ask, brief, readiness, and one next action.",
+    )
+    solo.add_argument("repo", nargs="?")
+    solo.add_argument("--agent", choices=sorted(AGENT_PRESETS))
+    solo.add_argument("--want", default="")
+    solo.add_argument("--for", dest="audience", default="")
+    solo.add_argument("--outcome", action="append", default=[])
+    solo.add_argument("--must-not", action="append", default=[])
+    solo.add_argument("--proof", action="append", default=[])
+    solo.add_argument("--stop", default="")
+    solo.add_argument("--later", action="append", default=[])
+    solo.add_argument("--mode", choices=["build", "repair"], default="build")
+    solo.add_argument("--token-mode", choices=["off", "caveman", "curse"])
+    solo.add_argument("--skip-skills", action="store_true")
+    solo.add_argument("--use-gbrain", action="store_true")
+    solo.add_argument("--use-gitnexus", action="store_true")
+    solo.add_argument("--use-obsidian", action="store_true")
+    solo.add_argument("--use-loop-library", action="store_true")
+    solo.add_argument("--run", action="store_true")
+    solo.add_argument("--force", action="store_true")
+    solo.add_argument("--json", action="store_true")
+    solo_apply = solo.add_mutually_exclusive_group()
+    solo_apply.add_argument("--apply", dest="apply", action="store_true", default=True)
+    solo_apply.add_argument("--no-apply", dest="apply", action="store_false")
+
     ready = sub.add_parser("ready", help="Say exactly what is ready, missing, optional, and next.")
     ready.add_argument("repo", nargs="?", default=".")
     ready.add_argument("--require-gbrain", action="store_true")
     ready.add_argument("--json", action="store_true")
+
+    checks = sub.add_parser("checks", help="List or add real verification commands.")
+    checks_sub = checks.add_subparsers(dest="checks_command", required=True)
+    checks_list = checks_sub.add_parser("list", help="List configured verification commands.")
+    checks_list.add_argument("repo", nargs="?", default=".")
+    checks_list.add_argument("--json", action="store_true")
+    checks_add = checks_sub.add_parser(
+        "add",
+        help="Add one real check command, for example: checks add smoke -- npm test.",
+    )
+    checks_add.add_argument("id")
+    checks_add.add_argument("argv", nargs=argparse.REMAINDER)
+    checks_add.add_argument("--repo", default=".")
+    checks_add.add_argument("--kind", default="check")
+    checks_add.add_argument("--timeout-seconds", type=int, default=1800)
+    checks_add.add_argument("--optional", action="store_true")
+    checks_add.add_argument("--json", action="store_true")
 
     brief = sub.add_parser(
         "brief",
@@ -377,6 +441,95 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Next: {next_command}")
             return 0
 
+        if args.command == "solo":
+            requested_integrations = {
+                "gbrain": args.use_gbrain,
+                "gitnexus": args.use_gitnexus,
+                "obsidian": args.use_obsidian,
+                "loop_library": args.use_loop_library,
+            }
+            answers = collect_solo_answers(
+                repo=args.repo,
+                agent=args.agent,
+                want=args.want,
+                audience=args.audience,
+                outcomes=args.outcome,
+                must_not=args.must_not,
+                proof=args.proof,
+                stop=args.stop,
+                later=args.later,
+                mode=args.mode,
+                run=True if args.run else None,
+                integrations=requested_integrations,
+                interactive=sys.stdin.isatty() and not args.json,
+            )
+            result = initialize_project(Path(answers["repo"]), agent=answers["agent"])
+            repo = Path(result["repo"])
+            agent_result = apply_agent_preset(repo, answers["agent"])
+            skills_result = [] if args.skip_skills else install_core_helper_skills()
+            token_result = set_token_mode(args.token_mode) if args.token_mode else read_token_mode()
+            markdown = build_product_brief(
+                want=answers["want"],
+                audience=answers["audience"],
+                outcomes=answers["outcomes"],
+                must_not=answers["must_not"],
+                proof=answers["proof"],
+                stop_rule=answers["stop"],
+                later=answers["later"],
+            )
+            brief_path = default_brief_path(repo)
+            brief_force = args.force or brief_is_template(brief_path)
+            written_brief = write_product_brief(brief_path, markdown, force=brief_force)
+            integration_config = configure_integrations(
+                repo,
+                gbrain=bool(answers["integrations"].get("gbrain")),
+                gitnexus=bool(answers["integrations"].get("gitnexus")),
+                apply=True,
+            )
+            integration_guidance = _integration_guidance(answers["integrations"], answers["agent"])
+            ready_result = readiness(repo)
+            run_result = None
+            run_skipped_reason = ""
+            if answers["run"]:
+                if ready_result["ok"]:
+                    run_result = Orchestrator(repo).run(
+                        brief_path=written_brief,
+                        mode=answers["mode"],
+                        apply_on_success=args.apply,
+                    )
+                else:
+                    run_skipped_reason = "readiness is not passing yet"
+            next_command = solo_next_command(
+                ready_result,
+                integration_config,
+                integration_guidance=integration_guidance,
+                mode=answers["mode"],
+                apply_on_success=args.apply,
+                run_result=run_result,
+            )
+            payload = {
+                "ok": True,
+                "flow": "solo-operator",
+                "repo": str(repo),
+                "brief": str(written_brief),
+                "agent_name": answers["agent"],
+                "agent": agent_result,
+                "mode": answers["mode"],
+                "installed_skills": skills_result,
+                "token_mode": token_result,
+                "integration_config": integration_config,
+                "integration_guidance": integration_guidance,
+                "readiness": ready_result,
+                "run": run_result,
+                "run_skipped_reason": run_skipped_reason,
+                "next_command": next_command,
+            }
+            if args.json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print(format_solo_report(payload), end="")
+            return 0
+
         if args.command == "ready":
             result = readiness(Path(args.repo).resolve(), require_gbrain=args.require_gbrain)
             if args.json:
@@ -384,6 +537,31 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_readiness(result), end="")
             return 0 if result["ok"] else 2
+
+        if args.command == "checks":
+            if args.checks_command == "list":
+                repo = _repo(args.repo)
+                result = list_check_gates(repo)
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(format_check_gate_list(result), end="")
+                return 0
+            selected_repo, check_argv = _extract_check_repo_arg(args.argv, args.repo)
+            repo = _repo(selected_repo)
+            result = add_check_gate(
+                repo,
+                gate_id=args.id,
+                argv=check_argv,
+                kind=args.kind,
+                timeout_seconds=args.timeout_seconds,
+                required=not args.optional,
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_add_check_gate(result), end="")
+            return 0
 
         if args.command == "brief":
             repo = _repo(args.repo)

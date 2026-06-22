@@ -13,9 +13,10 @@ architecture, or get creative.
 
 - `UMSMFBURASBOFE_SOURCE`: the extracted `Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition` directory.
 - `TARGET_REPO`: the existing product Git repository.
+- `OPERATOR_REQUEST`: what the operator wants built or fixed.
 
-Find both paths from the workspace. If either path is missing, stop and say
-which one is missing. Do not guess.
+Find the paths from the workspace and the request from the operator. If any
+input is missing, stop and say which one is missing. Do not guess.
 
 ## Required sequence
 
@@ -32,7 +33,7 @@ umsmfburasbofe stack-status --json
 umsmfburasbofe repair-install --no-apply --json
 git -C "$TARGET_REPO" rev-parse --show-toplevel
 cd "$TARGET_REPO"
-umsmfburasbofe setup --agent codex
+umsmfburasbofe solo --agent codex --want "$OPERATOR_REQUEST" --force
 umsmfburasbofe ready --json
 ```
 
@@ -56,15 +57,24 @@ If the operator's product request is rough, overloaded, or frustrated, use the
 bundled `$pimp-my-prompt` skill to turn it into exact scope, proof, and stop
 rules before filling the product brief.
 
-If the operator wants a generated first brief, run:
+If the operator wants to provide the full request non-interactively, run:
 
 ```bash
-umsmfburasbofe brief \
+umsmfburasbofe solo \
   --want "OPERATOR_REQUEST_HERE" \
   --outcome "VISIBLE_RESULT_HERE" \
   --must-not "OUT_OF_SCOPE_OR_DO_NOT_TOUCH_HERE" \
   --proof "CHECK_OR_DEMO_HERE" \
   --force
+umsmfburasbofe ready --json
+```
+
+If readiness says no checks are configured, ask for the real test, lint, build,
+or smoke command and add it through the CLI:
+
+```bash
+umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks list
 umsmfburasbofe ready --json
 ```
 
@@ -89,7 +99,7 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 - Do not weaken or skip tests.
 - Do not silently install stack integrations during core setup.
 - Do not create IDE-specific configuration.
-- Do not invent verification gates.
+- Do not invent verification commands.
 - Do not run a product build with the template brief.
 - Do not claim readiness when a required check fails.
 

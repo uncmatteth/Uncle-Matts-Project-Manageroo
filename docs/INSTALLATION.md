@@ -121,14 +121,33 @@ backs it up before installing the bundled copy.
 
 ```bash
 cd /absolute/path/to/product
-umsmfburasbofe setup
+umsmfburasbofe solo
 ```
 
-Bare `setup` is the first-run wizard. It asks:
+Bare `solo` is the normal first-run path. It asks:
 
 - what AI you are using;
 - what repo should be initialized;
+- what should be built or fixed;
+- who it is for;
+- what result must be true;
+- what must not break;
+- what proof should verify the work;
 - whether to check GBrain, GitNexus, Obsidian, or Loop Library.
+
+It writes `.umsmfburasbofe/PRODUCT-BRIEF.md`, checks readiness, and prints
+exactly one next command. If every required check is already ready during that
+first command, you can combine intake and execution:
+
+```bash
+umsmfburasbofe solo --want "Describe the result" --run --apply --force
+```
+
+Lower-level setup is still available when you want only repo initialization:
+
+```bash
+umsmfburasbofe setup
+```
 
 Use `--agent codex` only when this tool should launch Codex itself. Use
 `umsmfburasbofe agent list` to see starter presets:
@@ -162,6 +181,13 @@ Check whether it is ready to run:
 
 ```bash
 umsmfburasbofe ready
+```
+
+If the repo has no detected verification command, add one without editing TOML:
+
+```bash
+umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks list
 ```
 
 If GBrain should know this repo, inspect first and map only the selected folder:

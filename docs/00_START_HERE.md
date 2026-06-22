@@ -11,6 +11,7 @@ The acronym is `UMSMFBURASBOFE` because this is incredibly super serious.
 ```text
 You write what should be built or fixed.
 If the request is messy, $pimp-my-prompt can turn it into scope and proof.
+Solo Operator Mode turns the ask into a brief and one next action.
 The tool reads the repo and breaks the job up.
 If configured, GBrain/GitNexus add memory and code-graph context.
 Independent map/review chunks can run in parallel.
@@ -64,11 +65,20 @@ under `~/.agents/skills`.
 
 ```bash
 cd /absolute/path/to/product
-umsmfburasbofe setup
+umsmfburasbofe solo
 ```
 
-Bare `setup` is the wizard. It asks what AI you are using, which repo to use,
-and whether to check GBrain, GitNexus, Obsidian, or Loop Library.
+Bare `solo` is the main wizard. It asks what AI you are using, which repo to
+use, what should be built or fixed, what must not break, what proof should pass,
+and whether to check GBrain, GitNexus, Obsidian, or Loop Library. It writes the
+brief and prints exactly one next command.
+
+Use lower-level `setup` only when you want to initialize the repo without
+writing the product brief yet:
+
+```bash
+umsmfburasbofe setup
+```
 
 Use `--agent codex` when this tool should launch Codex. Use `umsmfburasbofe
 agent list` to see starter presets for other CLI agents. Use
@@ -93,6 +103,13 @@ Check readiness:
 
 ```bash
 umsmfburasbofe ready
+```
+
+If it says no checks are configured, add one real command the repo can run:
+
+```bash
+umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks list
 ```
 
 If GBrain should know this repo, map only this folder:

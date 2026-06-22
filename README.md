@@ -3,6 +3,8 @@
 Use `umsmfburasbofe` at the terminal. The name is incredibly super serious.
 
 This is a local tool for putting an actual process around AI coding agents.
+The main path is **Solo Operator Mode**: one technically minded person uses AI
+coding tools like a product team in a box.
 
 Give it a Git repo, a plain-English brief, and real checks. It helps the agent
 read the project, make a plan, work in smaller pieces, run the checks, review
@@ -24,6 +26,9 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 
 - You have an app, website, script, or repo.
 - You want an AI coding agent to work on it without wandering off.
+- You do not want to hire a whole team just to get from idea to releaseable product.
+- `umsmfburasbofe solo` is the front door: explain the job, get a brief,
+  readiness check, and one next action.
 - You write what you want in normal language.
 - If the request is messy, angry, long, or half-formed, the bundled
   `pimp-my-prompt` skill helps turn it into exact scope, proof, and stop rules
@@ -126,6 +131,51 @@ UMSMFBURASBOFE is not trying to replace your AI tool, your IDE, GBrain,
 GitNexus, Obsidian, AUTOREVIEW, Clawpatch, CI, or your own judgment. It is the
 local command that makes those pieces follow a job instead of becoming one more
 pile of loose chat.
+
+## Solo Operator Mode
+
+The intended user is a technically minded non-coder who can explain what should
+exist, make product decisions, and judge proof, but does not want the headache
+of managing a software team.
+
+Start here:
+
+```bash
+cd /absolute/path/to/your/git-project
+umsmfburasbofe solo
+```
+
+Or pass the first ask directly:
+
+```bash
+umsmfburasbofe solo \
+  --want "Make checkout less confusing" \
+  --outcome "One clear payment path" \
+  --must-not "Do not change admin exports" \
+  --proof "Run checkout tests" \
+  --force
+```
+
+`solo` prepares the project, writes the product brief, checks readiness, and
+prints exactly one next command. If readiness is already green during the first
+intake command, add `--run --apply` to let it start the build or repair run.
+
+If the repo has no detected tests or build checks, add one real command without
+editing config by hand:
+
+```bash
+umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks list
+umsmfburasbofe ready
+```
+
+The full target path is:
+
+```text
+idea -> brief -> setup -> build/repair -> checks -> review -> repair -> report -> release readiness
+```
+
+See [`docs/SOLO_OPERATOR_MODE.md`](docs/SOLO_OPERATOR_MODE.md).
 
 ## Choose the correct package
 
@@ -231,10 +281,16 @@ umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 cd /absolute/path/to/your/git-project
+umsmfburasbofe solo
+```
+
+Lower-level commands are still available when you want them:
+
+```bash
 umsmfburasbofe setup
 ```
 
-Run bare `setup` for the wizard. It asks:
+Run bare `setup` for the lower-level wizard. It asks:
 
 - what AI you are using;
 - what repo you want to work on;
@@ -296,6 +352,13 @@ Then check the whole setup:
 
 ```bash
 umsmfburasbofe ready
+```
+
+If readiness says no checks are configured, add the simplest real proof command
+for that repo:
+
+```bash
+umsmfburasbofe checks add smoke -- npm test
 ```
 
 If you want GBrain memory mapped for this repo, inspect first and add only the
@@ -417,6 +480,7 @@ checks. Do the first live run on a clone, branch, or disposable copy.
 - [`LOCAL_SETUP.md`](LOCAL_SETUP.md)
 - [`PUBLISH_TO_GITHUB.md`](PUBLISH_TO_GITHUB.md)
 - [`docs/00_START_HERE.md`](docs/00_START_HERE.md)
+- [`docs/SOLO_OPERATOR_MODE.md`](docs/SOLO_OPERATOR_MODE.md)
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md)

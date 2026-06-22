@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.wizards import collect_gbrain_answers, collect_setup_answers
+from umsmfburasbofe.wizards import collect_gbrain_answers, collect_setup_answers, collect_solo_answers
 
 
 def input_from(values):
@@ -37,6 +37,53 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(answers["agent"], "codex")
         self.assertEqual(answers["repo"], Path("."))
         self.assertFalse(any(answers["integrations"].values()))
+
+    def test_solo_answers_collect_human_build_request(self):
+        messages: list[str] = []
+        answers = collect_solo_answers(
+            repo=None,
+            agent=None,
+            want="",
+            audience="",
+            outcomes=[],
+            must_not=[],
+            proof=[],
+            stop="",
+            later=[],
+            mode="build",
+            run=None,
+            integrations={"gbrain": False, "gitnexus": False, "obsidian": False, "loop_library": False},
+            interactive=True,
+            input_fn=input_from(
+                [
+                    "mock",
+                    "/tmp/product",
+                    "Make checkout sane",
+                    "Solo shop owner",
+                    "One clear payment path",
+                    "Do not change exports",
+                    "Run checkout tests",
+                    "Stop after one failed payment sandbox",
+                    "repair",
+                    "y",
+                    "n",
+                    "n",
+                    "n",
+                    "y",
+                ]
+            ),
+            output_fn=messages.append,
+        )
+        self.assertEqual(answers["agent"], "mock")
+        self.assertEqual(answers["repo"], Path("/tmp/product"))
+        self.assertEqual(answers["want"], "Make checkout sane")
+        self.assertEqual(answers["outcomes"], ["One clear payment path"])
+        self.assertEqual(answers["must_not"], ["Do not change exports"])
+        self.assertEqual(answers["proof"], ["Run checkout tests"])
+        self.assertEqual(answers["mode"], "repair")
+        self.assertTrue(answers["integrations"]["gbrain"])
+        self.assertTrue(answers["run"])
+        self.assertTrue(any("solo product team" in message for message in messages))
 
     def test_gbrain_answers_prompt_for_selected_source_only(self):
         answers = collect_gbrain_answers(

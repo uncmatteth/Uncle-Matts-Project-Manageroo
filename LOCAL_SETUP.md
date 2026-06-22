@@ -52,7 +52,9 @@ Persist that line in the shell profile used on the machine, such as `~/.zshrc` o
 Core install also installs bundled helper skills under `~/.agents/skills`:
 
 - `pimp-my-prompt` for turning a rough request into exact scope, proof, and stop rules.
+- `write-a-skill` for packaging repeated work as a reusable skill.
 - `edit-skill` for tightening local skills when they get duplicated, stale, or bloated.
+- `skillify` for deciding whether a painful repeated workflow deserves a real skill.
 
 They can be reinstalled later with:
 
@@ -92,7 +94,7 @@ edit `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
 
 For an AI IDE that is already running in the repo, do not make this harder than
 it is. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created
-by `umsmfburasbofe setup`.
+by `umsmfburasbofe solo`.
 
 Switch token-reduction mode later:
 
@@ -102,41 +104,40 @@ umsmfburasbofe token-mode set caveman
 umsmfburasbofe token-mode set curse
 ```
 
-## 5. Initialize an existing product repository
+## 5. Start Solo Operator Mode
 
 The target must already be a Git repository.
 
 ```bash
 cd /absolute/path/to/product
-umsmfburasbofe setup
+umsmfburasbofe solo
 ```
 
-Bare `setup` asks what AI you are using, which repo to initialize, and whether
-to check GBrain, GitNexus, Obsidian, or Loop Library.
+Bare `solo` asks what AI you are using, what should be built or fixed, what
+must not break, what proof should pass, and whether to check GBrain, GitNexus,
+Obsidian, or Loop Library. It initializes the repo, writes the product brief,
+runs readiness, and prints exactly one next command.
 
 Use `--agent codex` only when Codex is the selected runtime. Use
 `umsmfburasbofe agent preset generic` for another CLI and configure
 `[agent].argv_template`.
 
-Do not continue until `umsmfburasbofe ready` reports `READY TO RUN`. If no
-verification gates were detected, add explicit `[[verification.gates]]` entries
-to `.umsmfburasbofe/config.toml` using the project's real test, lint,
-type-check, or build commands.
-
-## 6. Write the product request
-
-Create the first brief:
+If you want the lower-level flow instead, run:
 
 ```bash
-umsmfburasbofe brief \
-  --want "Describe what should be built or fixed" \
-  --outcome "The result that must be true" \
-  --must-not "Anything the agent must not touch" \
-  --proof "The check or demo that proves it worked" \
-  --force
+umsmfburasbofe setup
+umsmfburasbofe brief --want "Describe what should be built or fixed" --force
+umsmfburasbofe ready
 ```
 
-You can still hand-edit `.umsmfburasbofe/PRODUCT-BRIEF.md` afterward.
+Do not continue until `umsmfburasbofe ready` reports `READY TO RUN`. If no
+verification command was detected, add one real check command:
+
+```bash
+umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks list
+umsmfburasbofe ready
+```
 
 If GBrain should know this repo, map only the chosen folder:
 
@@ -144,13 +145,7 @@ If GBrain should know this repo, map only the chosen folder:
 umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
 ```
 
-Then:
-
-```bash
-umsmfburasbofe ready
-```
-
-## 7. Run UMSMFBURASBOFE
+## 6. Run UMSMFBURASBOFE
 
 New product or feature:
 
@@ -164,7 +159,14 @@ Repair existing code:
 umsmfburasbofe run --mode repair --apply
 ```
 
-## 8. Read the result
+You can also combine intake and run in one first command when you already know
+readiness is green:
+
+```bash
+umsmfburasbofe solo --want "Describe what should be built or fixed" --run --apply --force
+```
+
+## 7. Read the result
 
 The command returns a run ID. Use:
 

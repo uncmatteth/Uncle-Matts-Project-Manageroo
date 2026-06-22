@@ -16,14 +16,17 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
 - It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
 - It includes two token-reduction modes: clean `caveman` and profane `curse`.
-- The normal path is simple: `setup`, `brief`, `ready`, then `run --apply`.
-- Bare `setup` is a wizard: AI choice, repo path, and optional stack checks.
+- The normal path is simple: run `umsmfburasbofe solo`, answer normal product questions, then follow the one next command.
+- `setup`, `brief`, `ready`, and `run --apply` are still available when you want lower-level control.
+- Bare `setup` is the lower-level wizard: AI choice, repo path, and optional stack checks.
 - If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.
 - `gbrain-setup` can prompt for one selected folder. No broad personal-folder crawl.
 - `agent list` and `agent preset` make Codex, Gemini, Claude Code, mock, or generic CLI setup visible instead of hidden in docs.
 - `repair-install` inspects and fixes the local launcher/helper install.
 - It was built around GBrain, GitNexus, Obsidian, AUTOREVIEW, Clawpatch, and any AI IDE or CLI agent that can run commands in the repo.
 - The installer can guide or install the recommended local stack: GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew Berman / Forward Future's Loop Library skill.
+- Solo Operator Mode reports every selected extra: configured, missing, skipped, or the exact command to fix next.
+- `checks add` lets a user add one real proof command without hand-editing TOML.
 - Credit to Matthew Berman / Forward Future's Loop Library for making the agent-loop idea easy to point at: bounded action, fixed check, stop condition, evidence.
 - Credit to Peter Yang's public skill-writing advice for the skill-hygiene idea: clear triggers, examples/evals when useful, memory only when it is actually read, and an edit-skill pass to remove duplicate or stale instructions.
 - It does not need a special version for Codex, Claude Code, Gemini, Grok, or the next AI thing. If the agent can work in the repo, it can use the same installed command.
