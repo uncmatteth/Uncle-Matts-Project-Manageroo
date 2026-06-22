@@ -1045,6 +1045,16 @@ def choose_token_mode(selection: str) -> str:
     }.get(answer, "off")
 
 
+def print_lane_explainer() -> None:
+    print("")
+    print("Lane readiness, plain English:")
+    print("  - Memory lane: if the brief asks for GBrain, memory, Obsidian, or prior decisions, map GBrain sources before the run.")
+    print("  - Document/prose lane: if the brief asks for PDFs, transcripts, screenshots, images, long prose, or exact wording, configure document_analysis_command first.")
+    print("  - Passive files: if the repo merely contains documents or media, ready prints WARN but does not block.")
+    print("  - AUTOREVIEW/Clawpatch lane: if configured, those commands own their findings and repairs; the AI must not freehand fixes from them.")
+    print("  - Where to read more: docs/DOCUMENT_LANE.md, docs/REVIEW_REPAIR_LANES.md, docs/EXTERNAL_INTEGRATIONS.md")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"Install {FULL_NAME}")
     parser.add_argument(
@@ -1291,6 +1301,7 @@ def main() -> int:
     print("  # When readiness is green:")
     print("  umsmfburasbofe run --apply")
     print('  umsmfburasbofe release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')
+    print_lane_explainer()
     print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
     print("")
     print(format_special_thanks())

@@ -317,12 +317,17 @@ umsmfburasbofe ready
 Readiness is allowed to stop a run when the brief asks for a lane that is not
 configured. Plain English version:
 
+- If the brief asks for GBrain, memory, Obsidian, or prior decisions, map
+  GBrain sources before the run starts.
 - If the brief asks for PDFs, transcripts, screenshots, images, long prose, or
   exact wording, configure `document_analysis_command` first.
 - If the repo only contains document/media files and the brief does not ask to
   use them, readiness prints `WARN` but does not block.
-- If the brief asks for GBrain, memory, Obsidian, or prior decisions, GBrain
-  must have mapped sources before the run starts.
+- If AUTOREVIEW or Clawpatch commands are configured, those commands own their
+  findings and repairs. The AI must not freehand fixes from them.
+
+More detail lives in `docs/DOCUMENT_LANE.md`,
+`docs/REVIEW_REPAIR_LANES.md`, and `docs/EXTERNAL_INTEGRATIONS.md`.
 
 If the repo has no detected verification command, let the tool add the first
 detected repo-aware check without hand-editing TOML:

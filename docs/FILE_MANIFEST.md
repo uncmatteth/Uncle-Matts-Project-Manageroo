@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 705 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 24472 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 24595 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8269 | Project metadata or handoff |
@@ -28,7 +28,7 @@ This manifest is generated from the release source tree.
 | `docs/ENFORCEMENT_MATRIX.md` | 2072 | Operator and engineering documentation |
 | `docs/EXTERNAL_INTEGRATIONS.md` | 10725 | Operator and engineering documentation |
 | `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 5512 | Operator and engineering documentation |
-| `docs/INSTALLATION.md` | 13925 | Operator and engineering documentation |
+| `docs/INSTALLATION.md` | 14172 | Operator and engineering documentation |
 | `docs/LEARNING_LANE.md` | 2729 | Operator and engineering documentation |
 | `docs/LIMITATIONS.md` | 3706 | Operator and engineering documentation |
 | `docs/ONE_SHOT_PROTOCOL.md` | 1670 | Operator and engineering documentation |
@@ -46,7 +46,7 @@ This manifest is generated from the release source tree.
 | `install.sh` | 755 | Installation, validation, or packaging |
 | `pyproject.toml` | 1242 | Project metadata or handoff |
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
-| `scripts/install.py` | 52410 | Installation, validation, or packaging |
+| `scripts/install.py` | 53224 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
 | `scripts/package_release.py` | 5290 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 7344 | Installation, validation, or packaging |
@@ -168,7 +168,7 @@ This manifest is generated from the release source tree.
 | `tests/test_gbrain_setup.py` | 3265 | Deterministic harness test |
 | `tests/test_ideas.py` | 648 | Deterministic harness test |
 | `tests/test_install_repair.py` | 3004 | Deterministic harness test |
-| `tests/test_install_script.py` | 2434 | Deterministic harness test |
+| `tests/test_install_script.py` | 2948 | Deterministic harness test |
 | `tests/test_install_status.py` | 2832 | Deterministic harness test |
 | `tests/test_integration_config.py` | 2390 | Deterministic harness test |
 | `tests/test_inventory.py` | 4057 | Deterministic harness test |

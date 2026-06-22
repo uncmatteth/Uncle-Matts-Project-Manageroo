@@ -53,6 +53,18 @@ class InstallScriptTests(unittest.TestCase):
         with patch.object(install.sys.stdin, "isatty", return_value=False):
             self.assertEqual(install.choose_skill_pack_mode("ask", False), "install")
 
+    def test_lane_explainer_is_plain_english(self):
+        install = load_install_script()
+        output = io.StringIO()
+        with redirect_stdout(output):
+            install.print_lane_explainer()
+        text = output.getvalue()
+        self.assertIn("Memory lane", text)
+        self.assertIn("Document/prose lane", text)
+        self.assertIn("document_analysis_command", text)
+        self.assertIn("ready prints WARN but does not block", text)
+        self.assertIn("AUTOREVIEW/Clawpatch lane", text)
+
 
 if __name__ == "__main__":
     unittest.main()
