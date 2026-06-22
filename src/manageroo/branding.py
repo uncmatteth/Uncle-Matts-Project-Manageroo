@@ -12,9 +12,11 @@ FULL_ACRONYM = "MANAGEROO"
 PUBLIC_COMMAND = "manageroo"
 PROJECT_DIR = ".manageroo"
 TAGLINE = "ONE BRIEF IN. CHECKED PATCH OUT."
+THINKING_LINE = "Offload your thinking so you can really do some thinking..."
 
 _RESET = "\033[0m"
 _BOLD = "\033[1m"
+_ITALIC = "\033[3m"
 _COLORS = (
     "\033[38;5;51m",
     "\033[38;5;45m",
@@ -71,6 +73,42 @@ def _paint(text: str, index: int, features: TerminalFeatures) -> str:
     return f"{_BOLD}{_COLORS[index % len(_COLORS)]}{text}{_RESET}"
 
 
+def _rainbow_italic(text: str, offset: int, features: TerminalFeatures) -> str:
+    if not features.color:
+        return text
+    parts = [_ITALIC]
+    color_index = offset
+    for char in text:
+        if char.isspace():
+            parts.append(char)
+            continue
+        parts.append(_COLORS[color_index % len(_COLORS)])
+        parts.append(char)
+        color_index += 1
+    parts.append(_RESET)
+    return "".join(parts)
+
+
+def _write_rainbow_line(
+    stream: TextIO,
+    text: str,
+    features: TerminalFeatures,
+    *,
+    delay: float,
+) -> None:
+    if not features.animation:
+        stream.write(_rainbow_italic(text, 0, features) + "\n")
+        stream.flush()
+        return
+    for offset in range(len(_COLORS) * 3):
+        stream.write("\r" + _rainbow_italic(text, offset, features))
+        stream.flush()
+        if delay > 0:
+            time.sleep(delay)
+    stream.write("\n")
+    stream.flush()
+
+
 def print_banner(
     stream: TextIO = sys.stdout,
     *,
@@ -89,13 +127,16 @@ def print_banner(
         lines = (
             "",
             *_MANAGEROO_ART,
-            "",
+            ("rainbow", f"  {THINKING_LINE}"),
             f"  {FULL_NAME.upper()}",
             f"  COMMAND: {PUBLIC_COMMAND}   ACRONYM: {FULL_ACRONYM}",
             f"  {TAGLINE}",
             "",
         )
     for index, line in enumerate(lines):
+        if isinstance(line, tuple) and line[0] == "rainbow":
+            _write_rainbow_line(stream, line[1], features, delay=delay)
+            continue
         stream.write(_paint(line, index, features) + "\n")
         stream.flush()
         if features.animation and delay > 0:

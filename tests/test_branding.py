@@ -1,7 +1,18 @@
 import io
+import os
+import re
 import unittest
+from unittest import mock
 
-from manageroo.branding import FULL_ACRONYM, FULL_NAME, PROJECT_DIR, PUBLIC_COMMAND, print_banner
+from manageroo.branding import FULL_ACRONYM, FULL_NAME, PROJECT_DIR, PUBLIC_COMMAND, THINKING_LINE, print_banner
+
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m|\r")
+
+
+class _TtyStringIO(io.StringIO):
+    def isatty(self):
+        return True
 
 
 def _fixture(codes):
@@ -18,6 +29,7 @@ class BrandingTests(unittest.TestCase):
         self.assertEqual(PUBLIC_COMMAND, "manageroo")
         self.assertEqual(PROJECT_DIR, ".manageroo")
         self.assertIn(FULL_NAME.upper(), rendered)
+        self.assertIn(THINKING_LINE, rendered)
         self.assertIn("COMMAND: manageroo", rendered)
         self.assertIn("ACRONYM: MANAGEROO", rendered)
         self.assertNotIn(
@@ -37,6 +49,27 @@ class BrandingTests(unittest.TestCase):
         for line in box[1:-1]:
             self.assertTrue(line.startswith("║"))
             self.assertTrue(line.endswith("║"))
+
+    def test_banner_thinking_line_is_italic_rainbow_when_color_is_available(self):
+        stream = _TtyStringIO()
+        with mock.patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            print_banner(stream, animation=False)
+        rendered = stream.getvalue()
+        stripped = _ANSI_RE.sub("", rendered)
+        self.assertIn(THINKING_LINE, stripped)
+        self.assertIn("\033[3m", rendered)
+        self.assertGreaterEqual(rendered.count("\033[38;5;"), 7)
+
+    def test_banner_thinking_line_animates_rainbow_when_animation_is_enabled(self):
+        stream = _TtyStringIO()
+        with mock.patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            print_banner(stream, animation=True, delay=0)
+        rendered = stream.getvalue()
+        stripped = _ANSI_RE.sub("", rendered)
+        self.assertIn(THINKING_LINE, stripped)
+        self.assertGreater(rendered.count("\r"), 1)
 
 
 if __name__ == "__main__":
