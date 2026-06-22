@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uncle-matts-project-manageroo"
-version = "2026.6.20.1"
+version = "2026.6.22.1"
 description = "A local CLI that keeps AI coding agents on task while they build or repair Git repos."
 readme = "README.md"
 requires-python = ">=3.11"

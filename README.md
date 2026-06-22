@@ -306,7 +306,7 @@ See [`PUBLISH_TO_GITHUB.md`](PUBLISH_TO_GITHUB.md).
 ## Install from an extracted release archive
 
 ```bash
-unzip Manageroo-End-User-Release-v2026.6.20.1.zip
+unzip Manageroo-End-User-Release-v2026.6.22.1.zip
 cd Uncle-Matts-Project-Manageroo
 ./install.sh
 ```

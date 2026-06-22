@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 90 | Project metadata or handoff |
 | `AGENTS.md` | 647 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 29006 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 29147 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8396 | Project metadata or handoff |
@@ -48,7 +48,7 @@ This manifest is generated from the release source tree.
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
 | `scripts/install.py` | 55988 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
-| `scripts/package_release.py` | 5119 | Installation, validation, or packaging |
+| `scripts/package_release.py` | 5390 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 10026 | Installation, validation, or packaging |
 | `sitecustomize.py` | 241 | Project metadata or handoff |
 | `src/manageroo/__init__.py` | 67 | Harness runtime source |
@@ -180,7 +180,7 @@ This manifest is generated from the release source tree.
 | `tests/test_learning.py` | 8353 | Deterministic harness test |
 | `tests/test_loop_library.py` | 6112 | Deterministic harness test |
 | `tests/test_map_cache.py` | 1585 | Deterministic harness test |
-| `tests/test_package_release.py` | 2480 | Deterministic harness test |
+| `tests/test_package_release.py` | 3679 | Deterministic harness test |
 | `tests/test_policy.py` | 950 | Deterministic harness test |
 | `tests/test_project.py` | 4593 | Deterministic harness test |
 | `tests/test_projects.py` | 6095 | Deterministic harness test |

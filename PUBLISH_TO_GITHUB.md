@@ -21,7 +21,7 @@ If you are using the prepared `GitHub-Upload` folder, start inside that folder.
 If you are starting from a source ZIP, extract it first:
 
 ```bash
-unzip Manageroo-GitHub-Source-v2026.6.20.1.zip
+unzip Manageroo-GitHub-Source-v2026.6.22.1.zip
 cd Uncle-Matts-Project-Manageroo
 ```
 
@@ -58,13 +58,13 @@ Do not publish a release ZIP that contains `.github/workflows/`.
 Suggested tag:
 
 ```text
-v2026.6.20.1
+v2026.6.22.1
 ```
 
 Attach these files to the GitHub Release:
 
 ```text
-Manageroo-End-User-Release-v2026.6.20.1.zip
+Manageroo-End-User-Release-v2026.6.22.1.zip
 Manageroo-Release-SHA256SUMS.txt
 ```
 

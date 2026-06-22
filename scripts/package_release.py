@@ -12,11 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT.parent / "uncle-matts-project-manageroo-final.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 DEFAULT_DROP_DIR = ROOT.parent / ARCHIVE_ROOT
-END_USER_ZIP = "Manageroo-End-User-Release-v2026.6.20.1.zip"
-SOURCE_ZIP = "Manageroo-GitHub-Source-v2026.6.20.1.zip"
+END_USER_ZIP = "Manageroo-End-User-Release-v2026.6.22.1.zip"
+SOURCE_ZIP = "Manageroo-GitHub-Source-v2026.6.22.1.zip"
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
 EXCLUDED_PARTS = {".git", ".venv", "__pycache__", "dist", "build"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
+DROP_CLEANUP_PREFIXES = ("Manageroo-", "".join(chr(code) for code in [85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69]) + "-")
 END_USER_EXCLUDED = {
     "BUILD-VALIDATION.json",
     "GITHUB_DESCRIPTION.md",
@@ -93,6 +94,9 @@ def write_archive(output: Path, files: list[Path]) -> None:
 
 def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: Path) -> None:
     drop_dir.mkdir(parents=True, exist_ok=True)
+    for path in drop_dir.iterdir():
+        if path.is_file() and path.name.startswith(DROP_CLEANUP_PREFIXES):
+            path.unlink()
     copies = {
         END_USER_ZIP: end_user_archive,
         SOURCE_ZIP: source_archive,
