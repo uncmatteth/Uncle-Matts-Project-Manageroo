@@ -43,7 +43,7 @@ umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
-umsmfburasbofe projects --pick
+umsmfburasbofe projects --add
 ```
 
 Optional token modes:
@@ -87,7 +87,17 @@ umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
 
 ## Start any product repository
 
-When you do not want to remember paths, start with the read-only project picker:
+When you do not want to remember paths, start with guided project setup:
+
+```bash
+umsmfburasbofe projects --add
+```
+
+It scans common project folders, shows a checkbox-style list, lets you select
+only the repos you want to initialize, and asks for extra paths if it missed
+one.
+
+If you only want a read-only list and the next command for one repo:
 
 ```bash
 umsmfburasbofe projects --pick

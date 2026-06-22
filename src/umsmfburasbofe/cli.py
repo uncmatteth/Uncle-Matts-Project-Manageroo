@@ -22,7 +22,7 @@ from .checks import (
 from .chiptune import play_once
 from .config import AGENT_PRESETS, apply_agent_preset
 from .doctor import doctor
-from .errors import UMSMFBURASBOFEError
+from .errors import ConfigurationError, UMSMFBURASBOFEError
 from .gbrain_setup import format_gbrain_setup, gbrain_setup_status
 from .ideas import IdeaInbox
 from .install_status import (
@@ -64,7 +64,13 @@ from .next_action import format_next_action, next_action
 from .orchestrator import Orchestrator
 from .project import create_project_repo, git_root, initialize_project, starter_choices
 from .project_memory import ensure_project_memory, format_project_memory, read_project_memory
-from .projects import discover_projects, format_project_discovery, selected_project_command
+from .projects import (
+    discover_projects,
+    format_project_add_checklist,
+    format_project_discovery,
+    selected_project_command,
+    selected_project_paths,
+)
 from .readiness import brief_is_template, format_readiness, readiness
 from .release_ready import format_release_ready, release_ready
 from .selftest import run_self_test
@@ -284,7 +290,9 @@ def parser() -> argparse.ArgumentParser:
     projects.add_argument("--limit", type=int, default=40)
     projects.add_argument("--max-depth", type=int, default=4)
     projects.add_argument("--agent", choices=sorted(AGENT_PRESETS))
-    projects.add_argument("--pick", action="store_true", help="Ask which discovered project to use.")
+    project_mode = projects.add_mutually_exclusive_group()
+    project_mode.add_argument("--pick", action="store_true", help="Ask which discovered project to use.")
+    project_mode.add_argument("--add", action="store_true", help="Pick multiple projects to initialize for later use.")
     projects.add_argument("--json", action="store_true")
 
     memory = sub.add_parser("memory", help="Show or update the repo-local project memory lane.")
@@ -770,6 +778,62 @@ def main(argv: list[str] | None = None) -> int:
             )
             if args.json:
                 print(json.dumps(result, indent=2))
+                return 0
+            if args.add:
+                print(format_project_add_checklist(result), end="")
+                if not sys.stdin.isatty():
+                    print("Open a normal terminal to add projects interactively, or run one of the commands above.")
+                    return 0
+                print("Which projects do you want to add? Use numbers, ranges, all, or Enter for none.")
+                selected_paths = selected_project_paths(result, input("> "))
+                while True:
+                    print("Add another project folder path? Press Enter when done.")
+                    extra = input("> ").strip()
+                    if not extra:
+                        break
+                    selected_paths.append(Path(extra).expanduser().resolve())
+                setup_results = []
+                seen_paths: set[Path] = set()
+                agent = args.agent or "generic"
+                for selected in selected_paths:
+                    selected = selected.expanduser().resolve()
+                    if selected in seen_paths:
+                        continue
+                    seen_paths.add(selected)
+                    if selected.exists():
+                        try:
+                            repo = git_root(selected)
+                            created_project = None
+                        except ConfigurationError:
+                            created_project = create_project_repo(
+                                selected,
+                                title=selected.name.replace("-", " ").replace("_", " ").title(),
+                            )
+                            repo = Path(created_project["repo"]).resolve()
+                    else:
+                        created_project = create_project_repo(
+                            selected,
+                            title=selected.name.replace("-", " ").replace("_", " ").title(),
+                        )
+                        repo = Path(created_project["repo"]).resolve()
+                    initialized = initialize_project(repo, agent=agent)
+                    setup_results.append(
+                        {
+                            "path": str(repo),
+                            "name": repo.name,
+                            "created_project": created_project,
+                            "initialized": initialized,
+                        }
+                    )
+                print("")
+                if not setup_results:
+                    print("No projects added.")
+                    return 0
+                print(f"Added {len(setup_results)} project(s).")
+                for item in setup_results:
+                    print(f"[x] {item['name']}")
+                    print(f"    Path: {item['path']}")
+                    print(f"    Next: {PUBLIC_COMMAND} next {item['path']}")
                 return 0
             print(format_project_discovery(result), end="")
             if args.pick:

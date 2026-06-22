@@ -7,7 +7,17 @@ software team. The user can explain the product, make decisions, approve proof,
 and ship when the evidence is good enough. They should not need to know the
 codebase internals, agent wiring, skill hygiene, or release checklist up front.
 
-If you do not want to remember paths, start with the read-only project picker:
+If you do not want to remember paths, start with guided project setup:
+
+```bash
+umsmfburasbofe projects --add
+```
+
+It scans common folders, shows a checkbox-style list of existing Git repos,
+lets you choose exactly which ones to add, and then asks whether you want to
+paste extra paths it missed. It initializes only the projects you select.
+
+If you only want a read-only list and one next command, use the picker:
 
 ```bash
 umsmfburasbofe projects --pick

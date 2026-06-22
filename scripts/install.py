@@ -1067,12 +1067,13 @@ def choose_project_discovery_mode(selection: str) -> str:
     if not sys.stdin.isatty():
         return "skip"
     print("")
-    print("Find your project now?")
-    print("This is read-only. The guided project picker scans common folders and prints the exact next command.")
-    answer = input("Run the guided project picker now? [Y/n]: ").strip().lower()
+    print("Find and add your projects now?")
+    print("The guided project setup scans common folders, shows a checkbox-style list, lets you choose which ones to add, and lets you paste extra paths if it missed one.")
+    print("It only initializes the projects you select.")
+    answer = input("Run guided project setup now? [Y/n]: ").strip().lower()
     if answer in {"n", "no", "skip"}:
         return "skip"
-    return "pick"
+    return "add"
 
 
 def choose_stack_doctor_mode(selection: str) -> str:
@@ -1102,7 +1103,9 @@ def print_next_commands() -> None:
     print("  umsmfburasbofe stack-status")
     print("  umsmfburasbofe stack-doctor")
     print("  umsmfburasbofe repair-install --no-apply")
-    print("  # Easiest first product setup: guided project picker")
+    print("  # Easiest first product setup: choose found repos with a checkbox-style list and paste missing paths")
+    print("  umsmfburasbofe projects --add")
+    print("  # Read-only picker for one next command:")
     print("  umsmfburasbofe projects --pick")
     print('  umsmfburasbofe solo /path/to/new-project --create --want "Describe the first useful version"')
     print("  # After solo, inspect or audit the intent lock when a chat/handoff gets compacted:")
@@ -1160,9 +1163,9 @@ def main() -> int:
     parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
     parser.add_argument(
         "--project-discovery",
-        choices=["ask", "pick", "skip"],
+        choices=["ask", "pick", "add", "skip"],
         default="ask",
-        help="After install, optionally run the read-only guided project picker.",
+        help="After install, optionally run guided project setup.",
     )
     parser.add_argument(
         "--stack-doctor",
@@ -1365,13 +1368,14 @@ def main() -> int:
             env=installed_env,
         )
     project_discovery_mode = choose_project_discovery_mode(args.project_discovery)
-    if project_discovery_mode == "pick":
+    if project_discovery_mode in {"pick", "add"}:
         print("")
+        project_args = ["projects", "--add" if project_discovery_mode == "add" else "--pick"]
         optional_run(
-            [str(python), "-m", "umsmfburasbofe", "projects", "--pick"],
+            [str(python), "-m", "umsmfburasbofe", *project_args],
             downloads,
             "project-discovery",
-            "umsmfburasbofe projects --pick",
+            f"umsmfburasbofe {' '.join(project_args)}",
             cwd=Path.home(),
             env=installed_env,
         )

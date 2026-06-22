@@ -34,6 +34,7 @@ products.
 ./install.sh --loop-library-agent YOUR_AGENT
 ./install.sh --skill-pack install
 ./install.sh --skill-pack skip
+./install.sh --project-discovery add
 ./install.sh --project-discovery pick
 ./install.sh --project-discovery skip
 ./install.sh --token-mode caveman
@@ -183,7 +184,7 @@ umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
 umsmfburasbofe repair-install --no-apply
-umsmfburasbofe projects --pick
+umsmfburasbofe projects --add
 ```
 
 ## Token reduction
@@ -206,16 +207,29 @@ umsmfburasbofe token-mode set curse
 If a different local `SKILL.md` already exists for one of those names, the tool
 backs it up before installing the bundled copy.
 
-## Start a product project
+## Start Or Add Product Projects
 
-The easiest path is the guided project picker:
+The easiest install-time path is guided project setup:
+
+```bash
+umsmfburasbofe projects --add
+```
+
+It scans common folders, shows a checkbox-style list, lets you choose exactly
+which repos to add, then asks whether you want to paste any extra project paths
+it missed. Selected existing Git repos get UMSMFBURASBOFE project files.
+Missing or empty manual paths can become new Git projects. Non-empty non-Git
+folders are refused until you run `git init` there yourself.
+
+It does not initialize or edit every project on the machine.
+
+If you only want the read-only picker:
 
 ```bash
 umsmfburasbofe projects --pick
 ```
 
-It scans common folders, lists Git repos, and prints the exact next command. It
-is read-only. It does not initialize or edit every project on the machine.
+That scans common folders, lists Git repos, and prints the exact next command.
 
 For an existing Git repository:
 

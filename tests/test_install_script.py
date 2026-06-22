@@ -74,11 +74,24 @@ class InstallScriptTests(unittest.TestCase):
             install.print_next_commands()
         text = output.getvalue()
         self.assertIn("umsmfburasbofe projects --pick", text)
+        self.assertIn("umsmfburasbofe projects --add", text)
         self.assertIn("umsmfburasbofe stack-doctor", text)
         self.assertIn("umsmfburasbofe intent show", text)
         self.assertIn("umsmfburasbofe compact audit --summary SUMMARY.md", text)
-        self.assertIn("guided project picker", text)
+        self.assertIn("checkbox-style list", text)
         self.assertNotIn("cd /path/to/project && umsmfburasbofe solo", text)
+
+    def test_project_discovery_prompt_defaults_to_add_selected_projects(self):
+        install = load_install_script()
+        output = io.StringIO()
+        with patch.object(install.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input", return_value=""):
+                with redirect_stdout(output):
+                    self.assertEqual(install.choose_project_discovery_mode("ask"), "add")
+        text = output.getvalue()
+        self.assertIn("checkbox-style", text)
+        self.assertIn("choose which ones to add", text)
+        self.assertIn("paste extra paths", text)
 
     def test_stack_doctor_prompt_defaults_to_run_when_interactive(self):
         install = load_install_script()

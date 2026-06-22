@@ -159,6 +159,77 @@ def format_project_discovery(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def format_project_add_checklist(report: dict) -> str:
+    lines = [
+        "PROJECT SETUP CHECKLIST",
+        "",
+        "This is bounded and explicit. Pick only the projects you want to add.",
+        "Type numbers separated by commas, a range like 1-3, all, or press Enter to skip discovered projects.",
+        "",
+        "Roots checked:",
+    ]
+    for root in report.get("roots", []):
+        lines.append(f"  - {root}")
+    projects = report.get("projects", [])
+    lines.extend(["", f"Found {len(projects)} project folder(s)."])
+    for index, project in enumerate(projects, start=1):
+        lines.extend(
+            [
+                "",
+                f"[ ] {index}. {project['name']}",
+                f"    Path: {project['path']}",
+                f"    Status: {project['status']}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Not listed?",
+            "  Paste another existing Git project path, or a missing/empty folder for a new project, when asked.",
+            "",
+            "Run later:",
+            f"  {PUBLIC_COMMAND} projects --add",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def selected_project_paths(report: dict, answer: str) -> list[Path]:
+    answer = answer.strip().lower()
+    if not answer or answer in {"none", "skip", "no", "n"}:
+        return []
+    projects = report.get("projects", [])
+    if answer in {"all", "*"}:
+        return [Path(project["path"]).expanduser().resolve() for project in projects]
+
+    indexes: list[int] = []
+    for token in answer.replace(",", " ").split():
+        if "-" in token:
+            start_text, end_text = token.split("-", 1)
+            if not start_text.isdigit() or not end_text.isdigit():
+                raise ValueError(f"Invalid project selection: {token}")
+            start = int(start_text)
+            end = int(end_text)
+            if start > end:
+                start, end = end, start
+            indexes.extend(range(start, end + 1))
+            continue
+        if not token.isdigit():
+            raise ValueError(f"Invalid project selection: {token}")
+        indexes.append(int(token))
+
+    selected: list[Path] = []
+    seen: set[Path] = set()
+    for index in indexes:
+        if index < 1 or index > len(projects):
+            raise ValueError(f"Project number {index} is outside the displayed list.")
+        path = Path(projects[index - 1]["path"]).expanduser().resolve()
+        if path not in seen:
+            seen.add(path)
+            selected.append(path)
+    return selected
+
+
 def selected_project_command(report: dict, answer: str) -> str | None:
     answer = answer.strip()
     if not answer:

@@ -22,6 +22,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
 - It includes one token-reduction feature with two styles: clean `caveman` or profane `curse`, because life is more fun with appropriately placed, well-used profanity.
 - The recommended skill pack is optional but strongly suggested. The installer offers it, defaults to yes, `--skill-pack skip` skips it, and `umsmfburasbofe skills install` adds it later.
+- The installer can scan common project folders, show a checkbox-style list of found repos, initialize only the ones selected, and ask for extra paths it missed.
 - The repo-local UMSMFBURASBOFE skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
 - Project init handles `AGENTS.md`, `CONTEXT.md`, `.umsmfburasbofe/PROJECT-MEMORY.md`, and the repo-local skill block so the user does not have to figure out agent-context files by hand.
 - `skills scan` and `skills import --apply` turn a copied skills folder into a curated local toolbox without blindly copying duplicate folders.

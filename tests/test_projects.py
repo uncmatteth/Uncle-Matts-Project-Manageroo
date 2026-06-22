@@ -5,9 +5,10 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from umsmfburasbofe.cli import main
-from umsmfburasbofe.projects import default_project_roots
+from umsmfburasbofe.projects import default_project_roots, selected_project_paths
 
 
 class ProjectDiscoveryTests(unittest.TestCase):
@@ -68,6 +69,70 @@ class ProjectDiscoveryTests(unittest.TestCase):
 
             self.assertNotIn(home.resolve(), roots)
             self.assertIn(github.resolve(), roots)
+
+    def test_selected_project_paths_accepts_checkbox_style_numbers_ranges_and_all(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            alpha = self._git_repo(root, "alpha")
+            beta = self._git_repo(root, "beta")
+            gamma = self._git_repo(root, "gamma")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main(["projects", "--root", str(root), "--json"])
+            self.assertEqual(code, 0)
+            report = json.loads(stdout.getvalue())
+
+            self.assertEqual(selected_project_paths(report, "1, 3"), [alpha.resolve(), gamma.resolve()])
+            self.assertEqual(selected_project_paths(report, "1-2"), [alpha.resolve(), beta.resolve()])
+            self.assertEqual(selected_project_paths(report, "all"), [alpha.resolve(), beta.resolve(), gamma.resolve()])
+
+    def test_projects_add_initializes_selected_found_projects_and_manual_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "scanned"
+            root.mkdir()
+            alpha = self._git_repo(root, "alpha")
+            beta = self._git_repo(root, "beta")
+            manual_root = Path(temp) / "manual"
+            manual_root.mkdir()
+            extra = self._git_repo(manual_root, "extra")
+
+            stdout = io.StringIO()
+            answers = iter(["1", str(extra), ""])
+            with patch("sys.stdin.isatty", return_value=True):
+                with patch("builtins.input", side_effect=lambda _prompt="": next(answers)):
+                    with redirect_stdout(stdout):
+                        code = main(["projects", "--root", str(root), "--add", "--agent", "mock"])
+
+            output = stdout.getvalue()
+            self.assertEqual(code, 0)
+            self.assertIn("PROJECT SETUP CHECKLIST", output)
+            self.assertIn("[ ] 1.", output)
+            self.assertIn("Which projects do you want to add", output)
+            self.assertIn("Add another project folder path", output)
+            self.assertIn("[x] alpha", output)
+            self.assertIn("[x] extra", output)
+            self.assertTrue((alpha / ".umsmfburasbofe" / "config.toml").exists())
+            self.assertTrue((extra / ".umsmfburasbofe" / "config.toml").exists())
+            self.assertFalse((beta / ".umsmfburasbofe").exists())
+
+    def test_projects_add_can_create_missing_manual_project_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            new_project = root / "new-product"
+
+            stdout = io.StringIO()
+            answers = iter(["", str(new_project), ""])
+            with patch("sys.stdin.isatty", return_value=True):
+                with patch("builtins.input", side_effect=lambda _prompt="": next(answers)):
+                    with redirect_stdout(stdout):
+                        code = main(["projects", "--root", str(root), "--add", "--agent", "mock"])
+
+            output = stdout.getvalue()
+            self.assertEqual(code, 0)
+            self.assertIn("[x] new-product", output)
+            self.assertTrue((new_project / ".git").is_dir())
+            self.assertTrue((new_project / ".umsmfburasbofe" / "config.toml").exists())
 
 
 if __name__ == "__main__":

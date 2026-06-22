@@ -166,11 +166,18 @@ of managing a software team.
 Start here:
 
 ```bash
-umsmfburasbofe projects --pick
+umsmfburasbofe projects --add
 ```
 
-That picker scans common folders, shows existing Git repos, and prints the one
-next command for the project you choose.
+That scans common folders, shows a checkbox-style list of existing Git repos,
+asks which ones you want to add, and then asks whether you want to paste more
+project paths it missed. It initializes only the projects you select.
+
+If you only want a read-only list and the next command for one project:
+
+```bash
+umsmfburasbofe projects --pick
+```
 
 Starting from an empty or missing folder:
 
@@ -314,10 +321,17 @@ current user, offers the recommended skill pack, runs `self-test`, and writes
 --install-codex` only when you specifically want this machine to install or
 update Codex too.
 
-At the end of a normal interactive install, it offers the read-only project
-picker. That scans common folders like `~/Documents/GitHub`, shows your Git
-repos, and prints the exact next command. It does not initialize every repo or
-change anything by itself. Run it later with:
+At the end of a normal interactive install, it offers guided project setup. It
+scans common folders like `~/Documents/GitHub`, shows a checkbox-style list of
+Git repos, asks which ones you want to add, and then asks whether you want to
+paste more project paths it missed. It initializes only the projects you pick.
+It does not initialize every repo on the machine. Run it later with:
+
+```bash
+umsmfburasbofe projects --add
+```
+
+If you only want the older read-only picker that prints one next command:
 
 ```bash
 umsmfburasbofe projects --pick
@@ -445,10 +459,12 @@ umsmfburasbofe --version
 umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
-umsmfburasbofe projects --pick
+umsmfburasbofe projects --add
 ```
 
-The picker prints the right next command for the project you choose:
+The setup flow shows found repos, lets you select the ones to initialize, and
+lets you paste missing paths. The read-only picker still prints the right next
+command for one project:
 
 - initialized project: `umsmfburasbofe next /absolute/path/to/project`
 - existing Git repo: `umsmfburasbofe solo /absolute/path/to/project`

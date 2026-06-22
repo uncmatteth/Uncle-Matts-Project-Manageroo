@@ -92,8 +92,12 @@ umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
 umsmfburasbofe repair-install --no-apply
-umsmfburasbofe projects --pick
+umsmfburasbofe projects --add
 ```
+
+`projects --add` scans common project folders, shows a checkbox-style list,
+lets you choose which repos to initialize, and then asks for any extra project
+paths it missed. It does not add every repo it finds.
 
 The self-test must return `"ok": true` and `"status": "COMPLETE"`.
 
@@ -128,7 +132,17 @@ umsmfburasbofe token-mode set curse
 
 ## 5. Start Solo Operator Mode
 
-Use the read-only project picker when you do not want to remember paths:
+Use guided project setup when you do not want to remember paths:
+
+```bash
+umsmfburasbofe projects --add
+```
+
+It scans common folders like `~/Documents/GitHub`, lists Git repos with
+checkbox-style rows, initializes only the ones you select, and asks for extra
+paths if it missed one.
+
+Use the read-only picker when you only want one next command:
 
 ```bash
 umsmfburasbofe projects --pick
