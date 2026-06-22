@@ -7,10 +7,19 @@ software team. The user can explain the product, make decisions, approve proof,
 and ship when the evidence is good enough. They should not need to know the
 codebase internals, agent wiring, skill hygiene, or release checklist up front.
 
-Run it with:
+If you do not want to remember paths, start with the read-only project picker:
 
 ```bash
-umsmfburasbofe solo
+umsmfburasbofe projects --pick
+```
+
+It scans common folders, shows existing Git repos, and prints the one next
+command for the project you choose.
+
+If you already know the project path, run:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/product
 ```
 
 Starting from an empty or missing folder:

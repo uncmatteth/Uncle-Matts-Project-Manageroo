@@ -34,6 +34,8 @@ products.
 ./install.sh --loop-library-agent YOUR_AGENT
 ./install.sh --skill-pack install
 ./install.sh --skill-pack skip
+./install.sh --project-discovery pick
+./install.sh --project-discovery skip
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
 ./install.sh --skip-tests
@@ -181,6 +183,7 @@ umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
 umsmfburasbofe repair-install --no-apply
+umsmfburasbofe projects --pick
 ```
 
 ## Token reduction
@@ -205,11 +208,19 @@ backs it up before installing the bundled copy.
 
 ## Start a product project
 
+The easiest path is the guided project picker:
+
+```bash
+umsmfburasbofe projects --pick
+```
+
+It scans common folders, lists Git repos, and prints the exact next command. It
+is read-only. It does not initialize or edit every project on the machine.
+
 For an existing Git repository:
 
 ```bash
-cd /absolute/path/to/product
-umsmfburasbofe solo
+umsmfburasbofe solo /absolute/path/to/product
 ```
 
 For a brand-new missing or empty folder:

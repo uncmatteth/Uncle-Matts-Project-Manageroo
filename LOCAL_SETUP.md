@@ -92,6 +92,7 @@ umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
 umsmfburasbofe repair-install --no-apply
+umsmfburasbofe projects --pick
 ```
 
 The self-test must return `"ok": true` and `"status": "COMPLETE"`.
@@ -127,11 +128,19 @@ umsmfburasbofe token-mode set curse
 
 ## 5. Start Solo Operator Mode
 
+Use the read-only project picker when you do not want to remember paths:
+
+```bash
+umsmfburasbofe projects --pick
+```
+
+It scans common folders like `~/Documents/GitHub`, lists Git repos, and prints
+one command for the project you choose.
+
 For an existing Git repository:
 
 ```bash
-cd /absolute/path/to/product
-umsmfburasbofe solo
+umsmfburasbofe solo /absolute/path/to/product
 ```
 
 For a brand-new missing or empty folder:

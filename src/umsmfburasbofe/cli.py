@@ -55,6 +55,7 @@ from .next_action import format_next_action, next_action
 from .orchestrator import Orchestrator
 from .project import create_project_repo, git_root, initialize_project, starter_choices
 from .project_memory import ensure_project_memory, format_project_memory, read_project_memory
+from .projects import discover_projects, format_project_discovery, selected_project_command
 from .readiness import brief_is_template, format_readiness, readiness
 from .release_ready import format_release_ready, release_ready
 from .selftest import run_self_test
@@ -264,6 +265,17 @@ def parser() -> argparse.ArgumentParser:
     next_apply.add_argument("--apply", dest="apply", action="store_true", default=True)
     next_apply.add_argument("--no-apply", dest="apply", action="store_false")
     next_cmd.add_argument("--json", action="store_true")
+
+    projects = sub.add_parser(
+        "projects",
+        help="Find local Git projects and print the right first UMSMFBURASBOFE command.",
+    )
+    projects.add_argument("--root", action="append", type=Path, default=[])
+    projects.add_argument("--limit", type=int, default=40)
+    projects.add_argument("--max-depth", type=int, default=4)
+    projects.add_argument("--agent", choices=sorted(AGENT_PRESETS))
+    projects.add_argument("--pick", action="store_true", help="Ask which discovered project to use.")
+    projects.add_argument("--json", action="store_true")
 
     memory = sub.add_parser("memory", help="Show or update the repo-local project memory lane.")
     memory_sub = memory.add_subparsers(dest="memory_command", required=True)
@@ -676,6 +688,28 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_next_action(result), end="")
+            return 0
+
+        if args.command == "projects":
+            roots = args.root if args.root else None
+            result = discover_projects(
+                roots=roots,
+                limit=args.limit,
+                max_depth=args.max_depth,
+                agent=args.agent,
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+                return 0
+            print(format_project_discovery(result), end="")
+            if args.pick:
+                if not sys.stdin.isatty():
+                    print("Open a normal terminal to pick interactively, or run one of the commands above.")
+                    return 0
+                answer = input("Pick a number, paste a path, or press Enter to stop: ")
+                command = selected_project_command(result, answer)
+                if command:
+                    print(f"Run this next: {command}")
             return 0
 
         if args.command == "memory":

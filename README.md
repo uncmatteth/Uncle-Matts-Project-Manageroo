@@ -162,9 +162,11 @@ of managing a software team.
 Start here:
 
 ```bash
-cd /absolute/path/to/your/git-project
-umsmfburasbofe solo
+umsmfburasbofe projects --pick
 ```
+
+That picker scans common folders, shows existing Git repos, and prints the one
+next command for the project you choose.
 
 Starting from an empty or missing folder:
 
@@ -281,6 +283,15 @@ current user, offers the recommended skill pack, runs `self-test`, and writes
 `install-lock.json`. It does not require Codex. Use `./install.sh
 --install-codex` only when you specifically want this machine to install or
 update Codex too.
+
+At the end of a normal interactive install, it offers the read-only project
+picker. That scans common folders like `~/Documents/GitHub`, shows your Git
+repos, and prints the exact next command. It does not initialize every repo or
+change anything by itself. Run it later with:
+
+```bash
+umsmfburasbofe projects --pick
+```
 
 The skill pack is optional but strongly suggested. It is what lets AI IDE agents
 choose the right helper without the user remembering magic skill names. The
@@ -404,9 +415,14 @@ umsmfburasbofe --version
 umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
-cd /absolute/path/to/your/git-project
-umsmfburasbofe solo
+umsmfburasbofe projects --pick
 ```
+
+The picker prints the right next command for the project you choose:
+
+- initialized project: `umsmfburasbofe next /absolute/path/to/project`
+- existing Git repo: `umsmfburasbofe solo /absolute/path/to/project`
+- new project: `umsmfburasbofe solo /absolute/path/to/new-project --create`
 
 Lower-level commands are still available when you want them:
 

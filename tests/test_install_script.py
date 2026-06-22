@@ -65,6 +65,16 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("ready prints WARN but does not block", text)
         self.assertIn("AUTOREVIEW/Clawpatch lane", text)
 
+    def test_next_commands_offer_project_picker_instead_of_manual_path_juggling(self):
+        install = load_install_script()
+        output = io.StringIO()
+        with redirect_stdout(output):
+            install.print_next_commands()
+        text = output.getvalue()
+        self.assertIn("umsmfburasbofe projects --pick", text)
+        self.assertIn("guided project picker", text)
+        self.assertNotIn("cd /path/to/project && umsmfburasbofe solo", text)
+
 
 if __name__ == "__main__":
     unittest.main()

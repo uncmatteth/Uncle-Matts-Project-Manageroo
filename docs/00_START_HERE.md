@@ -41,6 +41,7 @@ umsmfburasbofe self-test
 umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status
+umsmfburasbofe projects --pick
 ```
 
 Optional token modes:
@@ -84,11 +85,19 @@ umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
 
 ## Start any product repository
 
+When you do not want to remember paths, start with the read-only project picker:
+
+```bash
+umsmfburasbofe projects --pick
+```
+
+It scans common project folders, shows numbered Git repos, and prints the exact
+next command for the one you choose.
+
 Existing Git repository:
 
 ```bash
-cd /absolute/path/to/product
-umsmfburasbofe solo
+umsmfburasbofe solo /absolute/path/to/product
 ```
 
 Brand-new missing or empty folder:

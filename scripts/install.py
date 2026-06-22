@@ -206,10 +206,15 @@ def install_codex_latest(downloads: list[dict]) -> dict:
 
 
 def optional_run(
-    argv: list[str], downloads: list[dict], tool: str, source: str, cwd: Path = ROOT
+    argv: list[str],
+    downloads: list[dict],
+    tool: str,
+    source: str,
+    cwd: Path = ROOT,
+    env: dict[str, str] | None = None,
 ) -> dict:
     try:
-        run(argv, cwd=cwd, capture=False)
+        run(argv, cwd=cwd, env=env, capture=False)
     except SystemExit as exc:
         return {
             "ok": False,
@@ -1055,6 +1060,42 @@ def print_lane_explainer() -> None:
     print("  - Where to read more: docs/DOCUMENT_LANE.md, docs/REVIEW_REPAIR_LANES.md, docs/EXTERNAL_INTEGRATIONS.md")
 
 
+def choose_project_discovery_mode(selection: str) -> str:
+    if selection != "ask":
+        return selection
+    if not sys.stdin.isatty():
+        return "skip"
+    print("")
+    print("Find your project now?")
+    print("This is read-only. The guided project picker scans common folders and prints the exact next command.")
+    answer = input("Run the guided project picker now? [Y/n]: ").strip().lower()
+    if answer in {"n", "no", "skip"}:
+        return "skip"
+    return "pick"
+
+
+def print_next_commands() -> None:
+    print("\nNext commands:")
+    print("  umsmfburasbofe --version")
+    print("  umsmfburasbofe self-test")
+    print("  umsmfburasbofe skills list")
+    print("  # Strongly suggested if you skipped the local agent skill pack:")
+    print("  umsmfburasbofe skills install")
+    print("  # If you copied skills from another computer:")
+    print("  umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS")
+    print("  umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply")
+    print("  umsmfburasbofe stack-status")
+    print("  umsmfburasbofe repair-install --no-apply")
+    print("  # Easiest first product setup: guided project picker")
+    print("  umsmfburasbofe projects --pick")
+    print('  umsmfburasbofe solo /path/to/new-project --create --want "Describe the first useful version"')
+    print("  # If readiness says no checks exist:")
+    print("  umsmfburasbofe checks suggest")
+    print("  # When readiness is green:")
+    print("  umsmfburasbofe run --apply")
+    print('  umsmfburasbofe release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"Install {FULL_NAME}")
     parser.add_argument(
@@ -1098,6 +1139,12 @@ def main() -> int:
         help="For Clawpatch's codex provider, check Codex login and optionally run `codex login`.",
     )
     parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
+    parser.add_argument(
+        "--project-discovery",
+        choices=["ask", "pick", "skip"],
+        default="ask",
+        help="After install, optionally run the read-only guided project picker.",
+    )
     parser.add_argument(
         "--skill-pack",
         choices=["ask", "install", "skip"],
@@ -1281,26 +1328,18 @@ def main() -> int:
         print(f"Add {args.bin_dir.expanduser().resolve()} to PATH, then open a new terminal.")
     if not args.no_music:
         play_once(cue="success", variant=69)
-    print("\nNext commands:")
-    print("  umsmfburasbofe --version")
-    print("  umsmfburasbofe self-test")
-    print("  umsmfburasbofe skills list")
-    print("  # Strongly suggested if you skipped the local agent skill pack:")
-    print("  umsmfburasbofe skills install")
-    print("  # If you copied skills from another computer:")
-    print("  umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS")
-    print("  umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply")
-    print("  umsmfburasbofe stack-status")
-    print("  umsmfburasbofe repair-install --no-apply")
-    print('  umsmfburasbofe solo /path/to/new-project --create --agent codex --want "Describe the first useful version"')
-    print('  umsmfburasbofe solo /path/to/new-site --create --starter static-site --agent codex --want "Build a simple product homepage"')
-    print("  # Or, for an existing Git repo:")
-    print("  cd /path/to/project && umsmfburasbofe solo --agent codex")
-    print("  # If readiness says no checks exist:")
-    print("  umsmfburasbofe checks suggest")
-    print("  # When readiness is green:")
-    print("  umsmfburasbofe run --apply")
-    print('  umsmfburasbofe release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')
+    project_discovery_mode = choose_project_discovery_mode(args.project_discovery)
+    if project_discovery_mode == "pick":
+        print("")
+        optional_run(
+            [str(python), "-m", "umsmfburasbofe", "projects", "--pick"],
+            downloads,
+            "project-discovery",
+            "umsmfburasbofe projects --pick",
+            cwd=Path.home(),
+            env=installed_env,
+        )
+    print_next_commands()
     print_lane_explainer()
     print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
     print("")
