@@ -66,6 +66,9 @@ class CliReleaseReadyTests(unittest.TestCase):
             self.assertEqual(payload["status"], "READY FOR OPERATOR RELEASE")
             self.assertTrue(Path(payload["handoff_path"]).exists())
             self.assertIn("Production Handoff", payload["handoff_markdown"])
+            self.assertTrue(payload["project_memory_update"]["ok"])
+            memory_text = (repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
+            self.assertIn("Release-ready approved for manual production deploy", memory_text)
 
 
 if __name__ == "__main__":

@@ -65,9 +65,21 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn("revert the release commit and redeploy", handoff_text)
             self.assertIn("python3 -c print('ok')", handoff_text)
             self.assertIn("ready fixture", handoff_text)
+            self.assertIn("## Project Memory", handoff_text)
+            memory_update = report["project_memory_update"]
+            self.assertTrue(memory_update["ok"])
+            self.assertIn(memory_update["path"], handoff_text)
+            self.assertIn("What Has Shipped", memory_update["updated_sections"])
+            self.assertIn("Current Proof", memory_update["updated_sections"])
+            memory_text = (repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
+            self.assertIn("Release-ready approved for manual production deploy", memory_text)
+            self.assertIn("commit", memory_text)
+            self.assertIn("release-ready passed smoke", memory_text)
+            self.assertIn("Production handoff", memory_text)
 
             formatted = format_release_ready(report)
             self.assertIn("Production handoff:", formatted)
+            self.assertIn("Project memory updated:", formatted)
             self.assertIn(str(handoff), formatted)
 
     def test_release_ready_blocks_without_release_metadata(self):
@@ -83,6 +95,7 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertFalse(names["human approval"]["ok"])
             self.assertTrue(any("release-ready" in command for command in report["next_commands"]))
             self.assertIn("Do not ship yet.", Path(report["handoff_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(report["project_memory_update"], None)
 
 
 if __name__ == "__main__":

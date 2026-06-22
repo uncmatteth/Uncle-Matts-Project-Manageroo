@@ -52,7 +52,8 @@ Starter choices:
 11. Print exactly one next command.
 12. If `--run` is passed and readiness is green, start the build or repair run.
 13. At release time, `release-ready` writes a plain-English production handoff.
-14. Keep `.umsmfburasbofe/PROJECT-MEMORY.md` as the repo-local continuity lane.
+14. When the release gate is ready, `release-ready` also updates
+    `.umsmfburasbofe/PROJECT-MEMORY.md` with what shipped and what proof passed.
 
 It reuses the same controller, brief builder, readiness checker, integration
 config, and run engine as the lower-level commands. It is not a second product.
@@ -169,7 +170,10 @@ When it runs, it writes:
 
 That file says whether to ship or not, what commit is being released, which
 proof commands passed, which blockers remain, the release target, the rollback
-plan, and the next operator action.
+plan, and the next operator action. On a ready release, `release-ready` also
+updates `.umsmfburasbofe/PROJECT-MEMORY.md` with the shipped target, passing
+proof, handoff path, rollback plan, and approver. Commit that memory update if
+you want future agents to see it from Git.
 
 Wire optional local context tools if they are installed:
 

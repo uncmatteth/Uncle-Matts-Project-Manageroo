@@ -289,7 +289,10 @@ It does not deploy. It blocks until readiness is green, checks pass, Git is
 clean, and the release target, rollback plan, and human approval are recorded.
 It also writes `.umsmfburasbofe/cache/production-handoff.md` so the operator
 gets one plain-English release summary: current commit, latest changed files,
-proof commands, blockers, ship target, rollback plan, and next action.
+proof commands, blockers, ship target, rollback plan, and next action. On a
+ready release, it appends the shipped target and passing proof to
+`.umsmfburasbofe/PROJECT-MEMORY.md`; commit that memory update if you want it
+tracked.
 
 ## Use a Loop Library loop
 

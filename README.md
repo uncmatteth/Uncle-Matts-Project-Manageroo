@@ -515,13 +515,10 @@ Git state, deployment target, rollback notes, and human approval.
 It writes a plain-English production handoff at
 `.umsmfburasbofe/cache/production-handoff.md` with the current commit, latest
 changed files, proof commands, release blockers, ship target, rollback plan,
-and next operator action.
-
-After a release, add the shipped fact to project memory:
-
-```bash
-umsmfburasbofe memory add --shipped "Describe what shipped" --proof "Describe the proof"
-```
+and next operator action. When the gate is ready, it also appends the shipped
+target, passing proof, handoff path, rollback plan, and approver to
+`.umsmfburasbofe/PROJECT-MEMORY.md` so the next agent does not have to rediscover
+what shipped. Commit that project-memory update if you want it tracked.
 
 ## Context-window control
 

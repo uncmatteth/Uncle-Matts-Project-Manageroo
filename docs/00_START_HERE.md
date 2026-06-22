@@ -194,6 +194,10 @@ handoff here:
 .umsmfburasbofe/cache/production-handoff.md
 ```
 
+If the release gate is ready, it also updates `.umsmfburasbofe/PROJECT-MEMORY.md`
+with what shipped and what proof passed. Commit that memory update if you want
+future agents to see it from Git.
+
 ## What `umsmfburasbofe setup` changes
 
 ```text

@@ -9,6 +9,7 @@ from .errors import UMSMFBURASBOFEError
 from .gates import GateRunner, gates_from_config
 from .policy import CommandPolicy
 from .project import git_root
+from .project_memory import ensure_project_memory
 from .readiness import readiness
 from .runner import CommandRunner
 from .util import atomic_write_json, atomic_write_text, read_json, utc_now
@@ -160,6 +161,15 @@ def _production_handoff_markdown(report: dict[str, Any]) -> str:
     else:
         lines.append("- None detected by `release-ready`.")
 
+    lines.extend(["", "## Project Memory", ""])
+    memory_update = report.get("project_memory_update")
+    if memory_update:
+        lines.append(f"- Updated: `{memory_update.get('path')}`")
+    elif report.get("ok"):
+        lines.append("- Not updated.")
+    else:
+        lines.append("- Not updated because the release gate is not ready.")
+
     lines.extend(["", "## Next Operator Action", ""])
     if report.get("ok"):
         lines.append("Use the ship target above, keep the rollback plan open, and watch production after release.")
@@ -169,6 +179,33 @@ def _production_handoff_markdown(report: dict[str, Any]) -> str:
         lines.append("Fix the release blockers above, then rerun `umsmfburasbofe release-ready`.")
     lines.append("")
     return "\n".join(lines)
+
+
+def _release_memory_update(repo: Path, report: dict[str, Any]) -> dict[str, Any]:
+    metadata = report.get("metadata", {})
+    git_head = report.get("git_head", {})
+    target = str(metadata.get("target") or "release target")
+    commit = str(git_head.get("commit") or "unknown commit")
+    subject = str(git_head.get("subject") or "unknown change")
+    shipped = [
+        f"Release-ready approved for {target} at commit {commit}: {subject}",
+    ]
+    proof: list[str] = []
+    for run in report.get("gate_runs", []):
+        if not isinstance(run, dict) or run.get("result", {}).get("exit_code") != 0:
+            continue
+        gate = run.get("gate", {})
+        result = run.get("result", {})
+        argv = list(result.get("argv") or gate.get("argv") or [])
+        proof.append(f"release-ready passed {gate.get('id', 'gate')}: {_command_text(argv)}")
+    if not proof:
+        proof.append("release-ready recorded no passing verification commands.")
+    notes = [
+        f"Production handoff: {report.get('handoff_path')}",
+        f"Rollback plan: {metadata.get('rollback')}",
+        f"Approved by: {metadata.get('approved_by')}",
+    ]
+    return ensure_project_memory(repo, shipped=shipped, proof=proof, notes=notes)
 
 
 def release_ready(
@@ -324,11 +361,14 @@ def release_ready(
         "git_head": git_head,
         "git_status": status_text,
         "next_commands": [] if ok else next_commands,
+        "project_memory_update": None,
     }
     handoff_path = _handoff_path(repo)
+    report["handoff_path"] = str(handoff_path)
+    if ok:
+        report["project_memory_update"] = _release_memory_update(repo, report)
     handoff_markdown = _production_handoff_markdown(report)
     atomic_write_text(handoff_path, handoff_markdown)
-    report["handoff_path"] = str(handoff_path)
     report["handoff_markdown"] = handoff_markdown
     return report
 
@@ -340,6 +380,8 @@ def format_release_ready(report: dict[str, Any]) -> str:
         lines.append(f"{label} {item['name']}: {item['detail']}")
     if report.get("handoff_path"):
         lines.extend(["", f"Production handoff: {report['handoff_path']}"])
+    if report.get("project_memory_update"):
+        lines.append(f"Project memory updated: {report['project_memory_update']['path']}")
     if report.get("next_commands"):
         lines.extend(["", "Next:"])
         lines.append(report["next_commands"][0])
