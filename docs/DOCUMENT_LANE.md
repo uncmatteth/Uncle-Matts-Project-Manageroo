@@ -56,6 +56,18 @@ Supported placeholders:
 The command runs from the run root. Use `{repo}` when the command needs the
 source repository path.
 
+## Readiness
+
+`umsmfburasbofe ready` checks whether the brief actually needs this lane.
+
+- If the brief asks for PDFs, transcripts, screenshots, images, long prose,
+  books, chapters, exact wording, or byte-for-byte replacement, readiness blocks
+  until `document_analysis_command` is configured.
+- If the repo contains document/media files but the brief does not ask to use
+  them, readiness prints `WARN document/prose lane` and still allows the run.
+- If the command is configured, readiness reports the lane as ready for explicit
+  document/prose work.
+
 ## Rules
 
 - Current repo files and direct user wording beat memory.

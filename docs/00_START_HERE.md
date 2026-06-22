@@ -170,6 +170,12 @@ umsmfburasbofe ready
 umsmfburasbofe next
 ```
 
+`ready` blocks when the brief explicitly asks for a missing lane. Document,
+media, transcript, long-prose, or exact-wording requests need
+`document_analysis_command`. GBrain/memory/prior-decision requests need mapped
+GBrain sources. Passive document/media files in the repo show as `WARN`, not a
+block.
+
 If it says no checks are configured, ask for repo-aware suggestions:
 
 ```bash

@@ -21,6 +21,7 @@ def _item(
     detail: str,
     next_command: str = "",
     required: bool = True,
+    severity: str = "",
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -28,7 +29,164 @@ def _item(
         "detail": detail,
         "next": next_command,
         "required": required,
+        "severity": severity or ("required" if required else "optional"),
     }
+
+
+DOCUMENT_REQUEST_TERMS = (
+    "pdf",
+    "transcript",
+    "screenshot",
+    "image",
+    "picture",
+    "photo",
+    "audio",
+    "video",
+    "voice note",
+    "manuscript",
+    "novel",
+    "book",
+    "chapter",
+    "long prose",
+    "long document",
+    "exact wording",
+    "exact text",
+    "exact replacement",
+    "byte-for-byte",
+    "do not paraphrase",
+    "don't paraphrase",
+    "preserve exact",
+)
+MEMORY_REQUEST_TERMS = (
+    "gbrain",
+    "brain page",
+    "project memory",
+    "use memory",
+    "from memory",
+    "existing memory",
+    "past context",
+    "prior decision",
+    "prior decisions",
+    "previous decision",
+    "previous decisions",
+    "obsidian",
+    "knowledge base",
+)
+DOCUMENT_SUFFIXES = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".svg",
+    ".heic",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".mp4",
+    ".mov",
+    ".avi",
+}
+PROSE_SUFFIXES = {".md", ".txt", ".rst", ".adoc"}
+SCAN_SKIP_PARTS = {
+    ".git",
+    ".umsmfburasbofe",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    "dist",
+    "build",
+}
+
+
+def _read_text_if_present(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _mentions(text: str, terms: tuple[str, ...]) -> list[str]:
+    lowered = text.lower()
+    return [term for term in terms if term in lowered]
+
+
+def _repo_document_examples(repo: Path, *, limit: int = 5, scan_limit: int = 2000) -> list[str]:
+    examples: list[str] = []
+    scanned = 0
+    for path in repo.rglob("*"):
+        if scanned >= scan_limit or len(examples) >= limit:
+            break
+        try:
+            relative = path.relative_to(repo)
+        except ValueError:
+            continue
+        if any(part in SCAN_SKIP_PARTS for part in relative.parts):
+            continue
+        if not path.is_file():
+            continue
+        scanned += 1
+        suffix = path.suffix.lower()
+        if suffix in DOCUMENT_SUFFIXES:
+            examples.append(relative.as_posix())
+            continue
+        if suffix in PROSE_SUFFIXES:
+            try:
+                size = path.stat().st_size
+            except OSError:
+                continue
+            if size >= 100_000:
+                examples.append(relative.as_posix())
+    return examples
+
+
+def _document_lane_items(repo: Path, config: dict[str, Any], brief_text: str) -> list[dict[str, Any]]:
+    requested_terms = _mentions(brief_text, DOCUMENT_REQUEST_TERMS)
+    repo_examples = _repo_document_examples(repo)
+    command = config.get("integrations", {}).get("document_analysis_command", [])
+    configured = bool(command)
+    next_command = (
+        "Configure [integrations].document_analysis_command in "
+        ".umsmfburasbofe/config.toml, then rerun `umsmfburasbofe ready`. "
+        "See docs/DOCUMENT_LANE.md."
+    )
+    if requested_terms:
+        if configured:
+            return [
+                _item(
+                    "document/prose lane",
+                    True,
+                    "brief asks for document/prose/media/exact-text handling and document_analysis_command is configured",
+                )
+            ]
+        return [
+            _item(
+                "document/prose lane",
+                False,
+                (
+                    "brief asks for document/prose/media/exact-text handling "
+                    f"({', '.join(requested_terms[:4])}), but document_analysis_command is empty"
+                ),
+                next_command,
+                required=True,
+            )
+        ]
+    if repo_examples and not configured:
+        return [
+            _item(
+                "document/prose lane",
+                False,
+                (
+                    "repo contains document/media files "
+                    f"({', '.join(repo_examples[:3])}); configure document_analysis_command "
+                    "if this run needs to understand them"
+                ),
+                next_command,
+                required=False,
+                severity="warning",
+            )
+        ]
+    return []
 
 
 def helper_skill_items() -> list[dict[str, Any]]:
@@ -97,6 +255,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
         )
 
     config: dict[str, Any] | None = None
+    brief_text = ""
     if repo:
         config_path = repo / PROJECT_DIR / "config.toml"
         brief_path = repo / PROJECT_DIR / "PRODUCT-BRIEF.md"
@@ -126,6 +285,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                 "umsmfburasbofe brief --want \"Describe the result\" --force",
             )
         )
+        brief_text = _read_text_if_present(brief_path)
         items.append(
             _item(
                 "project memory",
@@ -176,9 +336,12 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                 "umsmfburasbofe checks suggest --apply-first",
             )
         )
+        items.extend(_document_lane_items(repo, config, brief_text))
 
     gbrain = gbrain_setup_status()
     gbrain_ok = bool(gbrain.get("ok") and gbrain.get("status", {}).get("source_count", 0) > 0)
+    memory_requested = bool(_mentions(brief_text, MEMORY_REQUEST_TERMS))
+    gbrain_required = require_gbrain or memory_requested
     gbrain_next = (
         "umsmfburasbofe gbrain-setup --source-id my-project "
         "--path /absolute/path/to/repo --apply --sync"
@@ -189,9 +352,17 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
         _item(
             "gbrain",
             gbrain_ok,
-            "sources mapped" if gbrain_ok else "not installed, unhealthy, or no mapped sources",
+            (
+                "brief asks for memory/GBrain and sources are mapped"
+                if memory_requested and gbrain_ok
+                else "sources mapped"
+                if gbrain_ok
+                else "brief asks for memory/GBrain, but GBrain is not installed, unhealthy, or has no mapped sources"
+                if memory_requested
+                else "not installed, unhealthy, or no mapped sources"
+            ),
             gbrain_next,
-            required=require_gbrain,
+            required=gbrain_required,
         )
     )
 
@@ -211,7 +382,9 @@ def format_readiness(report: dict[str, Any], *, include_next: bool = True) -> st
     lines = [report["status"], ""]
     for item in report["items"]:
         label = "OK" if item["ok"] else "ACTION"
-        if not item.get("required", True) and not item["ok"]:
+        if not item["ok"] and item.get("severity") == "warning":
+            label = "WARN"
+        elif not item.get("required", True) and not item["ok"]:
             label = "OPTIONAL"
         lines.append(f"{label} {item['name']}: {item['detail']}")
     if include_next and report.get("next_commands"):

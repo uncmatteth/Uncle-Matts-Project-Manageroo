@@ -505,6 +505,13 @@ umsmfburasbofe ready
 umsmfburasbofe next
 ```
 
+`ready` now checks the brief for lane needs in plain English. If the brief asks
+for PDFs, transcripts, screenshots, images, long prose, or exact wording, it
+blocks until `document_analysis_command` is configured. If the repo merely
+contains document/media files but the brief does not ask to use them, it prints
+a `WARN` instead of blocking. If the brief asks for GBrain, memory, Obsidian, or
+prior decisions, GBrain becomes required for that run.
+
 If readiness says no checks are configured, ask the tool to suggest the simplest
 real proof command for that repo and add the first detected one:
 
