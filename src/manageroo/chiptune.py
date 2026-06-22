@@ -14,6 +14,7 @@ from pathlib import Path
 
 SAMPLE_RATE = 11_025
 FADE_SECONDS = 3.0
+MASTER_VOLUME = 0.5
 
 _NOTE_OFFSETS = {
     "C": 0,
@@ -184,7 +185,7 @@ def generate_theme(path: Path, *, cue: str = "install", variant: int = 0) -> Pat
             pulse = _triangle(55.0 * elapsed) * max(0.0, 1.0 - in_step * 12.0)
             mixed = 0.43 * lead + 0.13 * harmony + 0.26 * low + 0.10 * noise + 0.08 * pulse
             fade = min(1.0, sample_index / fade_samples, (total_samples - sample_index - 1) / fade_samples)
-            mixed *= fade
+            mixed *= fade * MASTER_VOLUME
             sample = int(max(-1.0, min(1.0, mixed)) * 32767)
             frames.append(sample)
 

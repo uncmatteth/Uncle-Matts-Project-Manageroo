@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import json
 import os
@@ -1196,7 +1197,9 @@ def main() -> int:
     if args.skip_skill_pack and args.skill_pack == "install":
         raise SystemExit("--skip-skill-pack conflicts with --skill-pack install.")
 
-    print_banner(animation=not args.no_animation)
+    banner_ticker = print_banner(animation=not args.no_animation, persistent_rainbow=True)
+    if banner_ticker:
+        atexit.register(banner_ticker.stop)
     print(f"Installing {FULL_NAME}\n")
 
     if sys.version_info < (3, 11):

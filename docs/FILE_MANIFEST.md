@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 90 | Project metadata or handoff |
 | `AGENTS.md` | 647 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 30005 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 30283 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8396 | Project metadata or handoff |
@@ -38,7 +38,7 @@ This manifest is generated from the release source tree.
 | `docs/REVIEW_REPAIR_LANES.md` | 1528 | Operator and engineering documentation |
 | `docs/SECURITY_THREAT_MODEL.md` | 1524 | Operator and engineering documentation |
 | `docs/SOLO_OPERATOR_MODE.md` | 7650 | Operator and engineering documentation |
-| `docs/TERMINAL_EXPERIENCE.md` | 1473 | Operator and engineering documentation |
+| `docs/TERMINAL_EXPERIENCE.md` | 1682 | Operator and engineering documentation |
 | `examples/README.md` | 243 | Example product input |
 | `examples/product-brief-client-portal.md` | 1124 | Example product input |
 | `examples/product-brief-repair.md` | 888 | Example product input |
@@ -46,7 +46,7 @@ This manifest is generated from the release source tree.
 | `install.sh` | 755 | Installation, validation, or packaging |
 | `pyproject.toml` | 1174 | Project metadata or handoff |
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
-| `scripts/install.py` | 55988 | Installation, validation, or packaging |
+| `scripts/install.py` | 56109 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
 | `scripts/package_release.py` | 5331 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 10026 | Installation, validation, or packaging |
@@ -106,10 +106,10 @@ This manifest is generated from the release source tree.
 | `src/manageroo/assets/skills/write-a-skill/SKILL.md` | 1384 | Harness runtime source |
 | `src/manageroo/assets/templates/PRODUCT-BRIEF.md` | 1958 | Harness runtime source |
 | `src/manageroo/assets.py` | 210 | Harness runtime source |
-| `src/manageroo/branding.py` | 4306 | Harness runtime source |
+| `src/manageroo/branding.py` | 10430 | Harness runtime source |
 | `src/manageroo/brief_builder.py` | 2655 | Harness runtime source |
 | `src/manageroo/checks.py` | 8006 | Harness runtime source |
-| `src/manageroo/chiptune.py` | 10121 | Harness runtime source |
+| `src/manageroo/chiptune.py` | 10157 | Harness runtime source |
 | `src/manageroo/cli.py` | 55329 | Harness runtime source |
 | `src/manageroo/config.py` | 7985 | Harness runtime source |
 | `src/manageroo/context.py` | 8873 | Harness runtime source |
@@ -152,10 +152,10 @@ This manifest is generated from the release source tree.
 | `src/manageroo/util.py` | 3372 | Harness runtime source |
 | `src/manageroo/wizards.py` | 8444 | Harness runtime source |
 | `src/manageroo/workspace.py` | 6346 | Harness runtime source |
-| `tests/test_branding.py` | 2973 | Deterministic harness test |
+| `tests/test_branding.py` | 4361 | Deterministic harness test |
 | `tests/test_brief_builder.py` | 1695 | Deterministic harness test |
 | `tests/test_checks.py` | 3597 | Deterministic harness test |
-| `tests/test_chiptune.py` | 1925 | Deterministic harness test |
+| `tests/test_chiptune.py` | 2558 | Deterministic harness test |
 | `tests/test_cli_checks.py` | 3208 | Deterministic harness test |
 | `tests/test_cli_memory.py` | 2217 | Deterministic harness test |
 | `tests/test_cli_next.py` | 3547 | Deterministic harness test |
