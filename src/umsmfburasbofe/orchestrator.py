@@ -15,6 +15,7 @@ from .assets import asset_path
 from .branding import PROJECT_DIR
 from .config import load_config
 from .context import ContextCompiler, ContextRequest
+from .document_lane import build_document_manifest
 from .errors import (
     BlockingDecisionError,
     GateFailure,
@@ -207,6 +208,7 @@ class Orchestrator:
         preferred = []
         priority_names = {
             "AGENTS.md": 100,
+            "CONTEXT.md": 98,
             "ARCHITECTURE.md": 95,
             "README.md": 90,
             "CLAUDE.md": 85,
@@ -329,6 +331,9 @@ class Orchestrator:
             "inventory_file": str(self.artifacts.root / "discovery" / "inventory.json"),
             "obsidian_context_file": str(self.artifacts.root / "discovery" / "obsidian-context.json"),
             "external_context_file": str(self.artifacts.root / "discovery" / "external-intelligence.json"),
+            "document_manifest_file": str(self.artifacts.root / "discovery" / "document-manifest.json"),
+            "document_intelligence_file": str(self.artifacts.root / "discovery" / "document-intelligence.json"),
+            "document_state_dir": str(self.artifacts.root / "discovery" / "document-state"),
         }
 
     def _run_optional_external_command(
@@ -359,15 +364,74 @@ class Orchestrator:
                 "error": str(exc),
             }
 
-    def _external_intelligence(self, brief: str) -> dict:
+    def _document_intelligence(self, *, brief: str, inventory: dict[str, Any]) -> dict:
+        cfg = self.config.get("integrations", {})
+        manifest = build_document_manifest(
+            inventory,
+            max_single_file_tokens=int(self.config["context"]["max_single_file_tokens"]),
+        )
+        self.artifacts.write_json("discovery/document-manifest.json", manifest, lock=True)
+
+        values = self._external_values(brief=brief)
+        document_state_dir = self.artifacts.root / "discovery" / "document-state"
+        document_state_dir.mkdir(parents=True, exist_ok=True)
+        values.update(
+            {
+                "document_manifest_file": str(self.artifacts.root / "discovery" / "document-manifest.json"),
+                "document_intelligence_file": str(self.artifacts.root / "discovery" / "document-intelligence.json"),
+                "document_state_dir": str(document_state_dir),
+            }
+        )
+
+        record = self._run_optional_external_command(
+            name="document-analysis",
+            argv_template=list(cfg.get("document_analysis_command", []) or []),
+            values=values,
+            cwd=self.run_root,
+            timeout_seconds=600,
+        )
+        records = [record] if record.get("enabled") else []
+        skipped_reason = ""
+        if not record.get("enabled"):
+            skipped_reason = (
+                "No document/prose files were detected."
+                if int(manifest["summary"]["document_files"]) == 0
+                else "document_analysis_command is empty."
+            )
+        payload = {
+            "summary": {
+                **manifest["summary"],
+                "enabled": [item["name"] for item in records if item.get("enabled")],
+                "passed": [item["name"] for item in records if item.get("ok")],
+                "failed_optional": [
+                    item["name"]
+                    for item in records
+                    if item.get("enabled") and not item.get("ok")
+                ],
+                "skipped_reason": skipped_reason,
+            },
+            "records": records,
+            "manifest_file": str(self.artifacts.root / "discovery" / "document-manifest.json"),
+            "note": (
+                "Document/prose analysis is an optional command-owned evidence lane. "
+                "Passing output may inform planning. Failure is recorded as optional context, "
+                "not handed to the AI as a freehand long-document repair prompt."
+            ),
+        }
+        self.artifacts.write_json("discovery/document-intelligence.json", payload, lock=True)
+        return payload
+
+    def _external_intelligence(self, brief: str, inventory: dict[str, Any]) -> dict:
         cfg = self.config.get("integrations", {})
         values = self._external_values(brief=brief)
+        document_intelligence = self._document_intelligence(brief=brief, inventory=inventory)
         commands = [
             ("gbrain-search", cfg.get("gbrain_search_command", [])),
             ("gitnexus-analyze", cfg.get("gitnexus_analyze_command", [])),
             ("gitnexus-query", cfg.get("gitnexus_query_command", [])),
         ]
-        records = [
+        records = list(document_intelligence.get("records", []))
+        records.extend(
             self._run_optional_external_command(
                 name=name,
                 argv_template=list(argv_template or []),
@@ -375,7 +439,7 @@ class Orchestrator:
                 cwd=self.source_repo,
             )
             for name, argv_template in commands
-        ]
+        )
         summary = {
             "enabled": [item["name"] for item in records if item.get("enabled")],
             "passed": [item["name"] for item in records if item.get("ok")],
@@ -388,6 +452,7 @@ class Orchestrator:
         payload = {
             "summary": summary,
             "records": records,
+            "document_intelligence": document_intelligence,
             "note": (
                 "These tools are optional context. Passing output may inform planning; "
                 "failed or missing tools do not block the core controller run."
@@ -860,7 +925,7 @@ class Orchestrator:
             )
             memory = obsidian.search(brief)
             self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
-            external_intelligence = self._external_intelligence(brief)
+            external_intelligence = self._external_intelligence(brief, raw_inventory)
 
             product = self._call(
                 role="product-analyst",

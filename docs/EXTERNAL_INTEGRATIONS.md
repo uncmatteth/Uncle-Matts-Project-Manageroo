@@ -101,6 +101,45 @@ plugin is required.
 
 Official reference: https://obsidian.md/help/data-storage
 
+## Document and prose command lane
+
+Long prose, PDFs, transcripts, books, articles, and exact wording need a
+different path than normal code files.
+
+Every run writes a document manifest:
+
+```text
+.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-manifest.json
+```
+
+The manifest lists document-like files, long-document flags, hashes, line
+counts, token estimates, and the rules the agent must respect. If
+`document_analysis_command` is configured, UMSMFBURASBOFE runs that argv with
+placeholders such as `{document_manifest_file}`, `{document_intelligence_file}`,
+and `{document_state_dir}`. The command output is captured in:
+
+```text
+.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-intelligence.json
+```
+
+This lane is optional intelligence. Passing output can inform planning. Failure
+is recorded as optional context. It does not give the AI permission to freehand
+a whole manuscript, silently paraphrase exact text, or pretend file metadata is
+real visual understanding.
+
+Useful paired skills:
+
+- `brain-ops` and `query` for source-of-truth memory lookup.
+- `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest` for getting
+  source material into local context.
+- `article-enrichment`, `book-mirror`, and `strategic-reading` for long prose
+  and research in bounded sections.
+- `pdf`, `brain-pdf`, `citation-fixer`, `reports`, and
+  `exact-text-replacement` for PDF work, citation cleanup, durable reports, and
+  byte-for-byte wording.
+
+See [`DOCUMENT_LANE.md`](DOCUMENT_LANE.md).
+
 ## AUTOREVIEW and Clawpatch
 
 Command-owned review and repair lanes. AUTOREVIEW and Clawpatch can be
@@ -171,6 +210,16 @@ Bundled local skills are installed during core setup:
 - `pimp-my-prompt`: converts a rough, frustrated, overloaded, or reusable
   request into clear scope, acceptance criteria, fallback behavior, and a
   runnable brief.
+- `brain-ops` and `query`: search and cite GBrain-backed context without
+  letting memory override current repo truth.
+- `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest`: convert
+  links, articles, PDFs, screenshots, transcripts, voice notes, and media
+  sources into useful local context.
+- `article-enrichment`, `book-mirror`, and `strategic-reading`: process long
+  documents and prose in bounded sections.
+- `pdf`, `brain-pdf`, `citation-fixer`, `reports`, and
+  `exact-text-replacement`: handle PDF checks/rendering, citations, durable
+  reports, and literal wording.
 - `diagnose`: builds a fast failure loop before fixing broken, flaky, confusing,
   or slow behavior.
 - `tdd`: keeps behavior changes test-first when proof should be executable.

@@ -20,7 +20,13 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn("## What This Project Is", memory_text)
             self.assertIn("## What Has Shipped", memory_text)
             self.assertIn("## What Must Not Break", memory_text)
-            self.assertIn(".umsmfburasbofe/PROJECT-MEMORY.md", (repo / "AGENTS.md").read_text(encoding="utf-8"))
+            agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
+            context_text = (repo / "CONTEXT.md").read_text(encoding="utf-8")
+            self.assertIn(".umsmfburasbofe/PROJECT-MEMORY.md", agents_text)
+            self.assertIn("brain-ops", agents_text)
+            self.assertIn("exact-text-replacement", agents_text)
+            self.assertIn(".umsmfburasbofe/PROJECT-MEMORY.md", context_text)
+            self.assertIn("document/prose lane", context_text)
             self.assertTrue(
                 (
                     repo

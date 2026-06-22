@@ -45,16 +45,17 @@ Starter choices:
 4. If `--create` is passed, create a missing or empty Git repo first.
 5. If `--starter` is selected, add a small starter scaffold and smoke check.
 6. Turn the ask into `.umsmfburasbofe/PRODUCT-BRIEF.md`.
-7. Install or refresh the recommended skill pack.
-8. Optionally wire GBrain and GitNexus command templates.
-9. Report the status of selected extras like Obsidian and Loop Library.
-10. Run readiness checks.
-11. Print exactly one next command.
-12. If `--run` is passed and readiness is green, start the build or repair run.
-13. At release time, `release-ready` writes a plain-English production handoff.
-14. When the release gate is ready, `release-ready` also updates
+7. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
+8. Install or refresh the recommended skill pack.
+9. Optionally wire GBrain and GitNexus command templates.
+10. Report the status of selected extras like Obsidian and Loop Library.
+11. Run readiness checks.
+12. Print exactly one next command.
+13. If `--run` is passed and readiness is green, start the build or repair run.
+14. At release time, `release-ready` writes a plain-English production handoff.
+15. When the release gate is ready, `release-ready` also updates
     `.umsmfburasbofe/PROJECT-MEMORY.md` with what shipped and what proof passed.
-15. After runs, learning cards capture useful lessons and wait for explicit
+16. After runs, learning cards capture useful lessons and wait for explicit
     approval before any supported apply.
 
 It reuses the same controller, brief builder, readiness checker, integration

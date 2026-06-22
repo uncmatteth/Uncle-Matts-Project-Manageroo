@@ -104,6 +104,12 @@ GBrain and GitNexus commands are optional intelligence, not hard dependencies.
 They run with bounded timeouts, write redacted output artifacts, and do not
 block the core run if they fail.
 
+`document_analysis_command` is also optional intelligence. The controller writes
+`document-manifest.json` for prose, PDFs, transcripts, and other document-like
+inputs, runs the configured argv if present, and records the result in
+`document-intelligence.json`. Failure is optional context, not an AI freehand
+repair prompt.
+
 AUTOREVIEW and Clawpatch commands are different. When `autoreview_command` or
 `clawpatch_command` is configured, it is a command-owned review/repair lane. The
 controller runs the configured command inside the isolated workspace, captures
@@ -122,6 +128,9 @@ Discovery command placeholders:
 {inventory_file}
 {obsidian_context_file}
 {external_context_file}
+{document_manifest_file}
+{document_intelligence_file}
+{document_state_dir}
 ```
 
 Final capture command placeholders:
@@ -161,6 +170,7 @@ gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
 gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
 gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
 gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
+document_analysis_command = ["python3", "scripts/document_intel.py", "{document_manifest_file}", "{document_state_dir}"]
 autoreview_command = []
 clawpatch_command = []
 ```

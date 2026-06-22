@@ -15,7 +15,8 @@ Solo Operator Mode turns the ask into a brief and one next action.
 The tool reads the repo and breaks the job up.
 If configured, GBrain/GitNexus add memory and code-graph context.
 Independent map/review chunks can run in parallel.
-Media and big prose files are recorded as metadata or summaries.
+Media and big prose files are recorded in a document manifest and can use a
+configured document/prose command lane.
 Your AI agent does the code work.
 The tool runs checks and keeps the receipts.
 Bad work goes back through review and repair.
@@ -50,7 +51,9 @@ umsmfburasbofe token-mode set curse
 umsmfburasbofe token-mode set off
 ```
 
-`caveman` is terse and clean. `curse` is terse and profane. Both are included.
+Token reduction is one feature with two styles. `caveman` is terse and clean.
+`curse` is the same compression with appropriately placed profanity because
+life is more fun that way.
 
 Recommended skill pack:
 
@@ -59,12 +62,17 @@ umsmfburasbofe skills install
 ```
 
 That installs the UMSMFBURASBOFE router skill plus helper lanes for rough
-intake, debugging, test-first work, closeout review, public copy, website
-cleanup, reusable skills, and token compression under `~/.agents/skills`. The
+intake, memory lookup, source ingest, media/PDF work, long prose, exact wording,
+debugging, test-first work, closeout review, public copy, website cleanup,
+reusable skills, and token reduction under `~/.agents/skills`. The
 installer offers this pack during normal install, defaults to yes, and lets you
 skip it with `--skill-pack skip` or `--skip-skill-pack`. It is optional but
 strongly suggested because agents can use the router skill to choose helpers
 automatically.
+
+Project init also handles the agent/context files. It writes managed blocks to
+`AGENTS.md` and `CONTEXT.md` if they are missing, preserves existing content,
+and points agents at `.umsmfburasbofe/PROJECT-MEMORY.md` and the current brief.
 
 If you copied a skills folder from another computer, do not copy it whole over
 your current skills. Scan first, then import only after reviewing the report:

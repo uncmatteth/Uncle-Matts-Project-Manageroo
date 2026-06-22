@@ -30,7 +30,7 @@ TOKEN_MODES = {
     ),
     "caveman": TokenMode(
         id="caveman",
-        label="Caveman",
+        label="Token Reduction: Caveman",
         skill_name="caveman",
         asset="skills/caveman/SKILL.md",
         prompt=(
@@ -41,13 +41,14 @@ TOKEN_MODES = {
     ),
     "curse": TokenMode(
         id="curse",
-        label="Uncle Matt's Caveman Curse",
+        label="Token Reduction: Uncle Matt's Caveman Curse",
         skill_name="uncle-matts-caveman-curse",
         asset="skills/uncle-matts-caveman-curse/SKILL.md",
         prompt=(
             "Token mode: Uncle Matt's Caveman Curse. Use caveman compression with "
             "blunt profanity in natural-language status, findings, and explanations "
-            "when it fits. Curse at broken code or broken process, not the user. "
+            "when it fits because life is more fun with appropriately placed, "
+            "well-used profanity. Curse at broken code or broken process, not the user. "
             "Never add profanity to code, shell commands, JSON keys, exact errors, "
             "quoted source, or user-facing product copy unless explicitly asked."
         ),
@@ -59,6 +60,20 @@ RECOMMENDED_SKILL_PACK = {
         "skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md"
     ),
     "pimp-my-prompt": "skills/pimp-my-prompt/SKILL.md",
+    "brain-ops": "skills/brain-ops/SKILL.md",
+    "query": "skills/query/SKILL.md",
+    "ingest": "skills/ingest/SKILL.md",
+    "idea-ingest": "skills/idea-ingest/SKILL.md",
+    "media-ingest": "skills/media-ingest/SKILL.md",
+    "voice-note-ingest": "skills/voice-note-ingest/SKILL.md",
+    "article-enrichment": "skills/article-enrichment/SKILL.md",
+    "book-mirror": "skills/book-mirror/SKILL.md",
+    "strategic-reading": "skills/strategic-reading/SKILL.md",
+    "pdf": "skills/pdf/SKILL.md",
+    "brain-pdf": "skills/brain-pdf/SKILL.md",
+    "citation-fixer": "skills/citation-fixer/SKILL.md",
+    "reports": "skills/reports/SKILL.md",
+    "exact-text-replacement": "skills/exact-text-replacement/SKILL.md",
     "write-a-skill": "skills/write-a-skill/SKILL.md",
     "edit-skill": "skills/edit-skill/SKILL.md",
     "skillify": "skills/skillify/SKILL.md",

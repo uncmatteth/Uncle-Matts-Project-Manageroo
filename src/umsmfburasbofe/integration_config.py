@@ -23,6 +23,7 @@ INTEGRATION_ORDER = [
     "gbrain_capture_command",
     "gitnexus_analyze_command",
     "gitnexus_query_command",
+    "document_analysis_command",
     "autoreview_command",
     "clawpatch_command",
 ]

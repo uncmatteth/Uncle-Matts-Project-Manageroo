@@ -990,9 +990,10 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     print("Recommended local skill pack:")
     print("  - UMSMFBURASBOFE routing skill")
     print("  - Pimp My Prompt for rough request cleanup")
+    print("  - Brain, ingest, media, PDF, long-prose, and exact-text lanes")
     print("  - Diagnose, TDD, AUTOREVIEW, plain web copy, and website rescue lanes")
     print("  - Write A Skill, Skillify, and Edit Skill")
-    print("  - Caveman and Uncle Matt's Caveman Curse token modes")
+    print("  - Token reduction with two styles: clean Caveman or Uncle Matt's Caveman Curse")
     print("This is optional, but strongly suggested for AI IDE agents.")
     print("Default is yes because this saves the user from remembering skill names.")
     print("You can skip it and install it later with: umsmfburasbofe skills install")
@@ -1026,8 +1027,9 @@ def choose_token_mode(selection: str) -> str:
         return "off"
     print("Token reduction mode:")
     print("  1) off")
-    print("  2) caveman - terse, clean, fewer tokens")
-    print("  3) curse - Uncle Matt's Caveman Curse, terse plus profanity")
+    print("  2) caveman - same token reduction, clean style")
+    print("  3) curse - same token reduction, appropriately placed profanity")
+    print("Curse mode exists because life is more fun with appropriately placed, well-used profanity.")
     answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
     return {
         "": "off",
@@ -1241,9 +1243,14 @@ def main() -> int:
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
                 "The recommended skill pack is optional but strongly suggested because it "
                 "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
+                "memory lookup, source ingest, media/PDF handling, long prose, exact text, "
                 "debugging, test-first work, closeout review, public copy, website cleanup, "
-                "and token compression without the user memorizing skill names. "
+                "and token reduction without the user memorizing skill names. "
                 "It includes UMSMFBURASBOFE routing, Pimp My Prompt for rough request intake, "
+                "Brain Ops and Query for GBrain-backed context, Ingest/Media Ingest/Voice Note "
+                "Ingest for source capture, Article Enrichment/Book Mirror/Strategic Reading "
+                "for long documents, PDF/Brain PDF/Citation Fixer/Reports/Exact Text Replacement "
+                "for document output and exact wording, "
                 "Diagnose for broken or flaky behavior, TDD for one behavior test at a time, "
                 "AUTOREVIEW for closeout review, Plain Web Copy for public words, "
                 "Fix My Bad Website for generic-looking pages, "

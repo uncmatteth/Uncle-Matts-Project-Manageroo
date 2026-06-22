@@ -57,7 +57,10 @@ products.
 The recommended local skill pack is optional but strongly suggested. Let the
 installer add it unless the operator explicitly chooses `--skill-pack skip` or
 `--skip-skill-pack`; install it later with `umsmfburasbofe skills install` if it
-was skipped.
+was skipped. The pack includes helper lanes for rough prompts, memory lookup,
+source ingest, media/PDF handling, long prose, exact text, debugging, tests,
+review, public copy, website cleanup, skill creation, skill cleanup, and token
+reduction.
 
 If the operator requests token reduction, use one of:
 
@@ -66,9 +69,17 @@ umsmfburasbofe token-mode set caveman
 umsmfburasbofe token-mode set curse
 ```
 
+This is one token-reduction feature with two styles. `caveman` is clean.
+`curse` is the same compression with appropriately placed profanity.
+
 If the operator's product request is rough, overloaded, or frustrated, use the
 bundled `$pimp-my-prompt` skill to turn it into exact scope, proof, and stop
 rules before filling the product brief.
+
+Do not make the operator hand-author agent files. Project init writes or updates
+`AGENTS.md`, `CONTEXT.md`, `.umsmfburasbofe/PROJECT-MEMORY.md`, and the
+repo-local UMSMFBURASBOFE skill. Read those files after setup and preserve any
+existing human content around the managed blocks.
 
 If the operator wants to provide the full request non-interactively, run:
 

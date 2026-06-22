@@ -38,12 +38,20 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
   without losing what you meant.
 - `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
 - The recommended skill pack gives agents built-in lanes for rough intake,
+  memory lookup, source ingest, media/PDF work, long prose, exact wording,
   debugging, test-first work, closeout review, public copy, website cleanup,
-  reusable skills, and token compression.
+  reusable skills, and token reduction.
+- You do not have to figure out `AGENTS.md` and `CONTEXT.md` by hand. Project
+  init writes managed guidance blocks, preserves existing files, and the
+  context compiler prioritizes `AGENTS.md`, `CONTEXT.md`, project memory, and
+  docs when building packets.
 - If GBrain or GitNexus commands are configured, it asks them for useful memory
   or code-graph context during discovery and records what worked or failed.
 - Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
-- Pictures, PDFs, and big prose files are not invisible. The tool records media metadata and bounded prose summaries so the agent knows they exist and can ask for the right slice.
+- Pictures, PDFs, and big prose files are not invisible. The tool records media
+  metadata, writes a document manifest, and can run a configured
+  `document_analysis_command` as an evidence lane so the agent knows what exists
+  and asks for the right slice.
 - Most UMSMFBURASBOFE work is a `goal`: keep going until a verifiable outcome is true, then stop.
 - A `loop` repeats while you are present. A `routine` runs later or on a schedule. UMSMFBURASBOFE can adapt those ideas into one bounded local repo run; it does not pretend to be a cloud scheduler.
 - Your AI tool does the code work.
@@ -60,7 +68,9 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
   short, non-duplicative, and free of stale AI junk.
 - It also includes `write-a-skill` and `skillify`, so repeated painful work can
   become a small reusable skill instead of another giant thread.
-- Optional token-reduction modes are included: clean `caveman` or profane `curse`.
+- Token reduction is one feature with two styles: clean `caveman` or
+  `uncle-matts-caveman-curse`. Curse mode exists because life is more fun with
+  appropriately placed, well-used profanity.
 - The installer should be simple for normal users, but still fun: color, ASCII art, and generated chiptune music.
 
 ## What Problem It Solves
@@ -285,6 +295,19 @@ The recommended skill pack is installed under `~/.agents/skills`:
   tells agents how to follow the controller instead of freelancing.
 - `pimp-my-prompt`: turns a rough request into exact scope, acceptance criteria,
   fallback rules, and a product brief shape.
+- `brain-ops`: searches and writes GBrain-backed durable context without
+  letting memory override current repo truth.
+- `query`: answers from stored brain knowledge with source-grounded context.
+- `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest`: turn links,
+  articles, screenshots, PDFs, transcripts, voice notes, and media sources into
+  usable local context.
+- `article-enrichment`, `book-mirror`, and `strategic-reading`: process long
+  articles, books, manuscripts, and strategy docs in bounded sections instead
+  of one giant prompt dump.
+- `pdf`, `brain-pdf`, `citation-fixer`, and `reports`: handle PDF checks,
+  brain-page PDF rendering, citation cleanup, and durable reports.
+- `exact-text-replacement`: protects wording the user gave literally, including
+  spelling and weirdness, unless the user asks to change it.
 - `edit-skill`: tightens skill files by removing duplicate rules, stale
   instructions, vague wording, and AI slop.
 - `write-a-skill`: creates a concise reusable skill when a workflow keeps
@@ -301,8 +324,9 @@ The recommended skill pack is installed under `~/.agents/skills`:
   hype.
 - `fix-my-bad-website`: helps agents make web pages feel like the actual
   product instead of generic AI output.
-- `caveman`: clean compressed output.
-- `uncle-matts-caveman-curse`: compressed output with the funny profane mode.
+- `caveman`: token reduction, clean style.
+- `uncle-matts-caveman-curse`: the same token reduction with the funny profane
+  style.
 
 The installer also offers the recommended local stack:
 
@@ -359,10 +383,11 @@ Choose token-reduction mode during install:
 ./install.sh --token-mode off
 ```
 
-`caveman` is clean compressed output. `curse` is Uncle Matt's Caveman Curse:
-compressed output with profanity for people who want the funny version. Code,
-commands, JSON keys, exact errors, and quoted source stay clean unless you ask
-for profanity there.
+`caveman` is token reduction in the clean style. `curse` is the same token
+reduction through Uncle Matt's Caveman Curse: profanity for people who want the
+funny version because life is more fun with appropriately placed, well-used
+profanity. Code, commands, JSON keys, exact errors, and quoted source stay clean
+unless you ask for profanity there.
 
 ## One-line installation after the GitHub repository exists
 
@@ -394,6 +419,11 @@ Run bare `setup` for the lower-level wizard. It asks:
 - what AI you are using;
 - what repo you want to work on;
 - whether you want GBrain, GitNexus, Obsidian, or Loop Library help.
+
+Project setup writes `.umsmfburasbofe/PROJECT-MEMORY.md`, the current product
+brief, a repo-local UMSMFBURASBOFE skill, and managed `AGENTS.md`/`CONTEXT.md`
+blocks. Existing human content is preserved, so the user does not have to
+figure out which agent-context file belongs to which AI tool.
 
 Use `--agent codex` when this tool should launch Codex itself. Use another
 preset when the agent CLI is already installed and you do not want the prompt:
@@ -449,10 +479,13 @@ Import copies only `SKILL.md` files into `~/.agents/skills`. If a different
 local skill already exists, it is backed up before replacement.
 
 Then a compatible agent can call `$pimp-my-prompt`, `$diagnose`, `$tdd`,
-`$autoreview`, `$plain-web-copy`, `$fix-my-bad-website`, `$write-a-skill`,
-`$edit-skill`, `$skillify`, `$caveman`, or `$uncle-matts-caveman-curse`
-directly. The repo-local UMSMFBURASBOFE skill tells agents when to use each one,
-so the user does not have to remember the list.
+`$autoreview`, `$plain-web-copy`, `$fix-my-bad-website`, `$brain-ops`,
+`$query`, `$ingest`, `$media-ingest`, `$voice-note-ingest`,
+`$article-enrichment`, `$book-mirror`, `$strategic-reading`, `$pdf`,
+`$brain-pdf`, `$citation-fixer`, `$reports`, `$exact-text-replacement`,
+`$write-a-skill`, `$edit-skill`, `$skillify`, `$caveman`, or
+`$uncle-matts-caveman-curse` directly. The repo-local UMSMFBURASBOFE skill tells
+agents when to use each one, so the user does not have to remember the list.
 
 Make the first brief without hand-editing the template:
 
@@ -586,7 +619,20 @@ or failing tools are written to
 `.umsmfburasbofe/runs/<run-id>/artifacts/discovery/external-intelligence.json`
 so you can see exactly what happened.
 
+Configured document/prose commands work the same way. Every run writes:
+
+```text
+.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-manifest.json
+.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-intelligence.json
+```
+
+`document_analysis_command` can read that manifest and produce evidence for
+books, articles, PDFs, transcripts, or long notes. If it fails, the failure is
+recorded as optional context. The AI does not get permission to freehand a whole
+manuscript or pretend metadata is real visual understanding.
+
 See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).
+See [`docs/DOCUMENT_LANE.md`](docs/DOCUMENT_LANE.md).
 
 ## Proactive learning
 
@@ -613,6 +659,8 @@ This was built around the local agent stack you actually wanted:
 - GBrain for durable memory.
 - GitNexus for code graph and impact context.
 - Obsidian for notes a human can read.
+- The bundled memory/document skills for GBrain lookup, ingest, media/PDF work,
+  long prose, exact wording, citations, reports, and PDF export.
 - AUTOREVIEW and Clawpatch for command-owned review and repair lanes. Their
   findings are not handed to the AI for freehand repairs.
 - Matthew Berman / Forward Future's Loop Library as a reference for clear
@@ -643,6 +691,7 @@ checks. Do the first live run on a clone, branch, or disposable copy.
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md)
+- [`docs/DOCUMENT_LANE.md`](docs/DOCUMENT_LANE.md)
 - [`docs/LEARNING_LANE.md`](docs/LEARNING_LANE.md)
 - [`docs/ENFORCEMENT_MATRIX.md`](docs/ENFORCEMENT_MATRIX.md)
 - [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md)

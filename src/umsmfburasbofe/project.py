@@ -38,11 +38,41 @@ Read `.umsmfburasbofe/PROJECT-MEMORY.md` before broad product work. Preserve the
 
 Use the recommended UMSMFBURASBOFE skill pack automatically:
 - rough, overloaded, or frustrated request -> `pimp-my-prompt`;
+- existing memory, people, prior decisions, or project history -> `brain-ops`
+  or `query`;
+- links, PDFs, screenshots, transcripts, notes, and media-heavy sources ->
+  `ingest`, `idea-ingest`, `media-ingest`, or `voice-note-ingest`;
+- long books, manuscripts, articles, or strategy reading -> `book-mirror`,
+  `article-enrichment`, or `strategic-reading`;
+- exact wording replacement -> `exact-text-replacement`;
+- PDF export from brain pages -> `brain-pdf` or `pdf`;
 - repeated painful workflow -> `write-a-skill` or `skillify`;
 - bloated or stale skill -> `edit-skill`;
-- compressed output only when token mode or the user asks -> `caveman` or
+- token reduction only when token mode or the user asks -> `caveman` or
   `uncle-matts-caveman-curse`.
 <!-- UMSMFBURASBOFE:END -->
+"""
+
+CONTEXT_BLOCK = """\
+<!-- UMSMFBURASBOFE-CONTEXT:BEGIN -->
+## UMSMFBURASBOFE Project Context
+
+This file is optional human-readable project context. The user does not need to
+understand agent memory files by hand.
+
+For broad work, agents and AI IDEs should read these in order:
+
+1. `.umsmfburasbofe/PROJECT-MEMORY.md` for durable project identity, shipped
+   facts, must-not-break rules, proof, and operator notes.
+2. `.umsmfburasbofe/PRODUCT-BRIEF.md` for the current requested build or repair.
+3. `AGENTS.md` for repo operating rules.
+4. This `CONTEXT.md` file when the repo has extra background, product language,
+   audience notes, or document/prose instructions.
+
+If long prose, PDFs, screenshots, transcripts, or exact wording matter, use the
+document/prose lane and the bundled memory/document skills. Do not silently
+paraphrase exact user text or pretend media metadata is real vision.
+<!-- UMSMFBURASBOFE-CONTEXT:END -->
 """
 
 STARTER_TEMPLATES = {
@@ -385,16 +415,22 @@ def create_project_repo(
     }
 
 
-def _append_managed_block(path: Path, block: str) -> None:
+def _append_managed_block(
+    path: Path,
+    block: str,
+    *,
+    heading: str = "# Agent operating guide\n\n",
+    marker: str = "<!-- UMSMFBURASBOFE:BEGIN -->",
+) -> None:
     if path.exists():
         text = path.read_text(encoding="utf-8", errors="replace")
-        if "<!-- UMSMFBURASBOFE:BEGIN -->" in text:
+        if marker in text:
             return
         if text and not text.endswith("\n"):
             text += "\n"
         atomic_write_text(path, text + "\n" + block)
     else:
-        atomic_write_text(path, "# Agent operating guide\n\n" + block)
+        atomic_write_text(path, heading + block)
 
 
 def initialize_project(
@@ -433,6 +469,12 @@ def initialize_project(
     )
 
     _append_managed_block(repo / "AGENTS.md", AGENTS_BLOCK)
+    _append_managed_block(
+        repo / "CONTEXT.md",
+        CONTEXT_BLOCK,
+        heading="# Project context\n\n",
+        marker="<!-- UMSMFBURASBOFE-CONTEXT:BEGIN -->",
+    )
 
     gitignore = repo / ".gitignore"
     additions = [".umsmfburasbofe/runs/", ".umsmfburasbofe/cache/"]
@@ -449,6 +491,7 @@ def initialize_project(
         "config": str(config_path),
         "brief": str(brief_path),
         "memory": memory_result["path"],
+        "context": str(repo / "CONTEXT.md"),
         "skill": str(skill_destination),
         "detected_gates": gates,
         "warning": None if gates else (

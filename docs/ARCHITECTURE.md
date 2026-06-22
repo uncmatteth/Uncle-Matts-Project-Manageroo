@@ -68,6 +68,8 @@ The surrounding stack provides lanes, not authorities:
 - GBrain: durable memory retrieval/capture.
 - GitNexus: supplementary code graph analysis.
 - Obsidian: human-readable Markdown knowledge.
+- Document/prose command lane: optional evidence over a run-owned manifest for
+  long prose, PDFs, transcripts, articles, and exact-text workflows.
 - Clawpatch/AUTOREVIEW: command-owned review/repair lanes that run their own
   configured commands; their findings are never converted into AI freehand fixes.
 - OpenClaw/Claude/Gemini/Cursor: alternate execution surfaces.

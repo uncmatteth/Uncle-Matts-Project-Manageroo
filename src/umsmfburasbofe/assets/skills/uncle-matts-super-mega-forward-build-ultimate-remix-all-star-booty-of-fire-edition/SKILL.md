@@ -34,6 +34,21 @@ Do not make the user remember skill names. Pick the helper skill from the job:
 - Use `$pimp-my-prompt` before a run when the human request is rough, overloaded,
   ambiguous, frustrated, or reusable and needs exact scope, acceptance criteria,
   fallback behavior, proof, and stop rules.
+- Use `$brain-ops` when past decisions, project history, user memory, people,
+  companies, or durable context may matter.
+- Use `$query` when answering from the brain's stored knowledge.
+- Use `$ingest`, `$idea-ingest`, `$media-ingest`, or `$voice-note-ingest` when
+  links, articles, PDFs, screenshots, transcripts, voice notes, or media sources
+  need to become useful local context.
+- Use `$article-enrichment`, `$book-mirror`, or `$strategic-reading` for long
+  articles, books, manuscripts, research, and prose that should be processed in
+  bounded sections instead of one giant context dump.
+- Use `$exact-text-replacement` when the user supplies wording that must stay
+  byte-for-byte exact.
+- Use `$pdf` or `$brain-pdf` when the user needs a PDF checked, created, or
+  rendered from a brain page.
+- Use `$citation-fixer` and `$reports` for citation cleanup and durable local
+  report lookup/output.
 - Use `$write-a-skill` when a painful workflow should become a reusable local
   agent skill.
 - Use `$edit-skill` when a local skill becomes bloated, duplicated, stale,
@@ -49,7 +64,7 @@ Do not make the user remember skill names. Pick the helper skill from the job:
 - Use `$fix-my-bad-website` when a website or app screen looks generic,
   template-like, or visually disconnected from the product.
 - Use `$caveman` or `$uncle-matts-caveman-curse` only when the selected token
-  mode or user explicitly asks for compressed output.
+  mode or user explicitly asks for token reduction.
 
 ## Role separation
 

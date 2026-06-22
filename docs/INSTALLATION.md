@@ -123,6 +123,18 @@ yes path. Skip it with `./install.sh --skill-pack skip` or
   tells agents how to follow the controller.
 - `pimp-my-prompt`: turns rough requests into exact scope, acceptance criteria,
   fallback rules, and runnable product briefs.
+- `brain-ops`: searches and writes GBrain-backed durable context while keeping
+  current repo truth higher than memory.
+- `query`: answers from stored brain knowledge with source-grounded context.
+- `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest`: turn links,
+  articles, screenshots, PDFs, transcripts, voice notes, and media sources into
+  usable local context.
+- `article-enrichment`, `book-mirror`, and `strategic-reading`: handle long
+  articles, books, manuscripts, research, and prose in bounded sections.
+- `pdf`, `brain-pdf`, `citation-fixer`, and `reports`: support PDF checks,
+  brain-page PDF rendering, citation cleanup, and durable reports.
+- `exact-text-replacement`: preserves literal user wording when exact text
+  matters.
 - `write-a-skill`: creates a concise reusable skill when a workflow keeps
   coming back.
 - `edit-skill`: tightens existing skills by removing duplicate instructions,
@@ -138,8 +150,9 @@ yes path. Skip it with `./install.sh --skill-pack skip` or
   hype.
 - `fix-my-bad-website`: helps agents make web pages feel like the actual
   product instead of generic AI output.
-- `caveman`: clean compressed output.
-- `uncle-matts-caveman-curse`: compressed output with profanity when selected.
+- `caveman`: token reduction in the clean style.
+- `uncle-matts-caveman-curse`: the same token reduction with appropriately
+  placed profanity when selected.
 
 They are available even when token mode is off. Reinstall them later with:
 
@@ -172,10 +185,12 @@ umsmfburasbofe repair-install --no-apply
 
 ## Token reduction
 
-The package includes both token-reduction skills:
+Token reduction is one feature with two styles. The package includes both skill
+files so you can switch later, but only the selected mode is active:
 
 - `caveman`: terse, clean output.
-- `uncle-matts-caveman-curse`: terse output plus profanity.
+- `uncle-matts-caveman-curse`: terse output plus profanity, because life is
+  more fun with appropriately placed, well-used profanity.
 
 Switch later:
 
@@ -221,8 +236,10 @@ With `--create`, it initializes Git, writes a minimal `README.md` and
 non-empty non-Git folders and nested repos.
 
 It writes `.umsmfburasbofe/PRODUCT-BRIEF.md`, writes
-`.umsmfburasbofe/PROJECT-MEMORY.md`, checks readiness, and prints exactly one
-next command. If every required check is already ready during that first
+`.umsmfburasbofe/PROJECT-MEMORY.md`, writes or updates managed `AGENTS.md` and
+`CONTEXT.md` guidance blocks, checks readiness, and prints exactly one next
+command. Existing human content in those files is preserved. If every required
+check is already ready during that first
 command, you can combine intake and execution:
 
 ```bash

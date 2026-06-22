@@ -15,13 +15,15 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - `solo --create --starter static-site` can start a tiny homepage with a smoke test instead of a blank folder.
 - You write the brief. The tool maps the repo, splits the job up, runs checks, sends bad work back for repair, and saves the report.
 - It includes `pimp-my-prompt`, so rough, long, frustrated, or half-formed requests can become clear scope, proof, and stop rules.
+- It includes memory and document helpers, so GBrain lookup, source ingest, screenshots, PDFs, transcripts, long prose, exact wording, citations, reports, and PDF export have obvious lanes.
 - It includes `diagnose`, `tdd`, and `autoreview`, so bugs get a feedback loop, behavior gets proof, and finished work gets a review lane.
 - It includes `plain-web-copy` and `fix-my-bad-website`, so public pages do not have to look or read like generic AI slop.
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
 - It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
-- It includes two token-reduction modes: clean `caveman` and profane `curse`.
+- It includes one token-reduction feature with two styles: clean `caveman` or profane `curse`, because life is more fun with appropriately placed, well-used profanity.
 - The recommended skill pack is optional but strongly suggested. The installer offers it, defaults to yes, `--skill-pack skip` skips it, and `umsmfburasbofe skills install` adds it later.
 - The repo-local UMSMFBURASBOFE skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
+- Project init handles `AGENTS.md`, `CONTEXT.md`, `.umsmfburasbofe/PROJECT-MEMORY.md`, and the repo-local skill block so the user does not have to figure out agent-context files by hand.
 - `skills scan` and `skills import --apply` turn a copied skills folder into a curated local toolbox without blindly copying duplicate folders.
 - The normal path is simple: run `umsmfburasbofe solo`, answer normal product questions, then follow the one next command.
 - `.umsmfburasbofe/PROJECT-MEMORY.md` keeps the project identity, shipped facts, must-not-break rules, proof, and operator notes in the repo instead of hidden in chat.
@@ -32,6 +34,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - `next` is the low-noise helper for "what do I do now?": it prints the current stage, the reason, and one command.
 - Bare `setup` is the lower-level wizard: AI choice, repo path, and optional stack checks.
 - If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.
+- If configured, `document_analysis_command` reads a run-owned document manifest and adds long-prose/PDF/transcript evidence without giving the AI permission to freehand a whole manuscript.
 - GBrain setup has two lanes: the local Bun/PGLite path, or the official upstream agent-supervised `INSTALL_FOR_AGENTS.md` protocol.
 - Clawpatch setup checks `clawpatch doctor` and Codex login status for its codex provider.
 - AUTOREVIEW and Clawpatch are command-owned lanes; their findings do not become AI freehand repair prompts.

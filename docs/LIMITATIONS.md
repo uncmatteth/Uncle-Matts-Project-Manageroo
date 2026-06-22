@@ -12,7 +12,7 @@
 10. Symlinks are excluded from the mirror in the current implementation to prevent path escape.
 11. Independent map and review chunks can run in parallel. Implementation tasks remain dependency ordered for correctness.
 12. Media support is bounded support. UMSMFBURASBOFE records images, PDFs, and design/media assets in inventory and can use local OCR/PDF text extractors when installed, but it does not perform real vision interpretation or design understanding.
-13. Long prose support includes line counts, summaries, explicit summary context, and task decomposition. Exact edits still require bounded line ranges or a document-specific workflow.
+13. Long prose support includes line counts, summaries, document manifests, optional `document_analysis_command` output, explicit summary context, and task decomposition. Exact edits still require bounded line ranges or an external document-specific command that owns the evidence.
 14. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
 15. Configured AUTOREVIEW and Clawpatch commands are deterministic command-owned lanes. UMSMFBURASBOFE captures their output and can accept their scoped edits, but it does not ask the AI repairer to freehand fixes from their findings.
 16. `solo --create` creates only missing or empty top-level project folders. Starters are small local scaffolds, not production frameworks. The command refuses non-empty non-Git folders and missing paths inside another Git repo so it does not accidentally commit personal files, secrets, archives, or nested repositories.

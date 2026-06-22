@@ -17,6 +17,20 @@ class TokenModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             installed = install_core_helper_skills(Path(temp))
             self.assertIn("pimp-my-prompt", installed)
+            self.assertIn("brain-ops", installed)
+            self.assertIn("query", installed)
+            self.assertIn("ingest", installed)
+            self.assertIn("idea-ingest", installed)
+            self.assertIn("media-ingest", installed)
+            self.assertIn("voice-note-ingest", installed)
+            self.assertIn("article-enrichment", installed)
+            self.assertIn("book-mirror", installed)
+            self.assertIn("strategic-reading", installed)
+            self.assertIn("pdf", installed)
+            self.assertIn("brain-pdf", installed)
+            self.assertIn("citation-fixer", installed)
+            self.assertIn("reports", installed)
+            self.assertIn("exact-text-replacement", installed)
             self.assertIn("edit-skill", installed)
             self.assertIn("write-a-skill", installed)
             self.assertIn("skillify", installed)
@@ -32,6 +46,12 @@ class TokenModeTests(unittest.TestCase):
                 installed,
             )
             prompt = Path(temp) / "pimp-my-prompt" / "SKILL.md"
+            brain_ops = Path(temp) / "brain-ops" / "SKILL.md"
+            query = Path(temp) / "query" / "SKILL.md"
+            media_ingest = Path(temp) / "media-ingest" / "SKILL.md"
+            book_mirror = Path(temp) / "book-mirror" / "SKILL.md"
+            brain_pdf = Path(temp) / "brain-pdf" / "SKILL.md"
+            exact_text = Path(temp) / "exact-text-replacement" / "SKILL.md"
             editor = Path(temp) / "edit-skill" / "SKILL.md"
             writer = Path(temp) / "write-a-skill" / "SKILL.md"
             skillify = Path(temp) / "skillify" / "SKILL.md"
@@ -46,6 +66,12 @@ class TokenModeTests(unittest.TestCase):
                 / "SKILL.md"
             )
             self.assertTrue(prompt.exists())
+            self.assertTrue(brain_ops.exists())
+            self.assertTrue(query.exists())
+            self.assertTrue(media_ingest.exists())
+            self.assertTrue(book_mirror.exists())
+            self.assertTrue(brain_pdf.exists())
+            self.assertTrue(exact_text.exists())
             self.assertTrue(editor.exists())
             self.assertTrue(writer.exists())
             self.assertTrue(skillify.exists())
@@ -58,6 +84,12 @@ class TokenModeTests(unittest.TestCase):
             self.assertTrue((Path(temp) / "uncle-matts-caveman-curse" / "SKILL.md").exists())
             self.assertTrue(controller.exists())
             self.assertIn("rough-draft users", prompt.read_text(encoding="utf-8"))
+            self.assertIn("Brain Ops", brain_ops.read_text(encoding="utf-8"))
+            self.assertIn("# Query", query.read_text(encoding="utf-8"))
+            self.assertIn("Media Ingest", media_ingest.read_text(encoding="utf-8"))
+            self.assertIn("Book Mirror", book_mirror.read_text(encoding="utf-8"))
+            self.assertIn("Brain PDF", brain_pdf.read_text(encoding="utf-8"))
+            self.assertIn("Exact Text Replacement", exact_text.read_text(encoding="utf-8"))
             self.assertIn("duplicate instructions", editor.read_text(encoding="utf-8"))
             self.assertIn("Create a new local agent skill", writer.read_text(encoding="utf-8"))
             self.assertIn("Skillify only when", skillify.read_text(encoding="utf-8"))
@@ -86,6 +118,7 @@ class TokenModeTests(unittest.TestCase):
             self.assertEqual(result["mode"], "curse")
             self.assertEqual(read_token_mode(state)["mode"], "curse")
             self.assertIn("Uncle Matt's Caveman Curse", token_mode_prompt("curse"))
+            self.assertIn("appropriately placed, well-used profanity", token_mode_prompt("curse"))
             self.assertTrue((skills / "caveman" / "SKILL.md").exists())
             self.assertTrue((skills / "uncle-matts-caveman-curse" / "SKILL.md").exists())
 

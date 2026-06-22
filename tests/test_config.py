@@ -12,6 +12,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["agent"]["adapter"], "generic")
         self.assertEqual(config["agent"]["argv_template"][0], "YOUR_AGENT")
         self.assertIn("{prompt}", config["agent"]["argv_template"])
+        self.assertEqual(config["integrations"]["document_analysis_command"], [])
 
     def test_apply_agent_preset_replaces_only_agent_block(self):
         with tempfile.TemporaryDirectory() as temp:

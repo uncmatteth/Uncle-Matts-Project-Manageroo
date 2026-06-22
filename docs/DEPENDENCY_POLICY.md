@@ -46,10 +46,13 @@ The installer records selected external tools in `install-lock.json`. It install
 
 ## Token-reduction skills
 
-The package includes both bundled token modes:
+Token reduction is one feature with two styles. The package includes both
+bundled skill files so the user can switch later, but only the selected mode is
+active:
 
-- `caveman`
-- `uncle-matts-caveman-curse`
+- `caveman`: clean style.
+- `uncle-matts-caveman-curse`: curse style, because life is more fun with
+  appropriately placed, well-used profanity.
 
 They are local skill files, not network dependencies. The installer can select a
 mode with `--token-mode caveman` or `--token-mode curse`. Users can switch later
@@ -69,6 +72,12 @@ leave it out and install it later with `umsmfburasbofe skills install`.
 - `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`
   for controller routing.
 - `pimp-my-prompt` for rough request intake and reusable prompt cleanup.
+- `brain-ops` and `query` for GBrain-backed memory lookup.
+- `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest` for source
+  capture.
+- `article-enrichment`, `book-mirror`, and `strategic-reading` for long prose.
+- `pdf`, `brain-pdf`, `citation-fixer`, `reports`, and
+  `exact-text-replacement` for PDF work, citations, reports, and exact wording.
 - `write-a-skill` for making a repeated workflow into a concise reusable skill.
 - `edit-skill` for keeping local skills short, clear, and non-duplicative.
 - `skillify` for deciding whether a workflow deserves a skill and checking its proof.
@@ -77,8 +86,8 @@ leave it out and install it later with `umsmfburasbofe skills install`.
 - `autoreview` for closeout code review before commit, release, or handoff.
 - `plain-web-copy` for factual public copy.
 - `fix-my-bad-website` for website and app-screen cleanup when the page looks generic.
-- `caveman` for clean compressed output.
-- `uncle-matts-caveman-curse` for compressed output with profanity when selected.
+- `caveman` for clean token reduction.
+- `uncle-matts-caveman-curse` for token reduction with profanity when selected.
 
 These are bundled files, not network dependencies. Existing different local
 versions are backed up before replacement. They are available even when token
