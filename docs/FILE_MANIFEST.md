@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 705 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 24595 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 25945 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8269 | Project metadata or handoff |
@@ -49,7 +49,7 @@ This manifest is generated from the release source tree.
 | `scripts/install.py` | 53224 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
 | `scripts/package_release.py` | 5290 | Installation, validation, or packaging |
-| `scripts/verify_release.py` | 7344 | Installation, validation, or packaging |
+| `scripts/verify_release.py` | 10007 | Installation, validation, or packaging |
 | `sitecustomize.py` | 241 | Project metadata or handoff |
 | `src/umsmfburasbofe/__init__.py` | 120 | Harness runtime source |
 | `src/umsmfburasbofe/__main__.py` | 48 | Harness runtime source |
@@ -189,5 +189,6 @@ This manifest is generated from the release source tree.
 | `tests/test_skill_pack_import.py` | 5521 | Deterministic harness test |
 | `tests/test_state.py` | 854 | Deterministic harness test |
 | `tests/test_token_modes.py` | 8740 | Deterministic harness test |
+| `tests/test_truth_contract.py` | 8272 | Deterministic harness test |
 | `tests/test_wizards.py` | 3812 | Deterministic harness test |
 | `tests/test_workspace.py` | 1516 | Deterministic harness test |

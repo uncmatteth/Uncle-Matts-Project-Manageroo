@@ -76,6 +76,10 @@ def process_safety_violations() -> list[str]:
     return violations
 
 
+def contains_compact(text: str, phrase: str) -> bool:
+    return " ".join(phrase.split()) in " ".join(text.split())
+
+
 def structural_checks() -> list[dict]:
     required = [
         "install.sh",
@@ -86,6 +90,7 @@ def structural_checks() -> list[dict]:
         "docs/DOCUMENT_LANE.md",
         "docs/INSTALLATION.md",
         "docs/LEARNING_LANE.md",
+        "docs/LIMITATIONS.md",
         "docs/REVIEW_REPAIR_LANES.md",
         "docs/SOLO_OPERATOR_MODE.md",
         "docs/TERMINAL_EXPERIENCE.md",
@@ -127,9 +132,15 @@ def structural_checks() -> list[dict]:
         "tests/test_document_lane.py",
         "tests/test_cli_memory.py",
         "tests/test_learning.py",
+        "tests/test_truth_contract.py",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    limitations = (ROOT / "docs" / "LIMITATIONS.md").read_text(encoding="utf-8")
+    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    review_repair = (ROOT / "docs" / "REVIEW_REPAIR_LANES.md").read_text(encoding="utf-8")
+    installer = (ROOT / "scripts" / "install.py").read_text(encoding="utf-8")
+    project = (ROOT / "src" / "umsmfburasbofe" / "project.py").read_text(encoding="utf-8")
     checks.extend(
         [
             {
@@ -143,6 +154,56 @@ def structural_checks() -> list[dict]:
                 "ok": not any(
                     path.suffix.lower() in {".wav", ".mp3", ".ogg", ".flac"}
                     for path in source_files()
+                ),
+            },
+            {
+                "name": "truth:no-real-vision-claim",
+                "ok": (
+                    contains_compact(
+                        limitations,
+                        "it does not perform real vision interpretation or design understanding",
+                    )
+                    and contains_compact(project, "pretend media metadata is real vision")
+                ),
+            },
+            {
+                "name": "truth:no-fake-subagent-claim",
+                "ok": (
+                    contains_compact(
+                        architecture,
+                        "implementation prioritizes correctness over theatrical agent count",
+                    )
+                    and contains_compact(
+                        architecture,
+                        "The controller does not run parallel implementation branches",
+                    )
+                ),
+            },
+            {
+                "name": "truth:no-ai-freehand-external-repair",
+                "ok": (
+                    contains_compact(review_repair, "must not freehand fixes from AUTOREVIEW or")
+                    and contains_compact(installer, "AI must not freehand fixes from them")
+                ),
+            },
+            {
+                "name": "truth:no-release-ready-deploy-claim",
+                "ok": (
+                    contains_compact(
+                        limitations,
+                        "`release-ready` is a final operator gate, not a deployment tool",
+                    )
+                    and contains_compact(
+                        limitations,
+                        "It does not push, deploy, monitor, or roll back production.",
+                    )
+                ),
+            },
+            {
+                "name": "truth:no-silent-self-mutation",
+                "ok": contains_compact(
+                    limitations,
+                    "does not silently edit skills, docs, config, installer behavior, checks, prompts, or code",
                 ),
             },
             {
