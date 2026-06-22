@@ -54,6 +54,14 @@ Do not make the user remember skill names. Pick the helper skill from the job:
 
 Planning, implementation, verification, and review run in fresh processes. A reviewer is not an implementer and must not mutate the reviewed repository.
 
+## AUTOREVIEW and Clawpatch command lanes
+
+AUTOREVIEW and Clawpatch are command-owned repair lanes. Run the configured AUTOREVIEW command. Run the configured Clawpatch command. Capture their exact output and artifacts. If either tool has a repair/apply mode, use that tool command.
+
+The AI agent must not freehand fixes from AUTOREVIEW or Clawpatch findings. If
+one of those commands fails or cannot repair its own finding, report the exact
+tool output and stop instead of inventing a patch.
+
 ## Completion
 
 A successful agent response is only one piece of the run. Completion requires

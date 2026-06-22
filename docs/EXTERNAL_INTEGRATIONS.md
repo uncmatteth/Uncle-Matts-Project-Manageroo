@@ -36,8 +36,18 @@ separate facts unless a primary source states the deal terms.
 Memory lane. GBrain can provide useful past context, but current repo files
 still win.
 
-The guided installer can run `bun install -g github:garrytan/gbrain` and
-`gbrain init --pglite` when GBrain is missing and Bun is available.
+The guided installer offers two lanes:
+
+- `--gbrain-lane local`: run this installer's local CLI path with
+  `bun install -g github:garrytan/gbrain`, `gbrain init --pglite`, status
+  probes, and source-mapping guidance.
+- `--gbrain-lane official`: print Garry Tan/GBrain's upstream
+  `INSTALL_FOR_AGENTS.md` protocol for an agent-supervised install. This lane
+  is for the full setup: API-key questions, search-mode choice, source mapping,
+  bundled skills, recurring jobs, and verification.
+
+Default interactive installs ask. Non-interactive stack installs use the local
+lane unless a lane is passed explicitly.
 
 If GBrain already exists, the installer does not run a new init. It probes:
 
@@ -93,8 +103,22 @@ Official reference: https://obsidian.md/help/data-storage
 
 ## AUTOREVIEW and Clawpatch
 
-Review and patch lanes. AUTOREVIEW and Clawpatch can be configured as external
-commands. Their findings still have to point at real files and real evidence.
+Command-owned review and repair lanes. AUTOREVIEW and Clawpatch can be
+configured as external commands, but their findings are not handed to the AI
+agent as freehand fix instructions.
+
+When `autoreview_command` or `clawpatch_command` is configured, UMSMFBURASBOFE
+runs that argv exactly inside the isolated workspace, captures the output in
+`review/external-review-repair.json`, scope-checks any edits, and blocks on a
+nonzero exit, timeout, `HEAD` change, or out-of-scope edit. If either command
+changes files successfully, deterministic gates run again before the internal
+review continues.
+
+If AUTOREVIEW or Clawpatch has a repair/apply mode, configure that exact command.
+If the tool cannot repair its own finding, the run stops with the tool output.
+The controller must not freehand fixes from AUTOREVIEW or Clawpatch findings.
+
+See [`REVIEW_REPAIR_LANES.md`](REVIEW_REPAIR_LANES.md).
 
 The guided installer installs AUTOREVIEW from `openclaw/agent-skills` into
 `~/.agents/skills/autoreview` when missing. It first checks both
@@ -102,10 +126,14 @@ The guided installer installs AUTOREVIEW from `openclaw/agent-skills` into
 location can be valid on a local agent setup.
 
 It installs Clawpatch with `pnpm add -g clawpatch` when pnpm is available, or
-installs pnpm through npm when possible.
+installs pnpm through npm when possible. It then runs `clawpatch doctor` and
+checks `codex login status` for Clawpatch's default codex provider. Use
+`--clawpatch-codex-login run` if you want the installer to launch `codex login`
+during the stack setup.
 
 AUTOREVIEW reference: https://github.com/openclaw/agent-skills
 Clawpatch reference: https://github.com/openclaw/clawpatch
+GBrain official agent protocol: https://raw.githubusercontent.com/garrytan/gbrain/master/INSTALL_FOR_AGENTS.md
 
 ## Forward Future Loop Library
 

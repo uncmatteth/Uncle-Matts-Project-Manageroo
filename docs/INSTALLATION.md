@@ -27,6 +27,9 @@ products.
 ./install.sh --install-codex
 ./install.sh --install-stack
 ./install.sh --skip-stack
+./install.sh --gbrain-lane local
+./install.sh --gbrain-lane official
+./install.sh --clawpatch-codex-login run
 ./install.sh --loop-library-agent codex
 ./install.sh --loop-library-agent YOUR_AGENT
 ./install.sh --skill-pack install
@@ -43,10 +46,16 @@ Normal users should not need these.
 The installer can install or guide the surrounding stack that makes the whole
 thing useful:
 
-- GBrain: installed with `bun install -g github:garrytan/gbrain` when missing. If it already exists, the installer inspects config/status and does not reinitialize it.
+- GBrain: choose `--gbrain-lane local` for this installer's local CLI path, or
+  `--gbrain-lane official` for Garry Tan/GBrain's upstream
+  `INSTALL_FOR_AGENTS.md` protocol. Existing installs are inspected, not
+  reinitialized.
 - GitNexus: installed with `npm install -g gitnexus`; run `gitnexus setup` afterward for MCP wiring.
 - AUTOREVIEW: detected in `~/.agents/skills/autoreview` or `~/.codex/skills/autoreview`; installed from `openclaw/agent-skills` only when missing.
-- Clawpatch: installed with `pnpm add -g clawpatch`; the installer can install `pnpm` with npm when needed.
+- Clawpatch: installed with `pnpm add -g clawpatch`; the installer can install
+  `pnpm` with npm when needed, runs `clawpatch doctor`, checks Codex login for
+  Clawpatch's codex provider, and can run `codex login` when
+  `--clawpatch-codex-login run` is selected.
 - Loop Library: installed with `npx --yes skills add Forward-Future/loop-library --skill loop-library ...` for the selected agent.
 - Obsidian: installed through a detected package manager when possible, otherwise the installer prints the official install path.
 
@@ -69,6 +78,37 @@ gbrain status --json --section sync
 ```
 
 The installer does not choose broad personal folders for you.
+
+The local GBrain lane is:
+
+```bash
+bun install -g github:garrytan/gbrain
+gbrain init --pglite
+gbrain doctor --json
+```
+
+The official upstream lane is not guessed by this installer because it includes
+API-key questions, search-mode choice, source mapping, skills, recurring jobs,
+and verification. The installer prints the exact protocol URL instead:
+
+```text
+https://raw.githubusercontent.com/garrytan/gbrain/master/INSTALL_FOR_AGENTS.md
+```
+
+Clawpatch is also deterministic. After install, run its project commands in the
+repo you want reviewed:
+
+```bash
+clawpatch init
+clawpatch map
+clawpatch review --limit 3 --jobs 3
+clawpatch next
+clawpatch fix --finding FINDING_ID
+```
+
+UMSMFBURASBOFE can run configured AUTOREVIEW/Clawpatch commands as
+command-owned lanes, but it does not ask the AI to freehand repairs from their
+findings. See [`REVIEW_REPAIR_LANES.md`](REVIEW_REPAIR_LANES.md).
 
 ## Recommended skill pack
 

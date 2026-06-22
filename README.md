@@ -288,8 +288,8 @@ The installer also offers the recommended local stack:
 
 - GBrain for memory.
 - GitNexus for code graph context.
-- AUTOREVIEW for independent review passes.
-- Clawpatch for feature-slice review and explicit fix loops.
+- AUTOREVIEW for independent command-owned review passes.
+- Clawpatch for feature-slice review and explicit command-owned fix loops.
 - Obsidian for human-readable notes.
 - Matthew Berman / Forward Future's Loop Library skill for published agent loops.
 
@@ -308,6 +308,14 @@ If GBrain already exists, the stack lane inspects it instead of blindly running
 `gbrain init --pglite` over an existing Postgres/Ollama setup. It records the
 engine, embedding model, schema pack, source count, and embedding coverage, then
 prints source-mapping commands only when sources are missing.
+
+GBrain has two installer lanes: `--gbrain-lane local` for this package's Bun +
+PGLite quick path, and `--gbrain-lane official` for Garry Tan/GBrain's upstream
+agent-supervised `INSTALL_FOR_AGENTS.md` protocol.
+
+Clawpatch setup checks `clawpatch doctor` and Codex login status for
+Clawpatch's codex provider. Use `--clawpatch-codex-login run` if you want the
+installer to launch `codex login` during stack setup.
 
 After install, inspect what happened:
 
@@ -567,7 +575,8 @@ This was built around the local agent stack you actually wanted:
 - GBrain for durable memory.
 - GitNexus for code graph and impact context.
 - Obsidian for notes a human can read.
-- AUTOREVIEW and Clawpatch for review and repair lanes.
+- AUTOREVIEW and Clawpatch for command-owned review and repair lanes. Their
+  findings are not handed to the AI for freehand repairs.
 - Matthew Berman / Forward Future's Loop Library as a reference for clear
   agent loops, checks, and stopping conditions.
 - `pimp-my-prompt` for rough request intake.

@@ -395,6 +395,128 @@ class Orchestrator:
         self.artifacts.write_json("discovery/external-intelligence.json", payload, lock=True)
         return payload
 
+    def _external_review_repair_commands(self) -> list[tuple[str, list[str]]]:
+        cfg = self.config.get("integrations", {})
+        return [
+            ("autoreview", list(cfg.get("autoreview_command", []) or [])),
+            ("clawpatch", list(cfg.get("clawpatch_command", []) or [])),
+        ]
+
+    def _run_external_review_repair_lanes(
+        self,
+        *,
+        brief: str,
+        plan: dict,
+        gate_results: list[dict],
+    ) -> dict | None:
+        assert self.workspace is not None
+        commands = [
+            (name, argv_template)
+            for name, argv_template in self._external_review_repair_commands()
+            if argv_template
+        ]
+        if not commands:
+            return None
+
+        allowed_paths = sorted(
+            {
+                safe_repo_relative(path)
+                for task in plan.get("tasks", [])
+                for path in task.get("allowed_paths", [])
+            }
+        )
+        input_payload = {
+            "rule": (
+                "AUTOREVIEW and Clawpatch are command-owned repair lanes. "
+                "The controller must not freehand fixes from their findings."
+            ),
+            "allowed_paths": allowed_paths,
+            "gate_results": gate_results,
+            "task_plan_file": str(self.artifacts.root / "planning" / "task-plan.json"),
+            "gates_file": str(self.artifacts.root / "verification" / "gates.json"),
+        }
+        self.artifacts.write_json("review/external-review-repair-input.json", input_payload)
+        values = self._external_values(brief=brief)
+        values.update(
+            {
+                "repo": str(self.workspace),
+                "workspace": str(self.workspace),
+                "source_repo": str(self.source_repo),
+                "external_state_dir": str(self.artifacts.root / "review" / "external-state"),
+                "task_plan_file": str(self.artifacts.root / "planning" / "task-plan.json"),
+                "gates_file": str(self.artifacts.root / "verification" / "gates.json"),
+                "external_review_repair_input_file": str(
+                    self.artifacts.root / "review" / "external-review-repair-input.json"
+                ),
+            }
+        )
+        (self.artifacts.root / "review" / "external-state").mkdir(parents=True, exist_ok=True)
+
+        before_all = self.mirror.head()
+        records: list[dict] = []
+        failed: list[str] = []
+        for name, argv_template in commands:
+            before_command = self.mirror.head()
+            record = self._run_optional_external_command(
+                name=name,
+                argv_template=argv_template,
+                values=values,
+                cwd=self.workspace,
+                timeout_seconds=600,
+            )
+            changed_paths = self.mirror.changed_paths(before_command)
+            record.update(
+                {
+                    "command_owned_repair_lane": True,
+                    "ai_freehand_repair_allowed": False,
+                    "changed_paths": changed_paths,
+                }
+            )
+            policy_error = ""
+            if self.mirror.head() != before_command:
+                policy_error = "External review/repair lane changed Git HEAD; the controller owns checkpoints."
+            try:
+                ScopePolicy(tuple(allowed_paths)).validate_paths(changed_paths)
+            except SafetyError as exc:
+                policy_error = str(exc)
+            if policy_error:
+                record["ok"] = False
+                record["policy_error"] = policy_error
+            if record.get("ok") and changed_paths:
+                record["checkpoint"] = self.mirror.checkpoint(
+                    f"UMSMFBURASBOFE command-owned {name} repair lane"
+                )
+            if not record.get("ok"):
+                failed.append(name)
+            records.append(record)
+
+        changed_total = self.mirror.changed_paths(before_all)
+        payload = {
+            "summary": {
+                "enabled": [name for name, _ in commands],
+                "passed": [item["name"] for item in records if item.get("ok")],
+                "failed": failed,
+                "changed_paths": changed_total,
+                "command_owned_repair_lanes": True,
+                "ai_freehand_repair_allowed": False,
+            },
+            "records": records,
+            "note": (
+                "AUTOREVIEW and Clawpatch findings are not fed to the AI repairer. "
+                "These configured commands own their review/repair lane; a nonzero exit, timeout, "
+                "or policy error blocks the run with captured evidence."
+            ),
+        }
+        self.artifacts.write_json("review/external-review-repair.json", payload)
+        if failed:
+            raise ValidationError(
+                "Configured external review/repair lane failed: "
+                + ", ".join(failed)
+                + ". See review/external-review-repair.json. "
+                "The AI repairer was not asked to fix AUTOREVIEW or Clawpatch findings."
+            )
+        return payload
+
     def _capture_external_outcome(
         self,
         *,
@@ -906,6 +1028,25 @@ class Orchestrator:
             global_gate_results = self._run_gates(all_gates, self.workspace)
             self.artifacts.write_json("verification/gates.json", global_gate_results)
 
+            external_review_repair = None
+            if any(argv for _, argv in self._external_review_repair_commands()):
+                self._transition(
+                    Phase.REPAIRING,
+                    "Running command-owned AUTOREVIEW and Clawpatch lanes",
+                )
+                external_review_repair = self._run_external_review_repair_lanes(
+                    brief=brief,
+                    plan=plan,
+                    gate_results=global_gate_results,
+                )
+                self._transition(
+                    Phase.VERIFYING,
+                    "Command-owned review/repair lanes completed",
+                )
+                if external_review_repair and external_review_repair["summary"]["changed_paths"]:
+                    global_gate_results = self._run_gates(all_gates, self.workspace)
+                    self.artifacts.write_json("verification/gates.json", global_gate_results)
+
             changed_paths = self.mirror.changed_paths(self.mirror.baseline_commit)
             self._transition(Phase.REVIEWING, "Launching isolated fresh-context review")
             review = self._perform_review(plan, product, global_gate_results, changed_paths)
@@ -1009,6 +1150,7 @@ class Orchestrator:
                     "reuse": reuse.get("decisions", []),
                     "gates": global_gate_results,
                     "review": review,
+                    "external_review_repair": external_review_repair,
                     "files_changed": changed_paths,
                     "risks": [
                         risk

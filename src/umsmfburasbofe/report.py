@@ -20,11 +20,20 @@ def _yes_no_unknown(value: Any) -> str:
     return "unknown"
 
 
+def _external_lane_summary(data: dict[str, Any]) -> dict[str, Any] | None:
+    external = data.get("external_review_repair")
+    if not isinstance(external, dict):
+        return None
+    summary = external.get("summary", {})
+    return summary if isinstance(summary, dict) else None
+
+
 def build_report(data: dict[str, Any]) -> str:
     review = data.get("review", {})
     gates = data.get("gates", [])
     files = data.get("files_changed", [])
     applied = data.get("applied_to_source")
+    external_lane = _external_lane_summary(data)
     lines = [
         f"# {FULL_NAME} — Delivery Report",
         "",
@@ -85,6 +94,13 @@ def build_report(data: dict[str, Any]) -> str:
     lines.extend(["", "## Independent review", ""])
     lines.append(f"- Status: **{review.get('status', 'not-run')}**")
     lines.append(f"- Blocking findings: {_blocking_count(review)}")
+    if external_lane:
+        lines.extend(["", "## Command-owned review/repair lanes", ""])
+        lines.append(f"- Enabled: {', '.join(external_lane.get('enabled', [])) or 'none'}")
+        lines.append(f"- Passed: {', '.join(external_lane.get('passed', [])) or 'none'}")
+        lines.append(f"- Failed: {', '.join(external_lane.get('failed', [])) or 'none'}")
+        lines.append(f"- Changed paths: {len(external_lane.get('changed_paths', []))}")
+        lines.append("- AI freehand repair from AUTOREVIEW/Clawpatch findings: no")
     lines.extend(["", "## Files changed", ""])
     lines.extend(f"- `{item}`" for item in files) if files else lines.append("- None.")
     lines.extend(["", "## Remaining risks", ""])

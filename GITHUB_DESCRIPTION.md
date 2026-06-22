@@ -29,6 +29,9 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - `next` is the low-noise helper for "what do I do now?": it prints the current stage, the reason, and one command.
 - Bare `setup` is the lower-level wizard: AI choice, repo path, and optional stack checks.
 - If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.
+- GBrain setup has two lanes: the local Bun/PGLite path, or the official upstream agent-supervised `INSTALL_FOR_AGENTS.md` protocol.
+- Clawpatch setup checks `clawpatch doctor` and Codex login status for its codex provider.
+- AUTOREVIEW and Clawpatch are command-owned lanes; their findings do not become AI freehand repair prompts.
 - `gbrain-setup` can prompt for one selected folder. No broad personal-folder crawl.
 - `agent list` and `agent preset` make Codex, Gemini, Claude Code, mock, or generic CLI setup visible instead of hidden in docs.
 - `repair-install` inspects and fixes the local launcher and recommended skill-pack install.

@@ -94,9 +94,16 @@ Planning agents may reference gate IDs. They may not introduce argv commands.
 
 Stack integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery still belongs to UMSMFBURASBOFE state, scope, gates, and evidence.
 
-Configured commands are optional intelligence, not hard dependencies. They run
-with bounded timeouts, write redacted output artifacts, and do not block the
-core run if they fail.
+GBrain and GitNexus commands are optional intelligence, not hard dependencies.
+They run with bounded timeouts, write redacted output artifacts, and do not
+block the core run if they fail.
+
+AUTOREVIEW and Clawpatch commands are different. When `autoreview_command` or
+`clawpatch_command` is configured, it is a command-owned review/repair lane. The
+controller runs the configured command inside the isolated workspace, captures
+the result in `review/external-review-repair.json`, scope-checks any edits, and
+blocks on command failure. The AI repairer must not freehand fixes from those
+tool findings.
 
 Discovery command placeholders:
 
@@ -124,6 +131,22 @@ Final capture command placeholders:
 {files_changed}
 ```
 
+AUTOREVIEW/Clawpatch command placeholders:
+
+```text
+{repo}
+{workspace}
+{source_repo}
+{run_root}
+{query}
+{brief_file}
+{inventory_file}
+{external_state_dir}
+{task_plan_file}
+{gates_file}
+{external_review_repair_input_file}
+```
+
 Example:
 
 ```toml
@@ -132,4 +155,6 @@ gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
 gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
 gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
 gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
+autoreview_command = []
+clawpatch_command = []
 ```

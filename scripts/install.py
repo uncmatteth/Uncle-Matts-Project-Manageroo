@@ -26,12 +26,15 @@ from umsmfburasbofe.token_modes import CORE_HELPER_SKILLS, install_core_helper_s
 
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 GBRAIN_INSTALL_SOURCE = "github:garrytan/gbrain"
+GBRAIN_AGENT_INSTALL_PROTOCOL_URL = "https://raw.githubusercontent.com/garrytan/gbrain/master/INSTALL_FOR_AGENTS.md"
+GBRAIN_LOCAL_INSTALL_REFERENCE = "https://github.com/garrytan/gbrain"
 GITNEXUS_NPM_PACKAGE = "gitnexus"
 LOOP_LIBRARY_SKILL_SOURCE = "Forward-Future/loop-library"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"
 OPENCLAW_AGENT_SKILLS_REPO = "https://github.com/openclaw/agent-skills.git"
 AUTOREVIEW_SKILL_SOURCE = "openclaw/agent-skills:skills/autoreview"
 CLAWPATCH_PACKAGE = "clawpatch"
+CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 
 
 def run(
@@ -313,6 +316,15 @@ def gbrain_probe_suggests_missing_init(probe: dict | None) -> bool:
     )
 
 
+def run_interactive_action(argv: list[str], *, cwd: Path = Path.home()) -> dict:
+    status_line("RUN", " ".join(argv))
+    try:
+        result = subprocess.run(argv, cwd=str(cwd), shell=False)
+    except OSError as exc:
+        return {"ok": False, "argv": argv, "error": str(exc)}
+    return {"ok": result.returncode == 0, "argv": argv, "exit_code": result.returncode}
+
+
 def prepend_tool_paths() -> None:
     candidates = [
         Path.home() / ".local" / "bin",
@@ -367,15 +379,43 @@ def guidance(tool: str, reason: str, commands: list[str], url: str | None = None
     }
 
 
-def install_gbrain(downloads: list[dict]) -> dict:
+def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
     cwd = Path.home()
     prepend_tool_paths()
     before = command_version("gbrain")
     status_line("GBRAIN", f"current: {before}")
+    if lane == "skip":
+        return {
+            "name": "gbrain",
+            "installed": before != "not installed",
+            "configured": False,
+            "skipped": True,
+            "reason": "GBrain stack lane skipped by installer option.",
+            "version": before,
+            "path": shutil.which("gbrain"),
+            "lane": "skip",
+            "reference": GBRAIN_LOCAL_INSTALL_REFERENCE,
+        }
     installed_before = before != "not installed"
     installed = installed_before
     install_result: dict | None = None
     if not installed:
+        if lane == "official":
+            return guidance(
+                "gbrain",
+                "Official GBrain agent-supervised install lane selected. The installer will not guess API keys, search mode, source mapping, or recurring jobs.",
+                [
+                    "Paste this into your AI agent:",
+                    f"Retrieve and follow the instructions at: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}",
+                    "Afterward run: gbrain doctor --json",
+                    "Then rerun: umsmfburasbofe stack-status",
+                ],
+                GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
+            ) | {
+                "lane": "official-agent-protocol",
+                "official_protocol_url": GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
+                "local_lane_command": "./install.sh --install-stack --gbrain-lane local",
+            }
         bun = shutil.which("bun")
         if not bun:
             return guidance(
@@ -386,8 +426,9 @@ def install_gbrain(downloads: list[dict]) -> dict:
                     f"bun install -g {GBRAIN_INSTALL_SOURCE}",
                     "gbrain init --pglite",
                     "gbrain doctor",
+                    f"Or use the official agent-supervised lane: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}",
                 ],
-                "https://github.com/garrytan/gbrain/blob/master/docs/INSTALL.md",
+                GBRAIN_LOCAL_INSTALL_REFERENCE,
             )
         install_result = optional_run(
             [bun, "install", "-g", GBRAIN_INSTALL_SOURCE],
@@ -467,6 +508,7 @@ def install_gbrain(downloads: list[dict]) -> dict:
         )
     return {
         "name": "gbrain",
+        "lane": "existing-inspected" if installed_before else "local-cli",
         "installed": after != "not installed",
         "configured": bool(
             after != "not installed"
@@ -505,7 +547,8 @@ def install_gbrain(downloads: list[dict]) -> dict:
             "Connect `gbrain serve` to the MCP settings for the AI IDE or CLI agent you selected.",
         ],
         "next_commands": next_commands,
-        "reference": "https://github.com/garrytan/gbrain/blob/master/docs/INSTALL.md",
+        "reference": GBRAIN_LOCAL_INSTALL_REFERENCE,
+        "official_protocol_url": GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
     }
 
 
@@ -662,39 +705,70 @@ def ensure_pnpm(downloads: list[dict]) -> str | None:
     return pnpm if setup_result["ok"] else None
 
 
-def install_clawpatch(downloads: list[dict]) -> dict:
-    before = command_version("clawpatch")
-    status_line("CLAWPATCH", f"current: {before}")
-    if before != "not installed":
+def check_clawpatch_codex_provider(login_mode: str) -> dict:
+    codex = shutil.which("codex")
+    if not codex:
         return {
-            "name": "clawpatch",
-            "installed": True,
-            "configured": True,
-            "version": before,
-            "path": shutil.which("clawpatch"),
-            "reference": "https://github.com/openclaw/clawpatch",
-        }
-    pnpm = ensure_pnpm(downloads)
-    if not pnpm:
-        return guidance(
-            "clawpatch",
-            "pnpm is required before Clawpatch can be installed.",
-            [
-                "npm install -g pnpm",
-                "pnpm setup",
-                "pnpm add -g clawpatch",
+            "name": "codex-provider",
+            "ok": False,
+            "path": None,
+            "status_probe": None,
+            "next_commands": [
+                "Install Codex if you want Clawpatch's default codex provider.",
+                "codex login",
                 "clawpatch doctor",
             ],
-            "https://github.com/openclaw/clawpatch",
+            "reason": "Clawpatch supports multiple providers, but its codex provider needs the local Codex CLI.",
+        }
+    status_probe = probe_command([codex, "login", "status"], cwd=Path.home(), timeout=30)
+    login_result = None
+    if not status_probe.get("ok") and login_mode != "skip":
+        should_run = login_mode == "run"
+        if login_mode == "ask" and sys.stdin.isatty():
+            answer = input("Clawpatch's codex provider needs Codex login. Run `codex login` now? [Y/n]: ").strip().lower()
+            should_run = answer not in {"n", "no", "skip"}
+        if should_run:
+            login_result = run_interactive_action([codex, "login"], cwd=Path.home())
+            status_probe = probe_command([codex, "login", "status"], cwd=Path.home(), timeout=30)
+    next_commands = [] if status_probe.get("ok") else ["codex login", "clawpatch doctor"]
+    return {
+        "name": "codex-provider",
+        "ok": bool(status_probe.get("ok")),
+        "path": codex,
+        "status_probe": safe_probe_record(status_probe),
+        "login_result": login_result,
+        "next_commands": next_commands,
+        "reason": "" if status_probe.get("ok") else "Codex login is not ready for Clawpatch's codex provider.",
+    }
+
+
+def install_clawpatch(downloads: list[dict], codex_login_mode: str = "ask") -> dict:
+    before = command_version("clawpatch")
+    status_line("CLAWPATCH", f"current: {before}")
+    install_result = None
+    if before == "not installed":
+        pnpm = ensure_pnpm(downloads)
+        if not pnpm:
+            return guidance(
+                "clawpatch",
+                "pnpm is required before Clawpatch can be installed.",
+                [
+                    "npm install -g pnpm",
+                    "pnpm setup",
+                    "pnpm add -g clawpatch",
+                    "codex login",
+                    "clawpatch doctor",
+                ],
+                CLAWPATCH_REFERENCE,
+            )
+        install_result = optional_run(
+            [pnpm, "add", "-g", CLAWPATCH_PACKAGE],
+            downloads,
+            "clawpatch",
+            CLAWPATCH_PACKAGE,
+            cwd=Path.home(),
         )
-    install_result = optional_run(
-        [pnpm, "add", "-g", CLAWPATCH_PACKAGE],
-        downloads,
-        "clawpatch",
-        CLAWPATCH_PACKAGE,
-        cwd=Path.home(),
-    )
-    prepend_tool_paths()
+        prepend_tool_paths()
     after = command_version("clawpatch")
     doctor_result = None
     clawpatch = shutil.which("clawpatch")
@@ -702,17 +776,25 @@ def install_clawpatch(downloads: list[dict]) -> dict:
         doctor_result = optional_run(
             [clawpatch, "doctor"], downloads, "clawpatch", "clawpatch doctor", cwd=Path.home()
         )
+    codex_provider = check_clawpatch_codex_provider(codex_login_mode)
     status_line("CLAWPATCH", after, ok=after != "not installed")
+    next_commands = []
+    next_commands.extend(codex_provider.get("next_commands", []))
+    if after != "not installed" and not (doctor_result and doctor_result["ok"]):
+        if "clawpatch doctor" not in next_commands:
+            next_commands.append("clawpatch doctor")
     return {
         "name": "clawpatch",
         "installed": after != "not installed",
-        "configured": bool(doctor_result and doctor_result["ok"]),
+        "configured": bool(doctor_result and doctor_result["ok"] and codex_provider["ok"]),
         "version": after,
         "path": shutil.which("clawpatch"),
         "install_result": install_result,
         "doctor_result": doctor_result,
-        "next_commands": ["clawpatch init", "clawpatch map", "clawpatch review --limit 3 --jobs 3"],
-        "reference": "https://github.com/openclaw/clawpatch",
+        "codex_provider": codex_provider,
+        "next_commands": next_commands,
+        "project_commands": ["clawpatch init", "clawpatch map", "clawpatch review --limit 3 --jobs 3"],
+        "reference": CLAWPATCH_REFERENCE,
     }
 
 
@@ -873,6 +955,31 @@ def choose_stack_mode(selection: str, install_flag: bool, skip_flag: bool) -> st
     return "skip" if answer in {"n", "no", "skip"} else "install"
 
 
+def choose_gbrain_lane(selection: str) -> str:
+    if selection != "ask":
+        return selection
+    if not sys.stdin.isatty():
+        return "local"
+    print("GBrain setup lane:")
+    print("  1) local - installer uses Bun, `gbrain init --pglite`, probes status, and guides source mapping")
+    print("  2) official - print Garry Tan/GBrain's agent-supervised INSTALL_FOR_AGENTS.md protocol")
+    print("  3) skip")
+    answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
+    return {
+        "": "local",
+        "1": "local",
+        "local": "local",
+        "ours": "local",
+        "our": "local",
+        "2": "official",
+        "official": "official",
+        "upstream": "official",
+        "agent": "official",
+        "3": "skip",
+        "skip": "skip",
+    }.get(answer, "local")
+
+
 def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     if skip_flag or selection == "skip":
         return "skip"
@@ -894,14 +1001,19 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
 
 
 def install_recommended_stack(
-    downloads: list[dict], agents: list[str], obsidian_method: str, prefix: Path
+    downloads: list[dict],
+    agents: list[str],
+    obsidian_method: str,
+    prefix: Path,
+    gbrain_lane: str,
+    clawpatch_codex_login: str,
 ) -> list[dict]:
     status_line("STACK", "installing recommended local stack")
     return [
-        install_gbrain(downloads),
+        install_gbrain(downloads, gbrain_lane),
         install_gitnexus(downloads),
         install_autoreview(downloads, prefix),
-        install_clawpatch(downloads),
+        install_clawpatch(downloads, clawpatch_codex_login),
         install_loop_library(downloads, agents),
         install_obsidian(downloads, obsidian_method),
     ]
@@ -960,6 +1072,18 @@ def main() -> int:
         "--obsidian-method",
         choices=["auto", "guide", "flatpak", "snap", "brew", "winget"],
         default="auto",
+    )
+    parser.add_argument(
+        "--gbrain-lane",
+        choices=["ask", "local", "official", "skip"],
+        default="ask",
+        help="Choose the GBrain stack lane: local CLI install, official agent-supervised protocol, or skip.",
+    )
+    parser.add_argument(
+        "--clawpatch-codex-login",
+        choices=["ask", "run", "skip"],
+        default="ask",
+        help="For Clawpatch's codex provider, check Codex login and optionally run `codex login`.",
     )
     parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
     parser.add_argument(
@@ -1043,8 +1167,16 @@ def main() -> int:
 
         stack_mode = choose_stack_mode(args.stack, args.install_stack, args.skip_stack)
         if stack_mode == "install":
+            gbrain_lane = choose_gbrain_lane(args.gbrain_lane)
             external_tools.extend(
-                install_recommended_stack(downloads, args.loop_library_agent, args.obsidian_method, prefix)
+                install_recommended_stack(
+                    downloads,
+                    args.loop_library_agent,
+                    args.obsidian_method,
+                    prefix,
+                    gbrain_lane,
+                    args.clawpatch_codex_login,
+                )
             )
         else:
             external_tools.append(

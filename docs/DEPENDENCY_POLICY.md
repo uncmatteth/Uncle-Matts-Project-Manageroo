@@ -101,5 +101,24 @@ itself remains optional and must be requested separately.
 The stack installer installs AUTOREVIEW from the canonical OpenClaw
 `agent-skills` repository when it is missing. It checks both
 `~/.agents/skills/autoreview` and `~/.codex/skills/autoreview` first. Clawpatch
-uses the upstream package install path, `pnpm add -g clawpatch`, and records
-failures or missing package managers instead of claiming completion.
+uses the upstream package install path, `pnpm add -g clawpatch`, runs
+`clawpatch doctor`, checks Codex login status for Clawpatch's codex provider,
+and records failures or missing package managers instead of claiming completion.
+
+When configured for a run, AUTOREVIEW and Clawpatch are command-owned repair
+lanes, not optional AI advice. UMSMFBURASBOFE runs the configured command,
+captures the result, scope-checks any edits, and blocks on command failure. The
+AI repairer must not freehand fixes from AUTOREVIEW or Clawpatch findings.
+
+## GBrain lanes
+
+The installer exposes both GBrain paths instead of hiding the choice:
+
+- `--gbrain-lane local`: the UMSMFBURASBOFE local lane using Bun, PGLite init,
+  status probes, and source-mapping commands.
+- `--gbrain-lane official`: the upstream GBrain agent-supervised protocol at
+  `INSTALL_FOR_AGENTS.md`.
+
+The official lane is not compressed into a silent one-button guess because it
+asks about API keys, search mode, source mapping, skills, recurring jobs, and
+verification.

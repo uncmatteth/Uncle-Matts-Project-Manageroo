@@ -84,6 +84,7 @@ def structural_checks() -> list[dict]:
         "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
         "docs/CONTEXT_COMPILER.md",
         "docs/INSTALLATION.md",
+        "docs/REVIEW_REPAIR_LANES.md",
         "docs/SOLO_OPERATOR_MODE.md",
         "docs/TERMINAL_EXPERIENCE.md",
         "src/umsmfburasbofe/branding.py",
