@@ -21,6 +21,7 @@ from .errors import (
     GateFailure,
     SafetyError,
     MANAGEROOError,
+    StateTransitionError,
     ValidationError,
 )
 from .gates import Gate, GateRunner, gates_from_config
@@ -40,6 +41,27 @@ from .workspace import WorkspaceMirror
 
 T = TypeVar("T")
 R = TypeVar("R")
+
+_PHASE_RANK: dict[Phase, int] = {
+    Phase.CREATED: 0,
+    Phase.INTAKE: 10,
+    Phase.DISCOVERY: 20,
+    Phase.DECISIONS: 30,
+    Phase.WAITING_FOR_PRODUCT_DECISION: 35,
+    Phase.REUSE_RESEARCH: 40,
+    Phase.SYSTEM_MAPPING: 50,
+    Phase.PLAN_COMPILE: 60,
+    Phase.PLAN_REVIEW: 70,
+    Phase.CONTRACT_LOCKED: 80,
+    Phase.IMPLEMENTING: 90,
+    Phase.VERIFYING: 100,
+    Phase.REVIEWING: 110,
+    Phase.REPAIRING: 120,
+    Phase.DEMONSTRATING: 130,
+    Phase.DELIVERING: 140,
+    Phase.COMPLETE: 150,
+    Phase.BLOCKED: 1000,
+}
 
 
 def _topological_tasks(tasks: list[dict]) -> list[dict]:
@@ -87,30 +109,122 @@ class Orchestrator:
         *,
         adapter: AgentAdapter | None = None,
         run_id: str | None = None,
+        resume: bool = False,
     ):
         self.source_repo = source_repo.resolve()
         self.config = load_config(self.source_repo)
+        self.resume = resume
         self.run_id = run_id or new_run_id()
         self.run_root = self.source_repo / ".manageroo" / "runs" / self.run_id
-        self.run_root.mkdir(parents=True, exist_ok=False)
+        if resume:
+            if not self.run_root.is_dir():
+                raise ValidationError(f"Run does not exist: {self.run_id}")
+        self.run_root.mkdir(parents=True, exist_ok=resume)
         self.logs = self.run_root / "logs"
         self.runner = CommandRunner(self.logs)
         self.adapter = adapter or build_adapter(self.config, self.runner)
         self.state_path = self.run_root / "state.json"
-        self.state = RunState.create(self.run_id)
-        self.state.save(self.state_path)
+        if resume:
+            if not self.state_path.is_file():
+                raise ValidationError(f"Run is missing state.json: {self.run_id}")
+            self.state = RunState.load(self.state_path)
+            if self.state.run_id != self.run_id:
+                raise ValidationError(f"Run state ID mismatch for {self.run_id}")
+            if self.state.reopen_for_resume():
+                self.state.save(self.state_path)
+        else:
+            self.state = RunState.create(self.run_id)
+            self.state.save(self.state_path)
         self.artifacts = ArtifactStore(self.run_root / "artifacts")
         self.packet_root = self.run_root / "packets"
         self.output_root = self.run_root / "agent-output"
         self.output_root.mkdir(parents=True, exist_ok=True)
         self.mirror = WorkspaceMirror(self.source_repo, self.run_root, self.runner)
-        self.workspace: Path | None = None
-        self._call_index = 0
+        self.workspace: Path | None = self.mirror.resume() if resume and self.mirror.workspace.exists() else None
+        self._call_index = self._discover_call_index() if resume else 0
         self._call_lock = threading.Lock()
 
     def _transition(self, phase: Phase, reason: str) -> None:
-        self.state.transition(phase, reason)
+        if Phase(self.state.phase) == phase:
+            return
+        try:
+            self.state.transition(phase, reason)
+        except StateTransitionError:
+            current = Phase(self.state.phase)
+            if self.resume and _PHASE_RANK[current] > _PHASE_RANK[phase]:
+                return
+            raise
         self.state.save(self.state_path)
+
+    def _discover_call_index(self) -> int:
+        roots = [self.packet_root, self.run_root / "review-packets"]
+        highest = 0
+        for root in roots:
+            if not root.exists():
+                continue
+            for path in root.iterdir():
+                prefix = path.name.split("-", 1)[0]
+                if prefix.isdigit():
+                    highest = max(highest, int(prefix))
+        return highest
+
+    def _artifact_json(self, relative: str) -> dict:
+        return self.artifacts.read_json(relative)
+
+    def _artifact_text(self, relative: str) -> str:
+        return self.artifacts.read_text(relative)
+
+    def _artifact_exists(self, relative: str) -> bool:
+        return self.artifacts.exists(relative)
+
+    def _write_json_once(self, relative: str, data: Any, *, lock: bool = False) -> Any:
+        if self.resume and self._artifact_exists(relative):
+            return self._artifact_json(relative)
+        self.artifacts.write_json(relative, data, lock=lock)
+        return data
+
+    def _write_text_once(self, relative: str, text: str, *, lock: bool = False) -> str:
+        if self.resume and self._artifact_exists(relative):
+            return self._artifact_text(relative)
+        self.artifacts.write_text(relative, text, lock=lock)
+        return text
+
+    def _ensure_workspace(self) -> Path:
+        if self.workspace is not None:
+            return self.workspace
+        if self.resume and self.mirror.workspace.exists():
+            self.workspace = self.mirror.resume()
+        else:
+            self.workspace = self.mirror.create()
+        return self.workspace
+
+    def resume_run(
+        self,
+        *,
+        brief_path: Path | None = None,
+        mode: str | None = None,
+        apply_on_success: bool | None = None,
+    ) -> dict:
+        saved = (
+            self._artifact_json("controller/run-input.json")
+            if self._artifact_exists("controller/run-input.json")
+            else {}
+        )
+        resolved_brief = brief_path
+        if resolved_brief is None:
+            saved_brief = saved.get("brief_path")
+            resolved_brief = (
+                Path(saved_brief)
+                if saved_brief
+                else self.source_repo / PROJECT_DIR / "PRODUCT-BRIEF.md"
+            )
+        resolved_mode = mode or saved.get("mode") or "build"
+        resolved_apply = apply_on_success if apply_on_success is not None else saved.get("apply_on_success")
+        return self.run(
+            brief_path=resolved_brief,
+            mode=resolved_mode,
+            apply_on_success=resolved_apply,
+        )
 
     def _compiler(self, repo: Path | None = None, packet_root: Path | None = None) -> ContextCompiler:
         cfg = self.config["context"]
@@ -365,12 +479,17 @@ class Orchestrator:
             }
 
     def _document_intelligence(self, *, brief: str, inventory: dict[str, Any]) -> dict:
+        if self.resume and self._artifact_exists("discovery/document-intelligence.json"):
+            return self._artifact_json("discovery/document-intelligence.json")
         cfg = self.config.get("integrations", {})
-        manifest = build_document_manifest(
-            inventory,
-            max_single_file_tokens=int(self.config["context"]["max_single_file_tokens"]),
-        )
-        self.artifacts.write_json("discovery/document-manifest.json", manifest, lock=True)
+        if self.resume and self._artifact_exists("discovery/document-manifest.json"):
+            manifest = self._artifact_json("discovery/document-manifest.json")
+        else:
+            manifest = build_document_manifest(
+                inventory,
+                max_single_file_tokens=int(self.config["context"]["max_single_file_tokens"]),
+            )
+            self.artifacts.write_json("discovery/document-manifest.json", manifest, lock=True)
 
         values = self._external_values(brief=brief)
         document_state_dir = self.artifacts.root / "discovery" / "document-state"
@@ -891,64 +1010,105 @@ class Orchestrator:
         external_intelligence: dict[str, Any] | None = None
         external_review_repair: dict[str, Any] | None = None
         try:
+            final_result_path = self.run_root / "delivery" / "final-result.json"
+            if self.resume and self.state.phase == Phase.COMPLETE.value and final_result_path.is_file():
+                return read_json(final_result_path)
             if mode not in {"build", "repair"}:
                 raise ValidationError("Mode must be 'build' or 'repair'.")
             brief_path = brief_path.resolve()
-            if not brief_path.is_file():
+            if self.resume and self._artifact_exists("intake/product-brief.md"):
+                brief = self._artifact_text("intake/product-brief.md").strip()
+            elif not brief_path.is_file():
                 raise ValidationError(f"Product brief not found: {brief_path}")
-            brief = brief_path.read_text(encoding="utf-8", errors="replace").strip()
+            else:
+                brief = brief_path.read_text(encoding="utf-8", errors="replace").strip()
             if not brief:
                 raise ValidationError("Product brief is empty.")
+            self._write_json_once(
+                "controller/run-input.json",
+                {
+                    "brief_path": str(brief_path),
+                    "mode": mode,
+                    "apply_on_success": apply_on_success,
+                    "created_at": utc_now(),
+                },
+                lock=True,
+            )
 
             self._transition(Phase.INTAKE, "Captured product request and pending ideas")
-            pending_ideas = IdeaInbox(self.source_repo).attach_pending(self.run_id)
-            self.artifacts.write_text("intake/product-brief.md", brief, lock=True)
-            self.artifacts.write_json("intake/pending-ideas.json", pending_ideas, lock=True)
+            pending_ideas = (
+                self._artifact_json("intake/pending-ideas.json")
+                if self.resume and self._artifact_exists("intake/pending-ideas.json")
+                else IdeaInbox(self.source_repo).attach_pending(self.run_id)
+            )
+            self._write_text_once("intake/product-brief.md", brief, lock=True)
+            self._write_json_once("intake/pending-ideas.json", pending_ideas, lock=True)
 
             self._transition(Phase.DISCOVERY, "Created isolated source mirror and inventory")
-            self.workspace = self.mirror.create()
-            raw_inventory = inventory_summary(
-                build_inventory(
-                    self.workspace,
-                    self.runner,
-                    float(self.config["context"]["chars_per_token"]),
-                    summary_cache_path=self._summary_cache_path(),
+            self.workspace = self._ensure_workspace()
+            if self.resume and self._artifact_exists("discovery/inventory.json"):
+                raw_inventory = self._artifact_json("discovery/inventory.json")
+            else:
+                raw_inventory = inventory_summary(
+                    build_inventory(
+                        self.workspace,
+                        self.runner,
+                        float(self.config["context"]["chars_per_token"]),
+                        summary_cache_path=self._summary_cache_path(),
+                    )
                 )
-            )
-            raw_inventory["summary_cache"] = str(self._summary_cache_path())
+                raw_inventory["summary_cache"] = str(self._summary_cache_path())
+                self.artifacts.write_json("discovery/inventory.json", raw_inventory, lock=True)
             inventory_files = raw_inventory["files"]
-            self.artifacts.write_json("discovery/inventory.json", raw_inventory, lock=True)
 
             obsidian = ObsidianIntegration(
                 self.config["integrations"].get("obsidian_vault", ""),
                 self.config["integrations"].get("obsidian_export_folder", "MANAGEROO"),
             )
-            memory = obsidian.search(brief)
-            self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
-            external_intelligence = self._external_intelligence(brief, raw_inventory)
-
-            product = self._call(
-                role="product-analyst",
-                schema="product-model.schema.json",
-                instructions=(
-                    "# Product analysis role\n\n"
-                    "Convert the operator's normal-language brief into a complete product model. "
-                    "The operator is the product authority but is not expected to review code. "
-                    "Infer conventional, reversible details. Raise a blocking decision only when "
-                    "guessing could cause irreversible data loss, legal exposure, meaningful cost, "
-                    "security boundary changes, or a materially different product. "
-                    "Do not write implementation code.\n\n"
-                    f"Mode: {mode}\n\n"
-                    f"Product brief:\n{brief}\n\n"
-                    f"Captured evolving ideas:\n{_compact_json(pending_ideas)}\n\n"
-                    f"Relevant human notes:\n{_compact_json(memory)}\n\n"
-                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
-                    f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
-                ),
-                context=self._documentation_context(inventory_files),
+            if self.resume and self._artifact_exists("discovery/obsidian-context.json"):
+                memory = self._artifact_json("discovery/obsidian-context.json")
+            else:
+                memory = obsidian.search(brief)
+                self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
+            external_intelligence = (
+                self._artifact_json("discovery/external-intelligence.json")
+                if self.resume and self._artifact_exists("discovery/external-intelligence.json")
+                else self._external_intelligence(brief, raw_inventory)
             )
-            product, unresolved = self._resolve_decisions(product)
-            self.artifacts.write_json("planning/product-model.json", product, lock=not unresolved)
+
+            if self.resume and self._artifact_exists("planning/product-model.json"):
+                product = self._artifact_json("planning/product-model.json")
+                unresolved = (
+                    self._artifact_json("planning/blocking-decisions.json").get("decisions", [])
+                    if self._artifact_exists("planning/blocking-decisions.json")
+                    else []
+                )
+            else:
+                repository_summary = _compact_json(
+                    {key: value for key, value in raw_inventory.items() if key != "files"}
+                )
+                product = self._call(
+                    role="product-analyst",
+                    schema="product-model.schema.json",
+                    instructions=(
+                        "# Product analysis role\n\n"
+                        "Convert the operator's normal-language brief into a complete product model. "
+                        "The operator is the product authority but is not expected to review code. "
+                        "Infer conventional, reversible details. Raise a blocking decision only when "
+                        "guessing could cause irreversible data loss, legal exposure, meaningful cost, "
+                        "security boundary changes, or a materially different product. "
+                        "Do not write implementation code.\n\n"
+                        f"Mode: {mode}\n\n"
+                        f"Product brief:\n{brief}\n\n"
+                        f"Captured evolving ideas:\n{_compact_json(pending_ideas)}\n\n"
+                        f"Relevant human notes:\n{_compact_json(memory)}\n\n"
+                        f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
+                        f"Repository summary:\n{repository_summary}"
+                    ),
+                    context=self._documentation_context(inventory_files),
+                )
+                product, unresolved = self._resolve_decisions(product)
+                self.artifacts.write_json("planning/product-model.json", product, lock=not unresolved)
             self._transition(Phase.DECISIONS, "Applied deterministic reversible-decision policy")
             if unresolved:
                 self.artifacts.write_json("planning/blocking-decisions.json", {"decisions": unresolved}, lock=True)
@@ -961,202 +1121,237 @@ class Orchestrator:
                 )
 
             self._transition(Phase.REUSE_RESEARCH, "Evaluating reuse before custom implementation")
-            reuse = self._call(
-                role="reuse-researcher",
-                schema="reuse-report.schema.json",
-                instructions=(
-                    "# Reuse-first research role\n\n"
-                    "Before custom code is authorized, inspect the repository and identify existing "
-                    "internal capabilities, platform-native functions, and maintained dependencies "
-                    "that can satisfy each need. Prefer repository-owned and already-approved "
-                    "components. Record license uncertainty rather than inventing facts. "
-                    "Do not install anything and do not edit the repository.\n\n"
-                    f"Product model:\n{_compact_json(product)}\n\n"
-                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
-                    f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
-                ),
-                context=self._documentation_context(inventory_files),
-            )
-            self.artifacts.write_json("planning/reuse-report.json", reuse, lock=True)
+            if self.resume and self._artifact_exists("planning/reuse-report.json"):
+                reuse = self._artifact_json("planning/reuse-report.json")
+            else:
+                repository_summary = _compact_json(
+                    {key: value for key, value in raw_inventory.items() if key != "files"}
+                )
+                reuse = self._call(
+                    role="reuse-researcher",
+                    schema="reuse-report.schema.json",
+                    instructions=(
+                        "# Reuse-first research role\n\n"
+                        "Before custom code is authorized, inspect the repository and identify existing "
+                        "internal capabilities, platform-native functions, and maintained dependencies "
+                        "that can satisfy each need. Prefer repository-owned and already-approved "
+                        "components. Record license uncertainty rather than inventing facts. "
+                        "Do not install anything and do not edit the repository.\n\n"
+                        f"Product model:\n{_compact_json(product)}\n\n"
+                        f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
+                        f"Repository summary:\n{repository_summary}"
+                    ),
+                    context=self._documentation_context(inventory_files),
+                )
+                self.artifacts.write_json("planning/reuse-report.json", reuse, lock=True)
 
             self._transition(Phase.SYSTEM_MAPPING, "Mapping repository through bounded map/reduce packets")
-            system_map = self._map_repository(inventory_files, brief)
+            system_map = (
+                self._artifact_json("planning/system-map.json")
+                if self.resume and self._artifact_exists("planning/system-map.json")
+                else self._map_repository(inventory_files, brief)
+            )
 
             self._transition(Phase.PLAN_COMPILE, "Compiling complete dependency-ordered task graph")
             gate_ids = list(self._gate_catalog())
-            plan = self._call(
-                role="plan-compiler",
-                schema="task-plan.schema.json",
-                instructions=(
-                    "# Plan compiler role\n\n"
-                    "Compile the entire requested change before implementation. Produce bounded, "
-                    "dependency-ordered tasks with exact allowed paths, context paths, acceptance "
-                    "criteria, and references only to the provided deterministic gate IDs. "
-                    "Do not invent shell commands. Prefer sequential correctness over speculative "
-                    "parallelism. Every interface shared by tasks must be explicit. "
-                    "No implementation may begin until this plan survives review.\n\n"
-                    f"Product model:\n{_compact_json(product)}\n\n"
-                    f"Reuse report:\n{_compact_json(reuse)}\n\n"
-                    f"System map:\n{_compact_json(system_map)}\n\n"
-                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
-                    f"Available gate IDs: {gate_ids}"
-                ),
-                metadata={
-                    "gate_ids": gate_ids,
-                    "fixture_target": "manageroo_fixture.txt",
-                },
-            )
-
-            max_cycles = int(self.config["project"]["max_plan_review_cycles"])
-            while True:
-                deterministic_plan_findings = self._plan_context_preflight(plan, inventory_files)
-                self._transition(Phase.PLAN_REVIEW, "Independent plan review")
-                plan_review = self._call(
-                    role="plan-reviewer",
-                    schema="plan-review.schema.json",
-                    instructions=(
-                        "# Adversarial plan review\n\n"
-                        "Review the complete plan before code exists. Look for missing product "
-                        "capabilities, incompatible interfaces, dependency cycles, untestable "
-                        "acceptance criteria, excessive scope, unsafe migrations, and context packets "
-                        "that are too broad. Do not rewrite the plan; report exact findings.\n\n"
-                        f"Product model:\n{_compact_json(product)}\n\n"
-                        f"Reuse report:\n{_compact_json(reuse)}\n\n"
-                        f"System map:\n{_compact_json(system_map)}\n\n"
-                        f"Proposed plan:\n{_compact_json(plan)}\n\n"
-                        f"Deterministic context preflight findings:\n"
-                        f"{_compact_json(deterministic_plan_findings)}"
-                    ),
-                )
-                if deterministic_plan_findings:
-                    plan_review = {
-                        "status": "changes-required",
-                        "summary": (
-                            plan_review.get("summary", "")
-                            + " Controller context preflight requires plan decomposition."
-                        ).strip(),
-                        "findings": plan_review.get("findings", [])
-                        + deterministic_plan_findings,
-                    }
-                if plan_review["status"] == "approved":
-                    break
-                self.state.plan_review_cycles += 1
-                self.state.save(self.state_path)
-                if self.state.plan_review_cycles >= max_cycles:
-                    raise ValidationError("Plan review did not converge within the configured limit.")
-                self._transition(Phase.PLAN_COMPILE, "Repairing plan-review findings")
+            if (
+                self.resume
+                and self._artifact_exists("planning/task-plan.json")
+                and self._artifact_exists("planning/plan-review.json")
+            ):
+                plan = self._artifact_json("planning/task-plan.json")
+                plan_review = self._artifact_json("planning/plan-review.json")
+            else:
                 plan = self._call(
                     role="plan-compiler",
                     schema="task-plan.schema.json",
                     instructions=(
-                        "# Plan repair\n\n"
-                        "Repair the proposed plan using the verified review findings. Preserve the "
-                        "product model and system boundaries. Return a complete replacement plan.\n\n"
+                        "# Plan compiler role\n\n"
+                        "Compile the entire requested change before implementation. Produce bounded, "
+                        "dependency-ordered tasks with exact allowed paths, context paths, acceptance "
+                        "criteria, and references only to the provided deterministic gate IDs. "
+                        "Do not invent shell commands. Prefer sequential correctness over speculative "
+                        "parallelism. Every interface shared by tasks must be explicit. "
+                        "No implementation may begin until this plan survives review.\n\n"
                         f"Product model:\n{_compact_json(product)}\n\n"
+                        f"Reuse report:\n{_compact_json(reuse)}\n\n"
                         f"System map:\n{_compact_json(system_map)}\n\n"
-                        f"Previous plan:\n{_compact_json(plan)}\n\n"
-                        f"Plan review:\n{_compact_json(plan_review)}\n\n"
+                        f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
                         f"Available gate IDs: {gate_ids}"
                     ),
-                    metadata={"gate_ids": gate_ids, "fixture_target": "manageroo_fixture.txt"},
+                    metadata={
+                        "gate_ids": gate_ids,
+                        "fixture_target": "manageroo_fixture.txt",
+                    },
                 )
+
+                max_cycles = int(self.config["project"]["max_plan_review_cycles"])
+                while True:
+                    deterministic_plan_findings = self._plan_context_preflight(plan, inventory_files)
+                    self._transition(Phase.PLAN_REVIEW, "Independent plan review")
+                    plan_review = self._call(
+                        role="plan-reviewer",
+                        schema="plan-review.schema.json",
+                        instructions=(
+                            "# Adversarial plan review\n\n"
+                            "Review the complete plan before code exists. Look for missing product "
+                            "capabilities, incompatible interfaces, dependency cycles, untestable "
+                            "acceptance criteria, excessive scope, unsafe migrations, and context packets "
+                            "that are too broad. Do not rewrite the plan; report exact findings.\n\n"
+                            f"Product model:\n{_compact_json(product)}\n\n"
+                            f"Reuse report:\n{_compact_json(reuse)}\n\n"
+                            f"System map:\n{_compact_json(system_map)}\n\n"
+                            f"Proposed plan:\n{_compact_json(plan)}\n\n"
+                            f"Deterministic context preflight findings:\n"
+                            f"{_compact_json(deterministic_plan_findings)}"
+                        ),
+                    )
+                    if deterministic_plan_findings:
+                        plan_review = {
+                            "status": "changes-required",
+                            "summary": (
+                                plan_review.get("summary", "")
+                                + " Controller context preflight requires plan decomposition."
+                            ).strip(),
+                            "findings": plan_review.get("findings", [])
+                            + deterministic_plan_findings,
+                        }
+                    if plan_review["status"] == "approved":
+                        break
+                    self.state.plan_review_cycles += 1
+                    self.state.save(self.state_path)
+                    if self.state.plan_review_cycles >= max_cycles:
+                        raise ValidationError("Plan review did not converge within the configured limit.")
+                    self._transition(Phase.PLAN_COMPILE, "Repairing plan-review findings")
+                    plan = self._call(
+                        role="plan-compiler",
+                        schema="task-plan.schema.json",
+                        instructions=(
+                            "# Plan repair\n\n"
+                            "Repair the proposed plan using the verified review findings. Preserve the "
+                            "product model and system boundaries. Return a complete replacement plan.\n\n"
+                            f"Product model:\n{_compact_json(product)}\n\n"
+                            f"System map:\n{_compact_json(system_map)}\n\n"
+                            f"Previous plan:\n{_compact_json(plan)}\n\n"
+                            f"Plan review:\n{_compact_json(plan_review)}\n\n"
+                            f"Available gate IDs: {gate_ids}"
+                        ),
+                        metadata={"gate_ids": gate_ids, "fixture_target": "manageroo_fixture.txt"},
+                    )
 
             _topological_tasks(plan["tasks"])
             for task in plan["tasks"]:
                 self._gates_for_ids(task["gate_ids"])
                 for path in task["allowed_paths"] + task["context_paths"]:
                     safe_repo_relative(path)
-            self.artifacts.write_json("planning/task-plan.json", plan, lock=True)
-            self.artifacts.write_json("planning/plan-review.json", plan_review, lock=True)
+            self._write_json_once("planning/task-plan.json", plan, lock=True)
+            self._write_json_once("planning/plan-review.json", plan_review, lock=True)
             self._transition(Phase.CONTRACT_LOCKED, "Product, system map, and task plan are immutable")
             self.artifacts.verify_locked()
 
             self._transition(Phase.IMPLEMENTING, "Executing bounded tasks in dependency order")
-            task_evidence: list[dict] = []
-            for task in _topological_tasks(plan["tasks"]):
-                self.artifacts.verify_locked()
-                before_head = self.mirror.head()
-                requests = []
-                seen = set()
-                for path in task.get("context_paths", []) + task.get("allowed_paths", []):
-                    if path in seen or not (self.workspace / path).is_file():
+            if self.resume and self._artifact_exists("implementation/task-evidence.json"):
+                task_evidence = self._artifact_json("implementation/task-evidence.json")
+            else:
+                task_evidence: list[dict] = []
+                for task in _topological_tasks(plan["tasks"]):
+                    task_evidence_path = f"implementation/tasks/{safe_repo_relative(task['id'])}.json"
+                    if self.resume and self._artifact_exists(task_evidence_path):
+                        task_evidence.append(self._artifact_json(task_evidence_path))
                         continue
-                    seen.add(path)
-                    requests.append(
-                        ContextRequest(
-                            path=path,
-                            reason=f"Task {task['id']} implementation context.",
-                            required=path in task.get("context_paths", []),
-                            priority=100 if path in task.get("context_paths", []) else 80,
+                    self.artifacts.verify_locked()
+                    before_head = self.mirror.head()
+                    requests = []
+                    seen = set()
+                    for path in task.get("context_paths", []) + task.get("allowed_paths", []):
+                        if path in seen or not (self.workspace / path).is_file():
+                            continue
+                        seen.add(path)
+                        requests.append(
+                            ContextRequest(
+                                path=path,
+                                reason=f"Task {task['id']} implementation context.",
+                                required=path in task.get("context_paths", []),
+                                priority=100 if path in task.get("context_paths", []) else 80,
+                            )
                         )
+                    implementation = self._call(
+                        role="implementer",
+                        schema="agent-result.schema.json",
+                        instructions=(
+                            "# Bounded implementation role\n\n"
+                            "Implement exactly one locked task. You may inspect the repository, but may "
+                            "edit only allowed_paths. Do not redesign adjacent systems, alter the locked "
+                            "plan, weaken tests, commit, push, or change .git/.manageroo. Use existing repository "
+                            "patterns and the reuse decisions. Return an exact list of every changed file.\n\n"
+                            f"Product model:\n{_compact_json(product)}\n\n"
+                            f"Task:\n{_compact_json(task)}\n\n"
+                            f"Global invariants:\n{_compact_json(plan['global_invariants'])}"
+                        ),
+                        context=requests,
+                        sandbox="workspace-write",
+                        metadata={"task": task},
                     )
-                implementation = self._call(
-                    role="implementer",
-                    schema="agent-result.schema.json",
-                    instructions=(
-                        "# Bounded implementation role\n\n"
-                        "Implement exactly one locked task. You may inspect the repository, but may "
-                        "edit only allowed_paths. Do not redesign adjacent systems, alter the locked "
-                        "plan, weaken tests, commit, push, or change .git/.manageroo. Use existing repository "
-                        "patterns and the reuse decisions. Return an exact list of every changed file.\n\n"
-                        f"Product model:\n{_compact_json(product)}\n\n"
-                        f"Task:\n{_compact_json(task)}\n\n"
-                        f"Global invariants:\n{_compact_json(plan['global_invariants'])}"
-                    ),
-                    context=requests,
-                    sandbox="workspace-write",
-                    metadata={"task": task},
-                )
-                if bool(self.config["safety"]["block_agent_commits"]) and self.mirror.head() != before_head:
-                    raise SafetyError(f"Agent created a commit during task {task['id']}.")
-                actual = self.mirror.changed_paths(before_head)
-                ScopePolicy(tuple(task["allowed_paths"])).validate_paths(actual)
-                declared = sorted(set(implementation.get("files_changed", [])))
-                if sorted(actual) != declared:
-                    raise SafetyError(
-                        f"Task {task['id']} changed {actual} but declared {declared}. "
-                        "Undeclared edits are blocked."
-                    )
-                task_gates = self._gates_for_ids(task["gate_ids"])
-                gate_results = self._run_gates(task_gates, self.workspace)
-                checkpoint = self.mirror.checkpoint(f"MANAGEROO controller checkpoint {task['id']}")
-                task_evidence.append(
-                    {
+                    if bool(self.config["safety"]["block_agent_commits"]) and self.mirror.head() != before_head:
+                        raise SafetyError(f"Agent created a commit during task {task['id']}.")
+                    actual = self.mirror.changed_paths(before_head)
+                    ScopePolicy(tuple(task["allowed_paths"])).validate_paths(actual)
+                    declared = sorted(set(implementation.get("files_changed", [])))
+                    if sorted(actual) != declared:
+                        raise SafetyError(
+                            f"Task {task['id']} changed {actual} but declared {declared}. "
+                            "Undeclared edits are blocked."
+                        )
+                    task_gates = self._gates_for_ids(task["gate_ids"])
+                    gate_results = self._run_gates(task_gates, self.workspace)
+                    checkpoint = self.mirror.checkpoint(f"MANAGEROO controller checkpoint {task['id']}")
+                    evidence = {
                         "task": task,
                         "implementation": implementation,
                         "changed_paths": actual,
                         "gates": gate_results,
                         "checkpoint": checkpoint,
                     }
-                )
-            self.artifacts.write_json("implementation/task-evidence.json", task_evidence, lock=True)
+                    self.artifacts.write_json(task_evidence_path, evidence, lock=True)
+                    task_evidence.append(evidence)
+                self._write_json_once("implementation/task-evidence.json", task_evidence, lock=True)
 
             self._transition(Phase.VERIFYING, "Running the complete deterministic gate catalog")
             all_gates = list(self._gate_catalog().values())
-            global_gate_results = self._run_gates(all_gates, self.workspace)
-            self.artifacts.write_json("verification/gates.json", global_gate_results)
+            if self.resume and self._artifact_exists("verification/gates.json"):
+                global_gate_results = self._artifact_json("verification/gates.json")
+            else:
+                global_gate_results = self._run_gates(all_gates, self.workspace)
+                self.artifacts.write_json("verification/gates.json", global_gate_results)
 
             if any(argv for _, argv in self._external_review_repair_commands()):
-                self._transition(
-                    Phase.REPAIRING,
-                    "Running command-owned AUTOREVIEW and Clawpatch lanes",
-                )
-                external_review_repair = self._run_external_review_repair_lanes(
-                    brief=brief,
-                    plan=plan,
-                    gate_results=global_gate_results,
-                )
-                self._transition(
-                    Phase.VERIFYING,
-                    "Command-owned review/repair lanes completed",
-                )
+                if self.resume and self._artifact_exists("review/external-review-repair.json"):
+                    external_review_repair = self._artifact_json("review/external-review-repair.json")
+                else:
+                    self._transition(
+                        Phase.REPAIRING,
+                        "Running command-owned AUTOREVIEW and Clawpatch lanes",
+                    )
+                    external_review_repair = self._run_external_review_repair_lanes(
+                        brief=brief,
+                        plan=plan,
+                        gate_results=global_gate_results,
+                    )
+                    self._transition(
+                        Phase.VERIFYING,
+                        "Command-owned review/repair lanes completed",
+                    )
                 if external_review_repair and external_review_repair["summary"]["changed_paths"]:
                     global_gate_results = self._run_gates(all_gates, self.workspace)
                     self.artifacts.write_json("verification/gates.json", global_gate_results)
 
             changed_paths = self.mirror.changed_paths(self.mirror.baseline_commit)
             self._transition(Phase.REVIEWING, "Launching isolated fresh-context review")
-            review = self._perform_review(plan, product, global_gate_results, changed_paths)
+            review = (
+                self._artifact_json("review/review.json")
+                if self.resume and self._artifact_exists("review/review.json")
+                else self._perform_review(plan, product, global_gate_results, changed_paths)
+            )
 
             max_repairs = int(self.config["project"]["max_repair_cycles"])
             while any(item.get("blocking") for item in review.get("findings", [])):
@@ -1215,25 +1410,26 @@ class Orchestrator:
             self._transition(Phase.DEMONSTRATING, "Executing product-level demonstration evidence")
             demonstration = plan["demonstration"]
             demonstration_gates = self._gates_for_ids(demonstration.get("gate_ids", []))
-            if (
-                bool(self.config["project"]["require_demonstration"])
-                and demonstration.get("required", True)
-                and not demonstration_gates
-            ):
-                raise GateFailure("Product demonstration is required but has no configured gate IDs.")
-            demo_results = (
-                self._run_gates(demonstration_gates, self.workspace)
-                if demonstration_gates
-                else []
-            )
-            self.artifacts.write_json(
-                "verification/demonstration.json",
-                {
-                    "required": demonstration.get("required", True),
-                    "product_evidence": demonstration.get("product_evidence", []),
-                    "gates": demo_results,
-                },
-            )
+            if not (self.resume and self._artifact_exists("verification/demonstration.json")):
+                if (
+                    bool(self.config["project"]["require_demonstration"])
+                    and demonstration.get("required", True)
+                    and not demonstration_gates
+                ):
+                    raise GateFailure("Product demonstration is required but has no configured gate IDs.")
+                demo_results = (
+                    self._run_gates(demonstration_gates, self.workspace)
+                    if demonstration_gates
+                    else []
+                )
+                self.artifacts.write_json(
+                    "verification/demonstration.json",
+                    {
+                        "required": demonstration.get("required", True),
+                        "product_evidence": demonstration.get("product_evidence", []),
+                        "gates": demo_results,
+                    },
+                )
 
             self._transition(Phase.DELIVERING, "Producing patch, evidence ledger, and product report")
             patch_path = self.mirror.write_patch(self.run_root / "delivery" / "final.patch")

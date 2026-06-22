@@ -471,6 +471,15 @@ def parser() -> argparse.ArgumentParser:
     apply_group.add_argument("--apply", action="store_true")
     apply_group.add_argument("--no-apply", action="store_true")
 
+    resume = sub.add_parser("resume", help="Resume an interrupted run from durable controller state.")
+    resume.add_argument("run_id")
+    resume.add_argument("--repo", default=".")
+    resume.add_argument("--brief")
+    resume.add_argument("--mode", choices=["build", "repair"])
+    resume_apply_group = resume.add_mutually_exclusive_group()
+    resume_apply_group.add_argument("--apply", action="store_true")
+    resume_apply_group.add_argument("--no-apply", action="store_true")
+
     status = sub.add_parser("status", help="Show durable state for a run.")
     status.add_argument("run_id")
     status.add_argument("--repo", default=".")
@@ -1097,6 +1106,18 @@ def main(argv: list[str] | None = None) -> int:
                 else repo / PROJECT_DIR / "PRODUCT-BRIEF.md"
             )
             result = Orchestrator(repo).run(
+                brief_path=brief_path,
+                mode=args.mode,
+                apply_on_success=apply_override,
+            )
+            print(json.dumps(result, indent=2))
+            return 0
+
+        if args.command == "resume":
+            repo = _repo(args.repo)
+            apply_override = True if args.apply else False if args.no_apply else None
+            brief_path = Path(args.brief).resolve() if args.brief else None
+            result = Orchestrator(repo, run_id=args.run_id, resume=True).resume_run(
                 brief_path=brief_path,
                 mode=args.mode,
                 apply_on_success=apply_override,

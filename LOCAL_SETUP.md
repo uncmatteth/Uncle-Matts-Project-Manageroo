@@ -237,6 +237,12 @@ Repair existing code:
 manageroo run --mode repair --apply
 ```
 
+If the terminal, controller, or agent call dies mid-run, continue the same run:
+
+```bash
+manageroo resume <run-id> --repo /absolute/path/to/product
+```
+
 Before a real release, run:
 
 ```bash

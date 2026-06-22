@@ -17,6 +17,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Compaction cannot drop must-not rules | Intent lock plus compaction audit | Detective, blocks continuation |
 | Stale context cannot be reused | Source hashes in packet manifest | Detective, blocks execution |
 | Required context cannot disappear | Budget compiler raises instead of truncating | Preventive |
+| Interrupted controller runs can continue without chat memory | `manageroo resume` loads state, workspace, artifacts, and task checkpoints | Preventive for repeated completed work; detective for stale/changed evidence |
 | Model cannot mark run complete | Controller state machine | Preventive |
 | Unverified patch cannot reach source | Apply only after COMPLETE path and source hash check | Preventive |
 | Generic third-party agent is fully sandboxed | Not guaranteed | Unsupported claim; use Codex adapter for hard mode |

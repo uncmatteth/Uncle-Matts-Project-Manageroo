@@ -52,6 +52,21 @@ The manifest records:
 10. Oversized prose can be included through explicit summary mode; full required prose still must be sliced or decomposed.
 11. Intent locks are audited with a strict phrase-preservation audit before a
     compact summary is trusted.
+12. An interrupted run can be resumed from durable run state. Completed
+    artifacts, task checkpoints, gate evidence, and review evidence are reused
+    instead of relying on a chat transcript or repeating finished roles.
+
+## Resume model
+
+`manageroo run` writes the operator input, state transitions, source snapshot,
+workspace, packets, agent output, locked artifacts, and per-task checkpoints to
+`.manageroo/runs/<run-id>/`.
+
+`manageroo resume <run-id>` loads that directory. If the run was interrupted in
+the terminal or blocked by a transient agent exception, resume reopens the last
+durable controller phase and continues from saved evidence. It still verifies
+locked artifacts and source/patch safety; it does not treat chat memory as the
+resume source.
 
 ## Intent lock and compaction audit
 

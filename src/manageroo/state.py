@@ -90,6 +90,22 @@ class RunState:
     def save(self, path: Path) -> None:
         atomic_write_json(path, asdict(self))
 
+    def reopen_for_resume(self) -> bool:
+        if self.phase != Phase.BLOCKED.value:
+            return False
+        for event in reversed(self.history):
+            if event.phase not in {Phase.BLOCKED.value, Phase.COMPLETE.value}:
+                self.phase = event.phase
+                self.history.append(
+                    StateEvent(
+                        self.phase,
+                        utc_now(),
+                        "Run reopened for resume from durable controller state",
+                    )
+                )
+                return True
+        return False
+
     def transition(self, next_phase: Phase, reason: str) -> None:
         current = Phase(self.phase)
         if next_phase not in _ALLOWED[current]:

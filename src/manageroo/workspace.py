@@ -74,6 +74,18 @@ class WorkspaceMirror:
         hook.chmod(0o755)
         return self.workspace
 
+    def resume(self) -> Path:
+        if not self.snapshot_path.is_file():
+            raise SafetyError(f"Cannot resume without source snapshot: {self.snapshot_path}")
+        if not (self.workspace / ".git").is_dir():
+            raise SafetyError(f"Cannot resume without workspace Git repository: {self.workspace}")
+        result = self._git(["rev-list", "--max-parents=0", "HEAD"])
+        roots = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not roots:
+            raise SafetyError("Cannot resume workspace without a baseline commit.")
+        self.baseline_commit = roots[0]
+        return self.workspace
+
     def _git(self, args: list[str], *, hooks: bool = True):
         argv = ["git"]
         if not hooks:
@@ -127,7 +139,17 @@ class WorkspaceMirror:
             raise SafetyError("Source tree changed during run: " + ", ".join(changed))
 
     def apply_patch_to_source(self, patch: Path) -> None:
-        self.assert_source_unchanged()
+        try:
+            self.assert_source_unchanged()
+        except SafetyError:
+            already_applied = self.runner.run(
+                ["git", "apply", "--reverse", "--check", "--binary", str(patch)],
+                cwd=self.source_repo,
+                timeout_seconds=300,
+            )
+            if already_applied.passed:
+                return
+            raise
         if not patch.exists() or patch.stat().st_size == 0:
             return
         check = self.runner.run(
