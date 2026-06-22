@@ -179,6 +179,13 @@ umsmfburasbofe release-ready \
   --approved-by "Your name"
 ```
 
+That does not deploy. It checks the release gate and writes the operator
+handoff here:
+
+```text
+.umsmfburasbofe/cache/production-handoff.md
+```
+
 ## What `umsmfburasbofe setup` changes
 
 ```text

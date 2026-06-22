@@ -270,6 +270,9 @@ umsmfburasbofe release-ready \
 
 It does not deploy. It blocks until readiness is green, checks pass, Git is
 clean, and the release target, rollback plan, and human approval are recorded.
+It also writes `.umsmfburasbofe/cache/production-handoff.md` so the operator
+gets one plain-English release summary: current commit, latest changed files,
+proof commands, blockers, ship target, rollback plan, and next action.
 
 ## Use a Loop Library loop
 

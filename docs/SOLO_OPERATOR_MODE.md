@@ -51,6 +51,7 @@ Starter choices:
 10. Run readiness checks.
 11. Print exactly one next command.
 12. If `--run` is passed and readiness is green, start the build or repair run.
+13. At release time, `release-ready` writes a plain-English production handoff.
 
 It reuses the same controller, brief builder, readiness checker, integration
 config, and run engine as the lower-level commands. It is not a second product.
@@ -94,8 +95,6 @@ These are product gaps, not optional polish:
 
 - A project memory lane that explains what this project is, what has shipped,
   and what should never be broken.
-- Clear production handoff output for a non-coder: what changed, what proof
-  passed, what remains risky, and what button/command ships it.
 
 ## Useful Flags
 
@@ -148,6 +147,16 @@ umsmfburasbofe release-ready \
   --rollback "Rollback steps" \
   --approved-by "Your name"
 ```
+
+When it runs, it writes:
+
+```text
+.umsmfburasbofe/cache/production-handoff.md
+```
+
+That file says whether to ship or not, what commit is being released, which
+proof commands passed, which blockers remain, the release target, the rollback
+plan, and the next operator action.
 
 Wire optional local context tools if they are installed:
 

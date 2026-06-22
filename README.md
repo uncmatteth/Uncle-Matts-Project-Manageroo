@@ -488,6 +488,10 @@ umsmfburasbofe release-ready \
 
 It does not deploy. It checks base readiness, real verification gates, clean
 Git state, deployment target, rollback notes, and human approval.
+It writes a plain-English production handoff at
+`.umsmfburasbofe/cache/production-handoff.md` with the current commit, latest
+changed files, proof commands, release blockers, ship target, rollback plan,
+and next operator action.
 
 ## Context-window control
 

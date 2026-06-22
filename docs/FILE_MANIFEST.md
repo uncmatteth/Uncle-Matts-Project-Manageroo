@@ -9,14 +9,14 @@ This manifest is generated from the release source tree.
 | `BUILD-VALIDATION.json` | 17037 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
-| `GITHUB_DESCRIPTION.md` | 6262 | Project metadata or handoff |
+| `GITHUB_DESCRIPTION.md` | 6310 | Project metadata or handoff |
 | `GIVE-THIS-TO-YOUR-IDE-AGENT.md` | 4379 | Project metadata or handoff |
 | `LICENSE` | 1067 | Project metadata or handoff |
 | `LOCAL_SETUP.md` | 6785 | Project metadata or handoff |
 | `PUBLISH_TO_GITHUB.md` | 2702 | Project metadata or handoff |
-| `README.md` | 21652 | Project metadata or handoff |
+| `README.md` | 21881 | Project metadata or handoff |
 | `SECURITY.md` | 724 | Project metadata or handoff |
-| `docs/00_START_HERE.md` | 5209 | Operator and engineering documentation |
+| `docs/00_START_HERE.md` | 5354 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 2976 | Operator and engineering documentation |
 | `docs/CODEX_RUNTIME.md` | 533 | Operator and engineering documentation |
 | `docs/CONFIG_REFERENCE.md` | 3882 | Operator and engineering documentation |
@@ -27,14 +27,14 @@ This manifest is generated from the release source tree.
 | `docs/ENFORCEMENT_MATRIX.md` | 2072 | Operator and engineering documentation |
 | `docs/EXTERNAL_INTEGRATIONS.md` | 6653 | Operator and engineering documentation |
 | `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 4605 | Operator and engineering documentation |
-| `docs/INSTALLATION.md` | 9811 | Operator and engineering documentation |
-| `docs/LIMITATIONS.md` | 2964 | Operator and engineering documentation |
+| `docs/INSTALLATION.md` | 10037 | Operator and engineering documentation |
+| `docs/LIMITATIONS.md` | 3023 | Operator and engineering documentation |
 | `docs/ONE_SHOT_PROTOCOL.md` | 1670 | Operator and engineering documentation |
 | `docs/OPERATOR_GUIDE.md` | 2434 | Operator and engineering documentation |
 | `docs/RECOVERY.md` | 1437 | Operator and engineering documentation |
 | `docs/RESEARCH_CONCLUSIONS.md` | 2147 | Operator and engineering documentation |
 | `docs/SECURITY_THREAT_MODEL.md` | 1534 | Operator and engineering documentation |
-| `docs/SOLO_OPERATOR_MODE.md` | 4311 | Operator and engineering documentation |
+| `docs/SOLO_OPERATOR_MODE.md` | 4526 | Operator and engineering documentation |
 | `docs/TERMINAL_EXPERIENCE.md` | 1213 | Operator and engineering documentation |
 | `examples/README.md` | 248 | Example product input |
 | `examples/product-brief-client-portal.md` | 1124 | Example product input |
@@ -110,7 +110,7 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/policy.py` | 2033 | Harness runtime source |
 | `src/umsmfburasbofe/project.py` | 16173 | Harness runtime source |
 | `src/umsmfburasbofe/readiness.py` | 7002 | Harness runtime source |
-| `src/umsmfburasbofe/release_ready.py` | 6576 | Harness runtime source |
+| `src/umsmfburasbofe/release_ready.py` | 11014 | Harness runtime source |
 | `src/umsmfburasbofe/report.py` | 3892 | Harness runtime source |
 | `src/umsmfburasbofe/review.py` | 2632 | Harness runtime source |
 | `src/umsmfburasbofe/runner.py` | 2978 | Harness runtime source |
@@ -128,7 +128,7 @@ This manifest is generated from the release source tree.
 | `tests/test_checks.py` | 2938 | Deterministic harness test |
 | `tests/test_chiptune.py` | 826 | Deterministic harness test |
 | `tests/test_cli_checks.py` | 2249 | Deterministic harness test |
-| `tests/test_cli_release_ready.py` | 2729 | Deterministic harness test |
+| `tests/test_cli_release_ready.py` | 2874 | Deterministic harness test |
 | `tests/test_cli_setup.py` | 1801 | Deterministic harness test |
 | `tests/test_cli_solo.py` | 8047 | Deterministic harness test |
 | `tests/test_config.py` | 1310 | Deterministic harness test |
@@ -150,7 +150,7 @@ This manifest is generated from the release source tree.
 | `tests/test_policy.py` | 970 | Deterministic harness test |
 | `tests/test_project.py` | 3824 | Deterministic harness test |
 | `tests/test_readiness.py` | 1830 | Deterministic harness test |
-| `tests/test_release_ready.py` | 3222 | Deterministic harness test |
+| `tests/test_release_ready.py` | 4080 | Deterministic harness test |
 | `tests/test_report.py` | 1128 | Deterministic harness test |
 | `tests/test_review.py` | 1375 | Deterministic harness test |
 | `tests/test_schema.py` | 853 | Deterministic harness test |

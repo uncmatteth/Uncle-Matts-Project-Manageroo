@@ -64,6 +64,8 @@ class CliReleaseReadyTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(payload["ok"], payload)
             self.assertEqual(payload["status"], "READY FOR OPERATOR RELEASE")
+            self.assertTrue(Path(payload["handoff_path"]).exists())
+            self.assertIn("Production Handoff", payload["handoff_markdown"])
 
 
 if __name__ == "__main__":

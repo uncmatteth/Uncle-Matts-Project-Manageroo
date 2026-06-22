@@ -11,7 +11,7 @@ from .policy import CommandPolicy
 from .project import git_root
 from .readiness import readiness
 from .runner import CommandRunner
-from .util import atomic_write_json, read_json, utc_now
+from .util import atomic_write_json, atomic_write_text, read_json, utc_now
 
 
 def _item(name: str, ok: bool, detail: str, next_command: str = "") -> dict[str, Any]:
@@ -26,6 +26,10 @@ def _item(name: str, ok: bool, detail: str, next_command: str = "") -> dict[str,
 
 def _metadata_path(repo: Path) -> Path:
     return repo / PROJECT_DIR / "release-readiness.json"
+
+
+def _handoff_path(repo: Path) -> Path:
+    return repo / PROJECT_DIR / "cache" / "production-handoff.md"
 
 
 def _load_metadata(repo: Path) -> dict[str, Any]:
@@ -53,6 +57,118 @@ def _git_status(repo: Path) -> tuple[bool, str]:
         return False, result.stderr or "git status failed"
     text = result.stdout.strip()
     return text == "", text
+
+
+def _git_output(repo: Path, argv: list[str]) -> str:
+    result = CommandRunner().run(argv, cwd=repo, timeout_seconds=60)
+    if not result.passed:
+        return ""
+    return result.stdout.strip()
+
+
+def _git_head_summary(repo: Path) -> dict[str, Any]:
+    files_text = _git_output(repo, ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"])
+    return {
+        "branch": _git_output(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"]),
+        "commit": _git_output(repo, ["git", "rev-parse", "--short=12", "HEAD"]),
+        "subject": _git_output(repo, ["git", "log", "-1", "--pretty=%s"]),
+        "files": [line for line in files_text.splitlines() if line.strip()],
+    }
+
+
+def _command_text(argv: list[str]) -> str:
+    return " ".join(argv)
+
+
+def _production_handoff_markdown(report: dict[str, Any]) -> str:
+    metadata = report.get("metadata", {})
+    git_head = report.get("git_head", {})
+    gate_runs = report.get("gate_runs", [])
+    failed_items = [item for item in report.get("items", []) if not item.get("ok")]
+
+    lines = [
+        "# Production Handoff",
+        "",
+        f"Status: {report['status']}",
+        f"Repo: `{report['repo']}`",
+        "",
+        "## Operator Decision",
+        "",
+    ]
+    if report.get("ok"):
+        lines.append("Ship when the human operator is ready.")
+    else:
+        lines.append("Do not ship yet.")
+    lines.extend(
+        [
+            "",
+            "## Ship Target",
+            "",
+            metadata.get("target") or "Missing deployment target.",
+            "",
+            "## Rollback Plan",
+            "",
+            metadata.get("rollback") or "Missing rollback notes.",
+            "",
+            "## Human Approval",
+            "",
+            metadata.get("approved_by") or "Missing approver.",
+            "",
+            "## Current Code",
+            "",
+        ]
+    )
+    commit = git_head.get("commit") or "unknown"
+    subject = git_head.get("subject") or "unknown"
+    branch = git_head.get("branch") or "unknown"
+    lines.append(f"- Branch: `{branch}`")
+    lines.append(f"- Commit: `{commit}`")
+    lines.append(f"- Commit message: {subject}")
+
+    files = git_head.get("files") or []
+    lines.extend(["", "## What Changed", ""])
+    if files:
+        lines.extend(f"- `{item}`" for item in files)
+    else:
+        lines.append("- No latest-commit file list was available.")
+
+    lines.extend(["", "## Proof That Passed", ""])
+    passed = [
+        run
+        for run in gate_runs
+        if isinstance(run, dict) and run.get("result", {}).get("exit_code") == 0
+    ]
+    if passed:
+        for run in passed:
+            gate = run.get("gate", {})
+            result = run.get("result", {})
+            lines.append(
+                f"- `{gate.get('id', 'gate')}`: `{_command_text(list(result.get('argv') or gate.get('argv') or []))}`"
+            )
+    else:
+        lines.append("- No passing verification commands were recorded.")
+
+    lines.extend(["", "## Release Blockers", ""])
+    if failed_items:
+        for item in failed_items:
+            detail = item.get("detail") or "missing"
+            next_command = item.get("next") or ""
+            line = f"- {item.get('name', 'unknown')}: {detail}"
+            if next_command:
+                line += f" Next: `{next_command}`"
+            lines.append(line)
+    else:
+        lines.append("- None detected by `release-ready`.")
+
+    lines.extend(["", "## Next Operator Action", ""])
+    if report.get("ok"):
+        lines.append("Use the ship target above, keep the rollback plan open, and watch production after release.")
+    elif report.get("next_commands"):
+        lines.append(f"Run: `{report['next_commands'][0]}`")
+    else:
+        lines.append("Fix the release blockers above, then rerun `umsmfburasbofe release-ready`.")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def release_ready(
@@ -191,7 +307,8 @@ def release_ready(
             next_commands.append(item["next"])
 
     ok = all(item["ok"] for item in items)
-    return {
+    git_head = _git_head_summary(repo)
+    report = {
         "ok": ok,
         "status": "READY FOR OPERATOR RELEASE" if ok else "NOT READY FOR RELEASE",
         "repo": str(repo),
@@ -204,9 +321,16 @@ def release_ready(
         "items": items,
         "readiness": ready_report,
         "gate_runs": gate_runs,
+        "git_head": git_head,
         "git_status": status_text,
         "next_commands": [] if ok else next_commands,
     }
+    handoff_path = _handoff_path(repo)
+    handoff_markdown = _production_handoff_markdown(report)
+    atomic_write_text(handoff_path, handoff_markdown)
+    report["handoff_path"] = str(handoff_path)
+    report["handoff_markdown"] = handoff_markdown
+    return report
 
 
 def format_release_ready(report: dict[str, Any]) -> str:
@@ -214,6 +338,8 @@ def format_release_ready(report: dict[str, Any]) -> str:
     for item in report["items"]:
         label = "OK" if item["ok"] else "ACTION"
         lines.append(f"{label} {item['name']}: {item['detail']}")
+    if report.get("handoff_path"):
+        lines.extend(["", f"Production handoff: {report['handoff_path']}"])
     if report.get("next_commands"):
         lines.extend(["", "Next:"])
         lines.append(report["next_commands"][0])
