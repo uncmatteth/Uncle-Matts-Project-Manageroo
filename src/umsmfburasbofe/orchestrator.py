@@ -26,6 +26,7 @@ from .gates import Gate, GateRunner, gates_from_config
 from .ideas import IdeaInbox
 from .integrations import ExternalCommandIntegration, ObsidianIntegration, command_record
 from .inventory import build_inventory, inventory_summary
+from .learning import generate_learning_cards, pending_root, save_pending_learning_cards
 from .map_cache import load_system_map_cache, write_system_map_cache
 from .policy import CommandPolicy, ScopePolicy
 from .report import write_report
@@ -556,6 +557,45 @@ class Orchestrator:
         self.artifacts.write_json("delivery/external-capture.json", payload)
         return payload
 
+    def _record_learning(
+        self,
+        *,
+        result: dict[str, Any],
+        inventory: dict[str, Any] | None,
+        external_intelligence: dict[str, Any] | None,
+        external_review_repair: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        cards = generate_learning_cards(
+            repo=self.source_repo,
+            result=result,
+            inventory=inventory,
+            external_intelligence=external_intelligence,
+            external_review_repair=external_review_repair,
+        )
+        saved = save_pending_learning_cards(self.source_repo, cards)
+        artifact_path = self.artifacts.root / "learning" / "improvement-cards.json"
+        self.artifacts.write_json(
+            "learning/improvement-cards.json",
+            {
+                "schema_version": 1,
+                "cards": cards,
+                "saved_pending": saved,
+                "pending_dir": str(pending_root(self.source_repo)),
+                "approval_gated": True,
+                "note": (
+                    "Learning cards are suggestions. UMSMFBURASBOFE may save pending cards, "
+                    "but behavior, skills, config, docs, and memory changes require explicit apply approval."
+                ),
+            },
+        )
+        return {
+            "cards": len(cards),
+            "pending_saved": len(saved),
+            "artifact": str(artifact_path),
+            "pending_dir": str(pending_root(self.source_repo)),
+            "approval_gated": True,
+        }
+
     def _map_repository(self, inventory: list[dict], brief: str) -> dict:
         cache_path = self._system_map_cache_path()
         cached = load_system_map_cache(cache_path, inventory=inventory, brief=brief)
@@ -782,6 +822,9 @@ class Orchestrator:
             "mode": mode,
             "started_at": utc_now(),
         }
+        raw_inventory: dict[str, Any] | None = None
+        external_intelligence: dict[str, Any] | None = None
+        external_review_repair: dict[str, Any] | None = None
         try:
             if mode not in {"build", "repair"}:
                 raise ValidationError("Mode must be 'build' or 'repair'.")
@@ -1028,7 +1071,6 @@ class Orchestrator:
             global_gate_results = self._run_gates(all_gates, self.workspace)
             self.artifacts.write_json("verification/gates.json", global_gate_results)
 
-            external_review_repair = None
             if any(argv for _, argv in self._external_review_repair_commands()):
                 self._transition(
                     Phase.REPAIRING,
@@ -1167,6 +1209,12 @@ class Orchestrator:
                     "finished_at": utc_now(),
                 }
             )
+            result["learning"] = self._record_learning(
+                result=result,
+                inventory=raw_inventory,
+                external_intelligence=external_intelligence,
+                external_review_repair=external_review_repair,
+            )
             report_path = self.run_root / "delivery" / "FINAL-REPORT.md"
             final_result_path = self.run_root / "delivery" / "final-result.json"
             markdown = write_report(report_path, result)
@@ -1209,6 +1257,15 @@ class Orchestrator:
                     },
                 }
             )
+            try:
+                result["learning"] = self._record_learning(
+                    result=result,
+                    inventory=raw_inventory,
+                    external_intelligence=external_intelligence,
+                    external_review_repair=external_review_repair,
+                )
+            except Exception as learning_exc:
+                result["learning_error"] = f"{type(learning_exc).__name__}: {learning_exc}"
             failure_dir = self.run_root / "delivery"
             failure_dir.mkdir(parents=True, exist_ok=True)
             atomic_write_json(failure_dir / "failure.json", result)

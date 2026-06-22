@@ -21,6 +21,7 @@ to participate without freelancing.
 9. When you discover a possible future feature, report it as an idea; do not silently build it.
 10. Every factual review finding must cite current file evidence.
 11. Read `.umsmfburasbofe/PROJECT-MEMORY.md` before broad product work and preserve `What Must Not Break`.
+12. Do not apply learning cards without explicit approval from the operator.
 
 ## Context rule
 
@@ -61,6 +62,26 @@ AUTOREVIEW and Clawpatch are command-owned repair lanes. Run the configured AUTO
 The AI agent must not freehand fixes from AUTOREVIEW or Clawpatch findings. If
 one of those commands fails or cannot repair its own finding, report the exact
 tool output and stop instead of inventing a patch.
+
+## Learning card lane
+
+After a run, inspect learning cards when the operator asks what should improve
+next:
+
+```bash
+umsmfburasbofe learning list
+umsmfburasbofe learning show CARD_ID
+```
+
+Learning cards are suggestions with evidence. Supported automatic apply still
+requires:
+
+```bash
+umsmfburasbofe learning apply CARD_ID --approve
+```
+
+Manual-only cards mean report the next scoped task. Do not edit skills, config,
+docs, installer behavior, checks, prompts, or code just because a card exists.
 
 ## Completion
 

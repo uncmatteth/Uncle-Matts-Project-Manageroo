@@ -54,6 +54,8 @@ Starter choices:
 13. At release time, `release-ready` writes a plain-English production handoff.
 14. When the release gate is ready, `release-ready` also updates
     `.umsmfburasbofe/PROJECT-MEMORY.md` with what shipped and what proof passed.
+15. After runs, learning cards capture useful lessons and wait for explicit
+    approval before any supported apply.
 
 It reuses the same controller, brief builder, readiness checker, integration
 config, and run engine as the lower-level commands. It is not a second product.
@@ -120,6 +122,22 @@ Useful commands:
 umsmfburasbofe memory show
 umsmfburasbofe memory add --shipped "First release shipped" --must-not "Do not break checkout"
 ```
+
+## Learning Cards
+
+Runs can create small improvement cards for things worth remembering or fixing
+next. They are not hidden behavior changes. They are a review queue:
+
+```bash
+umsmfburasbofe learning list
+umsmfburasbofe learning show CARD_ID
+umsmfburasbofe learning apply CARD_ID --approve
+```
+
+The first supported apply target is a low-risk note into
+`.umsmfburasbofe/PROJECT-MEMORY.md`. Skill edits, config changes, installer
+changes, docs edits, failed tool lanes, media lanes, and long-document lanes are
+manual-only cards until the operator approves a separate task.
 
 ## Useful Flags
 

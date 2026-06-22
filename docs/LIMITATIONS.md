@@ -19,5 +19,6 @@
 17. UMSMFBURASBOFE does not replace CI, production monitoring, backups, security review, or legal review.
 18. `release-ready` is a final operator gate, not a deployment tool. It checks readiness, gates, clean Git state, target, rollback notes, and approval, then writes `.umsmfburasbofe/cache/production-handoff.md`. On a ready release it also updates `.umsmfburasbofe/PROJECT-MEMORY.md` with the shipped target and proof; the operator can commit that memory update if desired. It does not push, deploy, monitor, or roll back production.
 19. UMSMFBURASBOFE does not run cloud schedules or timer loops by itself. Loop and routine patterns are adapted into bounded local goal-style runs unless the operator supplies a separate scheduler.
-20. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
-21. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.
+20. The learning lane records suggestions and can approval-apply low-risk project-memory notes. It does not silently edit skills, docs, config, installer behavior, checks, prompts, or code.
+21. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
+22. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.

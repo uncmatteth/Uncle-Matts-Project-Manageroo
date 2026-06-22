@@ -208,6 +208,18 @@ If the release gate is ready, it also updates `.umsmfburasbofe/PROJECT-MEMORY.md
 with what shipped and what proof passed. Commit that memory update if you want
 future agents to see it from Git.
 
+After any run, inspect proactive learning cards:
+
+```bash
+umsmfburasbofe learning list
+umsmfburasbofe learning show CARD_ID
+umsmfburasbofe learning apply CARD_ID --approve
+```
+
+Those cards are suggestions with run evidence. The tool may save the cards, but
+it does not silently rewrite skills, config, docs, installer behavior, prompts,
+checks, code, or project memory.
+
 ## What `umsmfburasbofe setup` changes
 
 ```text

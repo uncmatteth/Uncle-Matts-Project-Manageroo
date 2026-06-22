@@ -15,6 +15,7 @@ CLI
      ├─ Scope/command policies
      ├─ Deterministic gate runner
      ├─ Isolated reviewer
+     ├─ Proactive learning card writer
      └─ Delivery reporter
 ```
 
@@ -72,3 +73,17 @@ The surrounding stack provides lanes, not authorities:
 - OpenClaw/Claude/Gemini/Cursor: alternate execution surfaces.
 
 Core acceptance still belongs to UMSMFBURASBOFE's state, scope, gates, and evidence.
+
+## Proactive learning, no silent self-mutation
+
+Every run can emit improvement cards under
+`artifacts/learning/improvement-cards.json` and copy pending cards into
+`.umsmfburasbofe/cache/learning/pending/`.
+
+Those cards are structured suggestions. They rank value and risk, route the
+lesson to a destination like project memory, skill improvement, config, docs,
+installer, GBrain capture, or backlog, and cite run evidence.
+
+The controller may save pending cards automatically. It must not silently change
+behavior, skills, config, docs, installer behavior, or memory. Applying a
+supported card requires `umsmfburasbofe learning apply CARD_ID --approve`.

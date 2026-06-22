@@ -33,6 +33,13 @@ from .install_status import (
 )
 from .install_repair import format_repair_install, repair_install
 from .integration_config import configure_integrations, format_integration_config
+from .learning import (
+    apply_learning_card,
+    format_learning_card,
+    format_learning_cards,
+    get_learning_card,
+    list_learning_cards,
+)
 from .loop_library import (
     DEFAULT_CATALOG_URL,
     find_loop,
@@ -278,6 +285,25 @@ def parser() -> argparse.ArgumentParser:
     memory_add.add_argument("--proof", action="append", default=[])
     memory_add.add_argument("--note", action="append", default=[])
     memory_add.add_argument("--json", action="store_true")
+
+    learning = sub.add_parser("learning", help="List, inspect, and approval-apply run learning cards.")
+    learning_sub = learning.add_subparsers(dest="learning_command", required=True)
+    learning_list = learning_sub.add_parser("list", help="List pending or applied learning cards.")
+    learning_list.add_argument("repo", nargs="?", default=".")
+    learning_list.add_argument("--status", choices=["pending", "applied", "all"], default="pending")
+    learning_list.add_argument("--json", action="store_true")
+    learning_show = learning_sub.add_parser("show", help="Show one learning card with its evidence.")
+    learning_show.add_argument("card_id")
+    learning_show.add_argument("--repo", default=".")
+    learning_show.add_argument("--json", action="store_true")
+    learning_apply = learning_sub.add_parser(
+        "apply",
+        help="Apply a supported learning card only after explicit approval.",
+    )
+    learning_apply.add_argument("card_id")
+    learning_apply.add_argument("--repo", default=".")
+    learning_apply.add_argument("--approve", action="store_true")
+    learning_apply.add_argument("--json", action="store_true")
 
     release = sub.add_parser(
         "release-ready",
@@ -670,6 +696,41 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_project_memory(result), end="")
             return 0 if result["ok"] else 2
+
+        if args.command == "learning":
+            repo = _repo(getattr(args, "repo", "."))
+            if args.learning_command == "list":
+                cards = list_learning_cards(repo, status=args.status)
+                result = {"ok": True, "repo": str(repo), "status": args.status, "cards": cards}
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(format_learning_cards(cards), end="")
+                return 0
+            if args.learning_command == "show":
+                result = get_learning_card(repo, args.card_id)
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                elif result["ok"]:
+                    print(format_learning_card(result["card"]), end="")
+                else:
+                    print(result["error"])
+                    if result.get("next_command"):
+                        print(f"Next: {result['next_command']}")
+                return 0 if result["ok"] else 2
+            result = apply_learning_card(repo, args.card_id, approve=args.approve)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            elif result.get("ok"):
+                print(f"Applied learning card: {result['card']['id']}")
+                print(f"Project memory: {result['project_memory_update']['path']}")
+            else:
+                print(result.get("error") or "Approval required before applying this learning card.")
+                if result.get("recommendation"):
+                    print(f"Recommendation: {result['recommendation']}")
+                if result.get("next_command"):
+                    print(f"Next: {result['next_command']}")
+            return 0 if result.get("ok") else 2
 
         if args.command == "release-ready":
             result = release_ready(

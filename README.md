@@ -51,6 +51,11 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - A separate review pass looks for problems before the run gets called done.
 - If the work is not good enough, it goes back through repair.
 - You get the patch, the checks, the review notes, and the report.
+- Every run can leave learning cards: small evidence-backed suggestions for
+  what should be remembered, fixed, or improved next.
+- Those cards are approval-gated. The tool may save the suggestion, but it does
+  not silently rewrite skills, config, docs, installer behavior, or project
+  memory.
 - The installer also includes `edit-skill`, a helper for keeping local skills
   short, non-duplicative, and free of stale AI junk.
 - It also includes `write-a-skill` and `skillify`, so repeated painful work can
@@ -209,6 +214,21 @@ operator notes. Show or update it with:
 umsmfburasbofe memory show
 umsmfburasbofe memory add --shipped "First release shipped" --must-not "Do not break checkout"
 ```
+
+Each run also creates proactive learning cards when it sees something worth
+remembering. List them, inspect the evidence, and apply only the supported
+low-risk cards after approval:
+
+```bash
+umsmfburasbofe learning list
+umsmfburasbofe learning show CARD_ID
+umsmfburasbofe learning apply CARD_ID --approve
+```
+
+Right now the supported automatic apply target is a project-memory note. Higher
+risk cards, like skill cleanup, config changes, installer changes, failed
+AUTOREVIEW/Clawpatch lanes, media lanes, or long-document lanes, stay
+manual-only until you approve a separate scoped task.
 
 If the repo has no detected tests or build checks, add one real command without
 editing config by hand:
@@ -568,6 +588,24 @@ so you can see exactly what happened.
 
 See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).
 
+## Proactive learning
+
+After a run, UMSMFBURASBOFE records improvement cards under:
+
+```text
+.umsmfburasbofe/cache/learning/pending/
+```
+
+The run-owned copy lives at:
+
+```text
+.umsmfburasbofe/runs/<run-id>/artifacts/learning/improvement-cards.json
+```
+
+This is the self-improvement path without hidden self-mutation: observe the run,
+write cards with evidence, bundle repeat cards, and wait for explicit approval.
+See [`docs/LEARNING_LANE.md`](docs/LEARNING_LANE.md).
+
 ## Intended Local Stack
 
 This was built around the local agent stack you actually wanted:
@@ -605,6 +643,7 @@ checks. Do the first live run on a clone, branch, or disposable copy.
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md)
+- [`docs/LEARNING_LANE.md`](docs/LEARNING_LANE.md)
 - [`docs/ENFORCEMENT_MATRIX.md`](docs/ENFORCEMENT_MATRIX.md)
 - [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md)
 - [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)

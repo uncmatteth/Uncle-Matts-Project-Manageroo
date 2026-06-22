@@ -84,12 +84,14 @@ def structural_checks() -> list[dict]:
         "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
         "docs/CONTEXT_COMPILER.md",
         "docs/INSTALLATION.md",
+        "docs/LEARNING_LANE.md",
         "docs/REVIEW_REPAIR_LANES.md",
         "docs/SOLO_OPERATOR_MODE.md",
         "docs/TERMINAL_EXPERIENCE.md",
         "src/umsmfburasbofe/branding.py",
         "src/umsmfburasbofe/checks.py",
         "src/umsmfburasbofe/chiptune.py",
+        "src/umsmfburasbofe/learning.py",
         "src/umsmfburasbofe/next_action.py",
         "src/umsmfburasbofe/project_memory.py",
         "src/umsmfburasbofe/solo.py",
@@ -107,6 +109,7 @@ def structural_checks() -> list[dict]:
         "src/umsmfburasbofe/assets/skills/uncle-matts-caveman-curse/SKILL.md",
         "tests/test_cli_next.py",
         "tests/test_cli_memory.py",
+        "tests/test_learning.py",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
     readme = (ROOT / "README.md").read_text(encoding="utf-8")

@@ -69,6 +69,12 @@ Required context exceeding a limit is not truncated; the plan must decompose.
 
 Implementation tasks still run in dependency order in one integration workspace.
 
+## Learning lane
+
+Learning cards do not have a config switch that permits silent mutation. Cards
+are saved under `.umsmfburasbofe/cache/learning/pending/` and applied only
+through `umsmfburasbofe learning apply CARD_ID --approve`.
+
 ## `[safety]`
 
 - `allowed_programs`: executable basenames permitted for controller-run gates.
