@@ -15,6 +15,11 @@ The whole point is to stop the usual AI coding mess: one giant chat, too much
 context, half-remembered requirements, surprise file changes, and a confident
 "done" with no proof.
 
+Manageroo is not "AI remembers better." Manageroo makes remembering
+unnecessary. The controller saves the truth on disk. Each AI worker gets one
+complete assignment. If a worker drifts, dies, lies, or runs out of room,
+Manageroo throws that worker away and starts a clean one from saved facts.
+
 ## GitHub description
 
 Copy this into the GitHub repository description:
@@ -41,6 +46,14 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - Before or after a long chat gets compacted, run a compaction audit so the
   summary cannot quietly drop must-not rules or rejected ideas.
 - `manageroo` reads the repo and breaks the job into smaller chunks.
+- The Python controller is the boss. AI tools are disposable workers that get
+  complete packets; chat memory and compaction are not trusted as proof.
+- Every worker job and retry is recorded under `.manageroo/runs/<run-id>/`.
+- `manageroo status <run-id>` shows the current job, completed jobs, failed
+  attempts, blocking reason, and next action.
+- `manageroo run --continue <run-id>` replays the controller from the saved run
+  folder, skips completed worker jobs, and gives unfinished jobs a fresh packet.
+  It is not a magic terminal-keepalive trick.
 - The recommended skill pack gives agents built-in lanes for rough intake,
   memory lookup, source ingest, media/PDF work, long prose, exact wording,
   debugging, test-first work, closeout review, public copy, website cleanup,

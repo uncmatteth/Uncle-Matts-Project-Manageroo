@@ -11,6 +11,7 @@ CLI
      ├─ Artifact ledger and locked contracts
      ├─ Source mirror
      ├─ Context compiler
+     ├─ Durable worker job store
      ├─ Agent adapter
      ├─ Scope/command policies
      ├─ Deterministic gate runner
@@ -47,6 +48,35 @@ Each agent role starts as a new process:
 - repairer.
 
 Only verified artifacts move between roles. Conversational reasoning does not.
+
+## Stateless worker jobs
+
+MANAGEROO is not "AI remembers better." MANAGEROO makes remembering
+unnecessary.
+
+The controller writes the run truth to disk. Each AI worker gets one complete
+assignment packet. If a worker drifts, dies, lies, or runs out of room, the
+controller records the failed attempt and starts a fresh worker from saved
+facts.
+
+Every worker call is represented as a durable job:
+
+```text
+.manageroo/runs/<run-id>/
+|-- controller/truth.json
+|-- controller/phase-journal.jsonl
+|-- jobs/<job-id>.json
+|-- worker-attempts/<job-id>/<attempt-id>.json
+|-- packets/<job-id>/<attempt-id>/prompt.md
+`-- agent-output/<job-id>/<attempt-id>.json
+```
+
+Completed jobs are loaded from their recorded artifacts. They are not rerun
+just because a chat was compacted or a new agent process starts.
+
+`manageroo run --continue <run-id>` replays the Python controller from the
+saved run folder. The old worker process is not trusted or required; completed
+jobs, locked artifacts, and the isolated workspace are loaded from disk.
 
 ## Controller-owned commits
 

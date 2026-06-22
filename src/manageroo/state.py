@@ -50,7 +50,7 @@ _ALLOWED: dict[Phase, set[Phase]] = {
     Phase.REPAIRING: {Phase.VERIFYING, Phase.BLOCKED},
     Phase.DEMONSTRATING: {Phase.REPAIRING, Phase.DELIVERING, Phase.BLOCKED},
     Phase.DELIVERING: {Phase.COMPLETE, Phase.BLOCKED},
-    Phase.BLOCKED: set(),
+    Phase.BLOCKED: {Phase.INTAKE},
     Phase.COMPLETE: set(),
 }
 
@@ -96,3 +96,7 @@ class RunState:
             raise StateTransitionError(f"Invalid transition {current.value} -> {next_phase.value}")
         self.phase = next_phase.value
         self.history.append(StateEvent(next_phase.value, utc_now(), reason))
+
+    def reopen_for_continue(self, reason: str) -> None:
+        self.phase = Phase.CREATED.value
+        self.history.append(StateEvent(Phase.CREATED.value, utc_now(), reason))

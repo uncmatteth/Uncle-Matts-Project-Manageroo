@@ -98,7 +98,7 @@ class DocumentLaneTests(unittest.TestCase):
             self.assertIn("DOC LANE:", document["records"][0]["stdout"])
             external = read_json(run_root / "artifacts" / "discovery" / "external-intelligence.json")
             self.assertIn("document-analysis", external["summary"]["passed"])
-            prompt = next((run_root / "packets").glob("*product-analyst/prompt.md"))
+            prompt = next((run_root / "packets").glob("*product-analyst/*/prompt.md"))
             self.assertIn("DOC LANE:", prompt.read_text(encoding="utf-8"))
 
     def test_failed_document_command_is_recorded_as_optional_context_not_ai_repair(self):

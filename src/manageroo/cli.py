@@ -42,6 +42,7 @@ from .intent_lock import (
     save_compaction_checkpoint,
 )
 from .integration_config import configure_integrations, format_integration_config
+from .jobs import JobStore
 from .learning import (
     apply_learning_card,
     format_learning_card,
@@ -467,6 +468,11 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--repo", default=".")
     run.add_argument("--brief")
     run.add_argument("--mode", choices=["build", "repair"], default="build")
+    run.add_argument(
+        "--continue",
+        dest="continue_run_id",
+        help="Continue a durable run's saved worker job queue from disk.",
+    )
     apply_group = run.add_mutually_exclusive_group()
     apply_group.add_argument("--apply", action="store_true")
     apply_group.add_argument("--no-apply", action="store_true")
@@ -1096,7 +1102,11 @@ def main(argv: list[str] | None = None) -> int:
                 if args.brief
                 else repo / PROJECT_DIR / "PRODUCT-BRIEF.md"
             )
-            result = Orchestrator(repo).run(
+            result = Orchestrator(
+                repo,
+                run_id=args.continue_run_id,
+                continue_existing=bool(args.continue_run_id),
+            ).run(
                 brief_path=brief_path,
                 mode=args.mode,
                 apply_on_success=apply_override,
@@ -1106,8 +1116,20 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "status":
             repo = _repo(args.repo)
-            path = repo / PROJECT_DIR / "runs" / args.run_id / "state.json"
-            print(json.dumps(read_json(path), indent=2))
+            run_root = repo / PROJECT_DIR / "runs" / args.run_id
+            state = read_json(run_root / "state.json")
+            jobs = JobStore(run_root).status_summary()
+            payload = {
+                **state,
+                "phase": state.get("phase"),
+                "jobs": jobs,
+                "current_job": jobs["current_job"],
+                "completed_jobs": jobs["completed_jobs"],
+                "failed_attempts": jobs["failed_attempts"],
+                "next_action": jobs["next_action"],
+                "blocking_reason": jobs["blocking_reason"],
+            }
+            print(json.dumps(payload, indent=2))
             return 0
 
         if args.command == "report":

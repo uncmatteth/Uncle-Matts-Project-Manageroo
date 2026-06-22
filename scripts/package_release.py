@@ -18,7 +18,7 @@ INSTALLER_ZIP = f"{ARTIFACT_BASENAME}.zip"
 SOURCE_ZIP = f"{ARTIFACT_BASENAME}-source.zip"
 OUTPUT = ROOT.parent / INSTALLER_ZIP
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
-EXCLUDED_PARTS = {".git", ".venv", "__pycache__", "dist", "build"}
+EXCLUDED_PARTS = {".git", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
 DROP_CLEANUP_PREFIXES = (
     ARTIFACT_BASENAME,

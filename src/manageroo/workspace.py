@@ -74,6 +74,17 @@ class WorkspaceMirror:
         hook.chmod(0o755)
         return self.workspace
 
+    def load_existing(self) -> Path:
+        if not self.workspace.is_dir() or not (self.workspace / ".git").is_dir():
+            raise SafetyError(f"Run workspace is missing or not a Git repository: {self.workspace}")
+        if not self.snapshot_path.is_file():
+            raise SafetyError(f"Run source snapshot is missing: {self.snapshot_path}")
+        roots = self._git(["rev-list", "--max-parents=0", "HEAD"]).stdout.splitlines()
+        if not roots:
+            raise SafetyError("Run workspace has no baseline commit.")
+        self.baseline_commit = roots[0].strip()
+        return self.workspace
+
     def _git(self, args: list[str], *, hooks: bool = True):
         argv = ["git"]
         if not hooks:

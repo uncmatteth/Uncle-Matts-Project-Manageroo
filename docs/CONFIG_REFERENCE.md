@@ -64,6 +64,8 @@ Required context exceeding a limit is not truncated; the plan must decompose.
 ## `[orchestration]`
 
 - `max_parallel_agent_calls`: maximum fresh agent calls for independent chunks.
+- `max_worker_attempts`: maximum attempts for one disposable worker job before
+  the job becomes failed.
 - `parallel_mapping`: run repository-mapper chunks concurrently when possible.
 - `parallel_review`: run isolated reviewer chunks concurrently when possible.
 

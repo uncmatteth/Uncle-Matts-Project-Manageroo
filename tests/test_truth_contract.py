@@ -52,6 +52,7 @@ class TruthContractTests(unittest.TestCase):
                 "It does not push, deploy, monitor, or roll back production.",
                 "does not run cloud schedules or timer loops by itself",
                 "does not silently edit skills, docs, config, installer behavior, checks, prompts, or code",
+                "`run --continue <run-id>` continues Manageroo's saved worker job queue",
             ],
             "docs/LIMITATIONS.md",
         )
@@ -87,6 +88,14 @@ class TruthContractTests(unittest.TestCase):
                 "implementation prioritizes correctness over theatrical agent count",
                 "The controller does not run parallel implementation branches against the same files",
                 "Core acceptance still belongs to MANAGEROO's state, scope, gates, and evidence",
+                "MANAGEROO makes remembering unnecessary",
+            ],
+            "docs/STATELESS_ORCHESTRATION.md": [
+                'Manageroo is not "AI remembers better."',
+                "Manageroo makes remembering unnecessary.",
+                "The controller saves the truth.",
+                "Each AI worker gets one complete assignment.",
+                "throws that worker away and starts a clean one from saved facts",
             ],
         }
         for surface, required in surfaces.items():
@@ -149,6 +158,7 @@ class TruthContractTests(unittest.TestCase):
                 '"truth:no-ai-freehand-external-repair"',
                 '"truth:no-release-ready-deploy-claim"',
                 '"truth:no-silent-self-mutation"',
+                '"truth:stateless-worker-orchestration"',
             ],
             "scripts/verify_release.py",
         )
@@ -164,6 +174,7 @@ class TruthContractTests(unittest.TestCase):
             "docs/EXTERNAL_INTEGRATIONS.md",
             "docs/REVIEW_REPAIR_LANES.md",
             "docs/SOLO_OPERATOR_MODE.md",
+            "docs/STATELESS_ORCHESTRATION.md",
         ]
         banned_phrases = [
             "full vision support",

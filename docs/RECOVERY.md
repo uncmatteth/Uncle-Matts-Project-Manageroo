@@ -14,8 +14,12 @@ The run directory preserves:
 ```text
 state.json
 source-snapshot.json
-packets/
-agent-output/
+controller/truth.json
+controller/phase-journal.jsonl
+jobs/
+worker-attempts/
+packets/<job-id>/<attempt-id>/
+agent-output/<job-id>/<attempt-id>.json
 artifacts/
 logs/
 review-workspace/
@@ -24,6 +28,17 @@ delivery/FINAL-REPORT.md
 ```
 
 A failed run does not apply its patch to the source repository.
+
+To continue from the saved worker job queue:
+
+```bash
+manageroo run --continue <run-id>
+```
+
+That reloads controller state and worker job records from disk. It does not
+pretend the old terminal process stayed alive. The controller replays from the
+saved run folder, skips completed worker jobs, and gives unfinished jobs a clean
+new attempt packet.
 
 ## The source changed during a run
 

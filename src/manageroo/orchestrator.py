@@ -18,6 +18,7 @@ from .context import ContextCompiler, ContextRequest
 from .document_lane import build_document_manifest
 from .errors import (
     BlockingDecisionError,
+    ContextBudgetError,
     GateFailure,
     SafetyError,
     MANAGEROOError,
@@ -27,11 +28,12 @@ from .gates import Gate, GateRunner, gates_from_config
 from .ideas import IdeaInbox
 from .integrations import ExternalCommandIntegration, ObsidianIntegration, command_record
 from .inventory import build_inventory, inventory_summary
+from .jobs import JobStatus, JobStore
 from .learning import generate_learning_cards, pending_root, save_pending_learning_cards
 from .map_cache import load_system_map_cache, write_system_map_cache
 from .policy import CommandPolicy, ScopePolicy
 from .report import write_report
-from .review import run_isolated_review
+from .review import inventory_hashes, validate_review_evidence
 from .runner import CommandRunner
 from .state import Phase, RunState
 from .token_modes import token_mode_prompt
@@ -80,6 +82,11 @@ def _one_line_query(text: str, max_chars: int = 1200) -> str:
     return " ".join(text.split())[:max_chars]
 
 
+def _artifact_fragment(value: str) -> str:
+    cleaned = "".join(char if char.isalnum() or char in "-_." else "-" for char in value)
+    return cleaned.strip("-") or "item"
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -87,30 +94,87 @@ class Orchestrator:
         *,
         adapter: AgentAdapter | None = None,
         run_id: str | None = None,
+        continue_existing: bool = False,
     ):
         self.source_repo = source_repo.resolve()
         self.config = load_config(self.source_repo)
+        self.continuing = continue_existing
+        if continue_existing and not run_id:
+            raise ValidationError("Continuing a run requires a run id.")
         self.run_id = run_id or new_run_id()
         self.run_root = self.source_repo / ".manageroo" / "runs" / self.run_id
-        self.run_root.mkdir(parents=True, exist_ok=False)
+        if continue_existing:
+            if not self.run_root.is_dir():
+                raise ValidationError(f"Run does not exist: {self.run_id}")
+        else:
+            self.run_root.mkdir(parents=True, exist_ok=False)
         self.logs = self.run_root / "logs"
         self.runner = CommandRunner(self.logs)
         self.adapter = adapter or build_adapter(self.config, self.runner)
         self.state_path = self.run_root / "state.json"
-        self.state = RunState.create(self.run_id)
-        self.state.save(self.state_path)
+        self.state = RunState.load(self.state_path) if continue_existing else RunState.create(self.run_id)
+        if continue_existing and self.state.phase != Phase.COMPLETE.value:
+            loaded_phase = self.state.phase
+            self.state.reopen_for_continue(f"Continuing durable run from saved phase {loaded_phase}")
+            self.state.save(self.state_path)
+        elif not continue_existing:
+            self.state.save(self.state_path)
         self.artifacts = ArtifactStore(self.run_root / "artifacts")
         self.packet_root = self.run_root / "packets"
         self.output_root = self.run_root / "agent-output"
         self.output_root.mkdir(parents=True, exist_ok=True)
+        self.job_store = JobStore(self.run_root)
+        self.controller_root = self.run_root / "controller"
+        self.controller_root.mkdir(parents=True, exist_ok=True)
+        self.truth_path = self.controller_root / "truth.json"
+        self.phase_journal_path = self.controller_root / "phase-journal.jsonl"
+        if not self.truth_path.exists():
+            atomic_write_json(
+                self.truth_path,
+                {
+                    "run_id": self.run_id,
+                    "source_repo": str(self.source_repo),
+                    "stateless_workers": True,
+                    "truth": (
+                        "Manageroo saves controller truth on disk. Worker agents are "
+                        "disposable and receive complete bounded packets."
+                    ),
+                    "created_at": utc_now(),
+                },
+            )
         self.mirror = WorkspaceMirror(self.source_repo, self.run_root, self.runner)
-        self.workspace: Path | None = None
-        self._call_index = 0
+        self.workspace: Path | None = self.mirror.load_existing() if continue_existing else None
+        self._call_index = self._initial_call_index()
         self._call_lock = threading.Lock()
 
     def _transition(self, phase: Phase, reason: str) -> None:
-        self.state.transition(phase, reason)
-        self.state.save(self.state_path)
+        previous = self.state.phase
+        if previous != phase.value:
+            self.state.transition(phase, reason)
+            self.state.save(self.state_path)
+        with self.phase_journal_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "at": utc_now(),
+                        "from": previous,
+                        "to": self.state.phase,
+                        "reason": reason,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+
+    def _initial_call_index(self) -> int:
+        if self.continuing:
+            return 0
+        highest = 0
+        for job in self.job_store.list_jobs():
+            prefix = job.id.split("-", 1)[0]
+            if prefix.isdigit():
+                highest = max(highest, int(prefix))
+        return highest
 
     def _compiler(self, repo: Path | None = None, packet_root: Path | None = None) -> ContextCompiler:
         cfg = self.config["context"]
@@ -122,6 +186,42 @@ class Orchestrator:
             chars_per_token=float(cfg["chars_per_token"]),
             max_single_file_tokens=int(cfg["max_single_file_tokens"]),
         )
+
+    def _artifact_json(self, relative: str) -> Any | None:
+        path = self.artifacts.root / relative
+        if self.continuing and path.is_file():
+            return read_json(path)
+        return None
+
+    def _artifact_text(self, relative: str) -> str | None:
+        path = self.artifacts.root / relative
+        if self.continuing and path.is_file():
+            return path.read_text(encoding="utf-8", errors="replace")
+        return None
+
+    def _write_or_reuse_json(self, relative: str, data: Any, *, lock: bool = False) -> Any:
+        existing = self._artifact_json(relative)
+        if existing is not None:
+            return existing
+        self.artifacts.write_json(relative, data, lock=lock)
+        return data
+
+    def _write_or_reuse_text(self, relative: str, text: str, *, lock: bool = False) -> str:
+        existing = self._artifact_text(relative)
+        if existing is not None:
+            return existing
+        self.artifacts.write_text(relative, text, lock=lock)
+        return text
+
+    def _completed_result(self) -> dict[str, Any] | None:
+        if not self.continuing or self.state.phase != Phase.COMPLETE.value:
+            return None
+        path = self.run_root / "delivery" / "final-result.json"
+        if path.is_file():
+            data = read_json(path)
+            if isinstance(data, dict):
+                return data
+        return None
 
     def _next_call_name(self, role: str) -> str:
         with self._call_lock:
@@ -173,36 +273,95 @@ class Orchestrator:
         cwd: Path | None = None,
         packet_root: Path | None = None,
         call_name: str | None = None,
+        validator: Callable[[dict], None] | None = None,
     ) -> dict:
         name = call_name or self._next_call_name(role)
         repo = cwd or self.workspace
         if repo is None:
             raise RuntimeError("Workspace has not been created.")
+        context_requests = list(context)
         token_prompt = token_mode_prompt()
         if token_prompt:
             instructions = token_prompt + "\n\n" + instructions
-        compiler = self._compiler(repo=repo, packet_root=packet_root)
-        packet = compiler.compile(
+        metadata = metadata or {}
+        allowed_paths = metadata.get("task", {}).get("allowed_paths", [])
+        job = self.job_store.create_or_load_job(
             name,
-            instructions=instructions,
-            requests=context,
-            metadata={"role": role, **(metadata or {})},
-        )
-        output = self.output_root / f"{name}.json"
-        compiler.validate_freshness(read_json(packet / "manifest.json"))
-        request = AgentRequest(
             role=role,
-            prompt_path=packet / "prompt.md",
-            schema_path=asset_path(f"schemas/{schema}"),
-            output_path=output,
-            cwd=repo,
+            schema=schema,
+            instructions=instructions,
+            context=context_requests,
+            allowed_paths=allowed_paths,
+            dependencies=metadata.get("dependencies", []),
+            metadata=metadata,
             sandbox=sandbox,
-            timeout_seconds=int(self.config["agent"]["timeout_seconds"]),
-            metadata=metadata or {},
         )
-        response = self.adapter.run(request)
-        self.artifacts.write_json(f"agent/{name}.json", response.data)
-        return response.data
+        if job.status == JobStatus.COMPLETE.value:
+            completed = self.job_store.completed_data(name, self.artifacts.root)
+            if completed is not None:
+                return completed
+
+        max_attempts = max(1, int(self.config.get("orchestration", {}).get("max_worker_attempts", 2)))
+        attempt_limit = len(self.job_store.attempts_for(name)) + max_attempts
+        last_error: Exception | None = None
+        while len(self.job_store.attempts_for(name)) < attempt_limit:
+            attempt = self.job_store.begin_attempt(name)
+            try:
+                attempt_packet_root = packet_root or (self.packet_root / name)
+                compiler = self._compiler(repo=repo, packet_root=attempt_packet_root)
+                packet = compiler.compile(
+                    attempt.attempt_id,
+                    instructions=instructions,
+                    requests=context_requests,
+                    metadata={"role": role, "job_id": name, "attempt_id": attempt.attempt_id, **metadata},
+                )
+                self.job_store.record_packet(name, attempt.attempt_id, packet_path=packet)
+                output = self.output_root / name / f"{attempt.attempt_id}.json"
+                compiler.validate_freshness(read_json(packet / "manifest.json"))
+                request = AgentRequest(
+                    role=role,
+                    prompt_path=packet / "prompt.md",
+                    schema_path=asset_path(f"schemas/{schema}"),
+                    output_path=output,
+                    cwd=repo,
+                    sandbox=sandbox,
+                    timeout_seconds=int(self.config["agent"]["timeout_seconds"]),
+                    metadata=metadata,
+                )
+                response = self.adapter.run(request)
+                if validator is not None:
+                    validator(response.data)
+                artifact_relative = f"agent/{name}.json"
+                artifact = self.artifacts.write_json(artifact_relative, response.data)
+                self.job_store.complete_attempt(
+                    name,
+                    attempt.attempt_id,
+                    output_path=output,
+                    data=response.data,
+                    command=response.command,
+                    stdout=response.stdout,
+                    stderr=response.stderr,
+                )
+                self.job_store.complete_job(
+                    name,
+                    output_artifact=artifact_relative,
+                    data=response.data,
+                    artifact_path=self.artifacts.root / artifact.path,
+                )
+                return response.data
+            except ContextBudgetError as exc:
+                self.job_store.fail_attempt(name, attempt.attempt_id, exc)
+                self.job_store.block_job(name, exc)
+                raise
+            except Exception as exc:
+                last_error = exc
+                self.job_store.fail_attempt(name, attempt.attempt_id, exc)
+                if len(self.job_store.attempts_for(name)) >= max_attempts:
+                    self.job_store.fail_job(name, exc)
+                    raise
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(f"Worker job did not run: {name}")
 
     def _documentation_context(self, inventory: list[dict]) -> list[ContextRequest]:
         preferred = []
@@ -365,12 +524,15 @@ class Orchestrator:
             }
 
     def _document_intelligence(self, *, brief: str, inventory: dict[str, Any]) -> dict:
+        existing = self._artifact_json("discovery/document-intelligence.json")
+        if existing is not None:
+            return existing
         cfg = self.config.get("integrations", {})
         manifest = build_document_manifest(
             inventory,
             max_single_file_tokens=int(self.config["context"]["max_single_file_tokens"]),
         )
-        self.artifacts.write_json("discovery/document-manifest.json", manifest, lock=True)
+        manifest = self._write_or_reuse_json("discovery/document-manifest.json", manifest, lock=True)
 
         values = self._external_values(brief=brief)
         document_state_dir = self.artifacts.root / "discovery" / "document-state"
@@ -422,6 +584,9 @@ class Orchestrator:
         return payload
 
     def _external_intelligence(self, brief: str, inventory: dict[str, Any]) -> dict:
+        existing = self._artifact_json("discovery/external-intelligence.json")
+        if existing is not None:
+            return existing
         cfg = self.config.get("integrations", {})
         values = self._external_values(brief=brief)
         document_intelligence = self._document_intelligence(brief=brief, inventory=inventory)
@@ -662,11 +827,14 @@ class Orchestrator:
         }
 
     def _map_repository(self, inventory: list[dict], brief: str) -> dict:
+        existing = self._artifact_json("planning/system-map.json")
+        if existing is not None:
+            return existing
         cache_path = self._system_map_cache_path()
         cached = load_system_map_cache(cache_path, inventory=inventory, brief=brief)
         if cached is not None:
-            self.artifacts.write_json("planning/system-map.json", cached, lock=True)
-            self.artifacts.write_json(
+            self._write_or_reuse_json("planning/system-map.json", cached, lock=True)
+            self._write_or_reuse_json(
                 "planning/system-map-cache.json",
                 {"status": "hit", "path": str(cache_path)},
                 lock=True,
@@ -748,9 +916,9 @@ class Orchestrator:
             ),
             metadata={"all_paths": [item["path"] for item in inventory]},
         )
-        self.artifacts.write_json("planning/system-map.json", reduced, lock=True)
+        self._write_or_reuse_json("planning/system-map.json", reduced, lock=True)
         write_system_map_cache(cache_path, inventory=inventory, brief=brief, system_map=reduced)
-        self.artifacts.write_json(
+        self._write_or_reuse_json(
             "planning/system-map-cache.json",
             {"status": "miss", "path": str(cache_path)},
             lock=True,
@@ -836,20 +1004,28 @@ class Orchestrator:
             if token_prompt:
                 instructions = token_prompt + "\n\n" + instructions
             name = names[offset]
-            compiler = self._compiler(repo=review_repo, packet_root=review_packet_root)
-            packet = compiler.compile(name, instructions=instructions, requests=context)
-            output = self.output_root / f"{name}.json"
-            request = AgentRequest(
+            before = inventory_hashes(review_repo, self.runner)
+
+            def validate_review_worker(data: dict) -> None:
+                after = inventory_hashes(review_repo, self.runner)
+                if before != after:
+                    changed = sorted(set(before) | set(after))
+                    changed = [item for item in changed if before.get(item) != after.get(item)]
+                    raise SafetyError("Reviewer mutated its isolated repository: " + ", ".join(changed))
+                validate_review_evidence(data, review_repo)
+
+            return self._call(
                 role="reviewer",
-                prompt_path=packet / "prompt.md",
-                schema_path=asset_path("schemas/review.schema.json"),
-                output_path=output,
+                schema="review.schema.json",
+                instructions=instructions,
+                context=context,
                 cwd=review_repo,
                 sandbox="read-only",
-                timeout_seconds=int(self.config["agent"]["timeout_seconds"]),
+                packet_root=review_packet_root / name,
                 metadata={"chunk_index": index, "chunk_count": len(chunks)},
+                call_name=name,
+                validator=validate_review_worker,
             )
-            return run_isolated_review(adapter=self.adapter, request=request, runner=self.runner)
 
         review_outputs = self._parallel_map(
             chunks,
@@ -891,6 +1067,9 @@ class Orchestrator:
         external_intelligence: dict[str, Any] | None = None
         external_review_repair: dict[str, Any] | None = None
         try:
+            completed = self._completed_result()
+            if completed is not None:
+                return completed
             if mode not in {"build", "repair"}:
                 raise ValidationError("Mode must be 'build' or 'repair'.")
             brief_path = brief_path.resolve()
@@ -901,54 +1080,66 @@ class Orchestrator:
                 raise ValidationError("Product brief is empty.")
 
             self._transition(Phase.INTAKE, "Captured product request and pending ideas")
-            pending_ideas = IdeaInbox(self.source_repo).attach_pending(self.run_id)
-            self.artifacts.write_text("intake/product-brief.md", brief, lock=True)
-            self.artifacts.write_json("intake/pending-ideas.json", pending_ideas, lock=True)
+            self._write_or_reuse_text("intake/product-brief.md", brief, lock=True)
+            pending_ideas = self._artifact_json("intake/pending-ideas.json")
+            if pending_ideas is None:
+                pending_ideas = IdeaInbox(self.source_repo).attach_pending(self.run_id)
+                self.artifacts.write_json("intake/pending-ideas.json", pending_ideas, lock=True)
 
             self._transition(Phase.DISCOVERY, "Created isolated source mirror and inventory")
-            self.workspace = self.mirror.create()
-            raw_inventory = inventory_summary(
-                build_inventory(
-                    self.workspace,
-                    self.runner,
-                    float(self.config["context"]["chars_per_token"]),
-                    summary_cache_path=self._summary_cache_path(),
+            if self.workspace is None:
+                self.workspace = self.mirror.create()
+            existing_inventory = self._artifact_json("discovery/inventory.json")
+            if existing_inventory is not None:
+                raw_inventory = existing_inventory
+            else:
+                raw_inventory = inventory_summary(
+                    build_inventory(
+                        self.workspace,
+                        self.runner,
+                        float(self.config["context"]["chars_per_token"]),
+                        summary_cache_path=self._summary_cache_path(),
+                    )
                 )
-            )
-            raw_inventory["summary_cache"] = str(self._summary_cache_path())
+                raw_inventory["summary_cache"] = str(self._summary_cache_path())
+                self.artifacts.write_json("discovery/inventory.json", raw_inventory, lock=True)
             inventory_files = raw_inventory["files"]
-            self.artifacts.write_json("discovery/inventory.json", raw_inventory, lock=True)
 
             obsidian = ObsidianIntegration(
                 self.config["integrations"].get("obsidian_vault", ""),
                 self.config["integrations"].get("obsidian_export_folder", "MANAGEROO"),
             )
-            memory = obsidian.search(brief)
-            self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
+            memory = self._artifact_json("discovery/obsidian-context.json")
+            if memory is None:
+                memory = obsidian.search(brief)
+                self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
             external_intelligence = self._external_intelligence(brief, raw_inventory)
 
-            product = self._call(
-                role="product-analyst",
-                schema="product-model.schema.json",
-                instructions=(
-                    "# Product analysis role\n\n"
-                    "Convert the operator's normal-language brief into a complete product model. "
-                    "The operator is the product authority but is not expected to review code. "
-                    "Infer conventional, reversible details. Raise a blocking decision only when "
-                    "guessing could cause irreversible data loss, legal exposure, meaningful cost, "
-                    "security boundary changes, or a materially different product. "
-                    "Do not write implementation code.\n\n"
-                    f"Mode: {mode}\n\n"
-                    f"Product brief:\n{brief}\n\n"
-                    f"Captured evolving ideas:\n{_compact_json(pending_ideas)}\n\n"
-                    f"Relevant human notes:\n{_compact_json(memory)}\n\n"
-                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
-                    f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
-                ),
-                context=self._documentation_context(inventory_files),
-            )
-            product, unresolved = self._resolve_decisions(product)
-            self.artifacts.write_json("planning/product-model.json", product, lock=not unresolved)
+            product = self._artifact_json("planning/product-model.json")
+            unresolved: list[dict] = []
+            if product is None:
+                product = self._call(
+                    role="product-analyst",
+                    schema="product-model.schema.json",
+                    instructions=(
+                        "# Product analysis role\n\n"
+                        "Convert the operator's normal-language brief into a complete product model. "
+                        "The operator is the product authority but is not expected to review code. "
+                        "Infer conventional, reversible details. Raise a blocking decision only when "
+                        "guessing could cause irreversible data loss, legal exposure, meaningful cost, "
+                        "security boundary changes, or a materially different product. "
+                        "Do not write implementation code.\n\n"
+                        f"Mode: {mode}\n\n"
+                        f"Product brief:\n{brief}\n\n"
+                        f"Captured evolving ideas:\n{_compact_json(pending_ideas)}\n\n"
+                        f"Relevant human notes:\n{_compact_json(memory)}\n\n"
+                        f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
+                        f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
+                    ),
+                    context=self._documentation_context(inventory_files),
+                )
+                product, unresolved = self._resolve_decisions(product)
+                self.artifacts.write_json("planning/product-model.json", product, lock=not unresolved)
             self._transition(Phase.DECISIONS, "Applied deterministic reversible-decision policy")
             if unresolved:
                 self.artifacts.write_json("planning/blocking-decisions.json", {"decisions": unresolved}, lock=True)
@@ -961,119 +1152,129 @@ class Orchestrator:
                 )
 
             self._transition(Phase.REUSE_RESEARCH, "Evaluating reuse before custom implementation")
-            reuse = self._call(
-                role="reuse-researcher",
-                schema="reuse-report.schema.json",
-                instructions=(
-                    "# Reuse-first research role\n\n"
-                    "Before custom code is authorized, inspect the repository and identify existing "
-                    "internal capabilities, platform-native functions, and maintained dependencies "
-                    "that can satisfy each need. Prefer repository-owned and already-approved "
-                    "components. Record license uncertainty rather than inventing facts. "
-                    "Do not install anything and do not edit the repository.\n\n"
-                    f"Product model:\n{_compact_json(product)}\n\n"
-                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
-                    f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
-                ),
-                context=self._documentation_context(inventory_files),
-            )
-            self.artifacts.write_json("planning/reuse-report.json", reuse, lock=True)
+            reuse = self._artifact_json("planning/reuse-report.json")
+            if reuse is None:
+                reuse = self._call(
+                    role="reuse-researcher",
+                    schema="reuse-report.schema.json",
+                    instructions=(
+                        "# Reuse-first research role\n\n"
+                        "Before custom code is authorized, inspect the repository and identify existing "
+                        "internal capabilities, platform-native functions, and maintained dependencies "
+                        "that can satisfy each need. Prefer repository-owned and already-approved "
+                        "components. Record license uncertainty rather than inventing facts. "
+                        "Do not install anything and do not edit the repository.\n\n"
+                        f"Product model:\n{_compact_json(product)}\n\n"
+                        f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
+                        f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
+                    ),
+                    context=self._documentation_context(inventory_files),
+                )
+                self.artifacts.write_json("planning/reuse-report.json", reuse, lock=True)
 
             self._transition(Phase.SYSTEM_MAPPING, "Mapping repository through bounded map/reduce packets")
             system_map = self._map_repository(inventory_files, brief)
 
             self._transition(Phase.PLAN_COMPILE, "Compiling complete dependency-ordered task graph")
-            gate_ids = list(self._gate_catalog())
-            plan = self._call(
-                role="plan-compiler",
-                schema="task-plan.schema.json",
-                instructions=(
-                    "# Plan compiler role\n\n"
-                    "Compile the entire requested change before implementation. Produce bounded, "
-                    "dependency-ordered tasks with exact allowed paths, context paths, acceptance "
-                    "criteria, and references only to the provided deterministic gate IDs. "
-                    "Do not invent shell commands. Prefer sequential correctness over speculative "
-                    "parallelism. Every interface shared by tasks must be explicit. "
-                    "No implementation may begin until this plan survives review.\n\n"
-                    f"Product model:\n{_compact_json(product)}\n\n"
-                    f"Reuse report:\n{_compact_json(reuse)}\n\n"
-                    f"System map:\n{_compact_json(system_map)}\n\n"
-                    f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
-                    f"Available gate IDs: {gate_ids}"
-                ),
-                metadata={
-                    "gate_ids": gate_ids,
-                    "fixture_target": "manageroo_fixture.txt",
-                },
-            )
-
-            max_cycles = int(self.config["project"]["max_plan_review_cycles"])
-            while True:
-                deterministic_plan_findings = self._plan_context_preflight(plan, inventory_files)
-                self._transition(Phase.PLAN_REVIEW, "Independent plan review")
-                plan_review = self._call(
-                    role="plan-reviewer",
-                    schema="plan-review.schema.json",
-                    instructions=(
-                        "# Adversarial plan review\n\n"
-                        "Review the complete plan before code exists. Look for missing product "
-                        "capabilities, incompatible interfaces, dependency cycles, untestable "
-                        "acceptance criteria, excessive scope, unsafe migrations, and context packets "
-                        "that are too broad. Do not rewrite the plan; report exact findings.\n\n"
-                        f"Product model:\n{_compact_json(product)}\n\n"
-                        f"Reuse report:\n{_compact_json(reuse)}\n\n"
-                        f"System map:\n{_compact_json(system_map)}\n\n"
-                        f"Proposed plan:\n{_compact_json(plan)}\n\n"
-                        f"Deterministic context preflight findings:\n"
-                        f"{_compact_json(deterministic_plan_findings)}"
-                    ),
-                )
-                if deterministic_plan_findings:
-                    plan_review = {
-                        "status": "changes-required",
-                        "summary": (
-                            plan_review.get("summary", "")
-                            + " Controller context preflight requires plan decomposition."
-                        ).strip(),
-                        "findings": plan_review.get("findings", [])
-                        + deterministic_plan_findings,
-                    }
-                if plan_review["status"] == "approved":
-                    break
-                self.state.plan_review_cycles += 1
-                self.state.save(self.state_path)
-                if self.state.plan_review_cycles >= max_cycles:
-                    raise ValidationError("Plan review did not converge within the configured limit.")
-                self._transition(Phase.PLAN_COMPILE, "Repairing plan-review findings")
+            plan = self._artifact_json("planning/task-plan.json")
+            plan_review = self._artifact_json("planning/plan-review.json")
+            if plan is None or plan_review is None:
+                gate_ids = list(self._gate_catalog())
                 plan = self._call(
                     role="plan-compiler",
                     schema="task-plan.schema.json",
                     instructions=(
-                        "# Plan repair\n\n"
-                        "Repair the proposed plan using the verified review findings. Preserve the "
-                        "product model and system boundaries. Return a complete replacement plan.\n\n"
+                        "# Plan compiler role\n\n"
+                        "Compile the entire requested change before implementation. Produce bounded, "
+                        "dependency-ordered tasks with exact allowed paths, context paths, acceptance "
+                        "criteria, and references only to the provided deterministic gate IDs. "
+                        "Do not invent shell commands. Prefer sequential correctness over speculative "
+                        "parallelism. Every interface shared by tasks must be explicit. "
+                        "No implementation may begin until this plan survives review.\n\n"
                         f"Product model:\n{_compact_json(product)}\n\n"
+                        f"Reuse report:\n{_compact_json(reuse)}\n\n"
                         f"System map:\n{_compact_json(system_map)}\n\n"
-                        f"Previous plan:\n{_compact_json(plan)}\n\n"
-                        f"Plan review:\n{_compact_json(plan_review)}\n\n"
+                        f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
                         f"Available gate IDs: {gate_ids}"
                     ),
-                    metadata={"gate_ids": gate_ids, "fixture_target": "manageroo_fixture.txt"},
+                    metadata={
+                        "gate_ids": gate_ids,
+                        "fixture_target": "manageroo_fixture.txt",
+                    },
                 )
+
+                max_cycles = int(self.config["project"]["max_plan_review_cycles"])
+                while True:
+                    deterministic_plan_findings = self._plan_context_preflight(plan, inventory_files)
+                    self._transition(Phase.PLAN_REVIEW, "Independent plan review")
+                    plan_review = self._call(
+                        role="plan-reviewer",
+                        schema="plan-review.schema.json",
+                        instructions=(
+                            "# Adversarial plan review\n\n"
+                            "Review the complete plan before code exists. Look for missing product "
+                            "capabilities, incompatible interfaces, dependency cycles, untestable "
+                            "acceptance criteria, excessive scope, unsafe migrations, and context packets "
+                            "that are too broad. Do not rewrite the plan; report exact findings.\n\n"
+                            f"Product model:\n{_compact_json(product)}\n\n"
+                            f"Reuse report:\n{_compact_json(reuse)}\n\n"
+                            f"System map:\n{_compact_json(system_map)}\n\n"
+                            f"Proposed plan:\n{_compact_json(plan)}\n\n"
+                            f"Deterministic context preflight findings:\n"
+                            f"{_compact_json(deterministic_plan_findings)}"
+                        ),
+                    )
+                    if deterministic_plan_findings:
+                        plan_review = {
+                            "status": "changes-required",
+                            "summary": (
+                                plan_review.get("summary", "")
+                                + " Controller context preflight requires plan decomposition."
+                            ).strip(),
+                            "findings": plan_review.get("findings", [])
+                            + deterministic_plan_findings,
+                        }
+                    if plan_review["status"] == "approved":
+                        break
+                    self.state.plan_review_cycles += 1
+                    self.state.save(self.state_path)
+                    if self.state.plan_review_cycles >= max_cycles:
+                        raise ValidationError("Plan review did not converge within the configured limit.")
+                    self._transition(Phase.PLAN_COMPILE, "Repairing plan-review findings")
+                    plan = self._call(
+                        role="plan-compiler",
+                        schema="task-plan.schema.json",
+                        instructions=(
+                            "# Plan repair\n\n"
+                            "Repair the proposed plan using the verified review findings. Preserve the "
+                            "product model and system boundaries. Return a complete replacement plan.\n\n"
+                            f"Product model:\n{_compact_json(product)}\n\n"
+                            f"System map:\n{_compact_json(system_map)}\n\n"
+                            f"Previous plan:\n{_compact_json(plan)}\n\n"
+                            f"Plan review:\n{_compact_json(plan_review)}\n\n"
+                            f"Available gate IDs: {gate_ids}"
+                        ),
+                        metadata={"gate_ids": gate_ids, "fixture_target": "manageroo_fixture.txt"},
+                    )
 
             _topological_tasks(plan["tasks"])
             for task in plan["tasks"]:
                 self._gates_for_ids(task["gate_ids"])
                 for path in task["allowed_paths"] + task["context_paths"]:
                     safe_repo_relative(path)
-            self.artifacts.write_json("planning/task-plan.json", plan, lock=True)
-            self.artifacts.write_json("planning/plan-review.json", plan_review, lock=True)
+            self._write_or_reuse_json("planning/task-plan.json", plan, lock=True)
+            self._write_or_reuse_json("planning/plan-review.json", plan_review, lock=True)
             self._transition(Phase.CONTRACT_LOCKED, "Product, system map, and task plan are immutable")
             self.artifacts.verify_locked()
 
             self._transition(Phase.IMPLEMENTING, "Executing bounded tasks in dependency order")
             task_evidence: list[dict] = []
             for task in _topological_tasks(plan["tasks"]):
+                task_artifact = f"implementation/tasks/{_artifact_fragment(str(task['id']))}.json"
+                existing_task_evidence = self._artifact_json(task_artifact)
+                if existing_task_evidence is not None:
+                    task_evidence.append(existing_task_evidence)
+                    continue
                 self.artifacts.verify_locked()
                 before_head = self.mirror.head()
                 requests = []
@@ -1120,16 +1321,16 @@ class Orchestrator:
                 task_gates = self._gates_for_ids(task["gate_ids"])
                 gate_results = self._run_gates(task_gates, self.workspace)
                 checkpoint = self.mirror.checkpoint(f"MANAGEROO controller checkpoint {task['id']}")
-                task_evidence.append(
-                    {
-                        "task": task,
-                        "implementation": implementation,
-                        "changed_paths": actual,
-                        "gates": gate_results,
-                        "checkpoint": checkpoint,
-                    }
-                )
-            self.artifacts.write_json("implementation/task-evidence.json", task_evidence, lock=True)
+                evidence_entry = {
+                    "task": task,
+                    "implementation": implementation,
+                    "changed_paths": actual,
+                    "gates": gate_results,
+                    "checkpoint": checkpoint,
+                }
+                self.artifacts.write_json(task_artifact, evidence_entry, lock=True)
+                task_evidence.append(evidence_entry)
+            self._write_or_reuse_json("implementation/task-evidence.json", task_evidence, lock=True)
 
             self._transition(Phase.VERIFYING, "Running the complete deterministic gate catalog")
             all_gates = list(self._gate_catalog().values())

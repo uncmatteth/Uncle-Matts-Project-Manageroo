@@ -21,4 +21,6 @@
 19. MANAGEROO does not run cloud schedules or timer loops by itself. Loop and routine patterns are adapted into bounded local goal-style runs unless the operator supplies a separate scheduler.
 20. The learning lane records suggestions and can approval-apply low-risk project-memory notes. It does not silently edit skills, docs, config, installer behavior, checks, prompts, or code.
 21. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
-22. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.
+22. `run --continue <run-id>` continues Manageroo's saved worker job queue from disk. It replays the controller from saved artifacts and job records; it is not a terminal keepalive feature and does not promise that a killed OS process kept running.
+23. Stateless worker orchestration reduces dependence on chat memory and compaction. It does not make probabilistic model output deterministic; it records packets, attempts, artifacts, checks, and failures so bad attempts can be thrown away.
+24. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.

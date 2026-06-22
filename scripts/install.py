@@ -1057,6 +1057,8 @@ def print_lane_explainer() -> None:
     print("  - Memory lane: if the brief asks for GBrain, memory, Obsidian, or prior decisions, map GBrain sources before the run.")
     print("  - Document/prose lane: if the brief asks for PDFs, transcripts, screenshots, images, long prose, or exact wording, configure document_analysis_command first.")
     print("  - Intent lock lane: solo captures what you want, must-not rules, proof, rejected ideas, and corrections; compacted handoffs should pass compaction audit.")
+    print("  - Stateless worker lane: MANAGEROO is not AI remembers better; it saves truth on disk and gives each disposable worker one complete packet.")
+    print("  - Continue lane: manageroo run --continue <run-id> replays saved controller facts and gives unfinished jobs a fresh packet.")
     print("  - Passive files: if the repo merely contains documents or media, ready prints WARN but does not block.")
     print("  - AUTOREVIEW/Clawpatch lane: if configured, those commands own their findings and repairs; the AI must not freehand fixes from them.")
     print("  - Where to read more: docs/SOLO_OPERATOR_MODE.md, docs/CONTEXT_COMPILER.md, docs/DOCUMENT_LANE.md, docs/REVIEW_REPAIR_LANES.md, docs/EXTERNAL_INTEGRATIONS.md")
@@ -1329,6 +1331,8 @@ def main() -> int:
             "dependency_policy": (
                 "Core install is MANAGEROO. Real runs require a configured agent "
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
+                "MANAGEROO is not AI remembers better; it saves truth on disk and "
+                "hands disposable workers complete packets. "
                 "The recommended skill pack is optional but strongly suggested because it "
                 "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
                 "memory lookup, source ingest, media/PDF handling, long prose, exact text, "

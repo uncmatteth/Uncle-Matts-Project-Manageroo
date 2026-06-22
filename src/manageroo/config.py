@@ -34,6 +34,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "orchestration": {
         "max_parallel_agent_calls": 4,
+        "max_worker_attempts": 2,
         "parallel_mapping": True,
         "parallel_review": True,
     },
@@ -186,6 +187,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "",
         "[orchestration]",
         "max_parallel_agent_calls = 4",
+        "max_worker_attempts = 2",
         "parallel_mapping = true",
         "parallel_review = true",
         "",

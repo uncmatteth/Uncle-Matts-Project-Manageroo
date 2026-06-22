@@ -107,7 +107,7 @@ class ExternalIntelligenceTests(unittest.TestCase):
             )
             self.assertIn("gbrain-search", external["summary"]["passed"])
             self.assertIn("gitnexus-query", external["summary"]["failed_optional"])
-            prompt = next((run_root / "packets").glob("*product-analyst/prompt.md"))
+            prompt = next((run_root / "packets").glob("*product-analyst/*/prompt.md"))
             prompt_text = prompt.read_text(encoding="utf-8")
             self.assertIn("External repo intelligence", prompt_text)
             self.assertIn("GBRAIN HIT:", prompt_text)

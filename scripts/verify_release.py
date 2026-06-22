@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
+EXCLUDED_PARTS = {".git", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
 
 
 def stable_command_output(output: str) -> str:
@@ -48,7 +49,7 @@ def source_files() -> list[Path]:
         path
         for path in ROOT.rglob("*")
         if path.is_file()
-        and not any(part in {".git", ".venv", "__pycache__", "dist", "build"} for part in path.parts)
+        and not any(part in EXCLUDED_PARTS for part in path.parts)
         and path.relative_to(ROOT).as_posix() not in GENERATED
     )
 
@@ -66,7 +67,7 @@ def tree_hash() -> str:
 def process_safety_violations() -> list[str]:
     violations: list[str] = []
     for path in sorted(ROOT.rglob("*.py")):
-        if any(part in {".git", ".venv", "__pycache__", "dist", "build"} for part in path.parts):
+        if any(part in EXCLUDED_PARTS for part in path.parts):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
@@ -102,11 +103,13 @@ def structural_checks() -> list[dict]:
         "docs/LIMITATIONS.md",
         "docs/REVIEW_REPAIR_LANES.md",
         "docs/SOLO_OPERATOR_MODE.md",
+        "docs/STATELESS_ORCHESTRATION.md",
         "docs/TERMINAL_EXPERIENCE.md",
         "src/manageroo/branding.py",
         "src/manageroo/checks.py",
         "src/manageroo/chiptune.py",
         "src/manageroo/document_lane.py",
+        "src/manageroo/jobs.py",
         "src/manageroo/learning.py",
         "src/manageroo/next_action.py",
         "src/manageroo/project_memory.py",
@@ -139,14 +142,18 @@ def structural_checks() -> list[dict]:
         "src/manageroo/assets/skills/voice-note-ingest/SKILL.md",
         "tests/test_cli_next.py",
         "tests/test_document_lane.py",
+        "tests/test_job_runner.py",
+        "tests/test_jobs.py",
         "tests/test_cli_memory.py",
         "tests/test_learning.py",
+        "tests/test_orchestrator_jobs.py",
         "tests/test_truth_contract.py",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     limitations = (ROOT / "docs" / "LIMITATIONS.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    stateless = (ROOT / "docs" / "STATELESS_ORCHESTRATION.md").read_text(encoding="utf-8")
     review_repair = (ROOT / "docs" / "REVIEW_REPAIR_LANES.md").read_text(encoding="utf-8")
     installer = (ROOT / "scripts" / "install.py").read_text(encoding="utf-8")
     project = (ROOT / "src" / "manageroo" / "project.py").read_text(encoding="utf-8")
@@ -213,6 +220,13 @@ def structural_checks() -> list[dict]:
                 "ok": contains_compact(
                     limitations,
                     "does not silently edit skills, docs, config, installer behavior, checks, prompts, or code",
+                ),
+            },
+            {
+                "name": "truth:stateless-worker-orchestration",
+                "ok": contains_compact(
+                    stateless,
+                    'Manageroo is not "AI remembers better." Manageroo makes remembering unnecessary.',
                 ),
             },
             {

@@ -17,7 +17,7 @@ step can rely on it.
 Every role receives a packet directory:
 
 ```text
-packets/NNN-role/
+packets/<job-id>/<attempt-id>/
 ├── prompt.md
 └── manifest.json
 ```
@@ -52,6 +52,10 @@ The manifest records:
 10. Oversized prose can be included through explicit summary mode; full required prose still must be sliced or decomposed.
 11. Intent locks are audited with a strict phrase-preservation audit before a
     compact summary is trusted.
+12. Worker jobs are stateless. A retry receives a fresh packet generated from
+    controller-owned facts, not from the previous worker's memory.
+13. Completed jobs are loaded from recorded artifacts and hashes, not rerun from
+    a compacted chat summary.
 
 ## Intent lock and compaction audit
 

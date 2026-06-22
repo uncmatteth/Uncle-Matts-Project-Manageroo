@@ -15,6 +15,9 @@ Not every control is equally strong. This document distinguishes prevention from
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change | Artifact hash ledger | Detective, blocks next phase |
 | Compaction cannot drop must-not rules | Intent lock plus compaction audit | Detective, blocks continuation |
+| Worker memory cannot become run truth | Durable job store, packet manifests, artifact hashes | Preventive in controller |
+| Failed worker attempt is not treated as completion | Worker-attempt records plus retry/failed-job status | Preventive in controller |
+| Completed worker job is not casually repeated | Completed job artifact hash check | Detective, blocks stale reuse |
 | Stale context cannot be reused | Source hashes in packet manifest | Detective, blocks execution |
 | Required context cannot disappear | Budget compiler raises instead of truncating | Preventive |
 | Model cannot mark run complete | Controller state machine | Preventive |
