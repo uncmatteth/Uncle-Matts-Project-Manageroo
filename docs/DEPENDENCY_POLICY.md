@@ -72,6 +72,11 @@ leave it out and install it later with `umsmfburasbofe skills install`.
 - `write-a-skill` for making a repeated workflow into a concise reusable skill.
 - `edit-skill` for keeping local skills short, clear, and non-duplicative.
 - `skillify` for deciding whether a workflow deserves a skill and checking its proof.
+- `diagnose` for broken, flaky, confusing, or slow behavior.
+- `tdd` for one behavior test at a time.
+- `autoreview` for closeout code review before commit, release, or handoff.
+- `plain-web-copy` for factual public copy.
+- `fix-my-bad-website` for website and app-screen cleanup when the page looks generic.
 - `caveman` for clean compressed output.
 - `uncle-matts-caveman-curse` for compressed output with profanity when selected.
 

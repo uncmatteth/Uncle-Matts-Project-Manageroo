@@ -20,6 +20,11 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("edit-skill", installed)
             self.assertIn("write-a-skill", installed)
             self.assertIn("skillify", installed)
+            self.assertIn("diagnose", installed)
+            self.assertIn("tdd", installed)
+            self.assertIn("autoreview", installed)
+            self.assertIn("plain-web-copy", installed)
+            self.assertIn("fix-my-bad-website", installed)
             self.assertIn("caveman", installed)
             self.assertIn("uncle-matts-caveman-curse", installed)
             self.assertIn(
@@ -30,6 +35,11 @@ class TokenModeTests(unittest.TestCase):
             editor = Path(temp) / "edit-skill" / "SKILL.md"
             writer = Path(temp) / "write-a-skill" / "SKILL.md"
             skillify = Path(temp) / "skillify" / "SKILL.md"
+            diagnose = Path(temp) / "diagnose" / "SKILL.md"
+            tdd = Path(temp) / "tdd" / "SKILL.md"
+            autoreview = Path(temp) / "autoreview" / "SKILL.md"
+            plain_web_copy = Path(temp) / "plain-web-copy" / "SKILL.md"
+            fix_website = Path(temp) / "fix-my-bad-website" / "SKILL.md"
             controller = (
                 Path(temp)
                 / "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
@@ -39,6 +49,11 @@ class TokenModeTests(unittest.TestCase):
             self.assertTrue(editor.exists())
             self.assertTrue(writer.exists())
             self.assertTrue(skillify.exists())
+            self.assertTrue(diagnose.exists())
+            self.assertTrue(tdd.exists())
+            self.assertTrue(autoreview.exists())
+            self.assertTrue(plain_web_copy.exists())
+            self.assertTrue(fix_website.exists())
             self.assertTrue((Path(temp) / "caveman" / "SKILL.md").exists())
             self.assertTrue((Path(temp) / "uncle-matts-caveman-curse" / "SKILL.md").exists())
             self.assertTrue(controller.exists())
@@ -46,6 +61,11 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("duplicate instructions", editor.read_text(encoding="utf-8"))
             self.assertIn("Create a new local agent skill", writer.read_text(encoding="utf-8"))
             self.assertIn("Skillify only when", skillify.read_text(encoding="utf-8"))
+            self.assertIn("Build a feedback loop first", diagnose.read_text(encoding="utf-8"))
+            self.assertIn("one behavior test", tdd.read_text(encoding="utf-8"))
+            self.assertIn("closeout code review", autoreview.read_text(encoding="utf-8"))
+            self.assertIn("truth before tone", plain_web_copy.read_text(encoding="utf-8"))
+            self.assertIn("not generic AI output", fix_website.read_text(encoding="utf-8"))
             self.assertIn("Do not make the user remember skill names", controller.read_text(encoding="utf-8"))
 
     def test_installs_bundled_caveman_skills(self):

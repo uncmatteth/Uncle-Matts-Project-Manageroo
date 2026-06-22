@@ -37,6 +37,9 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
   `pimp-my-prompt` skill helps turn it into exact scope, proof, and stop rules
   without losing what you meant.
 - `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
+- The recommended skill pack gives agents built-in lanes for rough intake,
+  debugging, test-first work, closeout review, public copy, website cleanup,
+  reusable skills, and token compression.
 - If GBrain or GitNexus commands are configured, it asks them for useful memory
   or code-graph context during discovery and records what worked or failed.
 - Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
@@ -258,6 +261,16 @@ The recommended skill pack is installed under `~/.agents/skills`:
   coming back.
 - `skillify`: checks whether a feature or repeated habit deserves to become a
   proper skill, then makes sure there is proof.
+- `diagnose`: builds a fast feedback loop before fixing bugs, flakes, crashes,
+  or confusing failures.
+- `tdd`: uses one behavior test at a time when behavior should be protected by
+  proof.
+- `autoreview`: runs the closeout review lane before commit, release, or
+  handoff.
+- `plain-web-copy`: keeps public copy factual, readable, and free of fake-live
+  hype.
+- `fix-my-bad-website`: helps agents make web pages feel like the actual
+  product instead of generic AI output.
 - `caveman`: clean compressed output.
 - `uncle-matts-caveman-curse`: compressed output with the funny profane mode.
 
@@ -397,7 +410,8 @@ umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
 Import copies only `SKILL.md` files into `~/.agents/skills`. If a different
 local skill already exists, it is backed up before replacement.
 
-Then a compatible agent can call `$pimp-my-prompt`, `$write-a-skill`,
+Then a compatible agent can call `$pimp-my-prompt`, `$diagnose`, `$tdd`,
+`$autoreview`, `$plain-web-copy`, `$fix-my-bad-website`, `$write-a-skill`,
 `$edit-skill`, `$skillify`, `$caveman`, or `$uncle-matts-caveman-curse`
 directly. The repo-local UMSMFBURASBOFE skill tells agents when to use each one,
 so the user does not have to remember the list.
@@ -549,6 +563,9 @@ This was built around the local agent stack you actually wanted:
 - Matthew Berman / Forward Future's Loop Library as a reference for clear
   agent loops, checks, and stopping conditions.
 - `pimp-my-prompt` for rough request intake.
+- `diagnose`, `tdd`, and `autoreview` for bug loops, test-first work, and
+  closeout review.
+- `plain-web-copy` and `fix-my-bad-website` for public copy and website quality.
 - `write-a-skill` and `skillify` for turning repeated work into reusable skills.
 - `edit-skill` for keeping skills short, specific, and useful.
 - Any AI IDE or CLI agent that can read files and run commands in the repo.

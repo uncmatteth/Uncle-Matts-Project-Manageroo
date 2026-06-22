@@ -39,6 +39,14 @@ Do not make the user remember skill names. Pick the helper skill from the job:
   vague, or full of generic AI instructions.
 - Use `$skillify` when deciding whether a workflow deserves a skill and what
   proof it needs.
+- Use `$diagnose` when something is broken, flaky, slow, or confusing and a
+  fast feedback loop is needed before editing.
+- Use `$tdd` when adding or changing behavior that should be protected by tests.
+- Use `$autoreview` as the closeout review lane before commit, release, or handoff.
+- Use `$plain-web-copy` when public words need to be factual, clear, and free of
+  hype.
+- Use `$fix-my-bad-website` when a website or app screen looks generic,
+  template-like, or visually disconnected from the product.
 - Use `$caveman` or `$uncle-matts-caveman-curse` only when the selected token
   mode or user explicitly asks for compressed output.
 

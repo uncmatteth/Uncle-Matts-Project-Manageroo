@@ -138,11 +138,19 @@ Reference: https://signals.forwardfuture.ai/loop-library/
 
 ## Prompt and skill hygiene
 
-Four bundled local skills are installed during core setup:
+Bundled local skills are installed during core setup:
 
 - `pimp-my-prompt`: converts a rough, frustrated, overloaded, or reusable
   request into clear scope, acceptance criteria, fallback behavior, and a
   runnable brief.
+- `diagnose`: builds a fast failure loop before fixing broken, flaky, confusing,
+  or slow behavior.
+- `tdd`: keeps behavior changes test-first when proof should be executable.
+- `autoreview`: gives the agent a closeout review lane before commit, release,
+  or handoff.
+- `plain-web-copy`: keeps public words factual and readable.
+- `fix-my-bad-website`: keeps website work tied to the real product instead of
+  generic AI layout patterns.
 - `write-a-skill`: creates a concise local skill when a workflow keeps coming
   back and should not be rediscovered in every thread.
 - `edit-skill`: cleans up local skills by removing duplicate rules, stale

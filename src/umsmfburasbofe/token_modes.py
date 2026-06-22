@@ -62,6 +62,11 @@ RECOMMENDED_SKILL_PACK = {
     "write-a-skill": "skills/write-a-skill/SKILL.md",
     "edit-skill": "skills/edit-skill/SKILL.md",
     "skillify": "skills/skillify/SKILL.md",
+    "diagnose": "skills/diagnose/SKILL.md",
+    "tdd": "skills/tdd/SKILL.md",
+    "autoreview": "skills/autoreview/SKILL.md",
+    "plain-web-copy": "skills/plain-web-copy/SKILL.md",
+    "fix-my-bad-website": "skills/fix-my-bad-website/SKILL.md",
     "caveman": "skills/caveman/SKILL.md",
     "uncle-matts-caveman-curse": "skills/uncle-matts-caveman-curse/SKILL.md",
 }

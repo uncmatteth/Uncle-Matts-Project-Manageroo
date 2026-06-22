@@ -58,12 +58,12 @@ Recommended skill pack:
 umsmfburasbofe skills install
 ```
 
-That installs the UMSMFBURASBOFE router skill, `pimp-my-prompt`,
-`write-a-skill`, `edit-skill`, `skillify`, `caveman`, and
-`uncle-matts-caveman-curse` under `~/.agents/skills`. The installer offers this
-pack during normal install, defaults to yes, and lets you skip it with
-`--skill-pack skip` or `--skip-skill-pack`. It is optional but strongly
-suggested because agents can use the router skill to choose helpers
+That installs the UMSMFBURASBOFE router skill plus helper lanes for rough
+intake, debugging, test-first work, closeout review, public copy, website
+cleanup, reusable skills, and token compression under `~/.agents/skills`. The
+installer offers this pack during normal install, defaults to yes, and lets you
+skip it with `--skill-pack skip` or `--skip-skill-pack`. It is optional but
+strongly suggested because agents can use the router skill to choose helpers
 automatically.
 
 If you copied a skills folder from another computer, do not copy it whole over

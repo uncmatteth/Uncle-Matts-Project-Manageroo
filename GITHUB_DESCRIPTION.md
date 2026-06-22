@@ -15,6 +15,8 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - `solo --create --starter static-site` can start a tiny homepage with a smoke test instead of a blank folder.
 - You write the brief. The tool maps the repo, splits the job up, runs checks, sends bad work back for repair, and saves the report.
 - It includes `pimp-my-prompt`, so rough, long, frustrated, or half-formed requests can become clear scope, proof, and stop rules.
+- It includes `diagnose`, `tdd`, and `autoreview`, so bugs get a feedback loop, behavior gets proof, and finished work gets a review lane.
+- It includes `plain-web-copy` and `fix-my-bad-website`, so public pages do not have to look or read like generic AI slop.
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
 - It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
 - It includes two token-reduction modes: clean `caveman` and profane `curse`.

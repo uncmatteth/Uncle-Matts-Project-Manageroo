@@ -89,6 +89,15 @@ yes path. Skip it with `./install.sh --skill-pack skip` or
   stale rules, vague wording, and AI slop.
 - `skillify`: checks whether a repeated workflow deserves a skill, then makes
   sure it has triggers and proof.
+- `diagnose`: builds a fast feedback loop before fixing bugs, flakes, crashes,
+  or confusing failures.
+- `tdd`: uses one behavior test at a time when code changes need proof.
+- `autoreview`: runs the closeout review lane before commit, release, or
+  handoff.
+- `plain-web-copy`: keeps public copy factual, readable, and free of fake-live
+  hype.
+- `fix-my-bad-website`: helps agents make web pages feel like the actual
+  product instead of generic AI output.
 - `caveman`: clean compressed output.
 - `uncle-matts-caveman-curse`: compressed output with profanity when selected.
 

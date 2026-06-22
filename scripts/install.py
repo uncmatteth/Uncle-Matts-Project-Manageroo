@@ -883,6 +883,7 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     print("Recommended local skill pack:")
     print("  - UMSMFBURASBOFE routing skill")
     print("  - Pimp My Prompt for rough request cleanup")
+    print("  - Diagnose, TDD, AUTOREVIEW, plain web copy, and website rescue lanes")
     print("  - Write A Skill, Skillify, and Edit Skill")
     print("  - Caveman and Uncle Matt's Caveman Curse token modes")
     print("This is optional, but strongly suggested for AI IDE agents.")
@@ -1106,8 +1107,12 @@ def main() -> int:
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
                 "The recommended skill pack is optional but strongly suggested because it "
                 "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
+                "debugging, test-first work, closeout review, public copy, website cleanup, "
                 "and token compression without the user memorizing skill names. "
                 "It includes UMSMFBURASBOFE routing, Pimp My Prompt for rough request intake, "
+                "Diagnose for broken or flaky behavior, TDD for one behavior test at a time, "
+                "AUTOREVIEW for closeout review, Plain Web Copy for public words, "
+                "Fix My Bad Website for generic-looking pages, "
                 "Write A Skill and Skillify for turning repeated work into reusable skills, "
                 "Edit Skill for keeping local skills short and useful, and both Caveman modes. "
                 "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "

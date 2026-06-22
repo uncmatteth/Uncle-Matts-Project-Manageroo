@@ -57,6 +57,10 @@ with `./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`.
 - `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`
   for routing agents through the controller.
 - `pimp-my-prompt` for turning a rough request into exact scope, proof, and stop rules.
+- `diagnose` for broken, flaky, confusing, or slow behavior.
+- `tdd` for one behavior test at a time.
+- `autoreview` for closeout review before handoff.
+- `plain-web-copy` and `fix-my-bad-website` for public copy and website quality.
 - `write-a-skill` for packaging repeated work as a reusable skill.
 - `edit-skill` for tightening local skills when they get duplicated, stale, or bloated.
 - `skillify` for deciding whether a painful repeated workflow deserves a real skill.
