@@ -21,7 +21,7 @@ If you are using the local source checkout, start inside that repository folder.
 If you are starting from a source ZIP, extract it first:
 
 ```bash
-unzip Manageroo-GitHub-Source-v2026.6.22.1.zip
+unzip uncle-matts-project-manageroo-v2026.6.22.1-source.zip
 cd Uncle-Matts-Project-Manageroo
 ```
 
@@ -64,8 +64,8 @@ v2026.6.22.1
 Attach these files to the GitHub Release:
 
 ```text
-Manageroo-End-User-Release-v2026.6.22.1.zip
-Manageroo-Release-SHA256SUMS.txt
+uncle-matts-project-manageroo-v2026.6.22.1.zip
+SHA256SUMS.txt
 ```
 
 The source repository itself remains browsable through GitHub. The release ZIP is the convenient installer package for end users.

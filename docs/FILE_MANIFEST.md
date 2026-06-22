@@ -13,8 +13,8 @@ This manifest is generated from the release source tree.
 | `GIVE-THIS-TO-YOUR-IDE-AGENT.md` | 4342 | Project metadata or handoff |
 | `LICENSE` | 1067 | Project metadata or handoff |
 | `LOCAL_SETUP.md` | 7647 | Project metadata or handoff |
-| `PUBLISH_TO_GITHUB.md` | 2355 | Project metadata or handoff |
-| `README.md` | 30700 | Project metadata or handoff |
+| `PUBLISH_TO_GITHUB.md` | 2353 | Project metadata or handoff |
+| `README.md` | 30703 | Project metadata or handoff |
 | `SECURITY.md` | 719 | Project metadata or handoff |
 | `docs/00_START_HERE.md` | 7910 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 3892 | Operator and engineering documentation |
@@ -48,7 +48,7 @@ This manifest is generated from the release source tree.
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
 | `scripts/install.py` | 55988 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
-| `scripts/package_release.py` | 5432 | Installation, validation, or packaging |
+| `scripts/package_release.py` | 5331 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 10026 | Installation, validation, or packaging |
 | `sitecustomize.py` | 241 | Project metadata or handoff |
 | `src/manageroo/__init__.py` | 67 | Harness runtime source |
@@ -180,7 +180,7 @@ This manifest is generated from the release source tree.
 | `tests/test_learning.py` | 8353 | Deterministic harness test |
 | `tests/test_loop_library.py` | 6112 | Deterministic harness test |
 | `tests/test_map_cache.py` | 1585 | Deterministic harness test |
-| `tests/test_package_release.py` | 3850 | Deterministic harness test |
+| `tests/test_package_release.py` | 3808 | Deterministic harness test |
 | `tests/test_policy.py` | 950 | Deterministic harness test |
 | `tests/test_project.py` | 4593 | Deterministic harness test |
 | `tests/test_projects.py` | 6095 | Deterministic harness test |

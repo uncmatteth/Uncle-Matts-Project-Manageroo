@@ -9,16 +9,22 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT.parent / "uncle-matts-project-manageroo-final.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-DROP_ROOT = "Manageroo-Release-v2026.6.22.1"
+VERSION_TAG = "v2026.6.22.1"
+ARTIFACT_BASENAME = f"uncle-matts-project-manageroo-{VERSION_TAG}"
+DROP_ROOT = ARTIFACT_BASENAME
 DEFAULT_DROP_DIR = ROOT.parent / DROP_ROOT
-END_USER_ZIP = "Manageroo-End-User-Release-v2026.6.22.1.zip"
-SOURCE_ZIP = "Manageroo-GitHub-Source-v2026.6.22.1.zip"
+INSTALLER_ZIP = f"{ARTIFACT_BASENAME}.zip"
+SOURCE_ZIP = f"{ARTIFACT_BASENAME}-source.zip"
+OUTPUT = ROOT.parent / INSTALLER_ZIP
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
 EXCLUDED_PARTS = {".git", ".venv", "__pycache__", "dist", "build"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
-DROP_CLEANUP_PREFIXES = ("Manageroo-", "".join(chr(code) for code in [85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69]) + "-")
+DROP_CLEANUP_PREFIXES = (
+    ARTIFACT_BASENAME,
+    "Manageroo-",
+    "".join(chr(code) for code in [85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69]) + "-",
+)
 END_USER_EXCLUDED = {
     "BUILD-VALIDATION.json",
     "GITHUB_DESCRIPTION.md",
@@ -99,14 +105,14 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
         if path.is_file() and path.name.startswith(DROP_CLEANUP_PREFIXES):
             path.unlink()
     copies = {
-        END_USER_ZIP: end_user_archive,
+        INSTALLER_ZIP: end_user_archive,
         SOURCE_ZIP: source_archive,
-        "Manageroo-SOURCE-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
-        "Manageroo-FINAL-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
-        "Manageroo-LOCAL-SETUP.md": ROOT / "LOCAL_SETUP.md",
-        "Manageroo-PUBLISH-TO-GITHUB.md": ROOT / "PUBLISH_TO_GITHUB.md",
-        "Manageroo-GIVE-THIS-TO-YOUR-IDE-AGENT.md": ROOT / "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
-        "Manageroo-GITHUB-DESCRIPTION.md": ROOT / "GITHUB_DESCRIPTION.md",
+        "SOURCE-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
+        "FINAL-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
+        "LOCAL-SETUP.md": ROOT / "LOCAL_SETUP.md",
+        "PUBLISH-TO-GITHUB.md": ROOT / "PUBLISH_TO_GITHUB.md",
+        "GIVE-THIS-TO-YOUR-IDE-AGENT.md": ROOT / "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
+        "GITHUB-DESCRIPTION.md": ROOT / "GITHUB_DESCRIPTION.md",
     }
     for name, source in copies.items():
         shutil.copy2(source, drop_dir / name)
@@ -115,8 +121,7 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
         path = drop_dir / name
         checksum_lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
     checksums = "\n".join(checksum_lines) + "\n"
-    (drop_dir / "Manageroo-Release-SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
-    (drop_dir / "Manageroo-SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
+    (drop_dir / "SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
 
 
 def main() -> int:

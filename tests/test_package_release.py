@@ -18,10 +18,10 @@ def _fixture(codes: list[int]) -> str:
 class PackageReleaseTests(unittest.TestCase):
     def test_release_names_use_project_manageroo_brand(self):
         self.assertEqual(package_release.ARCHIVE_ROOT, "Uncle-Matts-Project-Manageroo")
-        self.assertEqual(package_release.DROP_ROOT, "Manageroo-Release-v2026.6.22.1")
+        self.assertEqual(package_release.DROP_ROOT, "uncle-matts-project-manageroo-v2026.6.22.1")
         self.assertNotEqual(package_release.DROP_ROOT, package_release.ARCHIVE_ROOT)
-        self.assertEqual(package_release.END_USER_ZIP, "Manageroo-End-User-Release-v2026.6.22.1.zip")
-        self.assertEqual(package_release.SOURCE_ZIP, "Manageroo-GitHub-Source-v2026.6.22.1.zip")
+        self.assertEqual(package_release.INSTALLER_ZIP, "uncle-matts-project-manageroo-v2026.6.22.1.zip")
+        self.assertEqual(package_release.SOURCE_ZIP, "uncle-matts-project-manageroo-v2026.6.22.1-source.zip")
 
     def test_end_user_and_source_archives_use_different_file_sets(self):
         source = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
@@ -52,7 +52,7 @@ class PackageReleaseTests(unittest.TestCase):
 
             package_release.refresh_drop_folder(drop, end_user_archive, source_archive)
 
-            self.assertEqual((drop / package_release.END_USER_ZIP).read_bytes(), b"end-user")
+            self.assertEqual((drop / package_release.INSTALLER_ZIP).read_bytes(), b"end-user")
             self.assertEqual((drop / package_release.SOURCE_ZIP).read_bytes(), b"source")
 
     def test_drop_folder_removes_stale_release_files(self):
@@ -64,15 +64,15 @@ class PackageReleaseTests(unittest.TestCase):
             drop.mkdir()
             end_user_archive.write_bytes(b"end-user")
             source_archive.write_bytes(b"source")
-            (drop / "Manageroo-End-User-Release-vold.zip").write_bytes(b"stale")
+            (drop / "Manageroo-old.zip").write_bytes(b"stale")
             old_prefix = _fixture([85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69])
-            (drop / f"{old_prefix}-End-User-Release-vold.zip").write_bytes(b"stale")
+            (drop / f"{old_prefix}-old.zip").write_bytes(b"stale")
             (drop / "operator-note.txt").write_text("keep me", encoding="utf-8")
 
             package_release.refresh_drop_folder(drop, end_user_archive, source_archive)
 
-            self.assertFalse((drop / "Manageroo-End-User-Release-vold.zip").exists())
-            self.assertFalse((drop / f"{old_prefix}-End-User-Release-vold.zip").exists())
+            self.assertFalse((drop / "Manageroo-old.zip").exists())
+            self.assertFalse((drop / f"{old_prefix}-old.zip").exists())
             self.assertEqual((drop / "operator-note.txt").read_text(encoding="utf-8"), "keep me")
 
 
