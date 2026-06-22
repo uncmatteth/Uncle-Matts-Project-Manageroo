@@ -106,12 +106,25 @@ umsmfburasbofe token-mode set curse
 
 ## 5. Start Solo Operator Mode
 
-The target must already be a Git repository.
+For an existing Git repository:
 
 ```bash
 cd /absolute/path/to/product
 umsmfburasbofe solo
 ```
+
+For a brand-new missing or empty folder:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-product \
+  --create \
+  --want "Describe what should be built first"
+```
+
+`--create` initializes Git, writes a small `README.md` and `.gitignore`, and
+creates the first scaffold commit. It refuses to absorb a non-empty non-Git
+folder or create a nested repo inside another Git repo, so it does not
+accidentally commit personal files, secrets, or a random archive.
 
 Bare `solo` asks what AI you are using, what should be built or fixed, what
 must not break, what proof should pass, and whether to check GBrain, GitNexus,

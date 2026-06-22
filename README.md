@@ -6,9 +6,10 @@ This is a local tool for putting an actual process around AI coding agents.
 The main path is **Solo Operator Mode**: one technically minded person uses AI
 coding tools like a product team in a box.
 
-Give it a Git repo, a plain-English brief, and real checks. It helps the agent
-read the project, make a plan, work in smaller pieces, run the checks, review
-the result, repair the bad parts, and leave a report you can inspect.
+Give it a Git repo, or let it create a new empty one. Then give it a
+plain-English brief and real checks. It helps the agent read the project, make
+a plan, work in smaller pieces, run the checks, review the result, repair the
+bad parts, and leave a report you can inspect.
 
 The whole point is to stop the usual AI coding mess: one giant chat, too much
 context, half-remembered requirements, surprise file changes, and a confident
@@ -25,6 +26,8 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 ## Explain It Like I Am Five
 
 - You have an app, website, script, or repo.
+- If you have nothing yet, `umsmfburasbofe solo --create` can make the first
+  empty Git project for you.
 - You want an AI coding agent to work on it without wandering off.
 - You do not want to hire a whole team just to get from idea to releaseable product.
 - `umsmfburasbofe solo` is the front door: explain the job, get a brief,
@@ -143,6 +146,14 @@ Start here:
 ```bash
 cd /absolute/path/to/your/git-project
 umsmfburasbofe solo
+```
+
+Starting from an empty or missing folder:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-product \
+  --create \
+  --want "Build a simple first release checklist"
 ```
 
 Or pass the first ask directly:

@@ -131,6 +131,40 @@ class CliSoloTests(unittest.TestCase):
             self.assertEqual(payload["integration_guidance"][0]["name"], "loop-library")
             self.assertIn("npx --yes skills add Forward-Future/loop-library", payload["next_command"])
 
+    def test_solo_create_initializes_missing_project_before_brief(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "fresh-product"
+            env = {
+                "UMSMFBURASBOFE_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "UMSMFBURASBOFE_SKILLS_DIR": str(Path(temp) / "skills"),
+            }
+            stdout = io.StringIO()
+            with patch.dict(os.environ, env), redirect_stdout(stdout):
+                code = main(
+                    [
+                        "solo",
+                        str(repo),
+                        "--create",
+                        "--agent",
+                        "mock",
+                        "--want",
+                        "Build a useful first release checklist",
+                        "--outcome",
+                        "The repo has a launch checklist",
+                        "--skip-skills",
+                        "--json",
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["created_project"]["status"], "created")
+            self.assertTrue((repo / ".git").is_dir())
+            self.assertIn("Build a useful first release checklist", (repo / "README.md").read_text(encoding="utf-8"))
+            self.assertIn(
+                "Build a useful first release checklist",
+                (repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md").read_text(encoding="utf-8"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

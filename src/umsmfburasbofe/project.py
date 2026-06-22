@@ -44,6 +44,119 @@ def git_root(path: Path) -> Path:
     return Path(result.stdout.strip()).resolve()
 
 
+def _run_git(runner: CommandRunner, argv: list[str], cwd: Path) -> str:
+    result = runner.run(["git", *argv], cwd=cwd, timeout_seconds=300)
+    if not result.passed:
+        raise ConfigurationError(result.stderr or f"Git command failed: git {' '.join(argv)}")
+    return result.stdout.strip()
+
+
+def _has_entries(path: Path) -> bool:
+    return path.exists() and any(path.iterdir())
+
+
+def _nearest_existing_parent(path: Path) -> Path:
+    current = path
+    while not current.exists():
+        if current.parent == current:
+            break
+        current = current.parent
+    return current
+
+
+def create_project_repo(
+    path: Path,
+    *,
+    title: str = "",
+    description: str = "",
+) -> dict:
+    target = path.expanduser().resolve()
+    runner = CommandRunner()
+    if target.exists() and not target.is_dir():
+        raise ValueError(f"Refusing to create project over a file: {target}")
+    if target.exists():
+        try:
+            root = git_root(target)
+        except ConfigurationError:
+            root = None
+        if root is not None:
+            if root != target:
+                raise ValueError(f"Refusing to create inside another Git repository: {target}")
+            return {"status": "already-git", "repo": str(root), "initial_commit": ""}
+        if _has_entries(target):
+            raise ValueError(
+                f"Refusing to initialize non-empty non-Git folder: {target}. "
+                "Run `git init` there yourself if you want to adopt existing files."
+            )
+    else:
+        parent = _nearest_existing_parent(target.parent)
+        try:
+            root = git_root(parent)
+        except ConfigurationError:
+            root = None
+        if root is not None:
+            raise ValueError(f"Refusing to create nested Git repository inside {root}: {target}")
+    target.mkdir(parents=True, exist_ok=True)
+
+    display_name = title.strip() or target.name.replace("-", " ").replace("_", " ").title()
+    description = description.strip() or "Describe what this product should become."
+    readme = target / "README.md"
+    if not readme.exists():
+        atomic_write_text(
+            readme,
+            "\n".join(
+                [
+                    f"# {display_name}",
+                    "",
+                    description,
+                    "",
+                    "Created with UMSMFBURASBOFE Solo Operator Mode.",
+                    "",
+                ]
+            ),
+        )
+    gitignore = target / ".gitignore"
+    if not gitignore.exists():
+        atomic_write_text(
+            gitignore,
+            "\n".join(
+                [
+                    "# UMSMFBURASBOFE transient evidence",
+                    ".umsmfburasbofe/runs/",
+                    ".umsmfburasbofe/cache/",
+                    "",
+                    "# Local environment files",
+                    ".env",
+                    ".env.*",
+                    "__pycache__/",
+                    ".venv/",
+                    "",
+                ]
+            ),
+        )
+
+    _run_git(runner, ["init", "-b", "main"], target)
+    _run_git(runner, ["add", "README.md", ".gitignore"], target)
+    result = runner.run(
+        [
+            "git",
+            "-c",
+            "user.name=UMSMFBURASBOFE Controller",
+            "-c",
+            "user.email=umsmfburasbofe@local.invalid",
+            "commit",
+            "-m",
+            "Initial product scaffold",
+        ],
+        cwd=target,
+        timeout_seconds=300,
+    )
+    if not result.passed:
+        raise ConfigurationError(result.stderr or "Could not create initial product commit.")
+    initial_commit = _run_git(runner, ["rev-parse", "HEAD"], target)
+    return {"status": "created", "repo": str(target), "initial_commit": initial_commit}
+
+
 def _append_managed_block(path: Path, block: str) -> None:
     if path.exists():
         text = path.read_text(encoding="utf-8", errors="replace")

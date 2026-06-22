@@ -36,7 +36,7 @@ from .loop_library import (
     write_loop_brief,
 )
 from .orchestrator import Orchestrator
-from .project import git_root, initialize_project
+from .project import create_project_repo, git_root, initialize_project
 from .readiness import brief_is_template, format_readiness, readiness
 from .selftest import run_self_test
 from .solo import format_solo_report, solo_next_command
@@ -188,6 +188,7 @@ def parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help=f"Install project-local {FULL_ACRONYM} assets.")
     init.add_argument("repo", nargs="?", default=".")
     init.add_argument("--agent", choices=sorted(AGENT_PRESETS), default="codex")
+    init.add_argument("--create", action="store_true", help="Create a missing or empty Git repository first.")
 
     setup = sub.add_parser("setup", help="Guided first-run setup for a product repository.")
     setup.add_argument("repo", nargs="?")
@@ -217,6 +218,7 @@ def parser() -> argparse.ArgumentParser:
     solo.add_argument("--use-obsidian", action="store_true")
     solo.add_argument("--use-loop-library", action="store_true")
     solo.add_argument("--run", action="store_true")
+    solo.add_argument("--create", action="store_true", help="Create a missing or empty Git repository first.")
     solo.add_argument("--force", action="store_true")
     solo.add_argument("--json", action="store_true")
     solo_apply = solo.add_mutually_exclusive_group()
@@ -390,7 +392,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "init":
+            created_project = None
+            if args.create:
+                created_project = create_project_repo(Path(args.repo), title=Path(args.repo).name)
             result = initialize_project(Path(args.repo), agent=args.agent)
+            if created_project:
+                result["created_project"] = created_project
             print(json.dumps(result, indent=2))
             return 0
 
@@ -463,6 +470,13 @@ def main(argv: list[str] | None = None) -> int:
                 integrations=requested_integrations,
                 interactive=sys.stdin.isatty() and not args.json,
             )
+            created_project = None
+            if args.create:
+                created_project = create_project_repo(
+                    Path(answers["repo"]),
+                    title=Path(answers["repo"]).name,
+                    description=answers["want"],
+                )
             result = initialize_project(Path(answers["repo"]), agent=answers["agent"])
             repo = Path(result["repo"])
             agent_result = apply_agent_preset(repo, answers["agent"])
@@ -514,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
                 "brief": str(written_brief),
                 "agent_name": answers["agent"],
                 "agent": agent_result,
+                "created_project": created_project,
                 "mode": answers["mode"],
                 "installed_skills": skills_result,
                 "token_mode": token_result,

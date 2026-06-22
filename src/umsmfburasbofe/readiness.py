@@ -86,7 +86,13 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
         items.append(_item("target repo", True, str(repo)))
     except ConfigurationError as exc:
         items.append(
-            _item("target repo", False, str(exc), "Run inside an existing Git repository.")
+            _item(
+                "target repo",
+                False,
+                str(exc),
+                "Run inside an existing Git repository, or create a new one with "
+                "`umsmfburasbofe solo /path/to/new-product --create --want \"Describe it\"`.",
+            )
         )
 
     config: dict[str, Any] | None = None

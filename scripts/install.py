@@ -1088,6 +1088,8 @@ def main() -> int:
     print("  umsmfburasbofe skills list")
     print("  umsmfburasbofe stack-status")
     print("  umsmfburasbofe repair-install --no-apply")
+    print('  umsmfburasbofe solo /path/to/new-project --create --agent codex --want "Describe the first useful version"')
+    print("  # Or, for an existing Git repo:")
     print("  cd /path/to/project && umsmfburasbofe solo --agent codex")
     print("  # If readiness says no checks exist:")
     print("  umsmfburasbofe checks add smoke -- npm test")

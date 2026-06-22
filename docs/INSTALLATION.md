@@ -117,11 +117,21 @@ umsmfburasbofe token-mode set curse
 If a different local `SKILL.md` already exists for one of those names, the tool
 backs it up before installing the bundled copy.
 
-## Initialize a Git-backed project
+## Start a product project
+
+For an existing Git repository:
 
 ```bash
 cd /absolute/path/to/product
 umsmfburasbofe solo
+```
+
+For a brand-new missing or empty folder:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-product \
+  --create \
+  --want "Describe what should be built first"
 ```
 
 Bare `solo` is the normal first-run path. It asks:
@@ -134,6 +144,10 @@ Bare `solo` is the normal first-run path. It asks:
 - what must not break;
 - what proof should verify the work;
 - whether to check GBrain, GitNexus, Obsidian, or Loop Library.
+
+With `--create`, it initializes Git, writes a minimal `README.md` and
+`.gitignore`, and makes the first scaffold commit before continuing. It refuses
+non-empty non-Git folders and nested repos.
 
 It writes `.umsmfburasbofe/PRODUCT-BRIEF.md`, checks readiness, and prints
 exactly one next command. If every required check is already ready during that

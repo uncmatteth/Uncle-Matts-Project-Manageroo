@@ -11,6 +11,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - The command is `umsmfburasbofe`.
 - The full name is incredibly super serious.
 - Use it when you want an AI coding agent to work on a real Git repo without drifting all over the place.
+- If you are starting from nothing, `solo --create` can make a missing or empty Git repo first.
 - You write the brief. The tool maps the repo, splits the job up, runs checks, sends bad work back for repair, and saves the report.
 - It includes `pimp-my-prompt`, so rough, long, frustrated, or half-formed requests can become clear scope, proof, and stop rules.
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.

@@ -42,9 +42,16 @@ def format_solo_report(payload: dict[str, Any]) -> str:
         f"Mode: {payload['mode']}",
         "",
         "What happened:",
-        "OK project initialized",
-        "OK product brief written from your request",
     ]
+    if payload.get("created_project"):
+        created = payload["created_project"]
+        lines.append(f"OK project repository {created.get('status', 'created')}")
+    lines.extend(
+        [
+            "OK project initialized",
+            "OK product brief written from your request",
+        ]
+    )
     if payload.get("installed_skills") == []:
         lines.append("OK helper skill install skipped by flag")
     else:

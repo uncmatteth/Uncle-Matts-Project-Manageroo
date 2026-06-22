@@ -12,8 +12,9 @@ architecture, or get creative.
 ## Inputs
 
 - `UMSMFBURASBOFE_SOURCE`: the extracted `Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition` directory.
-- `TARGET_REPO`: the existing product Git repository.
+- `TARGET_PROJECT`: the existing product Git repository, or the missing/empty folder to create.
 - `OPERATOR_REQUEST`: what the operator wants built or fixed.
+- `CREATE_PROJECT`: `yes` only when `TARGET_PROJECT` is allowed to be created if missing or empty.
 
 Find the paths from the workspace and the request from the operator. If any
 input is missing, stop and say which one is missing. Do not guess.
@@ -31,9 +32,14 @@ umsmfburasbofe skills list
 umsmfburasbofe token-mode status
 umsmfburasbofe stack-status --json
 umsmfburasbofe repair-install --no-apply --json
-git -C "$TARGET_REPO" rev-parse --show-toplevel
-cd "$TARGET_REPO"
-umsmfburasbofe solo --agent codex --want "$OPERATOR_REQUEST" --force
+if [ "$CREATE_PROJECT" = "yes" ]; then
+  umsmfburasbofe solo "$TARGET_PROJECT" --create --agent codex --want "$OPERATOR_REQUEST" --force
+  cd "$TARGET_PROJECT"
+else
+  git -C "$TARGET_PROJECT" rev-parse --show-toplevel
+  cd "$TARGET_PROJECT"
+  umsmfburasbofe solo --agent codex --want "$OPERATOR_REQUEST" --force
+fi
 umsmfburasbofe ready --json
 ```
 
@@ -81,7 +87,7 @@ umsmfburasbofe ready --json
 If GBrain should know this repo, map only the selected target repository:
 
 ```bash
-umsmfburasbofe gbrain-setup --source-id target-repo --path "$TARGET_REPO" --apply --sync
+umsmfburasbofe gbrain-setup --source-id target-repo --path "$TARGET_PROJECT" --apply --sync
 ```
 
 If a local skill is getting long, repetitive, or stale, use the bundled
@@ -90,7 +96,8 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 ## Stop conditions
 
 - Stop on any release-verification failure.
-- Stop if the target is not already a Git repository.
+- Stop if `CREATE_PROJECT` is not `yes` and the target is not already a Git repository.
+- Stop if `CREATE_PROJECT` is `yes` but the target is a non-empty non-Git folder.
 - Stop if `ready.ok` is false and report every failed or action item exactly.
 - Do not run a real build until the operator completes `.umsmfburasbofe/PRODUCT-BRIEF.md`.
 

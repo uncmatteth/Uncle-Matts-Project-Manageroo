@@ -61,17 +61,30 @@ umsmfburasbofe skills install
 That installs `pimp-my-prompt`, `write-a-skill`, `edit-skill`, and `skillify`
 under `~/.agents/skills`.
 
-## Initialize any product repository
+## Start any product repository
+
+Existing Git repository:
 
 ```bash
 cd /absolute/path/to/product
 umsmfburasbofe solo
 ```
 
+Brand-new missing or empty folder:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-product \
+  --create \
+  --want "Describe what should be built first"
+```
+
 Bare `solo` is the main wizard. It asks what AI you are using, which repo to
 use, what should be built or fixed, what must not break, what proof should pass,
 and whether to check GBrain, GitNexus, Obsidian, or Loop Library. It writes the
 brief and prints exactly one next command.
+
+`--create` initializes Git and creates the first small scaffold commit for a
+missing or empty folder. It refuses non-empty non-Git folders and nested repos.
 
 Use lower-level `setup` only when you want to initialize the repo without
 writing the product brief yet:
