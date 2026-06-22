@@ -156,6 +156,16 @@ class WorkspaceMirror:
         if not applied.passed:
             raise SafetyError("Failed to apply validated patch:\n" + applied.stderr)
 
+    def patch_already_applied_to_source(self, patch: Path) -> bool:
+        if not patch.exists() or patch.stat().st_size == 0:
+            return True
+        reverse_check = self.runner.run(
+            ["git", "apply", "--reverse", "--check", "--binary", str(patch)],
+            cwd=self.source_repo,
+            timeout_seconds=300,
+        )
+        return reverse_check.passed
+
     def clone_for_review(self, destination: Path) -> Path:
         if destination.exists():
             shutil.rmtree(destination)

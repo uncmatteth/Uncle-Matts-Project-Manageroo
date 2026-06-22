@@ -38,6 +38,41 @@ class ReviewTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 validate_review_evidence(review, repo)
 
+    def test_blocking_finding_requires_non_empty_quote(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / "a.py").write_text("one\ntwo\n", encoding="utf-8")
+            review = {
+                "status": "changes-required",
+                "findings": [{
+                    "path": "a.py",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "quote": "",
+                    "blocking": True,
+                }],
+            }
+            with self.assertRaises(ValidationError):
+                validate_review_evidence(review, repo, allowed_paths=["a.py"])
+
+    def test_blocking_finding_outside_allowed_scope_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / "a.py").write_text("one\n", encoding="utf-8")
+            (repo / "unrelated.py").write_text("bad\n", encoding="utf-8")
+            review = {
+                "status": "changes-required",
+                "findings": [{
+                    "path": "unrelated.py",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "quote": "bad",
+                    "blocking": True,
+                }],
+            }
+            with self.assertRaises(ValidationError):
+                validate_review_evidence(review, repo, allowed_paths=["a.py"])
+
 
 if __name__ == "__main__":
     unittest.main()

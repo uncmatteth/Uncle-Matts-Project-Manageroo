@@ -76,8 +76,8 @@ manageroo skills install
 If you copied skills from another machine, scan before importing:
 
 ```bash
-manageroo skills scan /home/Tommy/Downloads/SKILLS
-manageroo skills import /home/Tommy/Downloads/SKILLS --apply
+manageroo skills scan ~/Downloads/SKILLS
+manageroo skills import ~/Downloads/SKILLS --apply
 ```
 
 `scan` is read-only. `import --apply` copies only `SKILL.md` files and backs up

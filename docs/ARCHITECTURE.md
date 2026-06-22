@@ -27,9 +27,13 @@ The source repository is inventoried through Git-visible tracked and unignored f
 After successful delivery:
 
 1. MANAGEROO generates a binary-capable Git patch from isolated baseline to final checkpoint.
-2. MANAGEROO verifies that every source file still matches the original source manifest.
-3. `git apply --check` verifies the patch.
-4. The controller applies the patch when `--apply` or project policy allows it.
+2. MANAGEROO writes `delivery/final-result.json`, `delivery/FINAL-REPORT.md`,
+   and `delivery/final.patch` with `applied_to_source: false`.
+3. MANAGEROO verifies that every source file still matches the original source manifest.
+4. `git apply --check` verifies the patch.
+5. The controller applies the patch when `--apply` or project policy allows it.
+6. The controller rewrites the final result and report with
+   `applied_to_source: true`.
 
 A concurrent source change blocks application instead of guessing.
 
@@ -72,15 +76,19 @@ Every worker call is represented as a durable job:
 ```
 
 Completed jobs are loaded from their recorded artifacts. They are not rerun
-just because a chat was compacted or a new agent process starts.
+just because a chat was compacted or a new agent process starts. A completed
+job record must include a matching output-artifact SHA-256 hash or it is
+treated as stale.
 
 `manageroo run --continue <run-id>` replays the Python controller from the
 saved run folder. The old worker process is not trusted or required; completed
-jobs, locked artifacts, and the isolated workspace are loaded from disk.
+jobs, locked artifacts, and the isolated workspace are loaded from disk. Replay
+keeps logical job IDs stable so a later failed worker continues its original
+job instead of creating shifted duplicate work.
 
 ## Controller-owned commits
 
-Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
+Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
 ## Parallel map/review, sequential implementation
 
@@ -105,6 +113,10 @@ The surrounding stack provides lanes, not authorities:
 - OpenClaw/Claude/Gemini/Cursor: alternate execution surfaces.
 
 Core acceptance still belongs to MANAGEROO's state, scope, gates, and evidence.
+Manageroo writes `verification/acceptance-evidence.json` instead of auto-marking
+human acceptance outcomes as passed. User-journey, browser, demo, deploy,
+visual, and security claims need matching demonstration evidence or they remain
+`unknown` and block `COMPLETE`.
 
 ## Proactive learning, no silent self-mutation
 

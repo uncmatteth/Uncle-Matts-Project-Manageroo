@@ -100,6 +100,35 @@ class InstallScriptTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(install.choose_stack_doctor_mode("ask"), "run")
 
+    def test_powershell_installer_exposes_important_python_flags(self):
+        ps1 = (ROOT / "install.ps1").read_text(encoding="utf-8")
+        py = INSTALL_SCRIPT.read_text(encoding="utf-8")
+        important = [
+            ("GBrainLane", "--gbrain-lane"),
+            ("ProjectDiscovery", "--project-discovery"),
+            ("StackDoctor", "--stack-doctor"),
+            ("ClawpatchCodexLogin", "--clawpatch-codex-login"),
+        ]
+        for parameter, flag in important:
+            with self.subTest(flag=flag):
+                self.assertIn(flag, py)
+                self.assertIn(f"${parameter}", ps1)
+                self.assertIn(flag, ps1)
+
+    def test_public_installer_and_docs_do_not_hardcode_tommy_skill_import_path(self):
+        public_files = [
+            ROOT / "scripts" / "install.py",
+            ROOT / "README.md",
+            ROOT / "LOCAL_SETUP.md",
+            ROOT / "docs" / "00_START_HERE.md",
+            ROOT / "docs" / "INSTALLATION.md",
+        ]
+        for path in public_files:
+            with self.subTest(path=path.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("/home/Tommy/Downloads/SKILLS", text)
+                self.assertIn("~/Downloads/SKILLS", text)
+
 
 if __name__ == "__main__":
     unittest.main()

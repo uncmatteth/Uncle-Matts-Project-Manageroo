@@ -246,11 +246,13 @@ When it runs, it writes:
 ```
 
 That file says whether to ship or not, what commit is being released, which
-proof commands passed, which blockers remain, the release target, the rollback
-plan, and the next operator action. On a ready release, `release-ready` also
-updates `.manageroo/PROJECT-MEMORY.md` with the shipped target, passing
-proof, handoff path, rollback plan, and approver. Commit that memory update if
-you want future agents to see it from Git.
+Manageroo run proved the work, where the final report and patch are, whether
+review approved it, whether the patch was applied to source, which proof
+commands passed, which blockers remain, the release target, the rollback plan,
+and the next operator action. On a ready release, `release-ready` also updates
+`.manageroo/PROJECT-MEMORY.md` with the shipped target, Manageroo run ID,
+passing proof, handoff path, rollback plan, and approver. Commit that memory
+update if you want future agents to see it from Git.
 
 Wire optional local context tools if they are installed:
 

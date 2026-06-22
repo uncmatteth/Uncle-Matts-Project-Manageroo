@@ -81,8 +81,8 @@ If you copied a skills folder from another computer, do not copy it whole over
 your current skills. Scan first, then import only after reviewing the report:
 
 ```bash
-manageroo skills scan /home/Tommy/Downloads/SKILLS
-manageroo skills import /home/Tommy/Downloads/SKILLS --apply
+manageroo skills scan ~/Downloads/SKILLS
+manageroo skills import ~/Downloads/SKILLS --apply
 ```
 
 ## Start any product repository
@@ -246,16 +246,18 @@ manageroo release-ready \
   --approved-by "Your name"
 ```
 
-That does not deploy. It checks the release gate and writes the operator
-handoff here:
+That does not deploy. It checks the latest completed Manageroo run, approved
+review, final report, final patch, applied-to-source status, release gates,
+clean Git state, deployment target, rollback notes, and human approval. It
+writes the operator handoff here:
 
 ```text
 .manageroo/cache/production-handoff.md
 ```
 
 If the release gate is ready, it also updates `.manageroo/PROJECT-MEMORY.md`
-with what shipped and what proof passed. Commit that memory update if you want
-future agents to see it from Git.
+with what shipped, the Manageroo run ID, and what proof passed. Commit that
+memory update if you want future agents to see it from Git.
 
 After any run, inspect proactive learning cards:
 

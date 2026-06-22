@@ -78,4 +78,6 @@ The complete task graph is generated and adversarially reviewed before implement
 - existing gate IDs;
 - risk.
 
-Agents may not invent commands or widen scope after locking.
+Agents may not invent commands or widen scope after locking. Allowed edit scope
+must be exact task-owned file paths; broad globs like `**`, `src/**`, and
+`*.py` are rejected before the plan can lock.

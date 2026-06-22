@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .adapters.factory import build_adapter
 from .assets import asset_path
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config import load_config
@@ -12,6 +13,7 @@ from .errors import ConfigurationError
 from .gates import gates_from_config
 from .gbrain_setup import gbrain_setup_status
 from .project import git_root
+from .runner import CommandRunner
 from .token_modes import CORE_HELPER_SKILLS, token_mode_skills_dir
 
 
@@ -223,6 +225,63 @@ def brief_is_template(path: Path) -> bool:
     return current == template
 
 
+def _selected_agent_item(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
+    adapter_name = str(config["agent"]["adapter"])
+    next_command = (
+        f"Install or authenticate {config['agent'].get('executable', adapter_name)}, or run "
+        "`manageroo agent preset generic`."
+    )
+    try:
+        adapter = build_adapter(
+            config,
+            CommandRunner(log_root=repo / PROJECT_DIR / "cache" / "agent-doctor-logs"),
+        )
+        doctor = adapter.doctor(repo)
+    except Exception as exc:
+        return _item(
+            "selected agent",
+            False,
+            f"doctor could not run for {adapter_name}: {type(exc).__name__}: {exc}",
+            next_command,
+        )
+    ok = bool(doctor.get("ok"))
+    if ok:
+        detail = f"doctor ok: {doctor.get('adapter', adapter_name)}"
+        version = doctor.get("version")
+        if version:
+            detail += f" {version}"
+        return _item("selected agent", True, detail)
+    detail = f"doctor failed for {doctor.get('adapter', adapter_name)}"
+    if doctor.get("error"):
+        detail += f": {doctor['error']}"
+    missing = doctor.get("missing_required_flags")
+    if missing:
+        detail += f"; missing required flags: {', '.join(missing)}"
+    return _item("selected agent", False, detail, next_command)
+
+
+def _check_strength_item(gates: list[Any]) -> dict[str, Any] | None:
+    if not gates:
+        return None
+    compile_terms = ("compileall", "py_compile", "tsc", "typecheck", "syntax")
+    only_compile = True
+    for gate in gates:
+        argv = " ".join(str(part).lower() for part in gate.argv)
+        if not any(term in argv for term in compile_terms):
+            only_compile = False
+            break
+    if not only_compile:
+        return _item("check strength", True, "checks include more than compile-only smoke")
+    return _item(
+        "check strength",
+        False,
+        "compile-only check configured; useful smoke proof, but weak product evidence",
+        "manageroo checks add product-demo -- COMMAND",
+        required=False,
+        severity="warning",
+    )
+
+
 def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any]:
     items: list[dict[str, Any]] = [
         _item(
@@ -296,33 +355,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
         )
 
     if config:
-        adapter = str(config["agent"]["adapter"])
-        if adapter == "mock":
-            items.append(_item("selected agent", True, "mock adapter"))
-        elif adapter == "generic":
-            template = config["agent"].get("argv_template", [])
-            executable = template[0] if template else ""
-            items.append(
-                _item(
-                    "selected agent",
-                    bool(executable and shutil.which(executable)),
-                    executable if executable else "generic argv_template missing",
-                    "manageroo agent preset codex",
-                )
-            )
-        else:
-            executable = str(config["agent"]["executable"])
-            items.append(
-                _item(
-                    "selected agent",
-                    shutil.which(executable) is not None,
-                    executable,
-                    (
-                        f"Install or authenticate {executable}, or run "
-                        "`manageroo agent preset generic`."
-                    ),
-                )
-            )
+        items.append(_selected_agent_item(repo, config))
         gates = gates_from_config(config)
         items.append(
             _item(
@@ -336,6 +369,9 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                 "manageroo checks suggest --apply-first",
             )
         )
+        strength = _check_strength_item(gates)
+        if strength:
+            items.append(strength)
         items.extend(_document_lane_items(repo, config, brief_text))
 
     gbrain = gbrain_setup_status()

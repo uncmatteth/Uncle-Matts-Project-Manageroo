@@ -45,6 +45,7 @@ class PackageReleaseTests(unittest.TestCase):
         included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
 
         self.assertFalse(any(path == ".clawpatch" or path.startswith(".clawpatch/") for path in included))
+        self.assertIn(".clawpatch/", (ROOT / ".gitignore").read_text(encoding="utf-8"))
 
     def test_drop_folder_copies_distinct_archives(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -79,6 +80,22 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertFalse((drop / "Manageroo-old.zip").exists())
             self.assertFalse((drop / f"{old_prefix}-old.zip").exists())
             self.assertEqual((drop / "operator-note.txt").read_text(encoding="utf-8"), "keep me")
+
+    def test_publish_docs_asset_list_matches_generated_drop_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            end_user_archive = root / "end-user.zip"
+            source_archive = root / "source.zip"
+            drop = root / "drop"
+            end_user_archive.write_bytes(b"end-user")
+            source_archive.write_bytes(b"source")
+
+            package_release.refresh_drop_folder(drop, end_user_archive, source_archive)
+
+            publish_text = (ROOT / "PUBLISH_TO_GITHUB.md").read_text(encoding="utf-8")
+            for asset in sorted(path.name for path in drop.iterdir() if path.is_file()):
+                with self.subTest(asset=asset):
+                    self.assertIn(asset, publish_text)
 
 
 if __name__ == "__main__":

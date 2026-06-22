@@ -57,6 +57,11 @@ If GBrain already exists, the installer does not run a new init. It probes:
 
 That means a Postgres/Ollama setup is reported, not overwritten.
 
+`gbrain-setup` and `stack-doctor` report `OK` only when GBrain is installed,
+doctor/status probes pass, and at least one source is mapped. Installed with
+zero mapped sources is `ACTION`, because memory with no sources cannot help a
+project.
+
 Source mapping is guided, not guessed:
 
 ```bash
@@ -83,6 +88,11 @@ Code graph lane. GitNexus can help explain what code touches what.
 
 The guided installer can run `npm install -g gitnexus` when npm is available.
 Run `gitnexus setup` afterward when you want its MCP wiring.
+
+`stack-doctor` treats a found `gitnexus` command with a working version probe
+as installed with setup uncertainty. That is a warning/unknown state, not a
+permanent hard failure, because GitNexus does not expose one universal local
+probe for every agent wiring.
 
 Project reference: https://github.com/abhigyanpatwari/GitNexus
 

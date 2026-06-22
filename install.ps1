@@ -14,6 +14,14 @@ param(
     [string]$SkillPack = "ask",
     [ValidateSet("ask", "skip", "install")]
     [string]$Stack = "ask",
+    [ValidateSet("ask", "local", "official", "skip")]
+    [string]$GBrainLane = "ask",
+    [ValidateSet("ask", "pick", "add", "skip")]
+    [string]$ProjectDiscovery = "ask",
+    [ValidateSet("ask", "run", "skip")]
+    [string]$StackDoctor = "ask",
+    [ValidateSet("ask", "run", "skip")]
+    [string]$ClawpatchCodexLogin = "ask",
     [ValidateSet("auto", "guide", "flatpak", "snap", "brew", "winget")]
     [string]$ObsidianMethod = "auto",
     [ValidateSet("codex", "cursor", "claude-code")]
@@ -77,6 +85,10 @@ if ($SkipSkillPack) { $InstallArgs += "--skip-skill-pack" }
 if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
 if ($SkillPack) { $InstallArgs += @("--skill-pack", $SkillPack) }
 if ($Stack) { $InstallArgs += @("--stack", $Stack) }
+if ($GBrainLane) { $InstallArgs += @("--gbrain-lane", $GBrainLane) }
+if ($ProjectDiscovery) { $InstallArgs += @("--project-discovery", $ProjectDiscovery) }
+if ($StackDoctor) { $InstallArgs += @("--stack-doctor", $StackDoctor) }
+if ($ClawpatchCodexLogin) { $InstallArgs += @("--clawpatch-codex-login", $ClawpatchCodexLogin) }
 if ($ObsidianMethod) { $InstallArgs += @("--obsidian-method", $ObsidianMethod) }
 foreach ($Agent in $LoopLibraryAgent) { $InstallArgs += @("--loop-library-agent", $Agent) }
 if ($NoMusic) { $InstallArgs += "--no-music" }

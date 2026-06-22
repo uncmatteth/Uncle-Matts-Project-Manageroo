@@ -17,10 +17,21 @@
 15. Configured AUTOREVIEW and Clawpatch commands are deterministic command-owned lanes. MANAGEROO captures their output and can accept their scoped edits, but it does not ask the AI repairer to freehand fixes from their findings.
 16. `solo --create` creates only missing or empty top-level project folders. Starters are small local scaffolds, not production frameworks. The command refuses non-empty non-Git folders and missing paths inside another Git repo so it does not accidentally commit personal files, secrets, archives, or nested repositories.
 17. MANAGEROO does not replace CI, production monitoring, backups, security review, or legal review.
-18. `release-ready` is a final operator gate, not a deployment tool. It checks readiness, gates, clean Git state, target, rollback notes, and approval, then writes `.manageroo/cache/production-handoff.md`. On a ready release it also updates `.manageroo/PROJECT-MEMORY.md` with the shipped target and proof; the operator can commit that memory update if desired. It does not push, deploy, monitor, or roll back production.
+18. `release-ready` is a final operator gate, not a deployment tool. It checks
+    readiness, a completed Manageroo run, approved review, final report, final
+    patch, applied-to-source status, gates, clean Git state, target, rollback
+    notes, and approval, then writes `.manageroo/cache/production-handoff.md`.
+    On a ready release it also updates `.manageroo/PROJECT-MEMORY.md` with the
+    shipped target, Manageroo run ID, and proof; the operator can commit that
+    memory update if desired. It does not push, deploy, monitor, or roll back
+    production.
 19. MANAGEROO does not run cloud schedules or timer loops by itself. Loop and routine patterns are adapted into bounded local goal-style runs unless the operator supplies a separate scheduler.
 20. The learning lane records suggestions and can approval-apply low-risk project-memory notes. It does not silently edit skills, docs, config, installer behavior, checks, prompts, or code.
 21. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
 22. `run --continue <run-id>` continues Manageroo's saved worker job queue from disk. It replays the controller from saved artifacts and job records; it is not a terminal keepalive feature and does not promise that a killed OS process kept running.
 23. Stateless worker orchestration reduces dependence on chat memory and compaction. It does not make probabilistic model output deterministic; it records packets, attempts, artifacts, checks, and failures so bad attempts can be thrown away.
 24. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.
+25. Acceptance evidence is conservative. If an acceptance outcome describes a
+    user journey, demo, browser, deploy, visual, or security behavior without
+    matching demonstration evidence, Manageroo records `unknown` and blocks
+    completion instead of pretending it passed.

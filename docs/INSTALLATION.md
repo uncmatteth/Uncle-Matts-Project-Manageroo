@@ -44,6 +44,10 @@ products.
 
 Normal users should not need these.
 
+PowerShell exposes the same important controls with parameter names like
+`-GBrainLane`, `-ProjectDiscovery`, `-StackDoctor`, and
+`-ClawpatchCodexLogin`.
+
 ## Recommended stack
 
 The installer can install or guide the surrounding stack that makes the whole
@@ -166,8 +170,8 @@ manageroo skills install
 If you copied skills from another machine, scan before importing:
 
 ```bash
-manageroo skills scan /home/Tommy/Downloads/SKILLS
-manageroo skills import /home/Tommy/Downloads/SKILLS --apply
+manageroo skills scan ~/Downloads/SKILLS
+manageroo skills import ~/Downloads/SKILLS --apply
 ```
 
 `scan` is read-only. `import --apply` copies only `SKILL.md` files into
@@ -399,14 +403,16 @@ manageroo release-ready \
   --approved-by "Your name"
 ```
 
-It does not deploy. It blocks until readiness is green, checks pass, Git is
-clean, and the release target, rollback plan, and human approval are recorded.
-It also writes `.manageroo/cache/production-handoff.md` so the operator
-gets one plain-English release summary: current commit, latest changed files,
-proof commands, blockers, ship target, rollback plan, and next action. On a
-ready release, it appends the shipped target and passing proof to
-`.manageroo/PROJECT-MEMORY.md`; commit that memory update if you want it
-tracked.
+It does not deploy. It blocks until readiness is green, the latest completed
+Manageroo run is proven, review is approved, the final report and patch exist,
+the patch is applied to source, checks pass, Git is clean, and the release
+target, rollback plan, and human approval are recorded. It also writes
+`.manageroo/cache/production-handoff.md` so the operator gets one plain-English
+release summary: current commit, latest changed files, Manageroo run ID, final
+report, final patch, review status, proof commands, blockers, ship target,
+rollback plan, and next action. On a ready release, it appends the shipped
+target, Manageroo run ID, and passing proof to `.manageroo/PROJECT-MEMORY.md`;
+commit that memory update if you want it tracked.
 
 ## Use a Loop Library loop
 

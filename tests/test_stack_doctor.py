@@ -77,6 +77,24 @@ class StackDoctorTests(unittest.TestCase):
         self.assertIn("ACTION gitnexus", text)
         self.assertIn("gitnexus setup", text)
 
+    def test_gitnexus_installed_is_warning_not_permanent_required_failure(self):
+        def which(name: str) -> str | None:
+            return "/usr/bin/gitnexus" if name == "gitnexus" else None
+
+        def runner(argv: list[str], timeout_seconds: int = 30) -> dict:
+            if Path(argv[0]).name == "gitnexus" and argv[1:] == ["--version"]:
+                return {"ok": True, "exit_code": 0, "output": "gitnexus 1.0.0"}
+            return {"ok": False, "exit_code": 1, "output": "unexpected"}
+
+        with tempfile.TemporaryDirectory() as temp:
+            report = stack_doctor(which=which, runner=runner, home=Path(temp))
+
+        gitnexus = next(item for item in report["items"] if item["name"] == "gitnexus")
+        self.assertTrue(gitnexus["installed"])
+        self.assertIn(gitnexus["status"], {"ok", "warning"})
+        self.assertTrue(gitnexus["configured"])
+        self.assertNotEqual(gitnexus["status"], "needs_action")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -77,6 +77,65 @@ def _git_head_summary(repo: Path) -> dict[str, Any]:
     }
 
 
+def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
+    results = sorted(
+        (repo / PROJECT_DIR / "runs").glob("*/delivery/final-result.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if not results:
+        return {
+            "ok": False,
+            "detail": "no completed Manageroo run proof found",
+            "next": f"{PUBLIC_COMMAND} run --apply",
+        }
+    result_path = results[0]
+    run_root = result_path.parents[1]
+    run_id = run_root.name
+    try:
+        data = read_json(result_path)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "run_id": run_id,
+            "detail": f"latest run final-result.json is unreadable: {exc}",
+            "next": f"{PUBLIC_COMMAND} run --continue {run_id} --apply",
+        }
+    delivery = run_root / "delivery"
+    report_path = delivery / "FINAL-REPORT.md"
+    patch_value = data.get("evidence_paths", {}).get("patch")
+    patch_path = Path(patch_value) if patch_value else delivery / "final.patch"
+    review_status = data.get("review", {}).get("status")
+    applied = bool(data.get("applied_to_source"))
+    failures: list[str] = []
+    if data.get("status") != "COMPLETE":
+        failures.append(f"status is {data.get('status', 'missing')}")
+    if review_status != "approved":
+        failures.append(f"review is {review_status or 'missing'}")
+    if not report_path.is_file():
+        failures.append("final report is missing")
+    if not patch_path.is_file():
+        failures.append("final patch is missing")
+    if not applied:
+        failures.append("final patch is not applied to source")
+    proof = {
+        "ok": not failures,
+        "run_id": run_id,
+        "result_path": str(result_path),
+        "final_report": str(report_path),
+        "final_patch": str(patch_path),
+        "review_status": review_status or "",
+        "applied_to_source": applied,
+        "detail": (
+            f"run {run_id}; report={report_path}; patch={patch_path}; review={review_status}; applied={applied}"
+            if not failures
+            else f"run {run_id} incomplete: " + "; ".join(failures)
+        ),
+        "next": f"{PUBLIC_COMMAND} run --continue {run_id} --apply",
+    }
+    return proof
+
+
 def _command_text(argv: list[str]) -> str:
     return " ".join(argv)
 
@@ -125,6 +184,17 @@ def _production_handoff_markdown(report: dict[str, Any]) -> str:
     lines.append(f"- Branch: `{branch}`")
     lines.append(f"- Commit: `{commit}`")
     lines.append(f"- Commit message: {subject}")
+
+    run_proof = report.get("manageroo_run", {})
+    lines.extend(["", "## Manageroo Run Proof", ""])
+    if run_proof.get("ok"):
+        lines.append(f"- Manageroo run: `{run_proof.get('run_id')}`")
+        lines.append(f"- Final report: `{run_proof.get('final_report')}`")
+        lines.append(f"- Final patch: `{run_proof.get('final_patch')}`")
+        lines.append(f"- Review status: `{run_proof.get('review_status')}`")
+        lines.append(f"- Applied to source: `{run_proof.get('applied_to_source')}`")
+    else:
+        lines.append(f"- Missing or incomplete: {run_proof.get('detail', 'no Manageroo run proof')}")
 
     files = git_head.get("files") or []
     lines.extend(["", "## What Changed", ""])
@@ -190,7 +260,16 @@ def _release_memory_update(repo: Path, report: dict[str, Any]) -> dict[str, Any]
     shipped = [
         f"Release-ready approved for {target} at commit {commit}: {subject}",
     ]
+    run_proof = report.get("manageroo_run", {})
+    if run_proof.get("run_id"):
+        shipped.append(f"Manageroo run proof: {run_proof['run_id']}")
     proof: list[str] = []
+    if run_proof.get("ok"):
+        proof.append(
+            "Manageroo completed run "
+            f"{run_proof.get('run_id')} with review={run_proof.get('review_status')} "
+            f"and applied_to_source={run_proof.get('applied_to_source')}."
+        )
     for run in report.get("gate_runs", []):
         if not isinstance(run, dict) or run.get("result", {}).get("exit_code") != 0:
             continue
@@ -202,6 +281,8 @@ def _release_memory_update(repo: Path, report: dict[str, Any]) -> dict[str, Any]
         proof.append("release-ready recorded no passing verification commands.")
     notes = [
         f"Production handoff: {report.get('handoff_path')}",
+        f"Final report: {run_proof.get('final_report')}",
+        f"Final patch: {run_proof.get('final_patch')}",
         f"Rollback plan: {metadata.get('rollback')}",
         f"Approved by: {metadata.get('approved_by')}",
     ]
@@ -241,6 +322,16 @@ def release_ready(
             bool(ready_report["ok"]),
             ready_report["status"],
             ready_report["next_commands"][0] if ready_report.get("next_commands") else f"{PUBLIC_COMMAND} ready",
+        )
+    )
+
+    run_proof = _latest_manageroo_run_proof(repo)
+    items.append(
+        _item(
+            "completed Manageroo run",
+            bool(run_proof["ok"]),
+            run_proof["detail"],
+            run_proof["next"],
         )
     )
 
@@ -357,6 +448,7 @@ def release_ready(
         },
         "items": items,
         "readiness": ready_report,
+        "manageroo_run": run_proof,
         "gate_runs": gate_runs,
         "git_head": git_head,
         "git_status": status_text,

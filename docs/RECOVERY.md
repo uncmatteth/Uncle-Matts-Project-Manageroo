@@ -54,7 +54,10 @@ After the bounded repair count, the run becomes `BLOCKED`. This is evidence that
 
 ## Reviewer disagreement
 
-Only evidence-backed current-file findings are accepted. Invalid paths, stale lines, or mismatched quotes cause review validation failure. Deterministic tests take precedence over reviewer rhetoric.
+Only evidence-backed current-file findings are accepted. Blocking findings need
+a non-empty quote that matches the current file. Invalid paths, stale lines,
+mismatched quotes, or findings outside the locked task scope cause review
+validation failure. Deterministic tests take precedence over reviewer rhetoric.
 
 ## Backup
 

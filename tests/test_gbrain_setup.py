@@ -86,6 +86,26 @@ class GBrainSetupTests(unittest.TestCase):
         self.assertIn("bad path", text)
         self.assertIn("No broad scan.", text)
 
+    def test_format_gbrain_setup_zero_sources_is_action_not_ok(self):
+        text = format_gbrain_setup(
+            {
+                "installed": True,
+                "status": {
+                    "ok": True,
+                    "sources": [],
+                    "source_count": 0,
+                    "chunks_total": 0,
+                    "chunks_unembedded": 0,
+                },
+                "actions": [],
+                "next_commands": ["gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder"],
+                "rule": "No broad scan.",
+            }
+        )
+        self.assertIn("GBRAIN: ACTION", text)
+        self.assertIn("Sources: 0", text)
+        self.assertNotIn("GBRAIN: OK", text)
+
 
 if __name__ == "__main__":
     unittest.main()

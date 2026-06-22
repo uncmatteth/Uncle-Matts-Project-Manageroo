@@ -55,7 +55,9 @@ The manifest records:
 12. Worker jobs are stateless. A retry receives a fresh packet generated from
     controller-owned facts, not from the previous worker's memory.
 13. Completed jobs are loaded from recorded artifacts and hashes, not rerun from
-    a compacted chat summary.
+    a compacted chat summary. Missing artifact hashes make the job stale.
+14. Continue reuses the original saved job when the logical worker call already
+    exists, so skipped completed phases do not shift later failed jobs.
 
 ## Intent lock and compaction audit
 

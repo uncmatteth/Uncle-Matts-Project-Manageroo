@@ -56,8 +56,9 @@ configured attempt limit is reached.
 Required context that does not fit is different. That blocks the job. Manageroo
 does not silently chop required context or ask the AI to guess.
 
-Completed jobs are reused from recorded artifacts. They are not rerun unless the
-recorded artifact is missing or changed.
+Completed jobs are reused from recorded artifacts only when the artifact exists
+and its SHA-256 hash still matches the job record. A completed job without an
+artifact hash is treated as stale and is not trusted.
 
 ## Continue A Run
 
@@ -75,6 +76,22 @@ know what happened.
 On continue, the Python controller replays from the saved run folder. Completed
 jobs and locked controller artifacts are reused. Failed, running, or missing
 worker attempts get a new clean attempt with a fresh packet.
+
+Job IDs are deterministic during replay. If an earlier phase is already
+complete and a later worker failed, Manageroo reuses that later worker's
+original job record instead of shifting the numbering and pretending it is a
+new job.
+
+If `planning/blocking-decisions.json` exists, continue stays blocked until the
+operator resolves the product decisions. Manageroo does not replay past
+unresolved decisions.
+
+Delivery is crash-durable. Manageroo writes `delivery/final-result.json`,
+`delivery/FINAL-REPORT.md`, and `delivery/final.patch` before applying to the
+source repo. If the process dies after writing the final result but before
+source apply, `manageroo run --continue <run-id> --apply` retries only the
+apply step. If the patch is already present in the source repo, Manageroo marks
+the apply complete instead of rerunning workers.
 
 Inspect a run with:
 

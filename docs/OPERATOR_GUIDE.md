@@ -62,7 +62,7 @@ from real failures.
 MANAGEROO's final report emphasizes:
 
 - product behavior delivered;
-- observable acceptance outcomes;
+- observable acceptance outcomes with evidence status, not automatic pass labels;
 - existing components reused;
 - verification commands and results;
 - independent review status;
@@ -70,4 +70,7 @@ MANAGEROO's final report emphasizes:
 - remaining risk;
 - evidence locations.
 
-You approve the product behavior and demonstration. You are not required to interpret the code diff as the primary acceptance method.
+You approve the product behavior and demonstration. You are not required to
+interpret the code diff as the primary acceptance method. If an outcome needs a
+browser/demo/deploy/security-style proof and no matching demonstration evidence
+exists, Manageroo records it as `unknown` and blocks completion.

@@ -46,7 +46,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - The installer can guide or install the recommended local stack: GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew Berman / Forward Future's Loop Library skill.
 - Solo Operator Mode reports every selected extra: configured, missing, skipped, or the exact command to fix next.
 - `checks suggest --apply-first` looks at the repo and saves the first detected proof command without hand-editing TOML.
-- `release-ready` is the final no-bullshit operator gate: checks green, Git clean, deployment target named, rollback notes written, human approval recorded, and a plain-English production handoff written.
+- `release-ready` is the final no-bullshit operator gate: completed Manageroo run proven, review approved, final report and patch present, patch applied to source, checks green, Git clean, deployment target named, rollback notes written, human approval recorded, and a plain-English production handoff written.
 - Credit to Matthew Berman / Forward Future's Loop Library for making the agent-loop idea easy to point at: bounded action, fixed check, stop condition, evidence.
 - Credit to Peter Yang's public skill-writing advice for the skill-hygiene idea: clear triggers, examples/evals when useful, memory only when it is actually read, and an edit-skill pass to remove duplicate or stale instructions.
 - It does not need a special version for Codex, Claude Code, Gemini, Grok, or the next AI thing. If the agent can work in the repo, it can use the same installed command.

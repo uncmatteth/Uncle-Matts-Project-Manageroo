@@ -11,9 +11,10 @@ from unittest.mock import patch
 from manageroo.adapters.mock import MockAdapter
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.cli import main, parser
-from manageroo.errors import AgentExecutionError
+from manageroo.errors import AgentExecutionError, BlockingDecisionError
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
+from manageroo.util import read_json
 
 
 def _toml_array(items):
@@ -206,6 +207,208 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 (repo / ".manageroo" / "runs" / run_id / "worker-attempts" / "001-product-analyst").glob("*.json")
             )
             self.assertEqual([path.stem for path in product_attempts], ["001", "002"])
+
+    def test_continue_waiting_for_product_decisions_does_not_proceed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class DecisionAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "product-analyst":
+                        data = {
+                            "product_name": "Fixture Product",
+                            "goal": "Satisfy the supplied product brief.",
+                            "personas": [{"name": "operator", "need": "a working product"}],
+                            "capabilities": [{"id": "CAP-001", "name": "Risky capability", "description": "Needs choice."}],
+                            "user_journeys": [],
+                            "non_goals": [],
+                            "constraints": [],
+                            "acceptance_outcomes": ["Configured verification gates pass."],
+                            "assumptions": [],
+                            "blocking_decisions": [{
+                                "id": "DEC-001",
+                                "question": "Should this perform an irreversible migration?",
+                                "category": "data",
+                                "options": ["yes", "no"],
+                                "recommended": "",
+                                "reversible": False,
+                                "chosen": "",
+                            }],
+                        }
+                        return AgentResponse(role=request.role, data=data, raw_text="", command=["mock"])
+                    return super().run(request)
+
+            first = Orchestrator(repo, adapter=DecisionAdapter())
+            with self.assertRaises(BlockingDecisionError):
+                first.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+            self.assertTrue(
+                (
+                    repo
+                    / ".manageroo"
+                    / "runs"
+                    / first.run_id
+                    / "artifacts"
+                    / "planning"
+                    / "blocking-decisions.json"
+                ).is_file()
+            )
+
+            continued = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=first.run_id,
+                continue_existing=True,
+            )
+            with self.assertRaisesRegex(BlockingDecisionError, "Resolve product decisions"):
+                continued.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+    def test_continue_after_later_worker_failure_reuses_original_job_id(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            config = repo / ".manageroo" / "config.toml"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "max_worker_attempts = 2",
+                    "max_worker_attempts = 1",
+                ),
+                encoding="utf-8",
+            )
+
+            class FailingPlanAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "plan-compiler":
+                        raise AgentExecutionError("simulated later worker failure")
+                    return super().run(request)
+
+            failed = Orchestrator(repo, adapter=FailingPlanAdapter())
+            with self.assertRaises(AgentExecutionError):
+                failed.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+            run_root = repo / ".manageroo" / "runs" / failed.run_id
+            plan_jobs_before = [
+                read_json(path)
+                for path in sorted((run_root / "jobs").glob("*.json"))
+                if read_json(path)["role"] == "plan-compiler"
+            ]
+            self.assertEqual(len(plan_jobs_before), 1)
+            plan_job_id = plan_jobs_before[0]["id"]
+
+            result = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=failed.run_id,
+                continue_existing=True,
+            ).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            plan_jobs_after = [
+                read_json(path)
+                for path in sorted((run_root / "jobs").glob("*.json"))
+                if read_json(path)["role"] == "plan-compiler"
+            ]
+            self.assertEqual([job["id"] for job in plan_jobs_after], [plan_job_id])
+            attempts = sorted((run_root / "worker-attempts" / plan_job_id).glob("*.json"))
+            self.assertEqual([path.stem for path in attempts], ["001", "002"])
+
+    def test_resumed_worker_gets_new_retry_budget(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class AlwaysFailProductAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "product-analyst":
+                        raise AgentExecutionError("first process cannot analyze")
+                    return super().run(request)
+
+            failed = Orchestrator(repo, adapter=AlwaysFailProductAdapter())
+            with self.assertRaises(AgentExecutionError):
+                failed.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+            class FailOnceThenRecoverAdapter(MockAdapter):
+                def __init__(self):
+                    self.product_calls = 0
+
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "product-analyst":
+                        self.product_calls += 1
+                        if self.product_calls == 1:
+                            raise AgentExecutionError("first resumed attempt fails")
+                    return super().run(request)
+
+            result = Orchestrator(
+                repo,
+                adapter=FailOnceThenRecoverAdapter(),
+                run_id=failed.run_id,
+                continue_existing=True,
+            ).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            attempts = sorted(
+                (
+                    repo
+                    / ".manageroo"
+                    / "runs"
+                    / failed.run_id
+                    / "worker-attempts"
+                    / "001-product-analyst"
+                ).glob("*.json")
+            )
+            self.assertEqual([path.stem for path in attempts], ["001", "002", "003", "004"])
+
+    def test_continue_completed_unapplied_run_applies_only_delivery_step(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            self.assertFalse((repo / "manageroo_fixture.txt").exists())
+
+            class ExplodingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    raise AssertionError("continuing unapplied delivery should not launch workers")
+
+            continued = Orchestrator(
+                repo,
+                adapter=ExplodingAdapter(),
+                run_id=result["run_id"],
+                continue_existing=True,
+            ).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=True,
+            )
+
+            self.assertEqual(continued["status"], "COMPLETE")
+            self.assertTrue(continued["applied_to_source"])
+            self.assertEqual(
+                (repo / "manageroo_fixture.txt").read_text(encoding="utf-8"),
+                "MANAGEROO deterministic fixture completed\n",
+            )
 
 
 if __name__ == "__main__":

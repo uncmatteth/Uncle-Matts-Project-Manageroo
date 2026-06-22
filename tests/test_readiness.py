@@ -152,6 +152,60 @@ class ReadinessTests(unittest.TestCase):
             self.assertTrue(gbrain["required"])
             self.assertIn("brief asks for memory", gbrain["detail"])
 
+    def test_selected_agent_uses_adapter_doctor_not_only_executable_presence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._ready_repo(Path(temp), "# Product brief\n\nMake it work.\n")
+            config = repo / ".manageroo" / "config.toml"
+            text = config.read_text(encoding="utf-8")
+            text = text.replace('adapter = "mock"', 'adapter = "codex"')
+            text = text.replace('executable = "mock"', 'executable = "codex"')
+            config.write_text(text, encoding="utf-8")
+
+            class BadDoctorAdapter:
+                def doctor(self, cwd):
+                    return {
+                        "ok": False,
+                        "adapter": "codex",
+                        "error": "missing required exec flags",
+                    }
+
+            with patch(
+                "manageroo.readiness.helper_skill_items",
+                return_value=[],
+            ), patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ), patch(
+                "manageroo.readiness.shutil.which",
+                return_value="/usr/bin/codex",
+            ), patch(
+                "manageroo.readiness.build_adapter",
+                return_value=BadDoctorAdapter(),
+                create=True,
+            ):
+                report = readiness(repo)
+            selected = [item for item in report["items"] if item["name"] == "selected agent"][0]
+            self.assertFalse(selected["ok"])
+            self.assertIn("doctor", selected["detail"])
+            self.assertIn("missing required exec flags", selected["detail"])
+
+    def test_compile_only_check_is_labeled_weak(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._ready_repo(Path(temp), "# Product brief\n\nMake it work.\n")
+            with patch(
+                "manageroo.readiness.helper_skill_items",
+                return_value=[],
+            ), patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ):
+                report = readiness(repo)
+            weak = [item for item in report["items"] if item["name"] == "check strength"][0]
+            self.assertFalse(weak["ok"])
+            self.assertFalse(weak["required"])
+            self.assertEqual(weak["severity"], "warning")
+            self.assertIn("compile-only", weak["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

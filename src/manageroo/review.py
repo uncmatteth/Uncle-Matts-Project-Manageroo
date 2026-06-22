@@ -6,6 +6,7 @@ from pathlib import Path
 from .adapters.base import AgentAdapter, AgentRequest
 from .errors import SafetyError, ValidationError
 from .inventory import build_inventory
+from .policy import ScopePolicy
 from .runner import CommandRunner
 from .util import atomic_write_json, sha256_file
 
@@ -14,8 +15,14 @@ def _normalized(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def validate_review_evidence(review: dict, repo: Path) -> list[dict]:
+def validate_review_evidence(
+    review: dict,
+    repo: Path,
+    *,
+    allowed_paths: list[str] | tuple[str, ...] | None = None,
+) -> list[dict]:
     accepted: list[dict] = []
+    scope = ScopePolicy(tuple(allowed_paths or ())) if allowed_paths else None
     for finding in review.get("findings", []):
         path_value = finding.get("path")
         if not path_value:
@@ -37,11 +44,20 @@ def validate_review_evidence(review: dict, repo: Path) -> list[dict]:
                 f"Reviewer cited invalid line range {path_value}:{start}-{end}"
             )
         quote = _normalized(finding.get("quote", ""))
+        if finding.get("blocking") and not quote:
+            raise ValidationError("Blocking finding must include a non-empty quote.")
         evidence = _normalized("\n".join(lines[start - 1 : end]))
         if quote and quote not in evidence:
             raise ValidationError(
                 f"Reviewer quote does not match {path_value}:{start}-{end}"
             )
+        if scope is not None and finding.get("blocking"):
+            try:
+                scope.validate_paths([path_value])
+            except SafetyError as exc:
+                raise ValidationError(
+                    f"Blocking reviewer finding is outside locked scope: {path_value}"
+                ) from exc
         accepted.append(finding)
     return accepted
 

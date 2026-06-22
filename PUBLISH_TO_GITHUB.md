@@ -61,14 +61,24 @@ Suggested tag:
 v2026.6.22.1
 ```
 
-Attach these files to the GitHub Release:
+Attach every generated drop-folder file to the GitHub Release, because
+`SHA256SUMS.txt` lists the full drop set:
 
 ```text
 uncle-matts-project-manageroo-v2026.6.22.1.zip
+uncle-matts-project-manageroo-v2026.6.22.1-source.zip
 SHA256SUMS.txt
+SOURCE-VALIDATION.json
+FINAL-VALIDATION.json
+LOCAL-SETUP.md
+PUBLISH-TO-GITHUB.md
+GIVE-THIS-TO-YOUR-IDE-AGENT.md
+GITHUB-DESCRIPTION.md
 ```
 
-The source repository itself remains browsable through GitHub. The release ZIP is the convenient installer package for end users.
+The source repository itself remains browsable through GitHub. The release ZIP
+is the convenient installer package for end users; the source ZIP and helper
+docs make the release self-contained.
 
 ## 5. Public one-line install commands
 

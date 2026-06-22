@@ -149,8 +149,9 @@ def gbrain_setup_status(
         next_commands.append("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder")
         next_commands.append("gbrain sync --source YOUR_SOURCE_ID --json --yes")
     actions_ok = all(action.get("ok") for action in actions)
+    has_sources = bool(summary.get("ok") and summary.get("source_count", 0) > 0)
     return {
-        "ok": bool(summary.get("ok")) and actions_ok,
+        "ok": bool(summary.get("ok")) and has_sources and actions_ok,
         "installed": True,
         "path": gbrain,
         "config": config_summary,
@@ -166,7 +167,8 @@ def format_gbrain_setup(report: dict[str, Any]) -> str:
     if not report.get("installed"):
         return "GBRAIN: NOT INSTALLED\nNext: " + report["next_commands"][0] + "\n"
     status = report.get("status", {})
-    lines = [f"GBRAIN: {'OK' if status.get('ok') else 'ACTION'}"]
+    has_sources = bool(status.get("source_count", 0) > 0)
+    lines = [f"GBRAIN: {'OK' if status.get('ok') and has_sources else 'ACTION'}"]
     if status.get("ok"):
         config = report.get("config", {})
         for key in ("engine", "embedding_model", "embedding_dimensions", "schema_pack"):

@@ -64,10 +64,16 @@ def build_report(data: dict[str, Any]) -> str:
     )
     outcomes = data.get("acceptance", [])
     if outcomes:
-        lines.extend(
-            f"- {'✓' if item.get('passed') else '✗'} {item.get('description')}"
-            for item in outcomes
-        )
+        for item in outcomes:
+            status = item.get("status")
+            if status is None:
+                status = "passed" if item.get("passed") else "failed"
+            label = "yes" if status == "passed" else "no" if status == "failed" else "unknown"
+            reason = item.get("reason", "")
+            line = f"- {label}: {item.get('description')}"
+            if reason:
+                line += f" ({reason})"
+            lines.append(line)
     else:
         lines.append("- No acceptance outcomes recorded.")
     lines.extend(["", "## Reuse decisions", ""])

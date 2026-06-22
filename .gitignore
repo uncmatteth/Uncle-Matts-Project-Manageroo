@@ -6,3 +6,4 @@ dist/
 *.egg-info/
 .manageroo/runs/
 .manageroo/cache/
+.clawpatch/

@@ -31,7 +31,7 @@ from .inventory import build_inventory, inventory_summary
 from .jobs import JobStatus, JobStore
 from .learning import generate_learning_cards, pending_root, save_pending_learning_cards
 from .map_cache import load_system_map_cache, write_system_map_cache
-from .policy import CommandPolicy, ScopePolicy
+from .policy import CommandPolicy, ScopePolicy, validate_allowed_scope_patterns
 from .report import write_report
 from .review import inventory_hashes, validate_review_evidence
 from .runner import CommandRunner
@@ -85,6 +85,92 @@ def _one_line_query(text: str, max_chars: int = 1200) -> str:
 def _artifact_fragment(value: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in "-_." else "-" for char in value)
     return cleaned.strip("-") or "item"
+
+
+def _passed_gate_ids(gates: list[dict]) -> list[str]:
+    passed: list[str] = []
+    for item in gates:
+        if not isinstance(item, dict):
+            continue
+        gate = item.get("gate", {})
+        result = item.get("result", {})
+        if isinstance(gate, dict) and isinstance(result, dict) and result.get("exit_code") == 0:
+            gate_id = str(gate.get("id") or "").strip()
+            if gate_id:
+                passed.append(gate_id)
+    return passed
+
+
+def _needs_demonstration(description: str) -> bool:
+    lowered = description.lower()
+    terms = (
+        "browser",
+        "journey",
+        "demo",
+        "deploy",
+        "deployment",
+        "security",
+        "auth",
+        "login",
+        "permission",
+        "screenshot",
+        "visual",
+        "checkout",
+        "user can",
+        "end user",
+    )
+    return any(term in lowered for term in terms)
+
+
+def build_acceptance_evidence(
+    *,
+    product: dict,
+    gate_results: list[dict],
+    demonstration: dict,
+    review: dict,
+) -> list[dict]:
+    passed_gates = _passed_gate_ids(gate_results)
+    demo_gates = _passed_gate_ids(list(demonstration.get("gates", []) or []))
+    review_approved = review.get("status") == "approved"
+    rows: list[dict] = []
+    for item in product.get("acceptance_outcomes", []):
+        description = str(item)
+        if _needs_demonstration(description) and not demo_gates:
+            rows.append(
+                {
+                    "description": description,
+                    "status": "unknown",
+                    "evidence": [],
+                    "reason": "This outcome describes a user journey, demo, browser, deploy, visual, or security behavior without matching demonstration evidence.",
+                }
+            )
+            continue
+        if passed_gates and review_approved:
+            evidence = [f"gate:{gate_id}" for gate_id in passed_gates]
+            evidence.append("review:approved")
+            evidence.extend(f"demo:{gate_id}" for gate_id in demo_gates)
+            rows.append(
+                {
+                    "description": description,
+                    "status": "passed",
+                    "evidence": evidence,
+                    "reason": "Required gates passed and independent review approved the patch.",
+                }
+            )
+            continue
+        rows.append(
+            {
+                "description": description,
+                "status": "failed" if not review_approved else "unknown",
+                "evidence": [f"gate:{gate_id}" for gate_id in passed_gates],
+                "reason": (
+                    "Independent review did not approve the result."
+                    if not review_approved
+                    else "No passing required gate evidence was recorded."
+                ),
+            }
+        )
+    return rows
 
 
 class Orchestrator:
@@ -223,6 +309,32 @@ class Orchestrator:
                 return data
         return None
 
+    def _delivery_result(self) -> dict[str, Any] | None:
+        if not self.continuing:
+            return None
+        path = self.run_root / "delivery" / "final-result.json"
+        if not path.is_file():
+            return None
+        data = read_json(path)
+        return data if isinstance(data, dict) else None
+
+    def _blocking_decisions_path(self) -> Path:
+        return self.artifacts.root / "planning" / "blocking-decisions.json"
+
+    def _apply_pending_delivery(self, result: dict[str, Any]) -> dict[str, Any]:
+        patch_value = result.get("evidence_paths", {}).get("patch")
+        patch_path = Path(patch_value) if patch_value else self.run_root / "delivery" / "final.patch"
+        if not self.mirror.patch_already_applied_to_source(patch_path):
+            self.mirror.apply_patch_to_source(patch_path)
+        result["applied_to_source"] = True
+        result["finished_at"] = utc_now()
+        report_path = self.run_root / "delivery" / "FINAL-REPORT.md"
+        final_result_path = self.run_root / "delivery" / "final-result.json"
+        write_report(report_path, result)
+        atomic_write_json(final_result_path, result)
+        self._transition(Phase.COMPLETE, "Previously completed delivery patch is applied to source")
+        return result
+
     def _next_call_name(self, role: str) -> str:
         with self._call_lock:
             self._call_index += 1
@@ -285,6 +397,20 @@ class Orchestrator:
             instructions = token_prompt + "\n\n" + instructions
         metadata = metadata or {}
         allowed_paths = metadata.get("task", {}).get("allowed_paths", [])
+        spec_hash = self.job_store.spec_sha256_for(
+            role=role,
+            schema=schema,
+            instructions=instructions,
+            context=context_requests,
+            allowed_paths=allowed_paths,
+            dependencies=metadata.get("dependencies", []),
+            metadata=metadata,
+            sandbox=sandbox,
+        )
+        if self.continuing and not self.job_store.job_exists(name):
+            matching = self.job_store.find_matching_job(role=role, spec_sha256=spec_hash)
+            if matching is not None:
+                name = matching.id
         job = self.job_store.create_or_load_job(
             name,
             role=role,
@@ -356,7 +482,7 @@ class Orchestrator:
             except Exception as exc:
                 last_error = exc
                 self.job_store.fail_attempt(name, attempt.attempt_id, exc)
-                if len(self.job_store.attempts_for(name)) >= max_attempts:
+                if len(self.job_store.attempts_for(name)) >= attempt_limit:
                     self.job_store.fail_job(name, exc)
                     raise
         if last_error is not None:
@@ -426,6 +552,15 @@ class Orchestrator:
         max_single = int(self.config["context"]["max_single_file_tokens"])
         findings: list[dict] = []
         for task in plan.get("tasks", []):
+            try:
+                validate_allowed_scope_patterns(task.get("allowed_paths", []))
+            except SafetyError as exc:
+                findings.append({
+                    "id": f"SCOPE-{task['id']}",
+                    "severity": "high",
+                    "problem": f"Task {task['id']} requested unsafe edit scope: {exc}",
+                    "required_change": "Replace broad scopes with exact task-owned file paths.",
+                })
             total = 0
             for path in task.get("context_paths", []):
                 item = by_path.get(path)
@@ -937,6 +1072,10 @@ class Orchestrator:
         review_packet_root = self.run_root / "review-packets"
         review_packet_root.mkdir(parents=True, exist_ok=True)
         review_outputs: list[dict] = []
+        allowed_review_paths = sorted(
+            {path for task in plan.get("tasks", []) for path in task.get("allowed_paths", [])}
+            | set(changed_paths)
+        )
 
         inventory = [
             asdict(item)
@@ -1012,7 +1151,7 @@ class Orchestrator:
                     changed = sorted(set(before) | set(after))
                     changed = [item for item in changed if before.get(item) != after.get(item)]
                     raise SafetyError("Reviewer mutated its isolated repository: " + ", ".join(changed))
-                validate_review_evidence(data, review_repo)
+                validate_review_evidence(data, review_repo, allowed_paths=allowed_review_paths)
 
             return self._call(
                 role="reviewer",
@@ -1040,9 +1179,16 @@ class Orchestrator:
             findings.extend(review.get("findings", []))
             statuses.append(review.get("status"))
             summaries.append(review.get("summary", ""))
+        if any(status == "changes-required" for status in statuses) and not any(
+            item.get("blocking") for item in findings
+        ):
+            raise ValidationError(
+                "Invalid review evidence: reviewer returned changes-required without a valid blocking finding."
+            )
         combined = {
             "status": "changes-required"
-            if any(item.get("blocking") for item in findings)
+            if any(status == "changes-required" for status in statuses)
+            or any(item.get("blocking") for item in findings)
             else "approved",
             "summary": " | ".join(item for item in summaries if item),
             "findings": findings,
@@ -1067,6 +1213,21 @@ class Orchestrator:
         external_intelligence: dict[str, Any] | None = None
         external_review_repair: dict[str, Any] | None = None
         try:
+            delivery_result = self._delivery_result()
+            if (
+                delivery_result is not None
+                and delivery_result.get("status") == "COMPLETE"
+                and not delivery_result.get("applied_to_source")
+            ):
+                should_apply_pending = (
+                    bool(self.config["project"]["apply_on_success"])
+                    if apply_on_success is None
+                    else apply_on_success
+                )
+                if should_apply_pending:
+                    return self._apply_pending_delivery(delivery_result)
+                if self.state.phase == Phase.COMPLETE.value:
+                    return delivery_result
             completed = self._completed_result()
             if completed is not None:
                 return completed
@@ -1078,6 +1239,8 @@ class Orchestrator:
             brief = brief_path.read_text(encoding="utf-8", errors="replace").strip()
             if not brief:
                 raise ValidationError("Product brief is empty.")
+            if self.continuing and self._blocking_decisions_path().is_file():
+                raise BlockingDecisionError("Resolve product decisions before continuing.")
 
             self._transition(Phase.INTAKE, "Captured product request and pending ideas")
             self._write_or_reuse_text("intake/product-brief.md", brief, lock=True)
@@ -1260,6 +1423,7 @@ class Orchestrator:
             _topological_tasks(plan["tasks"])
             for task in plan["tasks"]:
                 self._gates_for_ids(task["gate_ids"])
+                task["allowed_paths"] = validate_allowed_scope_patterns(task["allowed_paths"])
                 for path in task["allowed_paths"] + task["context_paths"]:
                     safe_repo_relative(path)
             self._write_or_reuse_json("planning/task-plan.json", plan, lock=True)
@@ -1371,9 +1535,14 @@ class Orchestrator:
                     {item["path"] for item in review["findings"] if item.get("blocking") and item.get("path")}
                 )
                 allowed = sorted(
-                    set(finding_paths)
-                    | {path for task in plan["tasks"] for path in task["allowed_paths"]}
+                    {path for task in plan["tasks"] for path in task["allowed_paths"]}
                 )
+                outside = [path for path in finding_paths if path not in allowed]
+                if outside:
+                    raise ValidationError(
+                        "Reviewer cited blocking findings outside locked scope; scope expansion is blocked: "
+                        + ", ".join(outside)
+                    )
                 requests = [
                     ContextRequest(
                         path=path,
@@ -1427,14 +1596,29 @@ class Orchestrator:
                 if demonstration_gates
                 else []
             )
-            self.artifacts.write_json(
-                "verification/demonstration.json",
-                {
-                    "required": demonstration.get("required", True),
-                    "product_evidence": demonstration.get("product_evidence", []),
-                    "gates": demo_results,
-                },
+            demonstration_evidence = {
+                "required": demonstration.get("required", True),
+                "product_evidence": demonstration.get("product_evidence", []),
+                "gates": demo_results,
+            }
+            self.artifacts.write_json("verification/demonstration.json", demonstration_evidence)
+            acceptance = build_acceptance_evidence(
+                product=product,
+                gate_results=global_gate_results,
+                demonstration=demonstration_evidence,
+                review=review,
             )
+            self.artifacts.write_json("verification/acceptance-evidence.json", acceptance)
+            blocked_acceptance = [
+                item for item in acceptance if item.get("status") != "passed"
+            ]
+            if blocked_acceptance:
+                descriptions = ", ".join(item["description"] for item in blocked_acceptance[:3])
+                raise GateFailure(
+                    "Acceptance evidence is incomplete or failed. "
+                    f"Resolve before COMPLETE: {descriptions}. "
+                    "See verification/acceptance-evidence.json."
+                )
 
             self._transition(Phase.DELIVERING, "Producing patch, evidence ledger, and product report")
             patch_path = self.mirror.write_patch(self.run_root / "delivery" / "final.patch")
@@ -1443,13 +1627,6 @@ class Orchestrator:
                 if apply_on_success is None
                 else apply_on_success
             )
-            if should_apply:
-                self.mirror.apply_patch_to_source(patch_path)
-
-            acceptance = [
-                {"description": item, "passed": True}
-                for item in product.get("acceptance_outcomes", [])
-            ]
             result.update(
                 {
                     "status": "COMPLETE",
@@ -1468,10 +1645,11 @@ class Orchestrator:
                     "evidence_paths": {
                         "run_root": str(self.run_root),
                         "patch": str(patch_path),
+                        "final_report": str(self.run_root / "delivery" / "FINAL-REPORT.md"),
                         "artifact_ledger": str(self.artifacts.ledger_path),
                         "state": str(self.state_path),
                     },
-                    "applied_to_source": should_apply,
+                    "applied_to_source": False,
                     "finished_at": utc_now(),
                 }
             )
@@ -1485,6 +1663,12 @@ class Orchestrator:
             final_result_path = self.run_root / "delivery" / "final-result.json"
             markdown = write_report(report_path, result)
             atomic_write_json(final_result_path, result)
+            if should_apply:
+                self.mirror.apply_patch_to_source(patch_path)
+                result["applied_to_source"] = True
+                result["finished_at"] = utc_now()
+                markdown = write_report(report_path, result)
+                atomic_write_json(final_result_path, result)
             external_capture = self._capture_external_outcome(
                 report_path=report_path,
                 result_path=final_result_path,

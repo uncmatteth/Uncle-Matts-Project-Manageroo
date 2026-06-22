@@ -137,14 +137,19 @@ def _gitnexus(which: WhichFn, runner: RunnerFn) -> dict:
             reference="https://github.com/abhigyanpatwari/GitNexus",
         )
     version_probe = runner([path, "--version"], 30)
+    configured = bool(version_probe.get("ok"))
     return {
         "name": "gitnexus",
-        "status": "needs_action",
+        "status": "warning" if configured else "needs_action",
         "installed": True,
-        "configured": False,
+        "configured": configured,
         "path": path,
-        "detail": "installed; MCP/setup verification still needs `gitnexus setup`",
-        "next_commands": ["gitnexus setup"],
+        "detail": (
+            "installed; setup probe is not authoritative, run `gitnexus setup` if your agent cannot see it"
+            if configured
+            else "installed; version probe failed, run `gitnexus setup`"
+        ),
+        "next_commands": ["gitnexus setup"] if not configured else [],
         "probes": {"version": _safe_probe_record(version_probe)},
         "reference": "https://github.com/abhigyanpatwari/GitNexus",
     }
@@ -311,7 +316,9 @@ def stack_doctor(
         _codex(which, runner),
     ]
     needs_action = [
-        item for item in items if item.get("status") != "ok" and not item.get("optional")
+        item
+        for item in items
+        if item.get("status") in {"missing", "needs_action"} and not item.get("optional")
     ]
     return {
         "ok": True,
@@ -338,7 +345,7 @@ def format_stack_doctor(report: dict) -> str:
         "Stack tools:",
     ]
     for item in report.get("items", []):
-        label = "OK" if item.get("status") == "ok" else "ACTION"
+        label = "OK" if item.get("status") == "ok" else "WARN" if item.get("status") == "warning" else "ACTION"
         optional = " optional" if item.get("optional") else ""
         lines.append(f"- {label} {item['name']}{optional}: {item.get('detail', '')}")
         for command in item.get("next_commands", []):

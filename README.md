@@ -539,7 +539,7 @@ manageroo skills install
 If you copied a skills folder from another machine, scan it first:
 
 ```bash
-manageroo skills scan /home/Tommy/Downloads/SKILLS
+manageroo skills scan ~/Downloads/SKILLS
 ```
 
 That is read-only. It reports importable skills, duplicates, invalid names, and
@@ -547,7 +547,7 @@ same-name conflicts. Plain text shows a capped list; use `--limit 0` or
 `--json` for the full report. Import only after reviewing the scan:
 
 ```bash
-manageroo skills import /home/Tommy/Downloads/SKILLS --apply
+manageroo skills import ~/Downloads/SKILLS --apply
 ```
 
 Import copies only `SKILL.md` files into `~/.agents/skills`. If a different
@@ -664,13 +664,16 @@ manageroo release-ready \
   --approved-by "Your name"
 ```
 
-It does not deploy. It checks base readiness, real verification gates, clean
-Git state, deployment target, rollback notes, and human approval.
+It does not deploy. It checks base readiness, the latest completed Manageroo
+run, approved review, final report, final patch, applied-to-source status, real
+verification gates, clean Git state, deployment target, rollback notes, and
+human approval.
 It writes a plain-English production handoff at
 `.manageroo/cache/production-handoff.md` with the current commit, latest
-changed files, proof commands, release blockers, ship target, rollback plan,
-and next operator action. When the gate is ready, it also appends the shipped
-target, passing proof, handoff path, rollback plan, and approver to
+changed files, Manageroo run ID, final report, final patch, review status,
+proof commands, release blockers, ship target, rollback plan, and next operator
+action. When the gate is ready, it also appends the shipped target, Manageroo
+run ID, passing proof, handoff path, rollback plan, and approver to
 `.manageroo/PROJECT-MEMORY.md` so the next agent does not have to rediscover
 what shipped. Commit that project-memory update if you want it tracked.
 

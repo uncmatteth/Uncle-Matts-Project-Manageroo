@@ -166,6 +166,51 @@ class JobStore:
         self.save_job(job)
         return job
 
+    def spec_sha256_for(
+        self,
+        *,
+        role: str,
+        schema: str,
+        instructions: str,
+        context: Iterable[Any] = (),
+        allowed_paths: Iterable[str] = (),
+        dependencies: Iterable[str] = (),
+        metadata: dict[str, Any] | None = None,
+        sandbox: str = "read-only",
+    ) -> str:
+        return sha256_json(
+            self._spec(
+                role=role,
+                schema=schema,
+                instructions=instructions,
+                context=context,
+                allowed_paths=allowed_paths,
+                dependencies=dependencies,
+                metadata=metadata or {},
+                sandbox=sandbox,
+            )
+        )
+
+    def job_exists(self, job_id: str) -> bool:
+        return self._job_path(job_id).is_file()
+
+    def find_matching_job(self, *, role: str, spec_sha256: str) -> Job | None:
+        matches = [
+            job
+            for job in self.list_jobs()
+            if job.role == role and job.spec_sha256 == spec_sha256
+        ]
+        if not matches:
+            return None
+        priority = {
+            JobStatus.BLOCKED.value: 0,
+            JobStatus.FAILED.value: 1,
+            JobStatus.PENDING.value: 2,
+            JobStatus.RUNNING.value: 3,
+            JobStatus.COMPLETE.value: 4,
+        }
+        return sorted(matches, key=lambda job: (priority.get(job.status, 99), job.id))[0]
+
     def save_job(self, job: Job) -> None:
         job.updated_at = utc_now()
         atomic_write_json(self._job_path(job.id), asdict(job))
@@ -253,10 +298,12 @@ class JobStore:
         data: dict[str, Any],
         artifact_path: Path | None = None,
     ) -> Job:
+        if not artifact_path or not artifact_path.is_file():
+            raise SafetyError(f"Completed job requires a written artifact: {job_id}")
         job = self.load_job(job_id)
         job.status = JobStatus.COMPLETE.value
         job.output_artifact = output_artifact
-        job.output_artifact_sha256 = sha256_file(artifact_path) if artifact_path else ""
+        job.output_artifact_sha256 = sha256_file(artifact_path)
         job.result_sha256 = sha256_json(data)
         job.failure_type = ""
         job.failure = ""
@@ -283,6 +330,12 @@ class JobStore:
         job = self.load_job(job_id)
         if job.status != JobStatus.COMPLETE.value or not job.output_artifact:
             return None
+        if not job.output_artifact_sha256:
+            job.status = JobStatus.PENDING.value
+            job.failure_type = "MissingArtifactHash"
+            job.failure = f"Completed job artifact hash is missing: {job.output_artifact}"
+            self.save_job(job)
+            return None
         path = artifacts_root / job.output_artifact
         if not path.exists():
             job.status = JobStatus.PENDING.value
@@ -290,7 +343,7 @@ class JobStore:
             job.failure = f"Completed job artifact is missing: {job.output_artifact}"
             self.save_job(job)
             return None
-        if job.output_artifact_sha256 and sha256_file(path) != job.output_artifact_sha256:
+        if sha256_file(path) != job.output_artifact_sha256:
             job.status = JobStatus.PENDING.value
             job.failure_type = "StaleArtifact"
             job.failure = f"Completed job artifact changed: {job.output_artifact}"
@@ -301,19 +354,20 @@ class JobStore:
     def status_summary(self) -> dict[str, Any]:
         jobs = self.list_jobs()
         attempts = [attempt for job in jobs for attempt in self.attempts_for(job.id)]
-        current = next(
+        blocked = next((job for job in jobs if job.status == JobStatus.BLOCKED.value), None)
+        failed = next((job for job in jobs if job.status == JobStatus.FAILED.value), None)
+        pending_or_running = next(
             (job for job in jobs if job.status in {JobStatus.RUNNING.value, JobStatus.PENDING.value}),
             None,
         )
-        blocked = next((job for job in jobs if job.status == JobStatus.BLOCKED.value), None)
-        failed = next((job for job in jobs if job.status == JobStatus.FAILED.value), None)
+        current = blocked or failed or pending_or_running
         next_action = "No worker jobs have been created yet."
-        if current:
-            next_action = f"Run disposable worker job {current.id}."
-        elif blocked:
+        if blocked:
             next_action = f"Fix blocked job {blocked.id}: {blocked.failure}"
         elif failed:
             next_action = f"Inspect failed job {failed.id}: {failed.failure}"
+        elif current:
+            next_action = f"Run disposable worker job {current.id}."
         elif jobs:
             next_action = "All recorded worker jobs are complete."
         return {
