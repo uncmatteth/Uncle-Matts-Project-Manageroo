@@ -11,7 +11,9 @@ from .branding import FULL_ACRONYM, PROJECT_DIR, PUBLIC_COMMAND, print_banner
 from .brief_builder import build_product_brief, default_brief_path, write_product_brief
 from .checks import (
     add_check_gate,
+    add_first_suggested_check_gate,
     format_add_check_gate,
+    format_applied_check_suggestion,
     format_check_gate_list,
     format_check_gate_suggestions,
     list_check_gates,
@@ -296,6 +298,11 @@ def parser() -> argparse.ArgumentParser:
     checks_list.add_argument("--json", action="store_true")
     checks_suggest = checks_sub.add_parser("suggest", help="Suggest real check commands for this repo.")
     checks_suggest.add_argument("repo", nargs="?", default=".")
+    checks_suggest.add_argument(
+        "--apply-first",
+        action="store_true",
+        help="Add the first detected suggestion immediately, then run ready.",
+    )
     checks_suggest.add_argument("--json", action="store_true")
     checks_add = checks_sub.add_parser(
         "add",
@@ -690,12 +697,18 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.checks_command == "suggest":
                 repo = _repo(args.repo)
-                result = suggest_check_gates(repo)
+                result = (
+                    add_first_suggested_check_gate(repo)
+                    if args.apply_first
+                    else suggest_check_gates(repo)
+                )
                 if args.json:
                     print(json.dumps(result, indent=2))
+                elif args.apply_first:
+                    print(format_applied_check_suggestion(result), end="")
                 else:
                     print(format_check_gate_suggestions(result), end="")
-                return 0
+                return 0 if result.get("ok") else 2
             selected_repo, check_argv = _extract_check_repo_arg(args.argv, args.repo)
             repo = _repo(selected_repo)
             result = add_check_gate(

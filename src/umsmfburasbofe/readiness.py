@@ -173,7 +173,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                     if gates
                     else "no verification gates configured"
                 ),
-                "umsmfburasbofe checks suggest",
+                "umsmfburasbofe checks suggest --apply-first",
             )
         )
 

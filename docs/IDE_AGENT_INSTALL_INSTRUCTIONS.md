@@ -83,11 +83,11 @@ umsmfburasbofe ready --json
 umsmfburasbofe next --json
 ```
 
-If readiness says no checks are configured, ask the controller for repo-aware
-suggestions before asking the user:
+If readiness says no checks are configured, first let the controller add the
+first detected repo-aware proof command:
 
 ```bash
-umsmfburasbofe checks suggest
+umsmfburasbofe checks suggest --apply-first
 umsmfburasbofe checks list
 umsmfburasbofe ready --json
 ```

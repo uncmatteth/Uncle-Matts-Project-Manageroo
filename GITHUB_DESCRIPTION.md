@@ -35,7 +35,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It was built around GBrain, GitNexus, Obsidian, AUTOREVIEW, Clawpatch, and any AI IDE or CLI agent that can run commands in the repo.
 - The installer can guide or install the recommended local stack: GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew Berman / Forward Future's Loop Library skill.
 - Solo Operator Mode reports every selected extra: configured, missing, skipped, or the exact command to fix next.
-- `checks suggest` looks at the repo and proposes copy/paste proof commands; `checks add` saves the selected command without hand-editing TOML.
+- `checks suggest --apply-first` looks at the repo and saves the first detected proof command without hand-editing TOML.
 - `release-ready` is the final no-bullshit operator gate: checks green, Git clean, deployment target named, rollback notes written, human approval recorded, and a plain-English production handoff written.
 - Credit to Matthew Berman / Forward Future's Loop Library for making the agent-loop idea easy to point at: bounded action, fixed check, stop condition, evidence.
 - Credit to Peter Yang's public skill-writing advice for the skill-hygiene idea: clear triggers, examples/evals when useful, memory only when it is actually read, and an edit-skill pass to remove duplicate or stale instructions.

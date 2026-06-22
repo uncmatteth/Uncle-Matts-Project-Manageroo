@@ -61,12 +61,14 @@ config, and run engine as the lower-level commands. It is not a second product.
 If the only blocker is missing checks, the next action is a command like:
 
 ```bash
-umsmfburasbofe checks suggest
+umsmfburasbofe checks suggest --apply-first
 ```
 
 That suggests one or more real verification commands without making the user
-hand-edit `.umsmfburasbofe/config.toml`. Copy the `checks add ...` command it
-prints, then run `umsmfburasbofe ready` again.
+hand-edit `.umsmfburasbofe/config.toml`. With `--apply-first`, it writes the
+first detected check into config, then tells the user to run `umsmfburasbofe
+ready` again. Use plain `umsmfburasbofe checks suggest` when you only want to
+inspect the options.
 
 If the operator gets lost between steps, use:
 

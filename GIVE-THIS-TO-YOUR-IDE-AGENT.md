@@ -78,11 +78,11 @@ umsmfburasbofe ready --json
 umsmfburasbofe next --json
 ```
 
-If readiness says no checks are configured, ask for the real test, lint, build,
-or smoke command and add it through the CLI:
+If readiness says no checks are configured, first let the controller add the
+first detected repo-aware proof command:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest --apply-first
 umsmfburasbofe checks list
 umsmfburasbofe ready --json
 ```

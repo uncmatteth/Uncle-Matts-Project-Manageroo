@@ -257,11 +257,11 @@ Check whether it is ready to run:
 umsmfburasbofe ready
 ```
 
-If the repo has no detected verification command, ask for repo-aware suggestions
-without editing TOML:
+If the repo has no detected verification command, let the tool add the first
+detected repo-aware check without hand-editing TOML:
 
 ```bash
-umsmfburasbofe checks suggest
+umsmfburasbofe checks suggest --apply-first
 umsmfburasbofe checks list
 ```
 

@@ -57,6 +57,25 @@ class CliCheckTests(unittest.TestCase):
             self.assertEqual(payload["suggestions"][0]["id"], "python-compile")
             self.assertIn("checks add python-compile", payload["suggestions"][0]["add_command"])
 
+    def test_checks_suggest_apply_first_writes_detected_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "app.py").write_text("print('ok')\n", encoding="utf-8")
+            initialize_project(repo, agent="mock")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main(["checks", "suggest", str(repo), "--apply-first", "--json"])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["added"]["id"], "python-compile")
+            config_text = (repo / ".umsmfburasbofe" / "config.toml").read_text(encoding="utf-8")
+            self.assertIn('id = "python-compile"', config_text)
+            self.assertIn('argv = ["python3", "-m", "compileall", "."]', config_text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,12 @@ import unittest
 import json
 from pathlib import Path
 
-from umsmfburasbofe.checks import add_check_gate, list_check_gates, suggest_check_gates
+from umsmfburasbofe.checks import (
+    add_check_gate,
+    add_first_suggested_check_gate,
+    list_check_gates,
+    suggest_check_gates,
+)
 from umsmfburasbofe.project import initialize_project
 
 
@@ -67,6 +72,19 @@ class CheckCommandTests(unittest.TestCase):
             self.assertEqual(report["suggestions"][0]["id"], "python-compile")
             self.assertEqual(report["suggestions"][0]["argv"], ["python3", "-m", "compileall", "."])
             self.assertIn("catches Python syntax errors", report["suggestions"][0]["reason"])
+
+    def test_add_first_suggested_check_gate_writes_first_detected_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            (repo / "app.py").write_text("print('ok')\n", encoding="utf-8")
+
+            result = add_first_suggested_check_gate(repo)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["added"]["id"], "python-compile")
+            gates = list_check_gates(repo)["gates"]
+            self.assertEqual(gates[0]["id"], "python-compile")
+            self.assertEqual(gates[0]["argv"], ["python3", "-m", "compileall", "."])
 
 
 if __name__ == "__main__":

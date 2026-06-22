@@ -103,8 +103,8 @@ At any later point, use this when you just need to know the next move:
 umsmfburasbofe next
 ```
 
-It prints one command only: `solo` for setup/brief work, `checks suggest` when
-proof gates are missing, or `run` when the repo is ready.
+It prints one command only: `solo` for setup/brief work, `checks suggest --apply-first`
+when proof gates are missing, or `run` when the repo is ready.
 
 `--create` initializes Git and creates the first small scaffold commit for a
 missing or empty folder. It refuses non-empty non-Git folders and nested repos.
@@ -165,7 +165,7 @@ umsmfburasbofe next
 If it says no checks are configured, ask for repo-aware suggestions:
 
 ```bash
-umsmfburasbofe checks suggest
+umsmfburasbofe checks suggest --apply-first
 umsmfburasbofe checks list
 ```
 

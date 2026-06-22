@@ -54,7 +54,7 @@ class CliNextTests(unittest.TestCase):
             output = stdout.getvalue()
             self.assertEqual(code, 0)
             self.assertIn("Stage: needs-checks", output)
-            self.assertIn("umsmfburasbofe checks suggest", output)
+            self.assertIn("umsmfburasbofe checks suggest --apply-first", output)
 
     def test_ready_repo_json_points_to_run_command(self):
         with tempfile.TemporaryDirectory() as temp:

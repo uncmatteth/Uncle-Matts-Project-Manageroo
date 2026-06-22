@@ -149,6 +149,47 @@ def suggest_check_gates(repo: Path) -> dict[str, Any]:
     }
 
 
+def add_first_suggested_check_gate(repo: Path) -> dict[str, Any]:
+    report = suggest_check_gates(repo)
+    suggestions = report.get("suggestions", [])
+    if not suggestions:
+        return {
+            "ok": False,
+            "repo": report["repo"],
+            "reason": "No automatic check suggestion was found.",
+            "next_command": report["next_command"],
+        }
+    skipped: list[dict[str, str]] = []
+    for suggestion in suggestions:
+        try:
+            added = add_check_gate(
+                repo,
+                gate_id=suggestion["id"],
+                argv=list(suggestion["argv"]),
+                kind=suggestion.get("kind", "check"),
+            )
+        except ValueError as exc:
+            if "already exists" not in str(exc):
+                raise
+            skipped.append({"id": suggestion["id"], "reason": str(exc)})
+            continue
+        return {
+            "ok": True,
+            "repo": report["repo"],
+            "selected": suggestion,
+            "added": added,
+            "skipped": skipped,
+            "next_command": added["next_command"],
+        }
+    return {
+        "ok": False,
+        "repo": report["repo"],
+        "reason": "All automatic check suggestions are already configured.",
+        "skipped": skipped,
+        "next_command": f"{PUBLIC_COMMAND} checks list",
+    }
+
+
 def format_add_check_gate(report: dict[str, Any]) -> str:
     command = " ".join(report["argv"])
     return (
@@ -183,3 +224,21 @@ def format_check_gate_suggestions(report: dict[str, Any]) -> str:
     if report.get("next_command"):
         lines.append(f"Next: {report['next_command']}")
     return "\n".join(lines) + "\n"
+
+
+def format_applied_check_suggestion(report: dict[str, Any]) -> str:
+    if not report.get("ok"):
+        return (
+            "CHECK SUGGESTION NOT APPLIED\n"
+            f"Reason: {report['reason']}\n"
+            f"Next: {report['next_command']}\n"
+        )
+    added = report["added"]
+    command = " ".join(added["argv"])
+    return (
+        "CHECK SUGGESTION APPLIED\n"
+        f"ID: {added['id']}\n"
+        f"Command: {command}\n"
+        f"Config: {added['config']}\n"
+        f"Next: {report['next_command']}\n"
+    )

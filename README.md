@@ -198,8 +198,8 @@ umsmfburasbofe next
 ```
 
 It prints the current stage, the reason, and one command. It uses `solo` for
-setup/brief work, `checks suggest` when proof gates are missing, and `run` when
-the repo is ready.
+setup/brief work, `checks suggest --apply-first` when proof gates are missing,
+and `run` when the repo is ready.
 
 The project memory file is the small repo-local lane for continuity: what this
 project is, what has shipped, what must not break, what proof matters, and
@@ -214,7 +214,7 @@ If the repo has no detected tests or build checks, add one real command without
 editing config by hand:
 
 ```bash
-umsmfburasbofe checks suggest
+umsmfburasbofe checks suggest --apply-first
 umsmfburasbofe checks list
 umsmfburasbofe ready
 ```
@@ -445,10 +445,10 @@ umsmfburasbofe next
 ```
 
 If readiness says no checks are configured, ask the tool to suggest the simplest
-real proof command for that repo:
+real proof command for that repo and add the first detected one:
 
 ```bash
-umsmfburasbofe checks suggest
+umsmfburasbofe checks suggest --apply-first
 ```
 
 If you want GBrain memory mapped for this repo, inspect first and add only the
