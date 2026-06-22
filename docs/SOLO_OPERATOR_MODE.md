@@ -75,8 +75,6 @@ and proof explicit from the start.
 These are product gaps, not optional polish:
 
 - Starter templates beyond the minimal README/.gitignore scaffold.
-- Skill-library import scanning, so a copied folder like `/home/Tommy/Downloads/SKILLS`
-  can be deduped and turned into a curated local toolbox instead of copied whole.
 - Better guided verification suggestions for repos that do not already have tests.
 - A project memory lane that explains what this project is, what has shipped,
   and what should never be broken.

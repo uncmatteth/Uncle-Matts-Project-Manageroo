@@ -64,6 +64,14 @@ That installs the UMSMFBURASBOFE router skill, `pimp-my-prompt`,
 by default. It is optional but strongly suggested because agents can use the
 router skill to choose helpers automatically.
 
+If you copied a skills folder from another computer, do not copy it whole over
+your current skills. Scan first, then import only after reviewing the report:
+
+```bash
+umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS
+umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
+```
+
 ## Start any product repository
 
 Existing Git repository:

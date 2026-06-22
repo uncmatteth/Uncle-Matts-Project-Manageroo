@@ -352,6 +352,23 @@ Reinstall the recommended skill pack later if needed:
 umsmfburasbofe skills install
 ```
 
+If you copied a skills folder from another machine, scan it first:
+
+```bash
+umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS
+```
+
+That is read-only. It reports importable skills, duplicates, invalid names, and
+same-name conflicts. Plain text shows a capped list; use `--limit 0` or
+`--json` for the full report. Import only after reviewing the scan:
+
+```bash
+umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
+```
+
+Import copies only `SKILL.md` files into `~/.agents/skills`. If a different
+local skill already exists, it is backed up before replacement.
+
 Then a compatible agent can call `$pimp-my-prompt`, `$write-a-skill`,
 `$edit-skill`, `$skillify`, `$caveman`, or `$uncle-matts-caveman-curse`
 directly. The repo-local UMSMFBURASBOFE skill tells agents when to use each one,

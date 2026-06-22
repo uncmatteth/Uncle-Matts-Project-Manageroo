@@ -6,35 +6,35 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 705 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 14864 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 15808 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
-| `GITHUB_DESCRIPTION.md` | 5902 | Project metadata or handoff |
+| `GITHUB_DESCRIPTION.md` | 6066 | Project metadata or handoff |
 | `GIVE-THIS-TO-YOUR-IDE-AGENT.md` | 4379 | Project metadata or handoff |
 | `LICENSE` | 1067 | Project metadata or handoff |
-| `LOCAL_SETUP.md` | 5987 | Project metadata or handoff |
+| `LOCAL_SETUP.md` | 6297 | Project metadata or handoff |
 | `PUBLISH_TO_GITHUB.md` | 2702 | Project metadata or handoff |
-| `README.md` | 20453 | Project metadata or handoff |
+| `README.md` | 21031 | Project metadata or handoff |
 | `SECURITY.md` | 724 | Project metadata or handoff |
-| `docs/00_START_HERE.md` | 4446 | Operator and engineering documentation |
+| `docs/00_START_HERE.md` | 4739 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 2976 | Operator and engineering documentation |
 | `docs/CODEX_RUNTIME.md` | 533 | Operator and engineering documentation |
 | `docs/CONFIG_REFERENCE.md` | 3882 | Operator and engineering documentation |
 | `docs/CONTEXT_COMPILER.md` | 3633 | Operator and engineering documentation |
 | `docs/CREDITS.md` | 3300 | Operator and engineering documentation |
-| `docs/DEPENDENCY_POLICY.md` | 3639 | Operator and engineering documentation |
+| `docs/DEPENDENCY_POLICY.md` | 3874 | Operator and engineering documentation |
 | `docs/DETERMINISM.md` | 853 | Operator and engineering documentation |
 | `docs/ENFORCEMENT_MATRIX.md` | 2072 | Operator and engineering documentation |
 | `docs/EXTERNAL_INTEGRATIONS.md` | 6653 | Operator and engineering documentation |
 | `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 4379 | Operator and engineering documentation |
-| `docs/INSTALLATION.md` | 8792 | Operator and engineering documentation |
+| `docs/INSTALLATION.md` | 9194 | Operator and engineering documentation |
 | `docs/LIMITATIONS.md` | 2892 | Operator and engineering documentation |
 | `docs/ONE_SHOT_PROTOCOL.md` | 1670 | Operator and engineering documentation |
 | `docs/OPERATOR_GUIDE.md` | 2434 | Operator and engineering documentation |
 | `docs/RECOVERY.md` | 1437 | Operator and engineering documentation |
 | `docs/RESEARCH_CONCLUSIONS.md` | 2147 | Operator and engineering documentation |
 | `docs/SECURITY_THREAT_MODEL.md` | 1534 | Operator and engineering documentation |
-| `docs/SOLO_OPERATOR_MODE.md` | 3802 | Operator and engineering documentation |
+| `docs/SOLO_OPERATOR_MODE.md` | 3632 | Operator and engineering documentation |
 | `docs/TERMINAL_EXPERIENCE.md` | 1213 | Operator and engineering documentation |
 | `examples/README.md` | 248 | Example product input |
 | `examples/product-brief-client-portal.md` | 1124 | Example product input |
@@ -43,7 +43,7 @@ This manifest is generated from the release source tree.
 | `install.sh` | 755 | Installation, validation, or packaging |
 | `pyproject.toml` | 1242 | Project metadata or handoff |
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
-| `scripts/install.py` | 43858 | Installation, validation, or packaging |
+| `scripts/install.py` | 44071 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
 | `scripts/package_release.py` | 5290 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 5674 | Installation, validation, or packaging |
@@ -88,7 +88,7 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/brief_builder.py` | 2655 | Harness runtime source |
 | `src/umsmfburasbofe/checks.py` | 3465 | Harness runtime source |
 | `src/umsmfburasbofe/chiptune.py` | 6954 | Harness runtime source |
-| `src/umsmfburasbofe/cli.py` | 34853 | Harness runtime source |
+| `src/umsmfburasbofe/cli.py` | 36622 | Harness runtime source |
 | `src/umsmfburasbofe/config.py` | 7948 | Harness runtime source |
 | `src/umsmfburasbofe/context.py` | 8873 | Harness runtime source |
 | `src/umsmfburasbofe/credits.py` | 4266 | Harness runtime source |
@@ -116,6 +116,7 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/runner.py` | 2978 | Harness runtime source |
 | `src/umsmfburasbofe/schema.py` | 3174 | Harness runtime source |
 | `src/umsmfburasbofe/selftest.py` | 3123 | Harness runtime source |
+| `src/umsmfburasbofe/skill_pack.py` | 7754 | Harness runtime source |
 | `src/umsmfburasbofe/solo.py` | 3046 | Harness runtime source |
 | `src/umsmfburasbofe/state.py` | 3357 | Harness runtime source |
 | `src/umsmfburasbofe/token_modes.py` | 7272 | Harness runtime source |
@@ -153,6 +154,7 @@ This manifest is generated from the release source tree.
 | `tests/test_review.py` | 1375 | Deterministic harness test |
 | `tests/test_schema.py` | 853 | Deterministic harness test |
 | `tests/test_selftest.py` | 430 | Deterministic harness test |
+| `tests/test_skill_pack_import.py` | 5521 | Deterministic harness test |
 | `tests/test_state.py` | 854 | Deterministic harness test |
 | `tests/test_token_modes.py` | 5476 | Deterministic harness test |
 | `tests/test_wizards.py` | 3812 | Deterministic harness test |

@@ -69,6 +69,16 @@ They can be reinstalled later with:
 umsmfburasbofe skills install
 ```
 
+If you copied skills from another machine, scan before importing:
+
+```bash
+umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS
+umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
+```
+
+`scan` is read-only. `import --apply` copies only `SKILL.md` files and backs up
+same-name conflicts first.
+
 ## 3. Confirm the core installation
 
 ```bash

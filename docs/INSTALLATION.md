@@ -94,6 +94,17 @@ They are available even when token mode is off. Reinstall them later with:
 umsmfburasbofe skills install
 ```
 
+If you copied skills from another machine, scan before importing:
+
+```bash
+umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS
+umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
+```
+
+`scan` is read-only. `import --apply` copies only `SKILL.md` files into
+`~/.agents/skills` and backs up different existing skills first. Use
+`--limit 0` or `--json` when you want the full scan list.
+
 ## Validate
 
 ```bash

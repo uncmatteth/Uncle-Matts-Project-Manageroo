@@ -40,6 +40,12 @@ from .project import create_project_repo, git_root, initialize_project
 from .readiness import brief_is_template, format_readiness, readiness
 from .release_ready import format_release_ready, release_ready
 from .selftest import run_self_test
+from .skill_pack import (
+    format_skill_import,
+    format_skill_scan,
+    import_skill_folder,
+    scan_skill_folder,
+)
 from .solo import format_solo_report, solo_next_command
 from .token_modes import (
     CORE_HELPER_SKILLS,
@@ -358,6 +364,17 @@ def parser() -> argparse.ArgumentParser:
     skills_sub = skills.add_subparsers(dest="skills_command", required=True)
     skills_sub.add_parser("install", help="Install the recommended local agent skill pack.")
     skills_sub.add_parser("list", help="List bundled skills in the recommended pack.")
+    skills_scan = skills_sub.add_parser("scan", help="Scan a copied skills folder without changing anything.")
+    skills_scan.add_argument("source", type=Path)
+    skills_scan.add_argument("--skills-dir", type=Path)
+    skills_scan.add_argument("--limit", type=int, default=80, help="Plain-text item limit. Use 0 for all.")
+    skills_scan.add_argument("--json", action="store_true")
+    skills_import = skills_sub.add_parser("import", help="Import SKILL.md files from a copied skills folder.")
+    skills_import.add_argument("source", type=Path)
+    skills_import.add_argument("--skills-dir", type=Path)
+    skills_import.add_argument("--apply", action="store_true")
+    skills_import.add_argument("--limit", type=int, default=80, help="Plain-text item limit for dry runs. Use 0 for all.")
+    skills_import.add_argument("--json", action="store_true")
 
     stack = sub.add_parser("stack-status", help="Show installed/skipped/fix-next status for the guided local stack.")
     stack.add_argument("--lock", type=Path)
@@ -747,6 +764,24 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "skills":
             if args.skills_command == "install":
                 print(json.dumps({"installed_skills": install_core_helper_skills()}, indent=2))
+            elif args.skills_command == "scan":
+                result = scan_skill_folder(args.source, skills_dir=args.skills_dir)
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(format_skill_scan(result, limit=args.limit), end="")
+                return 0
+            elif args.skills_command == "import":
+                result = import_skill_folder(
+                    args.source,
+                    skills_dir=args.skills_dir,
+                    apply=args.apply,
+                )
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(format_skill_import(result, limit=args.limit), end="")
+                return 0
             else:
                 print(json.dumps({"bundled_skills": sorted(CORE_HELPER_SKILLS)}, indent=2))
             return 0

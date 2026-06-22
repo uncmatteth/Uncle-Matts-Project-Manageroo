@@ -78,6 +78,10 @@ These are bundled files, not network dependencies. Existing different local
 versions are backed up before replacement. They are available even when token
 mode is off.
 
+Copied skill folders can be curated locally with `umsmfburasbofe skills scan`
+and `umsmfburasbofe skills import --apply`. This imports only `SKILL.md` files,
+backs up same-name conflicts, and does not fetch anything from the network.
+
 ## Loop Library
 
 UMSMFBURASBOFE can read Matthew Berman / Forward Future's live Loop Library
