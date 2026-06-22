@@ -20,6 +20,7 @@ to participate without freelancing.
 8. When scope is insufficient, return `scope_expansion_requested`; do not expand it yourself.
 9. When you discover a possible future feature, report it as an idea; do not silently build it.
 10. Every factual review finding must cite current file evidence.
+11. Read `.umsmfburasbofe/PROJECT-MEMORY.md` before broad product work and preserve `What Must Not Break`.
 
 ## Context rule
 

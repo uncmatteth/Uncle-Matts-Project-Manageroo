@@ -171,9 +171,10 @@ With `--create`, it initializes Git, writes a minimal `README.md` and
 `.gitignore`, and makes the first scaffold commit before continuing. It refuses
 non-empty non-Git folders and nested repos.
 
-It writes `.umsmfburasbofe/PRODUCT-BRIEF.md`, checks readiness, and prints
-exactly one next command. If every required check is already ready during that
-first command, you can combine intake and execution:
+It writes `.umsmfburasbofe/PRODUCT-BRIEF.md`, writes
+`.umsmfburasbofe/PROJECT-MEMORY.md`, checks readiness, and prints exactly one
+next command. If every required check is already ready during that first
+command, you can combine intake and execution:
 
 ```bash
 umsmfburasbofe solo --want "Describe the result" --run --apply --force
@@ -187,6 +188,13 @@ umsmfburasbofe setup
 
 Use `--agent codex` only when this tool should launch Codex itself. Use
 `umsmfburasbofe agent list` to see built-in agent presets:
+
+Use project memory to keep future runs from forgetting what matters:
+
+```bash
+umsmfburasbofe memory show
+umsmfburasbofe memory add --must-not "Do not remove the import flow"
+```
 
 ```bash
 umsmfburasbofe agent list

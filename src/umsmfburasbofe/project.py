@@ -9,6 +9,7 @@ from .assets import asset_path
 from .config import write_config
 from .detector import detect_gates
 from .errors import ConfigurationError
+from .project_memory import ensure_project_memory
 from .runner import CommandRunner
 from .util import atomic_write_json, atomic_write_text
 
@@ -31,6 +32,9 @@ Agents must never:
 
 Capture newly discovered product ideas with `umsmfburasbofe idea add "..."` rather than
 silently broadening the current task.
+
+Read `.umsmfburasbofe/PROJECT-MEMORY.md` before broad product work. Preserve the
+`What Must Not Break` section unless the operator explicitly changes it.
 
 Use the recommended UMSMFBURASBOFE skill pack automatically:
 - rough, overloaded, or frustrated request -> `pimp-my-prompt`;
@@ -393,7 +397,14 @@ def _append_managed_block(path: Path, block: str) -> None:
         atomic_write_text(path, "# Agent operating guide\n\n" + block)
 
 
-def initialize_project(repo: Path, agent: str = "codex") -> dict:
+def initialize_project(
+    repo: Path,
+    agent: str = "codex",
+    *,
+    project_summary: str = "",
+    must_not: list[str] | None = None,
+    proof: list[str] | None = None,
+) -> dict:
     repo = git_root(repo)
     gates = detect_gates(repo)
     umsmfburasbofe = repo / ".umsmfburasbofe"
@@ -405,6 +416,12 @@ def initialize_project(repo: Path, agent: str = "codex") -> dict:
     brief_path = umsmfburasbofe / "PRODUCT-BRIEF.md"
     if not brief_path.exists():
         shutil.copy2(asset_path("templates/PRODUCT-BRIEF.md"), brief_path)
+    memory_result = ensure_project_memory(
+        repo,
+        project_summary=project_summary,
+        must_not=must_not,
+        proof=proof,
+    )
 
     skill_destination = (
         repo / ".agents" / "skills" / "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition" / "SKILL.md"
@@ -431,6 +448,7 @@ def initialize_project(repo: Path, agent: str = "codex") -> dict:
         "repo": str(repo),
         "config": str(config_path),
         "brief": str(brief_path),
+        "memory": memory_result["path"],
         "skill": str(skill_destination),
         "detected_gates": gates,
         "warning": None if gates else (

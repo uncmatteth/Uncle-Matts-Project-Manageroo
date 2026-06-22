@@ -94,7 +94,8 @@ umsmfburasbofe solo /absolute/path/to/new-product \
 Bare `solo` is the main wizard. It asks what AI you are using, which repo to
 use, what should be built or fixed, what must not break, what proof should pass,
 and whether to check GBrain, GitNexus, Obsidian, or Loop Library. It writes the
-brief and prints exactly one next command.
+brief, writes `.umsmfburasbofe/PROJECT-MEMORY.md`, and prints exactly one next
+command.
 
 `--create` initializes Git and creates the first small scaffold commit for a
 missing or empty folder. It refuses non-empty non-Git folders and nested repos.
@@ -123,6 +124,13 @@ Use `--agent codex` when this tool should launch Codex. Use `umsmfburasbofe
 agent list` to see built-in presets for other CLI agents. Use
 `umsmfburasbofe agent preset generic` when you want to edit the command template
 yourself.
+
+Project memory is the short continuity file future agents should read first:
+
+```bash
+umsmfburasbofe memory show
+umsmfburasbofe memory add --shipped "First useful release" --proof "Smoke test passed"
+```
 
 If an AI IDE is already driving the work, it does not need a special adapter. It
 can use the installed `umsmfburasbofe` command and the repo-local skill.
@@ -191,6 +199,7 @@ handoff here:
 ```text
 .umsmfburasbofe/config.toml
 .umsmfburasbofe/PRODUCT-BRIEF.md
+.umsmfburasbofe/PROJECT-MEMORY.md
 .umsmfburasbofe/ideas/
 .agents/skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md
 AGENTS.md managed block

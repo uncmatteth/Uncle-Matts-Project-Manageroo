@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .assets import asset_path
-from .branding import PROJECT_DIR
+from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config import load_config
 from .errors import ConfigurationError
 from .gates import gates_from_config
@@ -100,6 +100,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
     if repo:
         config_path = repo / PROJECT_DIR / "config.toml"
         brief_path = repo / PROJECT_DIR / "PRODUCT-BRIEF.md"
+        memory_path = repo / PROJECT_DIR / "PROJECT-MEMORY.md"
         items.append(
             _item(
                 "project config",
@@ -123,6 +124,14 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                 if brief_path.exists() and not brief_is_template(brief_path)
                 else "missing or still template",
                 "umsmfburasbofe brief --want \"Describe the result\" --force",
+            )
+        )
+        items.append(
+            _item(
+                "project memory",
+                memory_path.is_file(),
+                str(memory_path) if memory_path.exists() else "missing",
+                f"{PUBLIC_COMMAND} memory init {repo}",
             )
         )
 

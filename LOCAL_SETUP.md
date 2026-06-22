@@ -159,7 +159,15 @@ accidentally commit personal files, secrets, or a random archive.
 Bare `solo` asks what AI you are using, what should be built or fixed, what
 must not break, what proof should pass, and whether to check GBrain, GitNexus,
 Obsidian, or Loop Library. It initializes the repo, writes the product brief,
-runs readiness, and prints exactly one next command.
+writes `.umsmfburasbofe/PROJECT-MEMORY.md`, runs readiness, and prints exactly
+one next command.
+
+Project memory is the small continuity file future agents should read first:
+
+```bash
+umsmfburasbofe memory show
+umsmfburasbofe memory add --shipped "First useful release" --proof "Smoke test passed"
+```
 
 Use `--agent codex` only when Codex is the selected runtime. Use
 `umsmfburasbofe agent preset generic` for another CLI and configure

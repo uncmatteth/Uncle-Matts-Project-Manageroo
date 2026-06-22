@@ -183,9 +183,19 @@ umsmfburasbofe solo \
   --force
 ```
 
-`solo` prepares the project, writes the product brief, checks readiness, and
-prints exactly one next command. If readiness is already green during the first
-intake command, add `--run --apply` to let it start the build or repair run.
+`solo` prepares the project, writes the product brief, writes
+`.umsmfburasbofe/PROJECT-MEMORY.md`, checks readiness, and prints exactly one
+next command. If readiness is already green during the first intake command,
+add `--run --apply` to let it start the build or repair run.
+
+The project memory file is the small repo-local lane for continuity: what this
+project is, what has shipped, what must not break, what proof matters, and
+operator notes. Show or update it with:
+
+```bash
+umsmfburasbofe memory show
+umsmfburasbofe memory add --shipped "First release shipped" --must-not "Do not break checkout"
+```
 
 If the repo has no detected tests or build checks, add one real command without
 editing config by hand:
@@ -492,6 +502,12 @@ It writes a plain-English production handoff at
 `.umsmfburasbofe/cache/production-handoff.md` with the current commit, latest
 changed files, proof commands, release blockers, ship target, rollback plan,
 and next operator action.
+
+After a release, add the shipped fact to project memory:
+
+```bash
+umsmfburasbofe memory add --shipped "Describe what shipped" --proof "Describe the proof"
+```
 
 ## Context-window control
 

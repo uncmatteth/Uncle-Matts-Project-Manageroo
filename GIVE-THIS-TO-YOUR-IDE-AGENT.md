@@ -40,6 +40,7 @@ else
   cd "$TARGET_PROJECT"
   umsmfburasbofe solo --agent codex --want "$OPERATOR_REQUEST" --force
 fi
+umsmfburasbofe memory show
 umsmfburasbofe ready --json
 ```
 
@@ -100,6 +101,7 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 - Stop if `CREATE_PROJECT` is `yes` but the target is a non-empty non-Git folder.
 - Stop if `ready.ok` is false and report every failed or action item exactly.
 - Do not run a real build until the operator completes `.umsmfburasbofe/PRODUCT-BRIEF.md`.
+- Before broad product work, read `.umsmfburasbofe/PROJECT-MEMORY.md` and preserve its `What Must Not Break` section.
 
 ## Do not
 

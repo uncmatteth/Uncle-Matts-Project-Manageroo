@@ -22,6 +22,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - The repo-local UMSMFBURASBOFE skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
 - `skills scan` and `skills import --apply` turn a copied skills folder into a curated local toolbox without blindly copying duplicate folders.
 - The normal path is simple: run `umsmfburasbofe solo`, answer normal product questions, then follow the one next command.
+- `.umsmfburasbofe/PROJECT-MEMORY.md` keeps the project identity, shipped facts, must-not-break rules, proof, and operator notes in the repo instead of hidden in chat.
 - `setup`, `brief`, `ready`, `run --apply`, and `release-ready` are still available when you want lower-level control.
 - Bare `setup` is the lower-level wizard: AI choice, repo path, and optional stack checks.
 - If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.

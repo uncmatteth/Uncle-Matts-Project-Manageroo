@@ -14,6 +14,13 @@ class ProjectInitializationTests(unittest.TestCase):
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             initialize_project(repo, agent="mock")
             self.assertTrue((repo / ".umsmfburasbofe" / "config.toml").exists())
+            memory = repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md"
+            self.assertTrue(memory.exists())
+            memory_text = memory.read_text(encoding="utf-8")
+            self.assertIn("## What This Project Is", memory_text)
+            self.assertIn("## What Has Shipped", memory_text)
+            self.assertIn("## What Must Not Break", memory_text)
+            self.assertIn(".umsmfburasbofe/PROJECT-MEMORY.md", (repo / "AGENTS.md").read_text(encoding="utf-8"))
             self.assertTrue(
                 (
                     repo

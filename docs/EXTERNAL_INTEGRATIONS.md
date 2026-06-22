@@ -13,8 +13,8 @@ be a special build for every AI logo.
 
 Codex is one adapter. When selected, this tool can start fresh `codex exec`
 processes and pass the repo path, sandbox mode, schema, and output path.
-`umsmfburasbofe ready` reports whether the selected CLI, brief, checks, and
-optional memory lane are ready before a run.
+`umsmfburasbofe ready` reports whether the selected CLI, brief, repo-local
+project memory, and checks are ready before a run.
 
 Official reference: https://developers.openai.com/codex/noninteractive
 

@@ -52,6 +52,7 @@ Starter choices:
 11. Print exactly one next command.
 12. If `--run` is passed and readiness is green, start the build or repair run.
 13. At release time, `release-ready` writes a plain-English production handoff.
+14. Keep `.umsmfburasbofe/PROJECT-MEMORY.md` as the repo-local continuity lane.
 
 It reuses the same controller, brief builder, readiness checker, integration
 config, and run engine as the lower-level commands. It is not a second product.
@@ -89,12 +90,24 @@ Time length does not matter as much as avoiding wasted loops. The controller
 should make the work shorter by default because it keeps scope, context, checks,
 and proof explicit from the start.
 
-## What Still Needs To Become Better
+## Project Memory
 
-These are product gaps, not optional polish:
+Every initialized project gets:
 
-- A project memory lane that explains what this project is, what has shipped,
-  and what should never be broken.
+```text
+.umsmfburasbofe/PROJECT-MEMORY.md
+```
+
+That file is meant to stay short. It says what the project is, what has shipped,
+what must not break, what proof matters, and any operator notes. Future agents
+should read it before broad product work.
+
+Useful commands:
+
+```bash
+umsmfburasbofe memory show
+umsmfburasbofe memory add --shipped "First release shipped" --must-not "Do not break checkout"
+```
 
 ## Useful Flags
 

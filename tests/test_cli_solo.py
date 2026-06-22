@@ -56,6 +56,11 @@ class CliSoloTests(unittest.TestCase):
             self.assertEqual(output.count("\nNext:"), 1, output)
             self.assertIn("Make checkout sane", brief.read_text(encoding="utf-8"))
             self.assertIn("One clear payment path", brief.read_text(encoding="utf-8"))
+            memory = repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md"
+            memory_text = memory.read_text(encoding="utf-8")
+            self.assertIn("Make checkout sane", memory_text)
+            self.assertIn("Do not change exports", memory_text)
+            self.assertIn("Run checkout tests", memory_text)
 
     def test_solo_json_reports_run_command_when_ready(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -163,6 +168,10 @@ class CliSoloTests(unittest.TestCase):
             self.assertIn(
                 "Build a useful first release checklist",
                 (repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Build a useful first release checklist",
+                (repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md").read_text(encoding="utf-8"),
             )
 
     def test_solo_create_accepts_static_site_starter(self):

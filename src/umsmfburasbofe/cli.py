@@ -44,6 +44,7 @@ from .loop_library import (
 )
 from .orchestrator import Orchestrator
 from .project import create_project_repo, git_root, initialize_project, starter_choices
+from .project_memory import ensure_project_memory, format_project_memory, read_project_memory
 from .readiness import brief_is_template, format_readiness, readiness
 from .release_ready import format_release_ready, release_ready
 from .selftest import run_self_test
@@ -245,6 +246,27 @@ def parser() -> argparse.ArgumentParser:
     ready.add_argument("repo", nargs="?", default=".")
     ready.add_argument("--require-gbrain", action="store_true")
     ready.add_argument("--json", action="store_true")
+
+    memory = sub.add_parser("memory", help="Show or update the repo-local project memory lane.")
+    memory_sub = memory.add_subparsers(dest="memory_command", required=True)
+    memory_init = memory_sub.add_parser("init", help="Create the project memory file if missing.")
+    memory_init.add_argument("repo", nargs="?", default=".")
+    memory_init.add_argument("--project", default="")
+    memory_init.add_argument("--must-not", action="append", default=[])
+    memory_init.add_argument("--proof", action="append", default=[])
+    memory_init.add_argument("--note", action="append", default=[])
+    memory_init.add_argument("--json", action="store_true")
+    memory_show = memory_sub.add_parser("show", help="Print the project memory file.")
+    memory_show.add_argument("repo", nargs="?", default=".")
+    memory_show.add_argument("--json", action="store_true")
+    memory_add = memory_sub.add_parser("add", help="Append plain-English memory entries.")
+    memory_add.add_argument("repo", nargs="?", default=".")
+    memory_add.add_argument("--project", default="")
+    memory_add.add_argument("--shipped", action="append", default=[])
+    memory_add.add_argument("--must-not", action="append", default=[])
+    memory_add.add_argument("--proof", action="append", default=[])
+    memory_add.add_argument("--note", action="append", default=[])
+    memory_add.add_argument("--json", action="store_true")
 
     release = sub.add_parser(
         "release-ready",
@@ -524,7 +546,13 @@ def main(argv: list[str] | None = None) -> int:
                     description=answers["want"],
                     starter=args.starter,
                 )
-            result = initialize_project(Path(answers["repo"]), agent=answers["agent"])
+            result = initialize_project(
+                Path(answers["repo"]),
+                agent=answers["agent"],
+                project_summary=answers["want"],
+                must_not=answers["must_not"],
+                proof=answers["proof"],
+            )
             repo = Path(result["repo"])
             agent_result = apply_agent_preset(repo, answers["agent"])
             skills_result = [] if args.skip_skills else install_core_helper_skills()
@@ -598,6 +626,25 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_readiness(result), end="")
+            return 0 if result["ok"] else 2
+
+        if args.command == "memory":
+            repo = _repo(args.repo)
+            if args.memory_command == "show":
+                result = read_project_memory(repo)
+            else:
+                result = ensure_project_memory(
+                    repo,
+                    project_summary=args.project,
+                    shipped=getattr(args, "shipped", []),
+                    must_not=args.must_not,
+                    proof=args.proof,
+                    notes=args.note,
+                )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_project_memory(result), end="")
             return 0 if result["ok"] else 2
 
         if args.command == "release-ready":
