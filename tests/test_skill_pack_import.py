@@ -6,7 +6,11 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from manageroo.cli import main
-from manageroo.skill_pack import import_skill_folder, scan_skill_folder
+from manageroo.skill_pack import (
+    import_skill_folder,
+    reconcile_skill_pack,
+    scan_skill_folder,
+)
 
 
 def _skill(path: Path, name: str, body: str = "Use when testing.\n") -> Path:
@@ -62,11 +66,70 @@ class SkillPackImportTests(unittest.TestCase):
             applied = import_skill_folder(source, skills_dir=target, apply=True)
             self.assertTrue(applied["applied"])
             self.assertEqual(applied["imported"][0]["name"], "existing-skill")
-            self.assertFalse((target / "existing-skill" / "extra.txt").exists())
+            self.assertTrue((target / "existing-skill" / "extra.txt").exists())
             self.assertIn("incoming", (target / "existing-skill" / "SKILL.md").read_text(encoding="utf-8"))
             backups = list((target / "existing-skill").glob("SKILL.md.manageroo-backup-*"))
             self.assertEqual(len(backups), 1)
             self.assertIn("current", backups[0].read_text(encoding="utf-8"))
+
+    def test_reconcile_installs_bundled_pack_without_manual_copying(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "skills"
+
+            report = reconcile_skill_pack(
+                skills_dir=target,
+                apply=True,
+                scan_default_roots=False,
+            )
+
+            self.assertTrue(report["ok"])
+            self.assertTrue(report["applied"])
+            self.assertEqual(report["missing_bundled"], [])
+            self.assertGreaterEqual(report["bundled_skill_count"], 40)
+            self.assertTrue((target / "pimp-my-prompt" / "SKILL.md").exists())
+            self.assertTrue((target / "playwright" / "references" / "cli.md").exists())
+
+    def test_reconcile_reports_duplicate_skill_names_across_roots(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target"
+            source = root / "source"
+            target.mkdir()
+            source.mkdir()
+            _skill(target, "dupe-skill", "target\n")
+            _skill(source, "dupe-skill", "source\n")
+
+            report = reconcile_skill_pack(
+                sources=[source],
+                skills_dir=target,
+                apply=False,
+                scan_default_roots=False,
+            )
+
+            self.assertEqual(report["duplicate_count"], 1)
+            self.assertIn("dupe-skill", report["duplicates"])
+
+    def test_reconcile_can_import_external_source_when_explicitly_enabled(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target"
+            source = root / "source"
+            target.mkdir()
+            source.mkdir()
+            extra = _skill(source, "external-skill", "external\n")
+            (extra / "reference.md").write_text("keep support file\n", encoding="utf-8")
+
+            report = reconcile_skill_pack(
+                sources=[source],
+                skills_dir=target,
+                apply=True,
+                include_external=True,
+                scan_default_roots=False,
+            )
+
+            self.assertTrue(report["ok"])
+            self.assertTrue((target / "external-skill" / "SKILL.md").exists())
+            self.assertTrue((target / "external-skill" / "reference.md").exists())
 
     def test_scan_does_not_create_missing_target_directory(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -126,6 +189,27 @@ class SkillPackImportTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("1 more", output)
             self.assertIn("--json", output)
+
+    def test_cli_skills_reconcile_outputs_json(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "target"
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main([
+                    "skills",
+                    "reconcile",
+                    "--skills-dir",
+                    str(target),
+                    "--apply",
+                    "--no-default-roots",
+                    "--json",
+                ])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["applied"])
+            self.assertEqual(payload["missing_bundled"], [])
 
 
 if __name__ == "__main__":

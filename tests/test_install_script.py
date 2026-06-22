@@ -46,7 +46,7 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("optional, but strongly suggested", prompt)
         self.assertIn("Default is yes", prompt)
         self.assertIn("You can skip it", prompt)
-        self.assertIn("manageroo skills install", prompt)
+        self.assertIn("manageroo skills reconcile --apply", prompt)
 
     def test_skill_pack_non_interactive_uses_recommended_install(self):
         install = load_install_script()
@@ -76,6 +76,8 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("manageroo projects --pick", text)
         self.assertIn("manageroo projects --add", text)
         self.assertIn("manageroo stack-doctor", text)
+        self.assertIn("manageroo skills reconcile --apply", text)
+        self.assertIn("manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply", text)
         self.assertIn("manageroo intent show", text)
         self.assertIn("manageroo compact audit --summary SUMMARY.md", text)
         self.assertIn("checkbox-style list", text)

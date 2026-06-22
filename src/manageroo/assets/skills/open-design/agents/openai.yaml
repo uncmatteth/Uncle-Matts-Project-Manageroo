@@ -1,0 +1,4 @@
+interface:
+  display_name: "Open Design"
+  short_description: "Apply Open Design anti-AI-slop, typography, and color craft rules to frontend UI."
+  default_prompt: "Review or improve this frontend surface using Open Design craft rules. Keep it readable, distinctive, responsive, and free of generic AI-template patterns."

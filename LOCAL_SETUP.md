@@ -70,18 +70,19 @@ with `./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`.
 They can be reinstalled later with:
 
 ```bash
-manageroo skills install
+manageroo skills reconcile --apply
 ```
 
-If you copied skills from another machine, scan before importing:
+If you copied skills from another machine, reconcile them without moving files
+by hand:
 
 ```bash
-manageroo skills scan ~/Downloads/SKILLS
-manageroo skills import ~/Downloads/SKILLS --apply
+manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply
 ```
 
-`scan` is read-only. `import --apply` copies only `SKILL.md` files and backs up
-same-name conflicts first.
+That installs the bundled pack, imports the supplied folder when requested,
+copies skill support files, backs up same-name conflicts first, and reports
+duplicate names found in scanned roots.
 
 ## 3. Confirm the core installation
 

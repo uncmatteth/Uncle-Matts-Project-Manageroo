@@ -351,50 +351,34 @@ manageroo projects --pick
 ```
 
 The skill pack is optional but strongly suggested. It is what lets AI IDE agents
-choose the right helper without the user remembering magic skill names. The
-installer asks in a normal terminal and defaults to yes. Non-interactive installs
-use the recommended yes path. Skip it with `./install.sh --skill-pack skip` or
-`./install.sh --skip-skill-pack`; install it later with
-`manageroo skills install`.
+choose the right helper without the user remembering magic skill names. Agents
+should load only the helper skill needed for the current job, not the whole
+pack. The installer asks in a normal terminal and defaults to yes.
+Non-interactive installs use the recommended yes path. Skip it with
+`./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`; reconcile
+it later with `manageroo skills reconcile --apply`.
 
 The recommended skill pack is installed under `~/.agents/skills`:
 
 - `uncle-matts-project-manageroo`:
   tells agents how to follow the controller instead of freelancing.
-- `pimp-my-prompt`: turns a rough request into exact scope, acceptance criteria,
-  fallback rules, and a product brief shape.
-- `brain-ops`: searches and writes GBrain-backed durable context without
-  letting memory override current repo truth.
-- `query`: answers from stored brain knowledge with source-grounded context.
-- `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest`: turn links,
-  articles, screenshots, PDFs, transcripts, voice notes, and media sources into
-  usable local context.
-- `article-enrichment`, `book-mirror`, and `strategic-reading`: process long
-  articles, books, manuscripts, and strategy docs in bounded sections instead
-  of one giant prompt dump.
-- `pdf`, `brain-pdf`, `citation-fixer`, and `reports`: handle PDF checks,
-  brain-page PDF rendering, citation cleanup, and durable reports.
-- `exact-text-replacement`: protects wording the user gave literally, including
-  spelling and weirdness, unless the user asks to change it.
-- `edit-skill`: tightens skill files by removing duplicate rules, stale
-  instructions, vague wording, and AI slop.
-- `write-a-skill`: creates a concise reusable skill when a workflow keeps
-  coming back.
-- `skillify`: checks whether a feature or repeated habit deserves to become a
-  proper skill, then makes sure there is proof.
-- `diagnose`: builds a fast feedback loop before fixing bugs, flakes, crashes,
-  or confusing failures.
-- `tdd`: uses one behavior test at a time when behavior should be protected by
-  proof.
-- `autoreview`: runs the closeout review lane before commit, release, or
-  handoff.
-- `plain-web-copy`: keeps public copy factual, readable, and free of fake-live
-  hype.
-- `fix-my-bad-website`: helps agents make web pages feel like the actual
-  product instead of generic AI output.
-- `caveman`: token reduction, clean style.
-- `uncle-matts-caveman-curse`: the same token reduction with the funny profane
-  style.
+- Intake and scope: `pimp-my-prompt`, `to-prd`, `to-issues`, `grill-me`,
+  `grill-with-docs`, and `functional-area-resolver`.
+- Memory and source context: `brain-ops`, `query`, `ingest`, `idea-ingest`,
+  `media-ingest`, `voice-note-ingest`, `article-enrichment`, `book-mirror`,
+  `strategic-reading`, `repo-architecture`, `academic-verify`,
+  `data-research`, and `perplexity-research`.
+- Documents and exact wording: `pdf`, `brain-pdf`, `citation-fixer`,
+  `reports`, and `exact-text-replacement`.
+- Build proof: `diagnose`, `tdd`, `testing`, `autoreview`,
+  `security-review`, `cross-modal-review`, `handoff`, and `skillpack-check`.
+- Website/UI proof: `plain-web-copy`, `fix-my-bad-website`,
+  `web-design-guidelines`, `open-design`, `playwright`, and
+  `playwright-interactive`.
+- Skill hygiene and routing: `use-installed-skills-first`, `find-skills`,
+  `write-a-skill`, `edit-skill`, and `skillify`.
+- Big-work routing: `subagent-orchestrator` and `minion-orchestrator`.
+- Token reduction: `caveman` and `uncle-matts-caveman-curse`.
 
 The installer also offers the recommended local stack:
 
@@ -533,25 +517,20 @@ bundled copy is installed.
 Reinstall the recommended skill pack later if needed:
 
 ```bash
-manageroo skills install
+manageroo skills reconcile --apply
 ```
 
-If you copied a skills folder from another machine, scan it first:
+If you copied a skills folder from another machine, reconcile it directly:
 
 ```bash
-manageroo skills scan ~/Downloads/SKILLS
+manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply
 ```
 
-That is read-only. It reports importable skills, duplicates, invalid names, and
-same-name conflicts. Plain text shows a capped list; use `--limit 0` or
-`--json` for the full report. Import only after reviewing the scan:
-
-```bash
-manageroo skills import ~/Downloads/SKILLS --apply
-```
-
-Import copies only `SKILL.md` files into `~/.agents/skills`. If a different
-local skill already exists, it is backed up before replacement.
+That installs one active Manageroo-managed copy of each bundled skill, copies
+support files for skills that need them, backs up different existing target
+files first, imports the supplied folder when requested, and reports duplicate
+skill names in other scanned roots. It does not delete outside agent skill
+directories.
 
 Then a compatible agent can call `$pimp-my-prompt`, `$diagnose`, `$tdd`,
 `$autoreview`, `$plain-web-copy`, `$fix-my-bad-website`, `$brain-ops`,

@@ -210,7 +210,7 @@ def helper_skill_items() -> list[dict[str, Any]]:
                 f"skill-pack:{skill}",
                 bool(existing),
                 str(existing[0]) if existing else "missing",
-                "manageroo skills install",
+                "manageroo skills reconcile --apply",
                 required=False,
             )
         )

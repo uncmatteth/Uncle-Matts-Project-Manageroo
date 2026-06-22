@@ -77,8 +77,10 @@ from .release_ready import format_release_ready, release_ready
 from .selftest import run_self_test
 from .skill_pack import (
     format_skill_import,
+    format_skill_reconcile,
     format_skill_scan,
     import_skill_folder,
+    reconcile_skill_pack,
     scan_skill_folder,
 )
 from .solo import format_solo_report, solo_next_command
@@ -524,6 +526,25 @@ def parser() -> argparse.ArgumentParser:
     skills_import.add_argument("--apply", action="store_true")
     skills_import.add_argument("--limit", type=int, default=80, help="Plain-text item limit for dry runs. Use 0 for all.")
     skills_import.add_argument("--json", action="store_true")
+    skills_reconcile = skills_sub.add_parser(
+        "reconcile",
+        help="Install the bundled pack and report duplicate skill names across local roots.",
+    )
+    skills_reconcile.add_argument("--skills-dir", type=Path)
+    skills_reconcile.add_argument("--source", action="append", type=Path, default=[])
+    skills_reconcile.add_argument("--apply", action="store_true")
+    skills_reconcile.add_argument(
+        "--no-default-roots",
+        action="store_true",
+        help="Only scan roots supplied with --source plus the target skills directory.",
+    )
+    skills_reconcile.add_argument(
+        "--include-external",
+        action="store_true",
+        help="Also import SKILL.md files from scanned source roots into the target.",
+    )
+    skills_reconcile.add_argument("--limit", type=int, default=80, help="Plain-text item limit. Use 0 for all.")
+    skills_reconcile.add_argument("--json", action="store_true")
 
     stack = sub.add_parser("stack-status", help="Show installed/skipped/fix-next status for the guided local stack.")
     stack.add_argument("--lock", type=Path)
@@ -1191,6 +1212,19 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(format_skill_import(result, limit=args.limit), end="")
                 return 0
+            elif args.skills_command == "reconcile":
+                result = reconcile_skill_pack(
+                    sources=args.source,
+                    skills_dir=args.skills_dir,
+                    apply=args.apply,
+                    include_external=args.include_external,
+                    scan_default_roots=not args.no_default_roots,
+                )
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(format_skill_reconcile(result, limit=args.limit), end="")
+                return 0 if result.get("ok") else 2
             else:
                 print(json.dumps({"bundled_skills": sorted(CORE_HELPER_SKILLS)}, indent=2))
             return 0

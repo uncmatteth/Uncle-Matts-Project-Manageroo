@@ -215,7 +215,9 @@ Reference: https://signals.forwardfuture.ai/loop-library/
 
 ## Prompt and skill hygiene
 
-Bundled local skills are installed during core setup:
+Bundled local skills are installed during core setup. The routing rule is simple:
+install the useful pack once, then load only the skill or skills needed for the
+current job.
 
 - `pimp-my-prompt`: converts a rough, frustrated, overloaded, or reusable
   request into clear scope, acceptance criteria, fallback behavior, and a
@@ -233,8 +235,20 @@ Bundled local skills are installed during core setup:
 - `diagnose`: builds a fast failure loop before fixing broken, flaky, confusing,
   or slow behavior.
 - `tdd`: keeps behavior changes test-first when proof should be executable.
+- `testing`, `security-review`, and `cross-modal-review`: add broader test
+  health, production-risk review, and second-model pressure.
 - `autoreview`: gives the agent a closeout review lane before commit, release,
   or handoff.
+- `to-prd`, `to-issues`, `grill-me`, and `grill-with-docs`: turn rough product
+  intent into clearer decisions before code work starts.
+- `subagent-orchestrator` and `minion-orchestrator`: split work only when the
+  job is big enough or durable enough to justify worker fan-out.
+- `playwright`, `playwright-interactive`, `open-design`, and
+  `web-design-guidelines`: support browser proof and UI/design review.
+- `find-skills`, `repo-architecture`, `skillpack-check`,
+  `functional-area-resolver`, `academic-verify`, `data-research`,
+  `perplexity-research`, and `handoff`: fill specialist gaps without forcing
+  the user to remember names.
 - `plain-web-copy`: keeps public words factual and readable.
 - `fix-my-bad-website`: keeps website work tied to the real product instead of
   generic AI layout patterns.
@@ -246,9 +260,9 @@ Bundled local skills are installed during core setup:
 - `skillify`: checks whether a repeated feature, workflow, or local habit
   deserves to become a skill, then makes sure it has triggers and proof.
 
-This is the small version of the long-thread workflow: let the agent keep
-working across compaction, but turn repeated pain into reusable skills and keep
-those skills tight enough that future threads start clean.
+This is the small version of the long-thread workflow: install the useful
+helpers, route to the right one, and avoid dumping all instructions into every
+thread.
 
 Codex's built-in `skill-creator` skill is also useful when it is present on a
 developer machine. MANAGEROO does not copy that system skill into the

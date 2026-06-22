@@ -114,8 +114,8 @@ def repair_install(
             actions.append({"name": "skill-pack", "status": "checked", "paths": installed})
             checks.append(_check("skill-pack", True, "installed or refreshed"))
         except Exception as exc:
-            checks.append(_check("skill-pack", False, str(exc), "manageroo skills install"))
-            next_commands.append("manageroo skills install")
+            checks.append(_check("skill-pack", False, str(exc), "manageroo skills reconcile --apply"))
+            next_commands.append("manageroo skills reconcile --apply")
     else:
         present = helper_skills_present()
         checks.append(
@@ -123,11 +123,11 @@ def repair_install(
                 "skill-pack",
                 True,
                 "present" if present else "missing; strongly suggested",
-                "manageroo skills install",
+                "manageroo skills reconcile --apply",
             )
         )
         if not present:
-            next_commands.append("manageroo skills install")
+            next_commands.append("manageroo skills reconcile --apply")
 
     ok = all(item["ok"] for item in checks)
     return {

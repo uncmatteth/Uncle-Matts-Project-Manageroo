@@ -119,12 +119,15 @@ findings. See [`REVIEW_REPAIR_LANES.md`](REVIEW_REPAIR_LANES.md).
 
 ## Recommended skill pack
 
-The installer offers these local skills under `~/.agents/skills`. The pack is
-optional but strongly suggested because it lets AI IDE agents route the work
-without making the user remember which skill to call. In a normal terminal, the
-installer asks and defaults to yes. Non-interactive installs use the recommended
-yes path. Skip it with `./install.sh --skill-pack skip` or
-`./install.sh --skip-skill-pack`.
+The installer offers the routed Manageroo skill pack under `~/.agents/skills`.
+The pack is optional but strongly suggested because it lets AI IDE agents pick
+the right helper without making the user remember which skill to call. Agents
+should load only the skills that match the current job, not the whole pack.
+
+In a normal terminal, the installer asks and defaults to yes. Non-interactive
+installs use the recommended yes path. Skip it with `./install.sh --skill-pack
+skip` or `./install.sh --skip-skill-pack`. Reconcile it later with
+`manageroo skills reconcile --apply`.
 
 - `uncle-matts-project-manageroo`:
   tells agents how to follow the controller.
@@ -142,21 +145,36 @@ yes path. Skip it with `./install.sh --skill-pack skip` or
   brain-page PDF rendering, citation cleanup, and durable reports.
 - `exact-text-replacement`: preserves literal user wording when exact text
   matters.
+- `academic-verify`, `data-research`, and `perplexity-research`: support cited
+  research, structured tracking, and current-state checks.
+- `repo-architecture`, `find-skills`, and `skillpack-check`: support brain
+  filing, discovering specialist skills, and checking GBrain skillpack health.
 - `write-a-skill`: creates a concise reusable skill when a workflow keeps
   coming back.
 - `edit-skill`: tightens existing skills by removing duplicate instructions,
   stale rules, vague wording, and AI slop.
 - `skillify`: checks whether a repeated workflow deserves a skill, then makes
   sure it has triggers and proof.
+- `handoff`, `to-prd`, `to-issues`, `grill-me`, `grill-with-docs`, and
+  `functional-area-resolver`: support clean handoffs, product definition,
+  issue breakdown, requirement pressure, and smaller ownership boundaries.
 - `diagnose`: builds a fast feedback loop before fixing bugs, flakes, crashes,
   or confusing failures.
 - `tdd`: uses one behavior test at a time when code changes need proof.
+- `testing`, `improve-codebase-architecture`, `security-review`, and
+  `cross-modal-review`: support broader test health, architecture review,
+  security review, and second-model pressure.
+- `subagent-orchestrator` and `minion-orchestrator`: support safe worker fan-out
+  only when the work is large or durable enough to justify it.
 - `autoreview`: runs the closeout review lane before commit, release, or
   handoff.
 - `plain-web-copy`: keeps public copy factual, readable, and free of fake-live
   hype.
 - `fix-my-bad-website`: helps agents make web pages feel like the actual
   product instead of generic AI output.
+- `web-design-guidelines`, `open-design`, `playwright`, and
+  `playwright-interactive`: support UI quality, visual review, browser proof,
+  screenshots, and interactive web debugging.
 - `caveman`: token reduction in the clean style.
 - `uncle-matts-caveman-curse`: the same token reduction with appropriately
   placed profanity when selected.
@@ -164,19 +182,21 @@ yes path. Skip it with `./install.sh --skill-pack skip` or
 They are available even when token mode is off. Reinstall them later with:
 
 ```bash
-manageroo skills install
+manageroo skills reconcile --apply
 ```
 
-If you copied skills from another machine, scan before importing:
+If you copied skills from another machine, reconcile them without manual file
+moving:
 
 ```bash
-manageroo skills scan ~/Downloads/SKILLS
-manageroo skills import ~/Downloads/SKILLS --apply
+manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply
 ```
 
-`scan` is read-only. `import --apply` copies only `SKILL.md` files into
-`~/.agents/skills` and backs up different existing skills first. Use
-`--limit 0` or `--json` when you want the full scan list.
+`skills reconcile` installs one active Manageroo-managed copy of each bundled
+skill under `~/.agents/skills`, copies support files for skills that need them,
+backs up different existing target files first, and reports duplicate skill
+names found in other scanned roots. It does not delete outside agent skill
+directories.
 
 ## Validate
 

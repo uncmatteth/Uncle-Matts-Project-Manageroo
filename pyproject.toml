@@ -33,6 +33,8 @@ manageroo = [
   "assets/schemas/*.json",
   "assets/prompts/*.md",
   "assets/skills/*/SKILL.md",
+  "assets/skills/*/*",
+  "assets/skills/*/*/*",
   "assets/templates/*",
 ]
 

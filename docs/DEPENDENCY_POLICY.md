@@ -67,7 +67,7 @@ Core install offers the recommended skill pack under `~/.agents/skills`. The
 pack is optional but strongly suggested because it lets compatible AI IDE agents
 choose the right helper without the user remembering skill names. The installer
 defaults to installing it. Use `--skill-pack skip` or `--skip-skill-pack` to
-leave it out and install it later with `manageroo skills install`.
+leave it out and install it later with `manageroo skills reconcile --apply`.
 
 - `uncle-matts-project-manageroo`
   for controller routing.
@@ -93,9 +93,11 @@ These are bundled files, not network dependencies. Existing different local
 versions are backed up before replacement. They are available even when token
 mode is off.
 
-Copied skill folders can be curated locally with `manageroo skills scan`
-and `manageroo skills import --apply`. This imports only `SKILL.md` files,
-backs up same-name conflicts, and does not fetch anything from the network.
+Copied skill folders can be curated locally with
+`manageroo skills reconcile --source ~/Downloads/SKILLS --include-external
+--apply`. This imports skill entrypoints plus their support files, backs up
+same-name conflicts, reports duplicate names across scanned roots, and does not
+fetch anything from the network.
 
 ## Loop Library
 

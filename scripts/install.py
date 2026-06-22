@@ -995,14 +995,15 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
         return "install"
     print("Recommended local skill pack:")
     print("  - MANAGEROO routing skill")
-    print("  - Pimp My Prompt for rough request cleanup")
-    print("  - Brain, ingest, media, PDF, long-prose, and exact-text lanes")
-    print("  - Diagnose, TDD, AUTOREVIEW, plain web copy, and website rescue lanes")
-    print("  - Write A Skill, Skillify, and Edit Skill")
+    print("  - Prompt cleanup, brain lookup, ingest, media, PDF, long-prose, exact text")
+    print("  - PRD/issues, grilling, diagnosis, TDD, testing, security, review")
+    print("  - Website/UI proof, Playwright browser checks, web copy, and design cleanup")
+    print("  - Subagent/minion routing for work large enough to split safely")
+    print("  - Write A Skill, Skillify, Edit Skill, and skillpack health")
     print("  - Token reduction with two styles: clean Caveman or Uncle Matt's Caveman Curse")
     print("This is optional, but strongly suggested for AI IDE agents.")
     print("Default is yes because this saves the user from remembering skill names.")
-    print("You can skip it and install it later with: manageroo skills install")
+    print("You can skip it and install it later with: manageroo skills reconcile --apply")
     answer = input("Install the recommended skill pack now? [Y/n]: ").strip().lower()
     return "skip" if answer in {"n", "no", "skip"} else "install"
 
@@ -1101,10 +1102,9 @@ def print_next_commands() -> None:
     print("  manageroo self-test")
     print("  manageroo skills list")
     print("  # Strongly suggested if you skipped the local agent skill pack:")
-    print("  manageroo skills install")
+    print("  manageroo skills reconcile --apply")
     print("  # If you copied skills from another computer:")
-    print("  manageroo skills scan ~/Downloads/SKILLS")
-    print("  manageroo skills import ~/Downloads/SKILLS --apply")
+    print("  manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply")
     print("  manageroo stack-status")
     print("  manageroo stack-doctor")
     print("  manageroo repair-install --no-apply")
@@ -1187,7 +1187,7 @@ def main() -> int:
     parser.add_argument(
         "--skip-skill-pack",
         action="store_true",
-        help="Same as --skill-pack skip. You can install it later with `manageroo skills install`.",
+        help="Same as --skill-pack skip. You can install it later with `manageroo skills reconcile --apply`.",
     )
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
@@ -1238,7 +1238,7 @@ def main() -> int:
             helper_skills_record = {
                 "skipped": True,
                 "reason": "Recommended skill pack skipped. It is optional, but strongly suggested for AI IDE guidance.",
-                "install_later": "manageroo skills install",
+                "install_later": "manageroo skills reconcile --apply",
                 "recommended_skills": sorted(CORE_HELPER_SKILLS),
             }
             status_line("SKILL PACK", "skipped; strongly recommended for AI IDE guidance", ok=True)
@@ -1338,18 +1338,21 @@ def main() -> int:
                 "The recommended skill pack is optional but strongly suggested because it "
                 "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
                 "memory lookup, source ingest, media/PDF handling, long prose, exact text, "
-                "debugging, test-first work, closeout review, public copy, website cleanup, "
+                "PRD/issue planning, requirement grilling, debugging, test-first work, "
+                "test-suite health, security review, second-model review, browser proof, "
+                "subagent/minion fan-out, public copy, website cleanup, UI/design review, "
                 "and token reduction without the user memorizing skill names. "
                 "It includes MANAGEROO routing, Pimp My Prompt for rough request intake, "
                 "Brain Ops and Query for GBrain-backed context, Ingest/Media Ingest/Voice Note "
                 "Ingest for source capture, Article Enrichment/Book Mirror/Strategic Reading "
                 "for long documents, PDF/Brain PDF/Citation Fixer/Reports/Exact Text Replacement "
-                "for document output and exact wording, "
-                "Diagnose for broken or flaky behavior, TDD for one behavior test at a time, "
-                "AUTOREVIEW for closeout review, Plain Web Copy for public words, "
-                "Fix My Bad Website for generic-looking pages, "
-                "Write A Skill and Skillify for turning repeated work into reusable skills, "
-                "Edit Skill for keeping local skills short and useful, and both Caveman modes. "
+                "for document output and exact wording, To PRD/To Issues/Grill skills for "
+                "scope shaping, Diagnose/TDD/Testing for proof, AUTOREVIEW/Security Review/"
+                "Cross Modal Review for closeout pressure, Playwright for browser evidence, "
+                "Open Design/Web Design Guidelines/Fix My Bad Website/Plain Web Copy for "
+                "user-facing work, Subagent Orchestrator/Minion Orchestrator for safe split "
+                "work, Write A Skill/Skillify/Edit Skill for improving repeat workflows, "
+                "Skillpack Check for GBrain skill health, and both Caveman modes. "
                 "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
                 "Obsidian, and Loop Library when configured."
             ),

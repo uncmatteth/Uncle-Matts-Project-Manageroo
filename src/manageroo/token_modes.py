@@ -59,6 +59,7 @@ RECOMMENDED_SKILL_PACK = {
     "uncle-matts-project-manageroo": (
         "skills/uncle-matts-project-manageroo/SKILL.md"
     ),
+    "use-installed-skills-first": "skills/use-installed-skills-first/SKILL.md",
     "pimp-my-prompt": "skills/pimp-my-prompt/SKILL.md",
     "brain-ops": "skills/brain-ops/SKILL.md",
     "query": "skills/query/SKILL.md",
@@ -74,14 +75,36 @@ RECOMMENDED_SKILL_PACK = {
     "citation-fixer": "skills/citation-fixer/SKILL.md",
     "reports": "skills/reports/SKILL.md",
     "exact-text-replacement": "skills/exact-text-replacement/SKILL.md",
+    "academic-verify": "skills/academic-verify/SKILL.md",
+    "data-research": "skills/data-research/SKILL.md",
+    "perplexity-research": "skills/perplexity-research/SKILL.md",
+    "repo-architecture": "skills/repo-architecture/SKILL.md",
+    "find-skills": "skills/find-skills/SKILL.md",
     "write-a-skill": "skills/write-a-skill/SKILL.md",
     "edit-skill": "skills/edit-skill/SKILL.md",
     "skillify": "skills/skillify/SKILL.md",
+    "skillpack-check": "skills/skillpack-check/SKILL.md",
+    "handoff": "skills/handoff/SKILL.md",
+    "to-prd": "skills/to-prd/SKILL.md",
+    "to-issues": "skills/to-issues/SKILL.md",
+    "grill-me": "skills/grill-me/SKILL.md",
+    "grill-with-docs": "skills/grill-with-docs/SKILL.md",
+    "functional-area-resolver": "skills/functional-area-resolver/SKILL.md",
     "diagnose": "skills/diagnose/SKILL.md",
     "tdd": "skills/tdd/SKILL.md",
+    "testing": "skills/testing/SKILL.md",
+    "improve-codebase-architecture": "skills/improve-codebase-architecture/SKILL.md",
+    "security-review": "skills/security-review/SKILL.md",
+    "cross-modal-review": "skills/cross-modal-review/SKILL.md",
+    "subagent-orchestrator": "skills/subagent-orchestrator/SKILL.md",
+    "minion-orchestrator": "skills/minion-orchestrator/SKILL.md",
     "autoreview": "skills/autoreview/SKILL.md",
     "plain-web-copy": "skills/plain-web-copy/SKILL.md",
     "fix-my-bad-website": "skills/fix-my-bad-website/SKILL.md",
+    "web-design-guidelines": "skills/web-design-guidelines/SKILL.md",
+    "open-design": "skills/open-design/SKILL.md",
+    "playwright": "skills/playwright/SKILL.md",
+    "playwright-interactive": "skills/playwright-interactive/SKILL.md",
     "caveman": "skills/caveman/SKILL.md",
     "uncle-matts-caveman-curse": "skills/uncle-matts-caveman-curse/SKILL.md",
 }
@@ -131,6 +154,20 @@ def _backup_path(destination: Path) -> Path:
     return candidate
 
 
+def _copy_skill_tree(source_dir: Path, destination_dir: Path) -> None:
+    for source_path in source_dir.rglob("*"):
+        if not source_path.is_file():
+            continue
+        relative = source_path.relative_to(source_dir)
+        destination = destination_dir / relative
+        if destination.is_symlink():
+            raise ValueError(f"Refusing to overwrite symlinked skill file: {destination}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() and destination.read_bytes() != source_path.read_bytes():
+            shutil.copy2(destination, _backup_path(destination))
+        shutil.copy2(source_path, destination)
+
+
 def _install_bundled_skill(root: Path, skill_name: str, asset: str) -> str:
     root = root.expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -147,9 +184,7 @@ def _install_bundled_skill(root: Path, skill_name: str, asset: str) -> str:
     if destination.is_symlink():
         raise ValueError(f"Refusing to overwrite symlinked skill file: {destination}")
     source = asset_path(asset)
-    if destination.exists() and destination.read_bytes() != source.read_bytes():
-        shutil.copy2(destination, _backup_path(destination))
-    shutil.copy2(source, destination)
+    _copy_skill_tree(source.parent, skill_dir)
     return str(destination)
 
 

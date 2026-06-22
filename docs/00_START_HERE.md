@@ -61,7 +61,7 @@ life is more fun that way.
 Recommended skill pack:
 
 ```bash
-manageroo skills install
+manageroo skills reconcile --apply
 ```
 
 That installs the MANAGEROO router skill plus helper lanes for rough
@@ -78,11 +78,10 @@ Project init also handles the agent/context files. It writes managed blocks to
 and points agents at `.manageroo/PROJECT-MEMORY.md` and the current brief.
 
 If you copied a skills folder from another computer, do not copy it whole over
-your current skills. Scan first, then import only after reviewing the report:
+your current skills. Let Manageroo reconcile it:
 
 ```bash
-manageroo skills scan ~/Downloads/SKILLS
-manageroo skills import ~/Downloads/SKILLS --apply
+manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply
 ```
 
 ## Start any product repository

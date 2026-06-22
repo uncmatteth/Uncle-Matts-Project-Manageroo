@@ -42,40 +42,68 @@ recommendation or partial status.
 
 ## Recommended skill pack routing
 
-Do not make the user remember skill names. Pick the helper skill from the job:
+Do not make the user remember skill names. Do not load the whole skill pack.
+Pick only the helper skill or skills that match the current job, read those
+entrypoints, then continue.
 
+- Use `$use-installed-skills-first` before non-trivial local work when the host
+  agent supports skills and needs to route from the installed pack.
 - Use `$pimp-my-prompt` before a run when the human request is rough, overloaded,
   ambiguous, frustrated, or reusable and needs exact scope, acceptance criteria,
   fallback behavior, proof, and stop rules.
 - Use `$brain-ops` when past decisions, project history, user memory, people,
   companies, or durable context may matter.
 - Use `$query` when answering from the brain's stored knowledge.
+- Use `$find-skills` when a useful specialist skill may exist but is not bundled.
 - Use `$ingest`, `$idea-ingest`, `$media-ingest`, or `$voice-note-ingest` when
   links, articles, PDFs, screenshots, transcripts, voice notes, or media sources
   need to become useful local context.
 - Use `$article-enrichment`, `$book-mirror`, or `$strategic-reading` for long
   articles, books, manuscripts, research, and prose that should be processed in
   bounded sections instead of one giant context dump.
+- Use `$academic-verify`, `$data-research`, or `$perplexity-research` when a
+  claim, source, market, company, or current-state answer needs cited research
+  instead of memory or guessing.
 - Use `$exact-text-replacement` when the user supplies wording that must stay
   byte-for-byte exact.
 - Use `$pdf` or `$brain-pdf` when the user needs a PDF checked, created, or
   rendered from a brain page.
-- Use `$citation-fixer` and `$reports` for citation cleanup and durable local
-  report lookup/output.
+- Use `$citation-fixer`, `$repo-architecture`, `$skillpack-check`, and
+  `$reports` for citation cleanup, brain filing, GBrain skillpack health, and
+  durable local report lookup/output.
 - Use `$write-a-skill` when a painful workflow should become a reusable local
   agent skill.
 - Use `$edit-skill` when a local skill becomes bloated, duplicated, stale,
   vague, or full of generic AI instructions.
 - Use `$skillify` when deciding whether a workflow deserves a skill and what
   proof it needs.
+- Use `$handoff` when a fresh agent needs to continue without trusting chat
+  memory or compaction.
+- Use `$to-prd`, `$to-issues`, `$grill-me`, or `$grill-with-docs` when the
+  project needs product definition, issue breakdown, or requirement pressure
+  before implementation.
 - Use `$diagnose` when something is broken, flaky, slow, or confusing and a
   fast feedback loop is needed before editing.
 - Use `$tdd` when adding or changing behavior that should be protected by tests.
+- Use `$testing` for broader test-suite health or skill conformance checks.
+- Use `$improve-codebase-architecture` when the repo structure or domain model
+  needs deeper design review before more code is added.
+- Use `$security-review` for auth, secrets, deployments, custody, data loss,
+  public readiness claims, or production-risk review.
+- Use `$cross-modal-review` when a large change, security-sensitive change, or
+  churny decision needs a second-model gate.
+- Use `$subagent-orchestrator` or `$minion-orchestrator` only when work is large,
+  parallelizable, or restart-durable enough to justify worker fan-out.
 - Use `$autoreview` as the closeout review lane before commit, release, or handoff.
 - Use `$plain-web-copy` when public words need to be factual, clear, and free of
   hype.
 - Use `$fix-my-bad-website` when a website or app screen looks generic,
   template-like, or visually disconnected from the product.
+- Use `$web-design-guidelines` or `$open-design` for visual/product UI quality.
+- Use `$playwright` or `$playwright-interactive` when browser proof, screenshots,
+  rendered QA, or interactive web debugging is needed.
+- Use `$functional-area-resolver` when an agent routing file is too broad and
+  needs smaller ownership boundaries.
 - Use `$caveman` or `$uncle-matts-caveman-curse` only when the selected token
   mode or user explicitly asks for token reduction.
 

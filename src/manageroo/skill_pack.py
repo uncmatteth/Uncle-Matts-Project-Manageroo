@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from .branding import PUBLIC_COMMAND
-from .token_modes import token_mode_skills_dir
+from .token_modes import (
+    CORE_HELPER_SKILLS,
+    install_core_helper_skills,
+    token_mode_skills_dir,
+)
 from .util import sha256_file
 
 
@@ -42,6 +46,24 @@ def _frontmatter_name(text: str) -> str:
 def _skill_name(path: Path) -> str:
     text = path.read_text(encoding="utf-8", errors="replace")
     return _frontmatter_name(text) or path.parent.name
+
+
+def _copy_skill_source_tree(source_dir: Path, target_dir: Path) -> list[str]:
+    backups: list[str] = []
+    for source_file in source_dir.rglob("*"):
+        if not source_file.is_file() or source_file.is_symlink():
+            continue
+        relative = source_file.relative_to(source_dir)
+        target_file = target_dir / relative
+        if target_file.is_symlink():
+            raise ValueError(f"Refusing to overwrite symlinked skill file: {target_file}")
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        if target_file.exists() and sha256_file(target_file) != sha256_file(source_file):
+            backup_path = _backup_path(target_file)
+            shutil.copy2(target_file, backup_path)
+            backups.append(str(backup_path))
+        shutil.copy2(source_file, target_file)
+    return backups
 
 
 def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str]) -> dict[str, Any]:
@@ -117,6 +139,103 @@ def scan_skill_folder(source: Path, *, skills_dir: Path | None = None) -> dict[s
     }
 
 
+def default_skill_roots() -> list[Path]:
+    roots = [
+        Path.home() / ".agents" / "skills",
+        Path.home() / ".codex" / "skills",
+        Path.home() / "Downloads" / "SKILLS",
+    ]
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        expanded = root.expanduser().resolve()
+        if expanded in seen or not expanded.exists():
+            continue
+        seen.add(expanded)
+        result.append(expanded)
+    return result
+
+
+def _all_skill_candidates(roots: list[Path], target_root: Path) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for root in roots:
+        if not root.exists() or not root.is_dir() or root.is_symlink():
+            continue
+        seen: set[str] = set()
+        for path in sorted(root.rglob("SKILL.md")):
+            if path.is_symlink():
+                continue
+            item = _candidate(path, root.resolve(), target_root, seen)
+            item["root"] = str(root.resolve())
+            item["in_target"] = path.resolve().is_relative_to(target_root)
+            candidates.append(item)
+    return candidates
+
+
+def reconcile_skill_pack(
+    *,
+    sources: list[Path] | None = None,
+    skills_dir: Path | None = None,
+    apply: bool = False,
+    include_external: bool = False,
+    scan_default_roots: bool = True,
+) -> dict[str, Any]:
+    target_root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
+    source_roots = default_skill_roots() if scan_default_roots else []
+    for source in sources or []:
+        expanded = source.expanduser().resolve()
+        if expanded not in source_roots:
+            source_roots.append(expanded)
+
+    installed = install_core_helper_skills(target_root) if apply else {}
+    import_reports: list[dict[str, Any]] = []
+    if apply and include_external:
+        for source in source_roots:
+            if source == target_root or not source.exists() or not source.is_dir():
+                continue
+            report = import_skill_folder(source, skills_dir=target_root, apply=True)
+            report["source"] = str(source)
+            import_reports.append(report)
+
+    scan_roots = [target_root, *[root for root in source_roots if root != target_root]]
+    candidates = _all_skill_candidates(scan_roots, target_root)
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for item in candidates:
+        by_name.setdefault(item["name"], []).append(item)
+    duplicate_names = {
+        name: items
+        for name, items in sorted(by_name.items())
+        if len({item["sha256"] for item in items}) > 1 or len(items) > 1
+    }
+    missing_bundled = [
+        name
+        for name in sorted(CORE_HELPER_SKILLS)
+        if not (target_root / name / "SKILL.md").exists()
+    ]
+    return {
+        "ok": not missing_bundled if apply else True,
+        "applied": apply,
+        "skills_dir": str(target_root),
+        "source_roots": [str(root) for root in source_roots],
+        "bundled_skill_count": len(CORE_HELPER_SKILLS),
+        "installed_bundled": installed,
+        "missing_bundled": missing_bundled,
+        "duplicate_count": len(duplicate_names),
+        "duplicates": duplicate_names,
+        "external_imports": import_reports,
+        "next_command": (
+            ""
+            if apply
+            else f"{PUBLIC_COMMAND} skills reconcile --apply"
+        ),
+        "note": (
+            "Reconcile installs one active Manageroo-managed copy of each bundled "
+            "skill under the target skills directory. It reports duplicate names "
+            "in other agent skill roots instead of deleting outside directories."
+        ),
+    }
+
+
 def import_skill_folder(
     source: Path,
     *,
@@ -150,19 +269,15 @@ def import_skill_folder(
         target_file = skill_dir / "SKILL.md"
         if target_file.is_symlink():
             raise ValueError(f"Refusing to overwrite symlinked skill file: {target_file}")
-        backup = ""
-        if target_file.exists() and sha256_file(target_file) != item["sha256"]:
-            backup_path = _backup_path(target_file)
-            shutil.copy2(target_file, backup_path)
-            backups.append(str(backup_path))
-            backup = str(backup_path)
-        shutil.copy2(source_file, target_file)
+        skill_backups = _copy_skill_source_tree(source_file.parent, skill_dir)
+        backups.extend(skill_backups)
         imported.append(
             {
                 "name": item["name"],
                 "source": str(source_file),
                 "target": str(target_file),
-                "backup": backup,
+                "backup": skill_backups[0] if skill_backups else "",
+                "backups": skill_backups,
             }
         )
     return {
@@ -213,4 +328,38 @@ def format_skill_import(report: dict[str, Any], *, limit: int = 80) -> str:
     for item in report["imported"]:
         suffix = f" backup: {item['backup']}" if item.get("backup") else ""
         lines.append(f"OK {item['name']}: {item['target']}{suffix}")
+    return "\n".join(lines) + "\n"
+
+
+def format_skill_reconcile(report: dict[str, Any], *, limit: int = 80) -> str:
+    lines = [
+        "SKILL RECONCILE",
+        f"Target: {report['skills_dir']}",
+        f"Bundled Manageroo skills: {report['bundled_skill_count']}",
+        f"Applied: {str(report['applied']).lower()}",
+    ]
+    if report.get("missing_bundled"):
+        lines.append(
+            "ACTION missing bundled skills: "
+            + ", ".join(report["missing_bundled"][:limit])
+        )
+    else:
+        lines.append("OK bundled skills have one active target copy")
+    duplicates = report.get("duplicates", {})
+    if duplicates:
+        lines.append(f"WARN duplicate skill names found across scanned roots: {len(duplicates)}")
+        items = list(duplicates.items()) if limit <= 0 else list(duplicates.items())[:limit]
+        for name, matches in items:
+            roots = sorted({item["root"] for item in matches})
+            lines.append(f"WARN {name}: {len(matches)} copy/copies across {', '.join(roots)}")
+        if limit > 0 and len(duplicates) > limit:
+            lines.append(f"... {len(duplicates) - limit} more. Use --limit 0 or --json.")
+    else:
+        lines.append("OK no duplicate skill names found in scanned roots")
+    if report.get("external_imports"):
+        imported = sum(len(item.get("imported", [])) for item in report["external_imports"])
+        lines.append(f"OK external imports applied: {imported}")
+    if report.get("next_command"):
+        lines.append(f"Next: {report['next_command']}")
+    lines.append(report["note"])
     return "\n".join(lines) + "\n"

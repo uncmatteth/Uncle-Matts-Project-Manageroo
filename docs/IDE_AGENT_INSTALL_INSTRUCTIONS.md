@@ -56,11 +56,12 @@ products.
 
 The recommended local skill pack is optional but strongly suggested. Let the
 installer add it unless the operator explicitly chooses `--skill-pack skip` or
-`--skip-skill-pack`; install it later with `manageroo skills install` if it
+`--skip-skill-pack`; install it later with `manageroo skills reconcile --apply` if it
 was skipped. The pack includes helper lanes for rough prompts, memory lookup,
 source ingest, media/PDF handling, long prose, exact text, debugging, tests,
 review, public copy, website cleanup, skill creation, skill cleanup, and token
-reduction.
+reduction. Do not load the whole pack into context. Read only the helper skill
+or skills that match the current job.
 
 If the operator requests token reduction, use one of:
 

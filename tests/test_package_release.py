@@ -1,6 +1,7 @@
 import importlib.util
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 
@@ -46,6 +47,19 @@ class PackageReleaseTests(unittest.TestCase):
 
         self.assertFalse(any(path == ".clawpatch" or path.startswith(".clawpatch/") for path in included))
         self.assertIn(".clawpatch/", (ROOT / ".gitignore").read_text(encoding="utf-8"))
+
+    def test_bundled_skill_names_are_unique_and_support_files_are_packaged(self):
+        included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
+        skill_names = [
+            path.parent.name
+            for path in (ROOT / "src" / "manageroo" / "assets" / "skills").glob("*/SKILL.md")
+        ]
+        counts = Counter(skill_names)
+
+        self.assertGreaterEqual(len(skill_names), 40)
+        self.assertEqual([name for name, count in counts.items() if count > 1], [])
+        self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
+        self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
 
     def test_drop_folder_copies_distinct_archives(self):
         with tempfile.TemporaryDirectory() as temp:

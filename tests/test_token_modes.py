@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from manageroo.token_modes import (
+    CORE_HELPER_SKILLS,
     install_core_helper_skills,
     install_token_skills,
     read_token_mode,
@@ -16,35 +17,8 @@ class TokenModeTests(unittest.TestCase):
     def test_installs_core_helper_skills(self):
         with tempfile.TemporaryDirectory() as temp:
             installed = install_core_helper_skills(Path(temp))
-            self.assertIn("pimp-my-prompt", installed)
-            self.assertIn("brain-ops", installed)
-            self.assertIn("query", installed)
-            self.assertIn("ingest", installed)
-            self.assertIn("idea-ingest", installed)
-            self.assertIn("media-ingest", installed)
-            self.assertIn("voice-note-ingest", installed)
-            self.assertIn("article-enrichment", installed)
-            self.assertIn("book-mirror", installed)
-            self.assertIn("strategic-reading", installed)
-            self.assertIn("pdf", installed)
-            self.assertIn("brain-pdf", installed)
-            self.assertIn("citation-fixer", installed)
-            self.assertIn("reports", installed)
-            self.assertIn("exact-text-replacement", installed)
-            self.assertIn("edit-skill", installed)
-            self.assertIn("write-a-skill", installed)
-            self.assertIn("skillify", installed)
-            self.assertIn("diagnose", installed)
-            self.assertIn("tdd", installed)
-            self.assertIn("autoreview", installed)
-            self.assertIn("plain-web-copy", installed)
-            self.assertIn("fix-my-bad-website", installed)
-            self.assertIn("caveman", installed)
-            self.assertIn("uncle-matts-caveman-curse", installed)
-            self.assertIn(
-                "uncle-matts-project-manageroo",
-                installed,
-            )
+            self.assertEqual(set(installed), set(CORE_HELPER_SKILLS))
+            self.assertGreaterEqual(len(installed), 40)
             prompt = Path(temp) / "pimp-my-prompt" / "SKILL.md"
             brain_ops = Path(temp) / "brain-ops" / "SKILL.md"
             query = Path(temp) / "query" / "SKILL.md"
@@ -60,6 +34,8 @@ class TokenModeTests(unittest.TestCase):
             autoreview = Path(temp) / "autoreview" / "SKILL.md"
             plain_web_copy = Path(temp) / "plain-web-copy" / "SKILL.md"
             fix_website = Path(temp) / "fix-my-bad-website" / "SKILL.md"
+            playwright_reference = Path(temp) / "playwright" / "references" / "cli.md"
+            grill_reference = Path(temp) / "grill-with-docs" / "ADR-FORMAT.md"
             controller = (
                 Path(temp)
                 / "uncle-matts-project-manageroo"
@@ -80,6 +56,8 @@ class TokenModeTests(unittest.TestCase):
             self.assertTrue(autoreview.exists())
             self.assertTrue(plain_web_copy.exists())
             self.assertTrue(fix_website.exists())
+            self.assertTrue(playwright_reference.exists())
+            self.assertTrue(grill_reference.exists())
             self.assertTrue((Path(temp) / "caveman" / "SKILL.md").exists())
             self.assertTrue((Path(temp) / "uncle-matts-caveman-curse" / "SKILL.md").exists())
             self.assertTrue(controller.exists())
@@ -99,6 +77,7 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("truth before tone", plain_web_copy.read_text(encoding="utf-8"))
             self.assertIn("not generic AI output", fix_website.read_text(encoding="utf-8"))
             self.assertIn("Do not make the user remember skill names", controller.read_text(encoding="utf-8"))
+            self.assertIn("Do not load the whole skill pack", controller.read_text(encoding="utf-8"))
 
     def test_installs_bundled_caveman_skills(self):
         with tempfile.TemporaryDirectory() as temp:

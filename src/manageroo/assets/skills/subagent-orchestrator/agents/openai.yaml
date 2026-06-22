@@ -1,0 +1,4 @@
+interface:
+  display_name: "Subagent Orchestrator"
+  short_description: "Use Codex subagents deliberately for complex tasks."
+  default_prompt: "Use subagent-orchestrator to plan a minimal multi-agent approach for this task, using only real runtime agent types and separate review responsibilities."
