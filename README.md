@@ -183,7 +183,7 @@ umsmfburasbofe ready
 The full target path is:
 
 ```text
-idea -> brief -> setup -> build/repair -> checks -> review -> repair -> report -> release readiness
+idea -> brief -> setup -> build/repair -> checks -> review -> repair -> report -> release-ready
 ```
 
 See [`docs/SOLO_OPERATOR_MODE.md`](docs/SOLO_OPERATOR_MODE.md).
@@ -208,13 +208,20 @@ terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
 products.
 
 The installer validates the source, runs the tests, installs the command for the
-current user, installs bundled helper skills, runs `self-test`, and writes
+current user, installs the recommended skill pack, runs `self-test`, and writes
 `install-lock.json`. It does not require Codex. Use `./install.sh
 --install-codex` only when you specifically want this machine to install or
 update Codex too.
 
-The bundled helper skills are installed under `~/.agents/skills`:
+The skill pack is optional but strongly suggested. It is what lets AI IDE agents
+choose the right helper without the user remembering magic skill names. Skip it
+only with `./install.sh --skip-skill-pack`; install it later with
+`umsmfburasbofe skills install`.
 
+The recommended skill pack is installed under `~/.agents/skills`:
+
+- `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`:
+  tells agents how to follow the controller instead of freelancing.
 - `pimp-my-prompt`: turns a rough request into exact scope, acceptance criteria,
   fallback rules, and a product brief shape.
 - `edit-skill`: tightens skill files by removing duplicate rules, stale
@@ -223,6 +230,8 @@ The bundled helper skills are installed under `~/.agents/skills`:
   coming back.
 - `skillify`: checks whether a feature or repeated habit deserves to become a
   proper skill, then makes sure there is proof.
+- `caveman`: clean compressed output.
+- `uncle-matts-caveman-curse`: compressed output with the funny profane mode.
 
 The installer also offers the recommended local stack:
 
@@ -337,16 +346,16 @@ The switch command installs the bundled `caveman` and
 different local skill file already exists there, it is backed up before the
 bundled copy is installed.
 
-Reinstall the always-on helper skills later if needed:
+Reinstall the recommended skill pack later if needed:
 
 ```bash
 umsmfburasbofe skills install
 ```
 
 Then a compatible agent can call `$pimp-my-prompt`, `$write-a-skill`,
-`$edit-skill`, or `$skillify` directly. The intended workflow is long-running
-agent threads with compaction, plus small skills that get created and tightened
-instead of growing forever.
+`$edit-skill`, `$skillify`, `$caveman`, or `$uncle-matts-caveman-curse`
+directly. The repo-local UMSMFBURASBOFE skill tells agents when to use each one,
+so the user does not have to remember the list.
 
 Make the first brief without hand-editing the template:
 
@@ -432,6 +441,18 @@ umsmfburasbofe run --mode repair --apply
 `run` defaults to the current repo, `.umsmfburasbofe/PRODUCT-BRIEF.md`, and
 `build` mode. You can still pass `--repo`, `--brief`, and `--mode` explicitly
 when scripting.
+
+Before a real release, run the final operator gate:
+
+```bash
+umsmfburasbofe release-ready \
+  --target "Production deploy path" \
+  --rollback "Rollback steps" \
+  --approved-by "Your name"
+```
+
+It does not deploy. It checks base readiness, real verification gates, clean
+Git state, deployment target, rollback notes, and human approval.
 
 ## Context-window control
 

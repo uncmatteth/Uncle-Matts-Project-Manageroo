@@ -47,10 +47,11 @@ def helper_skill_items() -> list[dict[str, Any]]:
         existing = [path for path in candidates if path.is_file()]
         items.append(
             _item(
-                f"helper:{skill}",
+                f"skill-pack:{skill}",
                 bool(existing),
                 str(existing[0]) if existing else "missing",
                 "umsmfburasbofe skills install",
+                required=False,
             )
         )
     return items

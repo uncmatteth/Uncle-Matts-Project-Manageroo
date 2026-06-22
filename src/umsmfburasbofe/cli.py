@@ -38,6 +38,7 @@ from .loop_library import (
 from .orchestrator import Orchestrator
 from .project import create_project_repo, git_root, initialize_project
 from .readiness import brief_is_template, format_readiness, readiness
+from .release_ready import format_release_ready, release_ready
 from .selftest import run_self_test
 from .solo import format_solo_report, solo_next_command
 from .token_modes import (
@@ -230,6 +231,18 @@ def parser() -> argparse.ArgumentParser:
     ready.add_argument("--require-gbrain", action="store_true")
     ready.add_argument("--json", action="store_true")
 
+    release = sub.add_parser(
+        "release-ready",
+        help="Final operator gate before a manual production release.",
+    )
+    release.add_argument("repo", nargs="?", default=".")
+    release.add_argument("--target", default="")
+    release.add_argument("--rollback", default="")
+    release.add_argument("--approved-by", default="")
+    release.add_argument("--save", action="store_true", help="Save release metadata in the repo.")
+    release.add_argument("--no-run-checks", action="store_true")
+    release.add_argument("--json", action="store_true")
+
     checks = sub.add_parser("checks", help="List or add real verification commands.")
     checks_sub = checks.add_subparsers(dest="checks_command", required=True)
     checks_list = checks_sub.add_parser("list", help="List configured verification commands.")
@@ -341,10 +354,10 @@ def parser() -> argparse.ArgumentParser:
     token_sub.add_parser("status", help="Show selected token-reduction mode.")
     token_sub.add_parser("install-skills", help="Install bundled caveman token skills.")
 
-    skills = sub.add_parser("skills", help="Install or list bundled helper skills.")
+    skills = sub.add_parser("skills", help="Install or list the recommended local agent skill pack.")
     skills_sub = skills.add_subparsers(dest="skills_command", required=True)
-    skills_sub.add_parser("install", help="Install bundled prompt and skill-editing helpers.")
-    skills_sub.add_parser("list", help="List bundled helper skills.")
+    skills_sub.add_parser("install", help="Install the recommended local agent skill pack.")
+    skills_sub.add_parser("list", help="List bundled skills in the recommended pack.")
 
     stack = sub.add_parser("stack-status", help="Show installed/skipped/fix-next status for the guided local stack.")
     stack.add_argument("--lock", type=Path)
@@ -551,6 +564,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_readiness(result), end="")
+            return 0 if result["ok"] else 2
+
+        if args.command == "release-ready":
+            result = release_ready(
+                Path(args.repo).resolve(),
+                target=args.target,
+                rollback=args.rollback,
+                approved_by=args.approved_by,
+                run_checks=not args.no_run_checks,
+                save=args.save,
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_release_ready(result), end="")
             return 0 if result["ok"] else 2
 
         if args.command == "checks":

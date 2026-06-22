@@ -5,6 +5,7 @@ param(
     [switch]$InstallStack,
     [switch]$SkipStack,
     [switch]$SkipTests,
+    [switch]$SkipSkillPack,
     [switch]$NoMusic,
     [switch]$NoAnimation,
     [ValidateSet("ask", "off", "caveman", "curse")]
@@ -70,6 +71,7 @@ if ($InstallCodex) { $InstallArgs += "--install-codex" }
 if ($InstallStack) { $InstallArgs += "--install-stack" }
 if ($SkipStack) { $InstallArgs += "--skip-stack" }
 if ($SkipTests) { $InstallArgs += "--skip-tests" }
+if ($SkipSkillPack) { $InstallArgs += "--skip-skill-pack" }
 if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
 if ($Stack) { $InstallArgs += @("--stack", $Stack) }
 if ($ObsidianMethod) { $InstallArgs += @("--obsidian-method", $ObsidianMethod) }

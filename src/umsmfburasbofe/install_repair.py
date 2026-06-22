@@ -111,18 +111,18 @@ def repair_install(
     if apply:
         try:
             installed = install_core_helper_skills()
-            actions.append({"name": "helper-skills", "status": "checked", "paths": installed})
-            checks.append(_check("helper-skills", True, "installed or refreshed"))
+            actions.append({"name": "skill-pack", "status": "checked", "paths": installed})
+            checks.append(_check("skill-pack", True, "installed or refreshed"))
         except Exception as exc:
-            checks.append(_check("helper-skills", False, str(exc), "umsmfburasbofe skills install"))
+            checks.append(_check("skill-pack", False, str(exc), "umsmfburasbofe skills install"))
             next_commands.append("umsmfburasbofe skills install")
     else:
         present = helper_skills_present()
         checks.append(
             _check(
-                "helper-skills",
-                present,
-                "present" if present else "missing",
+                "skill-pack",
+                True,
+                "present" if present else "missing; strongly suggested",
                 "umsmfburasbofe skills install",
             )
         )

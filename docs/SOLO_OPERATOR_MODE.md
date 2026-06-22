@@ -28,7 +28,7 @@ umsmfburasbofe solo /absolute/path/to/new-product --create --want "Build the fir
 3. Ask what should be built or fixed in normal language.
 4. If `--create` is passed, create a missing or empty Git repo first.
 5. Turn the ask into `.umsmfburasbofe/PRODUCT-BRIEF.md`.
-6. Install or refresh the bundled helper skills.
+6. Install or refresh the recommended skill pack.
 7. Optionally wire GBrain and GitNexus command templates.
 8. Report the status of selected extras like Obsidian and Loop Library.
 9. Run readiness checks.
@@ -62,7 +62,7 @@ Idea
   -> Independent review
   -> Repair loop
   -> Final report
-  -> Release readiness
+  -> release-ready gate
   -> Production handoff
 ```
 
@@ -74,8 +74,6 @@ and proof explicit from the start.
 
 These are product gaps, not optional polish:
 
-- A release-readiness command that checks production build, environment, secrets,
-  deployment target, rollback notes, and final human approval.
 - Starter templates beyond the minimal README/.gitignore scaffold.
 - Skill-library import scanning, so a copied folder like `/home/Tommy/Downloads/SKILLS`
   can be deduped and turned into a curated local toolbox instead of copied whole.
@@ -117,6 +115,15 @@ Use repair mode for already-broken code:
 
 ```bash
 umsmfburasbofe solo --mode repair
+```
+
+Before a real release, run the final operator gate:
+
+```bash
+umsmfburasbofe release-ready \
+  --target "Production deploy path" \
+  --rollback "Rollback steps" \
+  --approved-by "Your name"
 ```
 
 Wire optional local context tools if they are installed:

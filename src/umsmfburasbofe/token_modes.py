@@ -54,12 +54,18 @@ TOKEN_MODES = {
     ),
 }
 
-CORE_HELPER_SKILLS = {
+RECOMMENDED_SKILL_PACK = {
+    "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition": (
+        "skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md"
+    ),
     "pimp-my-prompt": "skills/pimp-my-prompt/SKILL.md",
     "write-a-skill": "skills/write-a-skill/SKILL.md",
     "edit-skill": "skills/edit-skill/SKILL.md",
     "skillify": "skills/skillify/SKILL.md",
+    "caveman": "skills/caveman/SKILL.md",
+    "uncle-matts-caveman-curse": "skills/uncle-matts-caveman-curse/SKILL.md",
 }
+CORE_HELPER_SKILLS = RECOMMENDED_SKILL_PACK
 
 ALIASES = {
     "none": "off",
@@ -131,7 +137,7 @@ def install_core_helper_skills(skills_dir: Path | None = None) -> dict[str, str]
     root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
     return {
         skill_name: _install_bundled_skill(root, skill_name, asset)
-        for skill_name, asset in CORE_HELPER_SKILLS.items()
+        for skill_name, asset in RECOMMENDED_SKILL_PACK.items()
     }
 
 

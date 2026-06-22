@@ -58,14 +58,21 @@ with `umsmfburasbofe token-mode set ...`.
 Existing different local skill files are backed up before the bundled files are
 installed.
 
-## Helper skills
+## Recommended skill pack
 
-Core install also writes four helper skills under `~/.agents/skills`:
+Core install writes the recommended skill pack under `~/.agents/skills` unless
+`--skip-skill-pack` is passed. The pack is optional but strongly suggested
+because it lets compatible AI IDE agents choose the right helper without the
+user remembering skill names.
 
+- `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`
+  for controller routing.
 - `pimp-my-prompt` for rough request intake and reusable prompt cleanup.
 - `write-a-skill` for making a repeated workflow into a concise reusable skill.
 - `edit-skill` for keeping local skills short, clear, and non-duplicative.
 - `skillify` for deciding whether a workflow deserves a skill and checking its proof.
+- `caveman` for clean compressed output.
+- `uncle-matts-caveman-curse` for compressed output with profanity when selected.
 
 These are bundled files, not network dependencies. Existing different local
 versions are backed up before replacement. They are available even when token

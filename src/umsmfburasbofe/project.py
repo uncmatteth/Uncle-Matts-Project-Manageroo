@@ -30,6 +30,13 @@ Agents must never:
 
 Capture newly discovered product ideas with `umsmfburasbofe idea add "..."` rather than
 silently broadening the current task.
+
+Use the recommended UMSMFBURASBOFE skill pack automatically:
+- rough, overloaded, or frustrated request -> `pimp-my-prompt`;
+- repeated painful workflow -> `write-a-skill` or `skillify`;
+- bloated or stale skill -> `edit-skill`;
+- compressed output only when token mode or the user asks -> `caveman` or
+  `uncle-matts-caveman-curse`.
 <!-- UMSMFBURASBOFE:END -->
 """
 

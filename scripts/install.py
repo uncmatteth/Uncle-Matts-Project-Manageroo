@@ -22,7 +22,7 @@ from umsmfburasbofe.branding import FULL_NAME, print_banner, status_line  # noqa
 from umsmfburasbofe.chiptune import ThemePlayback, play_once  # noqa: E402
 from umsmfburasbofe.credits import format_special_thanks  # noqa: E402
 from umsmfburasbofe.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
-from umsmfburasbofe.token_modes import install_core_helper_skills, set_token_mode  # noqa: E402
+from umsmfburasbofe.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
 
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 GBRAIN_INSTALL_SOURCE = "github:garrytan/gbrain"
@@ -942,6 +942,11 @@ def main() -> int:
         default="auto",
     )
     parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
+    parser.add_argument(
+        "--skip-skill-pack",
+        action="store_true",
+        help="Skip the strongly recommended local agent skill pack. You can install it later with `umsmfburasbofe skills install`.",
+    )
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
     args = parser.parse_args()
@@ -982,8 +987,17 @@ def main() -> int:
 
         token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
         status_line("TOKEN MODE", token_mode_record["label"], ok=True)
-        helper_skills_record = install_core_helper_skills()
-        status_line("HELPER SKILLS", ", ".join(sorted(helper_skills_record)), ok=True)
+        if args.skip_skill_pack:
+            helper_skills_record = {
+                "skipped": True,
+                "reason": "Recommended skill pack skipped by --skip-skill-pack.",
+                "install_later": "umsmfburasbofe skills install",
+                "recommended_skills": sorted(CORE_HELPER_SKILLS),
+            }
+            status_line("SKILL PACK", "skipped; strongly recommended for AI IDE guidance", ok=True)
+        else:
+            helper_skills_record = install_core_helper_skills()
+            status_line("SKILL PACK", ", ".join(sorted(helper_skills_record)), ok=True)
 
         if args.install_codex and not args.skip_codex:
             external_tools.append({"name": "codex", **install_codex_latest(downloads)})
@@ -1064,9 +1078,12 @@ def main() -> int:
             "dependency_policy": (
                 "Core install is UMSMFBURASBOFE. Real runs require a configured agent "
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
-                "Core helper skills include Pimp My Prompt for rough request intake, "
+                "The recommended skill pack is optional but strongly suggested because it "
+                "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
+                "and token compression without the user memorizing skill names. "
+                "It includes UMSMFBURASBOFE routing, Pimp My Prompt for rough request intake, "
                 "Write A Skill and Skillify for turning repeated work into reusable skills, "
-                "and Edit Skill for keeping local skills short and useful. "
+                "Edit Skill for keeping local skills short and useful, and both Caveman modes. "
                 "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
                 "Obsidian, and Loop Library when configured."
             ),
@@ -1086,6 +1103,8 @@ def main() -> int:
     print("  umsmfburasbofe --version")
     print("  umsmfburasbofe self-test")
     print("  umsmfburasbofe skills list")
+    print("  # Strongly suggested if you skipped the local agent skill pack:")
+    print("  umsmfburasbofe skills install")
     print("  umsmfburasbofe stack-status")
     print("  umsmfburasbofe repair-install --no-apply")
     print('  umsmfburasbofe solo /path/to/new-project --create --agent codex --want "Describe the first useful version"')
@@ -1095,6 +1114,7 @@ def main() -> int:
     print("  umsmfburasbofe checks add smoke -- npm test")
     print("  # When readiness is green:")
     print("  umsmfburasbofe run --apply")
+    print('  umsmfburasbofe release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')
     print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
     print("")
     print(format_special_thanks())

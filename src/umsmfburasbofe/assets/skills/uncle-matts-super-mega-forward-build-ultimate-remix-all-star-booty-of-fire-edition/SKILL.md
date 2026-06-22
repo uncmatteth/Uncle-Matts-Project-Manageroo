@@ -25,15 +25,21 @@ to participate without freelancing.
 
 No role receives or relies on the full prior conversation. The packet is the complete authority for that role. Read its `manifest.json` when provenance or omissions matter.
 
-## Helper skill rule
+## Recommended skill pack routing
 
-Use `$pimp-my-prompt` before a run when the human request is rough, overloaded,
-ambiguous, frustrated, or reusable and needs to become exact scope, acceptance
-criteria, fallback behavior, and stop rules.
+Do not make the user remember skill names. Pick the helper skill from the job:
 
-Use `$edit-skill` when a local skill becomes bloated, duplicated, stale, vague,
-or full of generic AI instructions. Tighten the skill without deleting hard
-rules that came from real failures.
+- Use `$pimp-my-prompt` before a run when the human request is rough, overloaded,
+  ambiguous, frustrated, or reusable and needs exact scope, acceptance criteria,
+  fallback behavior, proof, and stop rules.
+- Use `$write-a-skill` when a painful workflow should become a reusable local
+  agent skill.
+- Use `$edit-skill` when a local skill becomes bloated, duplicated, stale,
+  vague, or full of generic AI instructions.
+- Use `$skillify` when deciding whether a workflow deserves a skill and what
+  proof it needs.
+- Use `$caveman` or `$uncle-matts-caveman-curse` only when the selected token
+  mode or user explicitly asks for compressed output.
 
 ## Role separation
 

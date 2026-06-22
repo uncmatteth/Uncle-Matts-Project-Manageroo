@@ -20,18 +20,33 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("edit-skill", installed)
             self.assertIn("write-a-skill", installed)
             self.assertIn("skillify", installed)
+            self.assertIn("caveman", installed)
+            self.assertIn("uncle-matts-caveman-curse", installed)
+            self.assertIn(
+                "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition",
+                installed,
+            )
             prompt = Path(temp) / "pimp-my-prompt" / "SKILL.md"
             editor = Path(temp) / "edit-skill" / "SKILL.md"
             writer = Path(temp) / "write-a-skill" / "SKILL.md"
             skillify = Path(temp) / "skillify" / "SKILL.md"
+            controller = (
+                Path(temp)
+                / "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
+                / "SKILL.md"
+            )
             self.assertTrue(prompt.exists())
             self.assertTrue(editor.exists())
             self.assertTrue(writer.exists())
             self.assertTrue(skillify.exists())
+            self.assertTrue((Path(temp) / "caveman" / "SKILL.md").exists())
+            self.assertTrue((Path(temp) / "uncle-matts-caveman-curse" / "SKILL.md").exists())
+            self.assertTrue(controller.exists())
             self.assertIn("rough-draft users", prompt.read_text(encoding="utf-8"))
             self.assertIn("duplicate instructions", editor.read_text(encoding="utf-8"))
             self.assertIn("Create a new local agent skill", writer.read_text(encoding="utf-8"))
             self.assertIn("Skillify only when", skillify.read_text(encoding="utf-8"))
+            self.assertIn("Do not make the user remember skill names", controller.read_text(encoding="utf-8"))
 
     def test_installs_bundled_caveman_skills(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -52,14 +52,17 @@ umsmfburasbofe token-mode set off
 
 `caveman` is terse and clean. `curse` is terse and profane. Both are included.
 
-Always-on helper skills:
+Recommended skill pack:
 
 ```bash
 umsmfburasbofe skills install
 ```
 
-That installs `pimp-my-prompt`, `write-a-skill`, `edit-skill`, and `skillify`
-under `~/.agents/skills`.
+That installs the UMSMFBURASBOFE router skill, `pimp-my-prompt`,
+`write-a-skill`, `edit-skill`, `skillify`, `caveman`, and
+`uncle-matts-caveman-curse` under `~/.agents/skills`. Normal install does this
+by default. It is optional but strongly suggested because agents can use the
+router skill to choose helpers automatically.
 
 ## Start any product repository
 
@@ -142,6 +145,15 @@ For broken existing code:
 
 ```bash
 umsmfburasbofe run --mode repair --apply
+```
+
+Before a real release:
+
+```bash
+umsmfburasbofe release-ready \
+  --target "Production deploy path" \
+  --rollback "Rollback steps" \
+  --approved-by "Your name"
 ```
 
 ## What `umsmfburasbofe setup` changes

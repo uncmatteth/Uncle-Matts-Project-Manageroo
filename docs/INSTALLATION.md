@@ -68,10 +68,15 @@ gbrain status --json --section sync
 
 The installer does not choose broad personal folders for you.
 
-## Bundled helper skills
+## Recommended skill pack
 
-Normal install writes these local skills under `~/.agents/skills`:
+Normal install writes these local skills under `~/.agents/skills`. The pack is
+optional but strongly suggested because it lets AI IDE agents route the work
+without making the user remember which skill to call. Skip it only with
+`./install.sh --skip-skill-pack`.
 
+- `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`:
+  tells agents how to follow the controller.
 - `pimp-my-prompt`: turns rough requests into exact scope, acceptance criteria,
   fallback rules, and runnable product briefs.
 - `write-a-skill`: creates a concise reusable skill when a workflow keeps
@@ -80,6 +85,8 @@ Normal install writes these local skills under `~/.agents/skills`:
   stale rules, vague wording, and AI slop.
 - `skillify`: checks whether a repeated workflow deserves a skill, then makes
   sure it has triggers and proof.
+- `caveman`: clean compressed output.
+- `uncle-matts-caveman-curse`: compressed output with profanity when selected.
 
 They are available even when token mode is off. Reinstall them later with:
 
@@ -223,6 +230,18 @@ For already-broken code:
 umsmfburasbofe run --mode repair --apply
 ```
 
+Before a real release, run the final operator gate:
+
+```bash
+umsmfburasbofe release-ready \
+  --target "Production deploy path" \
+  --rollback "Rollback steps" \
+  --approved-by "Your name"
+```
+
+It does not deploy. It blocks until readiness is green, checks pass, Git is
+clean, and the release target, rollback plan, and human approval are recorded.
+
 ## Use a Loop Library loop
 
 Matthew Berman / Forward Future's Loop Library can be used as the source of a
@@ -258,7 +277,7 @@ rm -rf "$HOME/.local/share/umsmfburasbofe"
 rm -f "$HOME/.local/bin/umsmfburasbofe" "$HOME/.local/bin/umsmfburasbofe.cmd"
 ```
 
-If the launcher or helper skills get damaged, run:
+If the launcher or recommended skill pack gets damaged, run:
 
 ```bash
 umsmfburasbofe repair-install --no-apply
