@@ -1137,6 +1137,7 @@ def main() -> int:
     print("  umsmfburasbofe stack-status")
     print("  umsmfburasbofe repair-install --no-apply")
     print('  umsmfburasbofe solo /path/to/new-project --create --agent codex --want "Describe the first useful version"')
+    print('  umsmfburasbofe solo /path/to/new-site --create --starter static-site --agent codex --want "Build a simple product homepage"')
     print("  # Or, for an existing Git repo:")
     print("  cd /path/to/project && umsmfburasbofe solo --agent codex")
     print("  # If readiness says no checks exist:")

@@ -165,6 +165,37 @@ class CliSoloTests(unittest.TestCase):
                 (repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md").read_text(encoding="utf-8"),
             )
 
+    def test_solo_create_accepts_static_site_starter(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "fresh-site"
+            env = {
+                "UMSMFBURASBOFE_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "UMSMFBURASBOFE_SKILLS_DIR": str(Path(temp) / "skills"),
+            }
+            stdout = io.StringIO()
+            with patch.dict(os.environ, env), redirect_stdout(stdout):
+                code = main(
+                    [
+                        "solo",
+                        str(repo),
+                        "--create",
+                        "--starter",
+                        "static-site",
+                        "--agent",
+                        "mock",
+                        "--want",
+                        "Build a simple product homepage",
+                        "--skip-skills",
+                        "--json",
+                    ]
+                )
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["created_project"]["starter"], "static-site")
+            self.assertTrue((repo / "index.html").exists())
+            self.assertTrue((repo / "tests" / "test_static_site.py").exists())
+            self.assertIn("unittest", (repo / ".umsmfburasbofe" / "config.toml").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

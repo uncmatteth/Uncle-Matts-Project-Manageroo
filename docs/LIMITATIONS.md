@@ -14,7 +14,7 @@
 12. Media support is bounded support. UMSMFBURASBOFE records images, PDFs, and design/media assets in inventory and can use local OCR/PDF text extractors when installed, but it does not perform real vision interpretation or design understanding.
 13. Long prose support includes line counts, summaries, explicit summary context, and task decomposition. Exact edits still require bounded line ranges or a document-specific workflow.
 14. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
-15. `solo --create` creates only missing or empty top-level project folders. It refuses non-empty non-Git folders and missing paths inside another Git repo so it does not accidentally commit personal files, secrets, archives, or nested repositories.
+15. `solo --create` creates only missing or empty top-level project folders. Starters are small local scaffolds, not production frameworks. The command refuses non-empty non-Git folders and missing paths inside another Git repo so it does not accidentally commit personal files, secrets, archives, or nested repositories.
 16. UMSMFBURASBOFE does not replace CI, production monitoring, backups, security review, or legal review.
 17. `release-ready` is a final operator gate, not a deployment tool. It checks readiness, gates, clean Git state, target, rollback notes, and approval; it does not push, deploy, monitor, or roll back production.
 18. UMSMFBURASBOFE does not run cloud schedules or timer loops by itself. Loop and routine patterns are adapted into bounded local goal-style runs unless the operator supplies a separate scheduler.

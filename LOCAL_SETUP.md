@@ -138,6 +138,19 @@ umsmfburasbofe solo /absolute/path/to/new-product \
   --want "Describe what should be built first"
 ```
 
+If you want a useful starting shape instead of a blank repo, add a starter:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-site \
+  --create \
+  --starter static-site \
+  --want "Build a simple product homepage"
+```
+
+Starter choices are `blank`, `static-site`, `python-cli`, and `docs-project`.
+The non-blank starters include a no-dependency `python3 -m unittest discover`
+smoke check so readiness can find a real proof command immediately.
+
 `--create` initializes Git, writes a small `README.md` and `.gitignore`, and
 creates the first scaffold commit. It refuses to absorb a non-empty non-Git
 folder or create a nested repo inside another Git repo, so it does not

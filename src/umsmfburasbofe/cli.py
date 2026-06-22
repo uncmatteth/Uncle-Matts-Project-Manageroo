@@ -43,7 +43,7 @@ from .loop_library import (
     write_loop_brief,
 )
 from .orchestrator import Orchestrator
-from .project import create_project_repo, git_root, initialize_project
+from .project import create_project_repo, git_root, initialize_project, starter_choices
 from .readiness import brief_is_template, format_readiness, readiness
 from .release_ready import format_release_ready, release_ready
 from .selftest import run_self_test
@@ -203,6 +203,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("repo", nargs="?", default=".")
     init.add_argument("--agent", choices=sorted(AGENT_PRESETS), default="codex")
     init.add_argument("--create", action="store_true", help="Create a missing or empty Git repository first.")
+    init.add_argument("--starter", choices=starter_choices(), default="blank")
 
     setup = sub.add_parser("setup", help="Guided first-run setup for a product repository.")
     setup.add_argument("repo", nargs="?")
@@ -233,6 +234,7 @@ def parser() -> argparse.ArgumentParser:
     solo.add_argument("--use-loop-library", action="store_true")
     solo.add_argument("--run", action="store_true")
     solo.add_argument("--create", action="store_true", help="Create a missing or empty Git repository first.")
+    solo.add_argument("--starter", choices=starter_choices(), default="blank")
     solo.add_argument("--force", action="store_true")
     solo.add_argument("--json", action="store_true")
     solo_apply = solo.add_mutually_exclusive_group()
@@ -434,7 +436,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "init":
             created_project = None
             if args.create:
-                created_project = create_project_repo(Path(args.repo), title=Path(args.repo).name)
+                created_project = create_project_repo(
+                    Path(args.repo),
+                    title=Path(args.repo).name,
+                    starter=args.starter,
+                )
             result = initialize_project(Path(args.repo), agent=args.agent)
             if created_project:
                 result["created_project"] = created_project
@@ -516,6 +522,7 @@ def main(argv: list[str] | None = None) -> int:
                     Path(answers["repo"]),
                     title=Path(answers["repo"]).name,
                     description=answers["want"],
+                    starter=args.starter,
                 )
             result = initialize_project(Path(answers["repo"]), agent=answers["agent"])
             repo = Path(result["repo"])

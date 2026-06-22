@@ -186,7 +186,7 @@ umsmfburasbofe setup
 ```
 
 Use `--agent codex` only when this tool should launch Codex itself. Use
-`umsmfburasbofe agent list` to see starter presets:
+`umsmfburasbofe agent list` to see built-in agent presets:
 
 ```bash
 umsmfburasbofe agent list
@@ -201,6 +201,19 @@ If an AI IDE can read the repo and run commands, it does not need a special
 vendor build. Give it the installed command plus the repo-local skill.
 
 No IDE-specific directory is created.
+
+For a brand-new product, `solo --create` can start from a small starter instead
+of a blank repo:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-site \
+  --create \
+  --starter static-site \
+  --want "Build a simple product homepage"
+```
+
+Starter choices are `blank`, `static-site`, `python-cli`, and `docs-project`.
+The non-blank starters include no-dependency unittest smoke checks.
 
 Create a normal-language brief:
 

@@ -99,6 +99,19 @@ brief and prints exactly one next command.
 `--create` initializes Git and creates the first small scaffold commit for a
 missing or empty folder. It refuses non-empty non-Git folders and nested repos.
 
+For a less blank start, add `--starter`:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-site \
+  --create \
+  --starter static-site \
+  --want "Build a simple product homepage"
+```
+
+Starter choices are `blank`, `static-site`, `python-cli`, and `docs-project`.
+The non-blank starters include a small `python3 -m unittest discover` smoke
+check so the first repo has a proof command.
+
 Use lower-level `setup` only when you want to initialize the repo without
 writing the product brief yet:
 
@@ -107,7 +120,7 @@ umsmfburasbofe setup
 ```
 
 Use `--agent codex` when this tool should launch Codex. Use `umsmfburasbofe
-agent list` to see starter presets for other CLI agents. Use
+agent list` to see built-in presets for other CLI agents. Use
 `umsmfburasbofe agent preset generic` when you want to edit the command template
 yourself.
 

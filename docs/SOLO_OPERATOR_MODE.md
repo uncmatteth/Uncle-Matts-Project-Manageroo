@@ -19,6 +19,22 @@ Starting from an empty or missing folder:
 umsmfburasbofe solo /absolute/path/to/new-product --create --want "Build the first useful version"
 ```
 
+Starting with a small useful shape:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-site \
+  --create \
+  --starter static-site \
+  --want "Build a simple product homepage"
+```
+
+Starter choices:
+
+- `blank`: only `README.md` and `.gitignore`.
+- `static-site`: `index.html`, `styles.css`, and a no-dependency smoke test.
+- `python-cli`: `app.py` and a no-dependency smoke test.
+- `docs-project`: project docs, release checklist, and a no-dependency smoke test.
+
 ## What It Does Now
 
 `solo` is the guided front door:
@@ -27,13 +43,14 @@ umsmfburasbofe solo /absolute/path/to/new-product --create --want "Build the fir
 2. Pick the AI agent preset.
 3. Ask what should be built or fixed in normal language.
 4. If `--create` is passed, create a missing or empty Git repo first.
-5. Turn the ask into `.umsmfburasbofe/PRODUCT-BRIEF.md`.
-6. Install or refresh the recommended skill pack.
-7. Optionally wire GBrain and GitNexus command templates.
-8. Report the status of selected extras like Obsidian and Loop Library.
-9. Run readiness checks.
-10. Print exactly one next command.
-11. If `--run` is passed and readiness is green, start the build or repair run.
+5. If `--starter` is selected, add a small starter scaffold and smoke check.
+6. Turn the ask into `.umsmfburasbofe/PRODUCT-BRIEF.md`.
+7. Install or refresh the recommended skill pack.
+8. Optionally wire GBrain and GitNexus command templates.
+9. Report the status of selected extras like Obsidian and Loop Library.
+10. Run readiness checks.
+11. Print exactly one next command.
+12. If `--run` is passed and readiness is green, start the build or repair run.
 
 It reuses the same controller, brief builder, readiness checker, integration
 config, and run engine as the lower-level commands. It is not a second product.
@@ -75,8 +92,6 @@ and proof explicit from the start.
 
 These are product gaps, not optional polish:
 
-- Starter templates beyond the minimal README/.gitignore scaffold.
-- Better guided verification suggestions for repos that do not already have tests.
 - A project memory lane that explains what this project is, what has shipped,
   and what should never be broken.
 - Clear production handoff output for a non-coder: what changed, what proof
@@ -102,6 +117,15 @@ Create a new empty Git project and prepare the first brief:
 umsmfburasbofe solo /absolute/path/to/new-product \
   --create \
   --want "Build the first useful version"
+```
+
+Create a static homepage starter with a smoke test:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-site \
+  --create \
+  --starter static-site \
+  --want "Build the first useful product homepage"
 ```
 
 Combine intake and execution only when readiness is already green:

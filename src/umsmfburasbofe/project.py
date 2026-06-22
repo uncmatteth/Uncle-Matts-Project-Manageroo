@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from html import escape
 import shutil
 from pathlib import Path
 
@@ -40,6 +41,13 @@ Use the recommended UMSMFBURASBOFE skill pack automatically:
 <!-- UMSMFBURASBOFE:END -->
 """
 
+STARTER_TEMPLATES = {
+    "blank": "Minimal README and .gitignore only.",
+    "static-site": "Simple static homepage with CSS and a no-dependency unittest smoke check.",
+    "python-cli": "Small Python CLI entrypoint with a no-dependency unittest smoke check.",
+    "docs-project": "Markdown planning/release docs with a no-dependency unittest smoke check.",
+}
+
 
 def git_root(path: Path) -> Path:
     runner = CommandRunner()
@@ -71,13 +79,212 @@ def _nearest_existing_parent(path: Path) -> Path:
     return current
 
 
+def starter_choices() -> list[str]:
+    return sorted(STARTER_TEMPLATES)
+
+
+def _safe_text(value: str, fallback: str) -> str:
+    cleaned = " ".join(value.strip().split())
+    return cleaned or fallback
+
+
+def _starter_files(starter: str, display_name: str, description: str) -> dict[str, str]:
+    description = _safe_text(description, "Describe what this product should become.")
+    if starter == "blank":
+        return {}
+    if starter == "static-site":
+        html_title = escape(display_name)
+        html_description = escape(description)
+        return {
+            "index.html": "\n".join(
+                [
+                    "<!doctype html>",
+                    '<html lang="en">',
+                    "<head>",
+                    '  <meta charset="utf-8">',
+                    '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+                    f"  <title>{html_title}</title>",
+                    '  <link rel="stylesheet" href="styles.css">',
+                    "</head>",
+                    "<body>",
+                    '  <main class="shell">',
+                    f"    <h1>{html_title}</h1>",
+                    f"    <p>{html_description}</p>",
+                    '    <a href="mailto:hello@example.com">Contact</a>',
+                    "  </main>",
+                    "</body>",
+                    "</html>",
+                    "",
+                ]
+            ),
+            "styles.css": "\n".join(
+                [
+                    ":root {",
+                    "  color-scheme: light dark;",
+                    "  font-family: Arial, sans-serif;",
+                    "}",
+                    "",
+                    "body {",
+                    "  margin: 0;",
+                    "  min-height: 100vh;",
+                    "  display: grid;",
+                    "  place-items: center;",
+                    "  padding: 24px;",
+                    "}",
+                    "",
+                    ".shell {",
+                    "  max-width: 720px;",
+                    "}",
+                    "",
+                ]
+            ),
+            "tests/__init__.py": "",
+            "tests/test_static_site.py": "\n".join(
+                [
+                    "from pathlib import Path",
+                    "import unittest",
+                    "",
+                    "ROOT = Path(__file__).resolve().parents[1]",
+                    "",
+                    "",
+                    "class StaticSiteSmokeTests(unittest.TestCase):",
+                    "    def test_homepage_has_required_structure(self):",
+                    "        html = (ROOT / 'index.html').read_text(encoding='utf-8').lower()",
+                    "        self.assertIn('<title>', html)",
+                    "        self.assertIn('<main', html)",
+                    "        self.assertIn('<h1>', html)",
+                    "        self.assertTrue((ROOT / 'styles.css').exists())",
+                    "",
+                    "",
+                    "if __name__ == '__main__':",
+                    "    unittest.main()",
+                    "",
+                ]
+            ),
+        }
+    if starter == "python-cli":
+        return {
+            "app.py": "\n".join(
+                [
+                    "from __future__ import annotations",
+                    "",
+                    "",
+                    "def describe() -> str:",
+                    f"    return {description!r}",
+                    "",
+                    "",
+                    "def main() -> int:",
+                    "    print(describe())",
+                    "    return 0",
+                    "",
+                    "",
+                    "if __name__ == '__main__':",
+                    "    raise SystemExit(main())",
+                    "",
+                ]
+            ),
+            "tests/__init__.py": "",
+            "tests/test_app.py": "\n".join(
+                [
+                    "import sys",
+                    "from pathlib import Path",
+                    "import unittest",
+                    "",
+                    "ROOT = Path(__file__).resolve().parents[1]",
+                    "sys.path.insert(0, str(ROOT))",
+                    "import app",
+                    "",
+                    "",
+                    "class AppSmokeTests(unittest.TestCase):",
+                    "    def test_describe_returns_product_text(self):",
+                    "        self.assertTrue(app.describe().strip())",
+                    "",
+                    "",
+                    "if __name__ == '__main__':",
+                    "    unittest.main()",
+                    "",
+                ]
+            ),
+        }
+    if starter == "docs-project":
+        return {
+            "docs/PROJECT.md": "\n".join(
+                [
+                    f"# {display_name}",
+                    "",
+                    description,
+                    "",
+                    "## Current Goal",
+                    "",
+                    "- Describe the first useful release.",
+                    "",
+                    "## Open Questions",
+                    "",
+                    "- What must be true before release?",
+                    "",
+                ]
+            ),
+            "docs/RELEASE_CHECKLIST.md": "\n".join(
+                [
+                    "# Release Checklist",
+                    "",
+                    "- [ ] Product brief is current.",
+                    "- [ ] Verification checks pass.",
+                    "- [ ] Rollback plan is written.",
+                    "- [ ] Human approval is recorded.",
+                    "",
+                ]
+            ),
+            "tests/__init__.py": "",
+            "tests/test_docs.py": "\n".join(
+                [
+                    "from pathlib import Path",
+                    "import unittest",
+                    "",
+                    "ROOT = Path(__file__).resolve().parents[1]",
+                    "",
+                    "",
+                    "class DocsSmokeTests(unittest.TestCase):",
+                    "    def test_release_checklist_exists(self):",
+                    "        checklist = ROOT / 'docs' / 'RELEASE_CHECKLIST.md'",
+                    "        self.assertTrue(checklist.exists())",
+                    "        self.assertIn('Rollback plan', checklist.read_text(encoding='utf-8'))",
+                    "",
+                    "",
+                    "if __name__ == '__main__':",
+                    "    unittest.main()",
+                    "",
+                ]
+            ),
+        }
+    allowed = ", ".join(starter_choices())
+    raise ValueError(f"Unknown starter {starter!r}. Use one of: {allowed}.")
+
+
+def _write_starter_files(target: Path, starter: str, display_name: str, description: str) -> list[str]:
+    created: list[str] = []
+    for relative, text in _starter_files(starter, display_name, description).items():
+        path = target / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            continue
+        atomic_write_text(path, text)
+        created.append(relative)
+    return created
+
+
 def create_project_repo(
     path: Path,
     *,
     title: str = "",
     description: str = "",
+    starter: str = "blank",
 ) -> dict:
     target = path.expanduser().resolve()
+    starter = starter.strip().lower() or "blank"
+    if starter not in STARTER_TEMPLATES:
+        allowed = ", ".join(starter_choices())
+        raise ValueError(f"Unknown starter {starter!r}. Use one of: {allowed}.")
     runner = CommandRunner()
     if target.exists() and not target.is_dir():
         raise ValueError(f"Refusing to create project over a file: {target}")
@@ -107,6 +314,7 @@ def create_project_repo(
 
     display_name = title.strip() or target.name.replace("-", " ").replace("_", " ").title()
     description = description.strip() or "Describe what this product should become."
+    created_files: list[str] = []
     readme = target / "README.md"
     if not readme.exists():
         atomic_write_text(
@@ -122,6 +330,7 @@ def create_project_repo(
                 ]
             ),
         )
+        created_files.append("README.md")
     gitignore = target / ".gitignore"
     if not gitignore.exists():
         atomic_write_text(
@@ -141,9 +350,11 @@ def create_project_repo(
                 ]
             ),
         )
+        created_files.append(".gitignore")
+    created_files.extend(_write_starter_files(target, starter, display_name, description))
 
     _run_git(runner, ["init", "-b", "main"], target)
-    _run_git(runner, ["add", "README.md", ".gitignore"], target)
+    _run_git(runner, ["add", "."], target)
     result = runner.run(
         [
             "git",
@@ -161,7 +372,13 @@ def create_project_repo(
     if not result.passed:
         raise ConfigurationError(result.stderr or "Could not create initial product commit.")
     initial_commit = _run_git(runner, ["rev-parse", "HEAD"], target)
-    return {"status": "created", "repo": str(target), "initial_commit": initial_commit}
+    return {
+        "status": "created",
+        "repo": str(target),
+        "initial_commit": initial_commit,
+        "starter": starter,
+        "created_files": created_files,
+    }
 
 
 def _append_managed_block(path: Path, block: str) -> None:

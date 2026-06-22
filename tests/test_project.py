@@ -48,6 +48,24 @@ class ProjectInitializationTests(unittest.TestCase):
             )
             self.assertTrue(head.stdout.strip())
 
+    def test_create_project_repo_static_site_starter_has_files_and_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "launch-site"
+            result = create_project_repo(
+                repo,
+                title="Launch Site",
+                description="Make the product easy to understand.",
+                starter="static-site",
+            )
+            self.assertEqual(result["starter"], "static-site")
+            self.assertIn("index.html", result["created_files"])
+            self.assertTrue((repo / "index.html").exists())
+            self.assertTrue((repo / "styles.css").exists())
+            self.assertTrue((repo / "tests" / "test_static_site.py").exists())
+            initialized = initialize_project(repo, agent="mock")
+            gate_ids = {gate["id"] for gate in initialized["detected_gates"]}
+            self.assertIn("unittest", gate_ids)
+
     def test_create_project_repo_refuses_non_empty_non_git_folder(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "existing"

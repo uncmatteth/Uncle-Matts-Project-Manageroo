@@ -156,6 +156,22 @@ umsmfburasbofe solo /absolute/path/to/new-product \
   --want "Build a simple first release checklist"
 ```
 
+Use a starter when you do not want a totally blank repo:
+
+```bash
+umsmfburasbofe solo /absolute/path/to/new-site \
+  --create \
+  --starter static-site \
+  --want "Build a simple product homepage"
+```
+
+Starter choices:
+
+- `blank`: only `README.md` and `.gitignore`.
+- `static-site`: `index.html`, `styles.css`, and a no-dependency smoke test.
+- `python-cli`: `app.py` and a no-dependency smoke test.
+- `docs-project`: project docs, release checklist, and a no-dependency smoke test.
+
 Or pass the first ask directly:
 
 ```bash
