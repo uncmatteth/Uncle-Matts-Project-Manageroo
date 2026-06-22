@@ -26,6 +26,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - The normal path is simple: run `umsmfburasbofe solo`, answer normal product questions, then follow the one next command.
 - `.umsmfburasbofe/PROJECT-MEMORY.md` keeps the project identity, shipped facts, must-not-break rules, proof, and operator notes in the repo instead of hidden in chat.
 - `setup`, `brief`, `ready`, `run --apply`, and `release-ready` are still available when you want lower-level control.
+- `next` is the low-noise helper for "what do I do now?": it prints the current stage, the reason, and one command.
 - Bare `setup` is the lower-level wizard: AI choice, repo path, and optional stack checks.
 - If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.
 - `gbrain-setup` can prompt for one selected folder. No broad personal-folder crawl.

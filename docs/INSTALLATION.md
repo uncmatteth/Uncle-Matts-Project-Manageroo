@@ -189,6 +189,14 @@ command, you can combine intake and execution:
 umsmfburasbofe solo --want "Describe the result" --run --apply --force
 ```
 
+When you are unsure where the project is in the path, ask for one next action:
+
+```bash
+umsmfburasbofe next
+```
+
+It prints the stage, the reason, and one command to run next.
+
 Lower-level setup is still available when you want only repo initialization:
 
 ```bash

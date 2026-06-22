@@ -42,6 +42,7 @@ else
 fi
 umsmfburasbofe memory show
 umsmfburasbofe ready --json
+umsmfburasbofe next --json
 ```
 
 Use `--agent codex` only when Codex is the selected runtime. Use
@@ -79,6 +80,7 @@ umsmfburasbofe solo \
   --proof "CHECK_OR_DEMO_HERE" \
   --force
 umsmfburasbofe ready --json
+umsmfburasbofe next --json
 ```
 
 If readiness says no checks are configured, ask the controller for repo-aware
@@ -104,7 +106,7 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 - Stop on any release-verification failure.
 - Stop if `CREATE_PROJECT` is not `yes` and the target is not already a Git repository.
 - Stop if `CREATE_PROJECT` is `yes` but the target is a non-empty non-Git folder.
-- Stop if `ready.ok` is false and report every failed or action item exactly.
+- Stop if `ready.ok` is false and report every failed or action item exactly, plus the single `next.command`.
 - Do not run a real build until the operator completes `.umsmfburasbofe/PRODUCT-BRIEF.md`.
 - Before broad product work, read `.umsmfburasbofe/PROJECT-MEMORY.md` and preserve its `What Must Not Break` section.
 

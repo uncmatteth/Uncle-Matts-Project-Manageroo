@@ -68,6 +68,15 @@ That suggests one or more real verification commands without making the user
 hand-edit `.umsmfburasbofe/config.toml`. Copy the `checks add ...` command it
 prints, then run `umsmfburasbofe ready` again.
 
+If the operator gets lost between steps, use:
+
+```bash
+umsmfburasbofe next
+```
+
+That command prints the current stage, why that stage was chosen, and exactly
+one command to run next. It is the low-noise version of `ready`.
+
 ## The Full Product Path
 
 This is the intended solo-to-production lifecycle:

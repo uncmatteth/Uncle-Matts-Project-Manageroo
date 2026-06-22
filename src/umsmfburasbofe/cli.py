@@ -42,6 +42,7 @@ from .loop_library import (
     search_loops,
     write_loop_brief,
 )
+from .next_action import format_next_action, next_action
 from .orchestrator import Orchestrator
 from .project import create_project_repo, git_root, initialize_project, starter_choices
 from .project_memory import ensure_project_memory, format_project_memory, read_project_memory
@@ -246,6 +247,14 @@ def parser() -> argparse.ArgumentParser:
     ready.add_argument("repo", nargs="?", default=".")
     ready.add_argument("--require-gbrain", action="store_true")
     ready.add_argument("--json", action="store_true")
+
+    next_cmd = sub.add_parser("next", help="Print exactly one next operator action for this repo.")
+    next_cmd.add_argument("repo", nargs="?", default=".")
+    next_cmd.add_argument("--mode", choices=["build", "repair"], default="build")
+    next_apply = next_cmd.add_mutually_exclusive_group()
+    next_apply.add_argument("--apply", dest="apply", action="store_true", default=True)
+    next_apply.add_argument("--no-apply", dest="apply", action="store_false")
+    next_cmd.add_argument("--json", action="store_true")
 
     memory = sub.add_parser("memory", help="Show or update the repo-local project memory lane.")
     memory_sub = memory.add_subparsers(dest="memory_command", required=True)
@@ -627,6 +636,14 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_readiness(result), end="")
             return 0 if result["ok"] else 2
+
+        if args.command == "next":
+            result = next_action(Path(args.repo), mode=args.mode, apply_on_success=args.apply)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_next_action(result), end="")
+            return 0
 
         if args.command == "memory":
             repo = _repo(args.repo)

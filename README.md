@@ -191,6 +191,16 @@ umsmfburasbofe solo \
 next command. If readiness is already green during the first intake command,
 add `--run --apply` to let it start the build or repair run.
 
+When you are not sure what to do next, ask the tool for only the next action:
+
+```bash
+umsmfburasbofe next
+```
+
+It prints the current stage, the reason, and one command. It uses `solo` for
+setup/brief work, `checks suggest` when proof gates are missing, and `run` when
+the repo is ready.
+
 The project memory file is the small repo-local lane for continuity: what this
 project is, what has shipped, what must not break, what proof matters, and
 operator notes. Show or update it with:
@@ -431,6 +441,7 @@ Then check the whole setup:
 
 ```bash
 umsmfburasbofe ready
+umsmfburasbofe next
 ```
 
 If readiness says no checks are configured, ask the tool to suggest the simplest

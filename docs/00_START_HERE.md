@@ -97,6 +97,15 @@ and whether to check GBrain, GitNexus, Obsidian, or Loop Library. It writes the
 brief, writes `.umsmfburasbofe/PROJECT-MEMORY.md`, and prints exactly one next
 command.
 
+At any later point, use this when you just need to know the next move:
+
+```bash
+umsmfburasbofe next
+```
+
+It prints one command only: `solo` for setup/brief work, `checks suggest` when
+proof gates are missing, or `run` when the repo is ready.
+
 `--create` initializes Git and creates the first small scaffold commit for a
 missing or empty folder. It refuses non-empty non-Git folders and nested repos.
 
@@ -150,6 +159,7 @@ Check readiness:
 
 ```bash
 umsmfburasbofe ready
+umsmfburasbofe next
 ```
 
 If it says no checks are configured, ask for repo-aware suggestions:

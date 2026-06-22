@@ -89,6 +89,7 @@ def structural_checks() -> list[dict]:
         "src/umsmfburasbofe/branding.py",
         "src/umsmfburasbofe/checks.py",
         "src/umsmfburasbofe/chiptune.py",
+        "src/umsmfburasbofe/next_action.py",
         "src/umsmfburasbofe/project_memory.py",
         "src/umsmfburasbofe/solo.py",
         "src/umsmfburasbofe/token_modes.py",
@@ -103,6 +104,7 @@ def structural_checks() -> list[dict]:
         "src/umsmfburasbofe/assets/skills/tdd/SKILL.md",
         "src/umsmfburasbofe/assets/skills/caveman/SKILL.md",
         "src/umsmfburasbofe/assets/skills/uncle-matts-caveman-curse/SKILL.md",
+        "tests/test_cli_next.py",
         "tests/test_cli_memory.py",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
