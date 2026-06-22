@@ -41,11 +41,12 @@ config, and run engine as the lower-level commands. It is not a second product.
 If the only blocker is missing checks, the next action is a command like:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest
 ```
 
-That adds one real verification command without making the user hand-edit
-`.umsmfburasbofe/config.toml`.
+That suggests one or more real verification commands without making the user
+hand-edit `.umsmfburasbofe/config.toml`. Copy the `checks add ...` command it
+prints, then run `umsmfburasbofe ready` again.
 
 ## The Full Product Path
 

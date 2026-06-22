@@ -29,6 +29,8 @@ products.
 ./install.sh --skip-stack
 ./install.sh --loop-library-agent codex
 ./install.sh --loop-library-agent YOUR_AGENT
+./install.sh --skill-pack install
+./install.sh --skill-pack skip
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
 ./install.sh --skip-tests
@@ -70,9 +72,11 @@ The installer does not choose broad personal folders for you.
 
 ## Recommended skill pack
 
-Normal install writes these local skills under `~/.agents/skills`. The pack is
+The installer offers these local skills under `~/.agents/skills`. The pack is
 optional but strongly suggested because it lets AI IDE agents route the work
-without making the user remember which skill to call. Skip it only with
+without making the user remember which skill to call. In a normal terminal, the
+installer asks and defaults to yes. Non-interactive installs use the recommended
+yes path. Skip it with `./install.sh --skill-pack skip` or
 `./install.sh --skip-skill-pack`.
 
 - `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`:
@@ -215,10 +219,11 @@ Check whether it is ready to run:
 umsmfburasbofe ready
 ```
 
-If the repo has no detected verification command, add one without editing TOML:
+If the repo has no detected verification command, ask for repo-aware suggestions
+without editing TOML:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest
 umsmfburasbofe checks list
 ```
 

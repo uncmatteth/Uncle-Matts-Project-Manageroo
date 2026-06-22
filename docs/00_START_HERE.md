@@ -60,9 +60,11 @@ umsmfburasbofe skills install
 
 That installs the UMSMFBURASBOFE router skill, `pimp-my-prompt`,
 `write-a-skill`, `edit-skill`, `skillify`, `caveman`, and
-`uncle-matts-caveman-curse` under `~/.agents/skills`. Normal install does this
-by default. It is optional but strongly suggested because agents can use the
-router skill to choose helpers automatically.
+`uncle-matts-caveman-curse` under `~/.agents/skills`. The installer offers this
+pack during normal install, defaults to yes, and lets you skip it with
+`--skill-pack skip` or `--skip-skill-pack`. It is optional but strongly
+suggested because agents can use the router skill to choose helpers
+automatically.
 
 If you copied a skills folder from another computer, do not copy it whole over
 your current skills. Scan first, then import only after reviewing the report:
@@ -129,10 +131,10 @@ Check readiness:
 umsmfburasbofe ready
 ```
 
-If it says no checks are configured, add one real command the repo can run:
+If it says no checks are configured, ask for repo-aware suggestions:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest
 umsmfburasbofe checks list
 ```
 

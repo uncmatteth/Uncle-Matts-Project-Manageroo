@@ -164,8 +164,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                     if gates
                     else "no verification gates configured"
                 ),
-                "Add a real check command, for example: "
-                "`umsmfburasbofe checks add smoke -- npm test`",
+                "umsmfburasbofe checks suggest",
             )
         )
 

@@ -52,6 +52,11 @@ Same installer, same behavior. Use `./install.sh` from a normal Unix-style
 terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
 products.
 
+The recommended local skill pack is optional but strongly suggested. Let the
+installer add it unless the operator explicitly chooses `--skill-pack skip` or
+`--skip-skill-pack`; install it later with `umsmfburasbofe skills install` if it
+was skipped.
+
 If the operator requests token reduction, use one of:
 
 ```bash
@@ -75,11 +80,11 @@ umsmfburasbofe solo \
 umsmfburasbofe ready --json
 ```
 
-If readiness says no checks are configured, ask for the real test, lint, build,
-or smoke command and add it through the CLI:
+If readiness says no checks are configured, ask the controller for repo-aware
+suggestions before asking the user:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest
 umsmfburasbofe checks list
 umsmfburasbofe ready --json
 ```

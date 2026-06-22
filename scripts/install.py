@@ -873,6 +873,23 @@ def choose_stack_mode(selection: str, install_flag: bool, skip_flag: bool) -> st
     return "skip" if answer in {"n", "no", "skip"} else "install"
 
 
+def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
+    if skip_flag or selection == "skip":
+        return "skip"
+    if selection == "install":
+        return "install"
+    if not sys.stdin.isatty():
+        return "install"
+    print("Recommended local skill pack:")
+    print("  - UMSMFBURASBOFE routing skill")
+    print("  - Pimp My Prompt for rough request cleanup")
+    print("  - Write A Skill, Skillify, and Edit Skill")
+    print("  - Caveman and Uncle Matt's Caveman Curse token modes")
+    print("This is optional, but strongly suggested for AI IDE agents.")
+    answer = input("Install the recommended skill pack now? [Y/n]: ").strip().lower()
+    return "skip" if answer in {"n", "no", "skip"} else "install"
+
+
 def install_recommended_stack(
     downloads: list[dict], agents: list[str], obsidian_method: str, prefix: Path
 ) -> list[dict]:
@@ -943,9 +960,15 @@ def main() -> int:
     )
     parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
     parser.add_argument(
+        "--skill-pack",
+        choices=["ask", "install", "skip"],
+        default="ask",
+        help="Choose whether to install the optional but strongly suggested local agent skill pack.",
+    )
+    parser.add_argument(
         "--skip-skill-pack",
         action="store_true",
-        help="Skip the strongly recommended local agent skill pack. You can install it later with `umsmfburasbofe skills install`.",
+        help="Same as --skill-pack skip. You can install it later with `umsmfburasbofe skills install`.",
     )
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
@@ -956,6 +979,8 @@ def main() -> int:
         raise SystemExit("--install-stack conflicts with --stack skip.")
     if args.skip_stack and args.stack == "install":
         raise SystemExit("--skip-stack conflicts with --stack install.")
+    if args.skip_skill_pack and args.skill_pack == "install":
+        raise SystemExit("--skip-skill-pack conflicts with --skill-pack install.")
 
     print_banner(animation=not args.no_animation)
     print(f"Installing {FULL_NAME}\n")
@@ -987,10 +1012,11 @@ def main() -> int:
 
         token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
         status_line("TOKEN MODE", token_mode_record["label"], ok=True)
-        if args.skip_skill_pack:
+        skill_pack_mode = choose_skill_pack_mode(args.skill_pack, args.skip_skill_pack)
+        if skill_pack_mode == "skip":
             helper_skills_record = {
                 "skipped": True,
-                "reason": "Recommended skill pack skipped by --skip-skill-pack.",
+                "reason": "Recommended skill pack skipped. It is optional, but strongly suggested for AI IDE guidance.",
                 "install_later": "umsmfburasbofe skills install",
                 "recommended_skills": sorted(CORE_HELPER_SKILLS),
             }
@@ -1114,7 +1140,7 @@ def main() -> int:
     print("  # Or, for an existing Git repo:")
     print("  cd /path/to/project && umsmfburasbofe solo --agent codex")
     print("  # If readiness says no checks exist:")
-    print("  umsmfburasbofe checks add smoke -- npm test")
+    print("  umsmfburasbofe checks suggest")
     print("  # When readiness is green:")
     print("  umsmfburasbofe run --apply")
     print('  umsmfburasbofe release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')

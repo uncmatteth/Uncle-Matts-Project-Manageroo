@@ -17,7 +17,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
 - It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
 - It includes two token-reduction modes: clean `caveman` and profane `curse`.
-- The recommended skill pack is optional but strongly suggested. Normal install adds it; `--skip-skill-pack` skips it; `umsmfburasbofe skills install` adds it later.
+- The recommended skill pack is optional but strongly suggested. The installer offers it, defaults to yes, `--skill-pack skip` skips it, and `umsmfburasbofe skills install` adds it later.
 - The repo-local UMSMFBURASBOFE skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
 - `skills scan` and `skills import --apply` turn a copied skills folder into a curated local toolbox without blindly copying duplicate folders.
 - The normal path is simple: run `umsmfburasbofe solo`, answer normal product questions, then follow the one next command.
@@ -30,7 +30,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It was built around GBrain, GitNexus, Obsidian, AUTOREVIEW, Clawpatch, and any AI IDE or CLI agent that can run commands in the repo.
 - The installer can guide or install the recommended local stack: GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew Berman / Forward Future's Loop Library skill.
 - Solo Operator Mode reports every selected extra: configured, missing, skipped, or the exact command to fix next.
-- `checks add` lets a user add one real proof command without hand-editing TOML.
+- `checks suggest` looks at the repo and proposes copy/paste proof commands; `checks add` saves the selected command without hand-editing TOML.
 - `release-ready` is the final no-bullshit operator gate: checks green, Git clean, deployment target named, rollback notes written, human approval recorded.
 - Credit to Matthew Berman / Forward Future's Loop Library for making the agent-loop idea easy to point at: bounded action, fixed check, stop condition, evidence.
 - Credit to Peter Yang's public skill-writing advice for the skill-hygiene idea: clear triggers, examples/evals when useful, memory only when it is actually read, and an edit-skill pass to remove duplicate or stale instructions.

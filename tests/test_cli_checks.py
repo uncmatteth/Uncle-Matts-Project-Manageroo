@@ -41,6 +41,22 @@ class CliCheckTests(unittest.TestCase):
             self.assertEqual(payload["id"], "smoke")
             self.assertEqual(payload["argv"], ["python3", "-m", "unittest", "discover"])
 
+    def test_checks_suggest_reports_python_compile_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "app.py").write_text("print('ok')\n", encoding="utf-8")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main(["checks", "suggest", str(repo), "--json"])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["suggestions"][0]["id"], "python-compile")
+            self.assertIn("checks add python-compile", payload["suggestions"][0]["add_command"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,10 +60,11 @@ installed.
 
 ## Recommended skill pack
 
-Core install writes the recommended skill pack under `~/.agents/skills` unless
-`--skip-skill-pack` is passed. The pack is optional but strongly suggested
-because it lets compatible AI IDE agents choose the right helper without the
-user remembering skill names.
+Core install offers the recommended skill pack under `~/.agents/skills`. The
+pack is optional but strongly suggested because it lets compatible AI IDE agents
+choose the right helper without the user remembering skill names. The installer
+defaults to installing it. Use `--skill-pack skip` or `--skip-skill-pack` to
+leave it out and install it later with `umsmfburasbofe skills install`.
 
 - `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`
   for controller routing.

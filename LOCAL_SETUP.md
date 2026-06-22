@@ -49,10 +49,10 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Persist that line in the shell profile used on the machine, such as `~/.zshrc` or `~/.bashrc`.
 
-Core install also installs the recommended skill pack under `~/.agents/skills`.
-It is optional but strongly suggested because it lets AI IDE agents choose the
-right helper without you memorizing skill names. Skip it only with
-`./install.sh --skip-skill-pack`.
+The installer offers the recommended skill pack under `~/.agents/skills`. It is
+optional but strongly suggested because it lets AI IDE agents choose the right
+helper without you memorizing skill names. The default answer is yes. Skip it
+with `./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`.
 
 - `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`
   for routing agents through the controller.
@@ -161,10 +161,10 @@ umsmfburasbofe ready
 ```
 
 Do not continue until `umsmfburasbofe ready` reports `READY TO RUN`. If no
-verification command was detected, add one real check command:
+verification command was detected, ask for repo-aware suggestions:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest
 umsmfburasbofe checks list
 umsmfburasbofe ready
 ```

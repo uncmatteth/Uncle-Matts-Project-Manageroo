@@ -6,6 +6,7 @@ from typing import Any
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config import load_config
+from .detector import detect_gates
 from .errors import ConfigurationError
 from .gates import gates_from_config
 from .policy import CommandPolicy
@@ -35,11 +36,11 @@ def add_check_gate(
     if not gate_id:
         raise ValueError("Check id is required, for example: smoke")
     if not argv:
-        raise ValueError(f"Command is required, for example: `{PUBLIC_COMMAND} checks add smoke -- npm test`")
+        raise ValueError(f"Command is required. Run `{PUBLIC_COMMAND} checks suggest` for repo-aware options.")
     if argv and argv[0] == "--":
         argv = argv[1:]
     if not argv:
-        raise ValueError(f"Command is required, for example: `{PUBLIC_COMMAND} checks add smoke -- npm test`")
+        raise ValueError(f"Command is required. Run `{PUBLIC_COMMAND} checks suggest` for repo-aware options.")
 
     config_path = repo / PROJECT_DIR / "config.toml"
     if not config_path.exists():
@@ -85,6 +86,69 @@ def list_check_gates(repo: Path) -> dict[str, Any]:
     return {"ok": True, "config": str(config_path), "gates": gates}
 
 
+def _command_text(argv: list[str]) -> str:
+    return " ".join(argv)
+
+
+def _suggestion(repo: Path, gate: dict[str, Any], reason: str) -> dict[str, Any]:
+    argv = list(gate["argv"])
+    if argv and Path(argv[0]).name.startswith("python"):
+        argv[0] = "python3"
+    return {
+        "id": gate["id"],
+        "kind": gate.get("kind", "check"),
+        "argv": argv,
+        "reason": reason,
+        "add_command": f"{PUBLIC_COMMAND} checks add {gate['id']} -- {_command_text(argv)}",
+        "repo": str(repo),
+    }
+
+
+def _python_compile_fallback(repo: Path) -> dict[str, Any] | None:
+    has_python = any(
+        path.suffix == ".py"
+        and ".git" not in path.parts
+        and "__pycache__" not in path.parts
+        for path in repo.rglob("*.py")
+    )
+    if not has_python:
+        return None
+    return _suggestion(
+        repo,
+        {
+            "id": "python-compile",
+            "kind": "check",
+            "argv": ["python3", "-m", "compileall", "."],
+        },
+        "Safe starter check: catches Python syntax errors when no test command was found.",
+    )
+
+
+def suggest_check_gates(repo: Path) -> dict[str, Any]:
+    repo = repo.resolve()
+    detected = detect_gates(repo)
+    suggestions = [
+        _suggestion(repo, gate, "Detected from repository files and package scripts.")
+        for gate in detected
+    ]
+    if not suggestions:
+        fallback = _python_compile_fallback(repo)
+        if fallback:
+            suggestions.append(fallback)
+    return {
+        "ok": True,
+        "repo": str(repo),
+        "suggestions": suggestions,
+        "next_command": suggestions[0]["add_command"] if suggestions else (
+            f"{PUBLIC_COMMAND} checks add smoke -- COMMAND_THAT_PROVES_THE_PROJECT_WORKS"
+        ),
+        "note": (
+            "Pick one command the repo can really run. Add it, then run "
+            f"`{PUBLIC_COMMAND} ready` again."
+        ),
+    }
+
+
 def format_add_check_gate(report: dict[str, Any]) -> str:
     command = " ".join(report["argv"])
     return (
@@ -103,4 +167,19 @@ def format_check_gate_list(report: dict[str, Any]) -> str:
         lines.append("ACTION none configured")
     for gate in gates:
         lines.append(f"OK {gate['id']}: {' '.join(gate['argv'])}")
+    return "\n".join(lines) + "\n"
+
+
+def format_check_gate_suggestions(report: dict[str, Any]) -> str:
+    lines = ["CHECK SUGGESTIONS", f"Repo: {report['repo']}"]
+    suggestions = report.get("suggestions", [])
+    if not suggestions:
+        lines.append("ACTION no automatic suggestion found")
+        lines.append("Add a command your repo can really run, for example a test, build, or lint command.")
+    for item in suggestions:
+        lines.append(f"OK {item['id']}: {_command_text(item['argv'])}")
+        lines.append(f"  why: {item['reason']}")
+        lines.append(f"  add: {item['add_command']}")
+    if report.get("next_command"):
+        lines.append(f"Next: {report['next_command']}")
     return "\n".join(lines) + "\n"

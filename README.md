@@ -175,7 +175,7 @@ If the repo has no detected tests or build checks, add one real command without
 editing config by hand:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest
 umsmfburasbofe checks list
 umsmfburasbofe ready
 ```
@@ -208,14 +208,16 @@ terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
 products.
 
 The installer validates the source, runs the tests, installs the command for the
-current user, installs the recommended skill pack, runs `self-test`, and writes
+current user, offers the recommended skill pack, runs `self-test`, and writes
 `install-lock.json`. It does not require Codex. Use `./install.sh
 --install-codex` only when you specifically want this machine to install or
 update Codex too.
 
 The skill pack is optional but strongly suggested. It is what lets AI IDE agents
-choose the right helper without the user remembering magic skill names. Skip it
-only with `./install.sh --skip-skill-pack`; install it later with
+choose the right helper without the user remembering magic skill names. The
+installer asks in a normal terminal and defaults to yes. Non-interactive installs
+use the recommended yes path. Skip it with `./install.sh --skill-pack skip` or
+`./install.sh --skip-skill-pack`; install it later with
 `umsmfburasbofe skills install`.
 
 The recommended skill pack is installed under `~/.agents/skills`:
@@ -391,11 +393,11 @@ Then check the whole setup:
 umsmfburasbofe ready
 ```
 
-If readiness says no checks are configured, add the simplest real proof command
-for that repo:
+If readiness says no checks are configured, ask the tool to suggest the simplest
+real proof command for that repo:
 
 ```bash
-umsmfburasbofe checks add smoke -- npm test
+umsmfburasbofe checks suggest
 ```
 
 If you want GBrain memory mapped for this repo, inspect first and add only the

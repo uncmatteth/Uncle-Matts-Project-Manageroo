@@ -105,7 +105,7 @@ def release_ready(
             "verification gates",
             bool(gates),
             ", ".join(gate.id for gate in gates) if gates else "no verification gates configured",
-            f"{PUBLIC_COMMAND} checks add smoke -- npm test",
+            f"{PUBLIC_COMMAND} checks suggest",
         )
     )
 
@@ -149,7 +149,7 @@ def release_ready(
                 "verification gates pass",
                 False,
                 "nothing to run",
-                f"{PUBLIC_COMMAND} checks add smoke -- npm test",
+                f"{PUBLIC_COMMAND} checks suggest",
             )
         )
 
