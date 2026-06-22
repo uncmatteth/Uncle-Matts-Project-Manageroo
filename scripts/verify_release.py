@@ -5,6 +5,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
+
+
+def stable_command_output(output: str) -> str:
+    return re.sub(r"Ran ([0-9]+) tests? in [0-9.]+s", r"Ran \1 tests in <elapsed>s", output)
 
 
 def run(argv: list[str], timeout: int = 300) -> dict:
@@ -28,7 +33,11 @@ def run(argv: list[str], timeout: int = 300) -> dict:
             shell=False,
             timeout=timeout,
         )
-        return {"argv": argv, "exit_code": completed.returncode, "output": completed.stdout}
+        return {
+            "argv": argv,
+            "exit_code": completed.returncode,
+            "output": stable_command_output(completed.stdout),
+        }
     except subprocess.TimeoutExpired as exc:
         output = exc.stdout if isinstance(exc.stdout, str) else ""
         return {"argv": argv, "exit_code": 124, "output": output + "\nTIMEOUT"}
