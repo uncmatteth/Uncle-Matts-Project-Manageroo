@@ -1,6 +1,6 @@
 import unittest
 
-from umsmfburasbofe.report import build_report
+from manageroo.report import build_report
 
 
 class ReportTests(unittest.TestCase):

@@ -23,6 +23,6 @@ Not every control is equally strong. This document distinguishes prevention from
 
 ## Critical limitation
 
-A local process running with the operator's full operating-system permissions can attempt hostile behavior. UMSMFBURASBOFE reduces blast radius through an isolated repository, provider sandbox settings, argv-only controller commands, and validation. It is not a hostile multi-tenant security boundary or virtual machine.
+A local process running with the operator's full operating-system permissions can attempt hostile behavior. MANAGEROO reduces blast radius through an isolated repository, provider sandbox settings, argv-only controller commands, and validation. It is not a hostile multi-tenant security boundary or virtual machine.
 
 For untrusted models or plugins, run the entire harness inside an OS container or disposable machine.

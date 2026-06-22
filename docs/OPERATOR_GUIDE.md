@@ -35,7 +35,7 @@ Better:
 Capture an idea without silently changing active scope:
 
 ```bash
-umsmfburasbofe idea add "Clients should eventually be able to approve estimates"
+manageroo idea add "Clients should eventually be able to approve estimates"
 ```
 
 Pending ideas are attached to the next run and classified during product analysis. They may become:
@@ -59,7 +59,7 @@ from real failures.
 
 ## Reading the result
 
-UMSMFBURASBOFE's final report emphasizes:
+MANAGEROO's final report emphasizes:
 
 - product behavior delivered;
 - observable acceptance outcomes;

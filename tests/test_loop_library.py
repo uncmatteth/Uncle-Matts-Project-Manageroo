@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.loop_library import (
+from manageroo.loop_library import (
     find_loop,
     load_catalog,
     loop_brief,

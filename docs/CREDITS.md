@@ -1,9 +1,9 @@
 # Credits
 
-UMSMFBURASBOFE is a local remix of several useful agent-work ideas. It does not
+MANAGEROO is a local remix of several useful agent-work ideas. It does not
 pretend those ideas appeared from nowhere.
 
-## Special Thanks: The UMSMFBURASBOFE Super Team
+## Special Thanks: The MANAGEROO Super Team
 
 - **Peter Yang / @petergyang as The Skill Smith**
   - Stats: STR 8 | DEX 12 | CON 14 | INT 18 | WIS 17 | CHA 16

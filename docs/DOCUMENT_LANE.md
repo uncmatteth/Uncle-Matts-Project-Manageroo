@@ -8,18 +8,18 @@ and exact wording. Normal code context rules are not enough for that stuff.
 Every run builds a document manifest:
 
 ```text
-.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-manifest.json
+.manageroo/runs/<run-id>/artifacts/discovery/document-manifest.json
 ```
 
 That manifest lists document-like files with paths, hashes, byte counts, line
 counts, token estimates, content kind, language, and whether each file is a long
 document.
 
-If `.umsmfburasbofe/config.toml` has `document_analysis_command`, the controller
+If `.manageroo/config.toml` has `document_analysis_command`, the controller
 runs that argv and records the output here:
 
 ```text
-.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-intelligence.json
+.manageroo/runs/<run-id>/artifacts/discovery/document-intelligence.json
 ```
 
 Passing output can inform planning. Failure is optional context. It is not a
@@ -58,7 +58,7 @@ source repository path.
 
 ## Readiness
 
-`umsmfburasbofe ready` checks whether the brief actually needs this lane.
+`manageroo ready` checks whether the brief actually needs this lane.
 
 - If the brief asks for PDFs, transcripts, screenshots, images, long prose,
   books, chapters, exact wording, or byte-for-byte replacement, readiness blocks
@@ -95,6 +95,6 @@ The recommended skill pack includes helper lanes for this:
 
 Project initialization writes managed guidance blocks to `AGENTS.md` and
 `CONTEXT.md` when needed. Existing human content is preserved. The context
-compiler prioritizes those files, `.umsmfburasbofe/PROJECT-MEMORY.md`, and the
+compiler prioritizes those files, `.manageroo/PROJECT-MEMORY.md`, and the
 current product brief so the user does not have to figure out agent-context file
 rituals by hand.

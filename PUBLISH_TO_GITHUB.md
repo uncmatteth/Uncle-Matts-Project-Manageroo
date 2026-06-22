@@ -1,4 +1,4 @@
-# Publish UMSMFBURASBOFE to GitHub
+# Publish MANAGEROO to GitHub
 
 Use the source tree for the GitHub repository. If you start from a ZIP, extract it
 first and commit the files; do not commit the ZIP as the repository contents.
@@ -6,7 +6,7 @@ first and commit the files; do not commit the ZIP as the repository contents.
 Recommended repository name:
 
 ```text
-Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition
+Uncle-Matts-Project-Manageroo
 ```
 
 ## 1. Create an empty GitHub repository
@@ -21,8 +21,8 @@ If you are using the prepared `GitHub-Upload` folder, start inside that folder.
 If you are starting from a source ZIP, extract it first:
 
 ```bash
-unzip UMSMFBURASBOFE-GitHub-Source-v2026.6.20.1.zip
-cd Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition
+unzip Manageroo-GitHub-Source-v2026.6.20.1.zip
+cd Uncle-Matts-Project-Manageroo
 ```
 
 Then push the source tree:
@@ -30,15 +30,15 @@ Then push the source tree:
 ```bash
 git init -b main
 git add .
-git commit -m "Initial UMSMFBURASBOFE source release"
-git remote add origin https://github.com/uncmatteth/Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition.git
+git commit -m "Initial MANAGEROO source release"
+git remote add origin https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git
 git push -u origin main
 ```
 
 Use an SSH remote instead when that is how GitHub authentication is configured:
 
 ```bash
-git remote set-url origin git@github.com:uncmatteth/Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition.git
+git remote set-url origin git@github.com:uncmatteth/Uncle-Matts-Project-Manageroo.git
 ```
 
 ## 3. Confirm the local release checks
@@ -64,8 +64,8 @@ v2026.6.20.1
 Attach these files to the GitHub Release:
 
 ```text
-UMSMFBURASBOFE-End-User-Release-v2026.6.20.1.zip
-UMSMFBURASBOFE-Release-SHA256SUMS.txt
+Manageroo-End-User-Release-v2026.6.20.1.zip
+Manageroo-Release-SHA256SUMS.txt
 ```
 
 The source repository itself remains browsable through GitHub. The release ZIP is the convenient installer package for end users.
@@ -75,9 +75,9 @@ The source repository itself remains browsable through GitHub. The release ZIP i
 After the repository is public:
 
 ```bash
-git clone --depth 1 https://github.com/uncmatteth/Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition.git && cd Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition && ./install.sh
+git clone --depth 1 https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 ```
 
 ## 6. Do not publish credentials
 
-Before changing repository visibility, verify that no `.umsmfburasbofe/runs/`, local environment files, credentials, private product briefs, or target-project data have been copied into this source repository.
+Before changing repository visibility, verify that no `.manageroo/runs/`, local environment files, credentials, private product briefs, or target-project data have been copied into this source repository.

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.token_modes import (
+from manageroo.token_modes import (
     install_core_helper_skills,
     install_token_skills,
     read_token_mode,
@@ -42,7 +42,7 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("caveman", installed)
             self.assertIn("uncle-matts-caveman-curse", installed)
             self.assertIn(
-                "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition",
+                "uncle-matts-project-manageroo",
                 installed,
             )
             prompt = Path(temp) / "pimp-my-prompt" / "SKILL.md"
@@ -62,7 +62,7 @@ class TokenModeTests(unittest.TestCase):
             fix_website = Path(temp) / "fix-my-bad-website" / "SKILL.md"
             controller = (
                 Path(temp)
-                / "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
+                / "uncle-matts-project-manageroo"
                 / "SKILL.md"
             )
             self.assertTrue(prompt.exists())
@@ -129,7 +129,7 @@ class TokenModeTests(unittest.TestCase):
             target.parent.mkdir(parents=True)
             target.write_text("custom local caveman skill\n", encoding="utf-8")
             install_token_skills(skills)
-            backups = list(target.parent.glob("SKILL.md.umsmfburasbofe-backup-*"))
+            backups = list(target.parent.glob("SKILL.md.manageroo-backup-*"))
             self.assertEqual(len(backups), 1)
             self.assertEqual(backups[0].read_text(encoding="utf-8"), "custom local caveman skill\n")
             self.assertIn("Ultra-compressed communication mode", target.read_text(encoding="utf-8"))
@@ -141,7 +141,7 @@ class TokenModeTests(unittest.TestCase):
             target.parent.mkdir(parents=True)
             target.write_text("custom prompt skill\n", encoding="utf-8")
             install_core_helper_skills(skills)
-            backups = list(target.parent.glob("SKILL.md.umsmfburasbofe-backup-*"))
+            backups = list(target.parent.glob("SKILL.md.manageroo-backup-*"))
             self.assertEqual(len(backups), 1)
             self.assertEqual(backups[0].read_text(encoding="utf-8"), "custom prompt skill\n")
             self.assertIn("Pimp My Prompt", target.read_text(encoding="utf-8"))

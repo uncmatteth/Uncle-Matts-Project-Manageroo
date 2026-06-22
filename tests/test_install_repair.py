@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.install_repair import repair_install
+from manageroo.install_repair import repair_install
 
 
 class InstallRepairTests(unittest.TestCase):
@@ -19,13 +19,13 @@ class InstallRepairTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
             bin_dir = Path(temp) / "bin"
-            launcher = bin_dir / "umsmfburasbofe"
+            launcher = bin_dir / "manageroo"
             prefix.mkdir()
             (prefix / "install-lock.json").write_text(
                 json.dumps({"launcher": str(launcher)}) + "\n",
                 encoding="utf-8",
             )
-            with patch.dict(os.environ, {"UMSMFBURASBOFE_SKILLS_DIR": str(Path(temp) / "skills")}):
+            with patch.dict(os.environ, {"MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills")}):
                 result = repair_install(prefix=prefix, bin_dir=bin_dir, apply=True)
             self.assertTrue(result["ok"])
             self.assertTrue(launcher.exists())
@@ -36,7 +36,7 @@ class InstallRepairTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
             bin_dir = Path(temp) / "bin"
-            launcher = bin_dir / "umsmfburasbofe"
+            launcher = bin_dir / "manageroo"
             prefix.mkdir()
             bin_dir.mkdir()
             launcher.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -45,7 +45,7 @@ class InstallRepairTests(unittest.TestCase):
                 encoding="utf-8",
             )
             skills = Path(temp) / "skills"
-            with patch.dict(os.environ, {"UMSMFBURASBOFE_SKILLS_DIR": str(skills)}):
+            with patch.dict(os.environ, {"MANAGEROO_SKILLS_DIR": str(skills)}):
                 result = repair_install(prefix=prefix, bin_dir=bin_dir, apply=False)
             self.assertFalse((skills / "pimp-my-prompt").exists())
             self.assertTrue(result["ok"])
@@ -54,7 +54,7 @@ class InstallRepairTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
             custom_bin = Path(temp) / "custom-bin"
-            launcher = custom_bin / "umsmfburasbofe"
+            launcher = custom_bin / "manageroo"
             prefix.mkdir()
             custom_bin.mkdir()
             launcher.write_text("#!/bin/sh\n", encoding="utf-8")

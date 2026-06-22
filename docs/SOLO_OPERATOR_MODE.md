@@ -10,7 +10,7 @@ codebase internals, agent wiring, skill hygiene, or release checklist up front.
 If you do not want to remember paths, start with guided project setup:
 
 ```bash
-umsmfburasbofe projects --add
+manageroo projects --add
 ```
 
 It scans common folders, shows a checkbox-style list of existing Git repos,
@@ -20,7 +20,7 @@ paste extra paths it missed. It initializes only the projects you select.
 If you only want a read-only list and one next command, use the picker:
 
 ```bash
-umsmfburasbofe projects --pick
+manageroo projects --pick
 ```
 
 It scans common folders, shows existing Git repos, and prints the one next
@@ -29,19 +29,19 @@ command for the project you choose.
 If you already know the project path, run:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/product
+manageroo solo /absolute/path/to/product
 ```
 
 Starting from an empty or missing folder:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/new-product --create --want "Build the first useful version"
+manageroo solo /absolute/path/to/new-product --create --want "Build the first useful version"
 ```
 
 Starting with a small useful shape:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/new-site \
+manageroo solo /absolute/path/to/new-site \
   --create \
   --starter static-site \
   --want "Build a simple product homepage"
@@ -63,7 +63,7 @@ Starter choices:
 3. Ask what should be built or fixed in normal language.
 4. If `--create` is passed, create a missing or empty Git repo first.
 5. If `--starter` is selected, add a small starter scaffold and smoke check.
-6. Turn the ask into `.umsmfburasbofe/PRODUCT-BRIEF.md`.
+6. Turn the ask into `.manageroo/PRODUCT-BRIEF.md`.
 7. `solo` captures an intent lock for drift and compaction audits.
 8. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
 9. Install or refresh the recommended skill pack.
@@ -74,7 +74,7 @@ Starter choices:
 14. If `--run` is passed and readiness is green, start the build or repair run.
 15. At release time, `release-ready` writes a plain-English production handoff.
 16. When the release gate is ready, `release-ready` also updates
-    `.umsmfburasbofe/PROJECT-MEMORY.md` with what shipped and what proof passed.
+    `.manageroo/PROJECT-MEMORY.md` with what shipped and what proof passed.
 17. After runs, learning cards capture useful lessons and wait for explicit
     approval before any supported apply.
 
@@ -84,19 +84,19 @@ config, and run engine as the lower-level commands. It is not a second product.
 If the only blocker is missing checks, the next action is a command like:
 
 ```bash
-umsmfburasbofe checks suggest --apply-first
+manageroo checks suggest --apply-first
 ```
 
 That suggests one or more real verification commands without making the user
-hand-edit `.umsmfburasbofe/config.toml`. With `--apply-first`, it writes the
-first detected check into config, then tells the user to run `umsmfburasbofe
-ready` again. Use plain `umsmfburasbofe checks suggest` when you only want to
+hand-edit `.manageroo/config.toml`. With `--apply-first`, it writes the
+first detected check into config, then tells the user to run `manageroo
+ready` again. Use plain `manageroo checks suggest` when you only want to
 inspect the options.
 
 If the operator gets lost between steps, use:
 
 ```bash
-umsmfburasbofe next
+manageroo next
 ```
 
 That command prints the current stage, why that stage was chosen, and exactly
@@ -130,7 +130,7 @@ and proof explicit from the start.
 Every initialized project gets:
 
 ```text
-.umsmfburasbofe/PROJECT-MEMORY.md
+.manageroo/PROJECT-MEMORY.md
 ```
 
 That file is meant to stay short. It says what the project is, what has shipped,
@@ -140,8 +140,8 @@ should read it before broad product work.
 Useful commands:
 
 ```bash
-umsmfburasbofe memory show
-umsmfburasbofe memory add --shipped "First release shipped" --must-not "Do not break checkout"
+manageroo memory show
+manageroo memory add --shipped "First release shipped" --must-not "Do not break checkout"
 ```
 
 ## Intent Lock And Compaction Audit
@@ -152,8 +152,8 @@ check against.
 `solo` captures an intent lock during intake:
 
 ```text
-.umsmfburasbofe/intent/INTENT-LOCK.json
-.umsmfburasbofe/intent/INTENT-LOCK.md
+.manageroo/intent/INTENT-LOCK.json
+.manageroo/intent/INTENT-LOCK.md
 ```
 
 This is the short truth file for long-running work. It records what the user
@@ -164,7 +164,7 @@ When a chat, handoff, or agent summary gets compacted, audit it before trusting
 the summary:
 
 ```bash
-umsmfburasbofe compact audit --summary SUMMARY.md
+manageroo compact audit --summary SUMMARY.md
 ```
 
 If the summary drops a must-not rule or rejected idea, the command blocks. That
@@ -177,13 +177,13 @@ Runs can create small improvement cards for things worth remembering or fixing
 next. They are not hidden behavior changes. They are a review queue:
 
 ```bash
-umsmfburasbofe learning list
-umsmfburasbofe learning show CARD_ID
-umsmfburasbofe learning apply CARD_ID --approve
+manageroo learning list
+manageroo learning show CARD_ID
+manageroo learning apply CARD_ID --approve
 ```
 
 The first supported apply target is a low-risk note into
-`.umsmfburasbofe/PROJECT-MEMORY.md`. Skill edits, config changes, installer
+`.manageroo/PROJECT-MEMORY.md`. Skill edits, config changes, installer
 changes, docs edits, failed tool lanes, media lanes, and long-document lanes are
 manual-only cards until the operator approves a separate task.
 
@@ -192,7 +192,7 @@ manual-only cards until the operator approves a separate task.
 Prepare a project from a single command:
 
 ```bash
-umsmfburasbofe solo \
+manageroo solo \
   --want "Make checkout less confusing" \
   --outcome "One clear payment path" \
   --must-not "Do not change admin exports" \
@@ -204,7 +204,7 @@ umsmfburasbofe solo \
 Create a new empty Git project and prepare the first brief:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/new-product \
+manageroo solo /absolute/path/to/new-product \
   --create \
   --want "Build the first useful version"
 ```
@@ -212,7 +212,7 @@ umsmfburasbofe solo /absolute/path/to/new-product \
 Create a static homepage starter with a smoke test:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/new-site \
+manageroo solo /absolute/path/to/new-site \
   --create \
   --starter static-site \
   --want "Build the first useful product homepage"
@@ -221,19 +221,19 @@ umsmfburasbofe solo /absolute/path/to/new-site \
 Combine intake and execution only when readiness is already green:
 
 ```bash
-umsmfburasbofe solo --want "Make checkout less confusing" --run --apply --force
+manageroo solo --want "Make checkout less confusing" --run --apply --force
 ```
 
 Use repair mode for already-broken code:
 
 ```bash
-umsmfburasbofe solo --mode repair
+manageroo solo --mode repair
 ```
 
 Before a real release, run the final operator gate:
 
 ```bash
-umsmfburasbofe release-ready \
+manageroo release-ready \
   --target "Production deploy path" \
   --rollback "Rollback steps" \
   --approved-by "Your name"
@@ -242,18 +242,18 @@ umsmfburasbofe release-ready \
 When it runs, it writes:
 
 ```text
-.umsmfburasbofe/cache/production-handoff.md
+.manageroo/cache/production-handoff.md
 ```
 
 That file says whether to ship or not, what commit is being released, which
 proof commands passed, which blockers remain, the release target, the rollback
 plan, and the next operator action. On a ready release, `release-ready` also
-updates `.umsmfburasbofe/PROJECT-MEMORY.md` with the shipped target, passing
+updates `.manageroo/PROJECT-MEMORY.md` with the shipped target, passing
 proof, handoff path, rollback plan, and approver. Commit that memory update if
 you want future agents to see it from Git.
 
 Wire optional local context tools if they are installed:
 
 ```bash
-umsmfburasbofe solo --use-gbrain --use-gitnexus
+manageroo solo --use-gbrain --use-gitnexus
 ```

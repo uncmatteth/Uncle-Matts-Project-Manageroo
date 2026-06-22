@@ -17,16 +17,16 @@ Windows PowerShell:
 ## Verify
 
 ```bash
-umsmfburasbofe --version
-umsmfburasbofe self-test
+manageroo --version
+manageroo self-test
 ```
 
 ## Initialize a product repository
 
 ```bash
 cd /absolute/path/to/product
-umsmfburasbofe init --agent codex
-umsmfburasbofe doctor
+manageroo init --agent codex
+manageroo doctor
 ```
 
 Do not continue until `doctor` reports `READY`.
@@ -34,13 +34,13 @@ Do not continue until `doctor` reports `READY`.
 ## Build
 
 ```bash
-umsmfburasbofe run --repo . --mode build --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+manageroo run --repo . --mode build --brief .manageroo/PRODUCT-BRIEF.md --apply
 ```
 
 ## Repair
 
 ```bash
-umsmfburasbofe run --repo . --mode repair --brief .umsmfburasbofe/PRODUCT-BRIEF.md --apply
+manageroo run --repo . --mode repair --brief .manageroo/PRODUCT-BRIEF.md --apply
 ```
 
 Only a durable controller state of `COMPLETE` authorizes final patch application.

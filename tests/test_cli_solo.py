@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.cli import main
+from manageroo.cli import main
 
 
 class CliSoloTests(unittest.TestCase):
@@ -23,12 +23,12 @@ class CliSoloTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             env = {
-                "UMSMFBURASBOFE_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
-                "UMSMFBURASBOFE_SKILLS_DIR": str(Path(temp) / "skills"),
+                "MANAGEROO_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills"),
             }
             stdout = io.StringIO()
             with patch.dict(os.environ, env), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ), redirect_stdout(stdout):
                 code = main(
@@ -50,18 +50,18 @@ class CliSoloTests(unittest.TestCase):
                     ]
                 )
             output = stdout.getvalue()
-            brief = repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md"
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
             self.assertEqual(code, 0)
             self.assertIn("SOLO OPERATOR MODE", output)
             self.assertEqual(output.count("\nNext:"), 1, output)
             self.assertIn("Make checkout sane", brief.read_text(encoding="utf-8"))
             self.assertIn("One clear payment path", brief.read_text(encoding="utf-8"))
-            memory = repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md"
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
             memory_text = memory.read_text(encoding="utf-8")
             self.assertIn("Make checkout sane", memory_text)
             self.assertIn("Do not change exports", memory_text)
             self.assertIn("Run checkout tests", memory_text)
-            intent = repo / ".umsmfburasbofe" / "intent" / "INTENT-LOCK.json"
+            intent = repo / ".manageroo" / "intent" / "INTENT-LOCK.json"
             intent_payload = json.loads(intent.read_text(encoding="utf-8"))
             self.assertEqual(intent_payload["want"], "Make checkout sane")
             self.assertIn("One clear payment path", intent_payload["outcomes"])
@@ -80,7 +80,7 @@ class CliSoloTests(unittest.TestCase):
             }
             stdout = io.StringIO()
             with patch(
-                "umsmfburasbofe.cli.readiness",
+                "manageroo.cli.readiness",
                 return_value=ready,
             ), redirect_stdout(stdout):
                 code = main(
@@ -101,7 +101,7 @@ class CliSoloTests(unittest.TestCase):
                 )
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
-            self.assertEqual(payload["next_command"], "umsmfburasbofe run --mode repair --no-apply")
+            self.assertEqual(payload["next_command"], "manageroo run --mode repair --no-apply")
 
     def test_solo_selected_extra_gets_visible_next_command(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -118,8 +118,8 @@ class CliSoloTests(unittest.TestCase):
             def which(name):
                 return "/usr/bin/npx" if name == "npx" else None
 
-            with patch("umsmfburasbofe.cli.readiness", return_value=ready), patch(
-                "umsmfburasbofe.cli.shutil.which",
+            with patch("manageroo.cli.readiness", return_value=ready), patch(
+                "manageroo.cli.shutil.which",
                 side_effect=which,
             ), redirect_stdout(stdout):
                 code = main(
@@ -146,8 +146,8 @@ class CliSoloTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "fresh-product"
             env = {
-                "UMSMFBURASBOFE_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
-                "UMSMFBURASBOFE_SKILLS_DIR": str(Path(temp) / "skills"),
+                "MANAGEROO_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills"),
             }
             stdout = io.StringIO()
             with patch.dict(os.environ, env), redirect_stdout(stdout):
@@ -173,19 +173,19 @@ class CliSoloTests(unittest.TestCase):
             self.assertIn("Build a useful first release checklist", (repo / "README.md").read_text(encoding="utf-8"))
             self.assertIn(
                 "Build a useful first release checklist",
-                (repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md").read_text(encoding="utf-8"),
+                (repo / ".manageroo" / "PRODUCT-BRIEF.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
                 "Build a useful first release checklist",
-                (repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md").read_text(encoding="utf-8"),
+                (repo / ".manageroo" / "PROJECT-MEMORY.md").read_text(encoding="utf-8"),
             )
 
     def test_solo_create_accepts_static_site_starter(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "fresh-site"
             env = {
-                "UMSMFBURASBOFE_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
-                "UMSMFBURASBOFE_SKILLS_DIR": str(Path(temp) / "skills"),
+                "MANAGEROO_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills"),
             }
             stdout = io.StringIO()
             with patch.dict(os.environ, env), redirect_stdout(stdout):
@@ -209,7 +209,7 @@ class CliSoloTests(unittest.TestCase):
             self.assertEqual(payload["created_project"]["starter"], "static-site")
             self.assertTrue((repo / "index.html").exists())
             self.assertTrue((repo / "tests" / "test_static_site.py").exists())
-            self.assertIn("unittest", (repo / ".umsmfburasbofe" / "config.toml").read_text(encoding="utf-8"))
+            self.assertIn("unittest", (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

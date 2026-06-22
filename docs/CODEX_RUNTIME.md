@@ -1,11 +1,11 @@
 # Codex adapter
 
-Codex is one supported UMSMFBURASBOFE execution adapter. UMSMFBURASBOFE launches it through the non-interactive CLI interface when the project selects the Codex adapter.
+Codex is one supported MANAGEROO execution adapter. MANAGEROO launches it through the non-interactive CLI interface when the project selects the Codex adapter.
 
 ```text
 Any terminal or command runner
         ↓
-UMSMFBURASBOFE controller
+MANAGEROO controller
   ↓
 fresh codex exec process per selected Codex role
         ↓

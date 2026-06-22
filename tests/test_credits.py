@@ -1,6 +1,6 @@
 import unittest
 
-from umsmfburasbofe.credits import SUPER_TEAM, format_special_thanks
+from manageroo.credits import SUPER_TEAM, format_special_thanks
 
 
 class CreditsTests(unittest.TestCase):

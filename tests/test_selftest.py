@@ -1,6 +1,6 @@
 import unittest
 
-from umsmfburasbofe.selftest import run_self_test
+from manageroo.selftest import run_self_test
 
 
 class EndToEndTests(unittest.TestCase):
@@ -8,7 +8,7 @@ class EndToEndTests(unittest.TestCase):
         result = run_self_test()
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["status"], "COMPLETE")
-        self.assertEqual(result["target_contents"], "UMSMFBURASBOFE deterministic fixture completed\n")
+        self.assertEqual(result["target_contents"], "MANAGEROO deterministic fixture completed\n")
 
 
 if __name__ == "__main__":

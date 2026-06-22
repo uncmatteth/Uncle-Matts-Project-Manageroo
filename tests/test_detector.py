@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.detector import detect_gates
-from umsmfburasbofe.errors import ConfigurationError
+from manageroo.detector import detect_gates
+from manageroo.errors import ConfigurationError
 
 
 class DetectorTests(unittest.TestCase):

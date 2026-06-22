@@ -6,8 +6,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.project import initialize_project
+from manageroo.cli import main
+from manageroo.project import initialize_project
 
 
 class CliMemoryTests(unittest.TestCase):

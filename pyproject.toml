@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
+name = "uncle-matts-project-manageroo"
 version = "2026.6.20.1"
 description = "A local CLI that keeps AI coding agents on task while they build or repair Git repos."
 readme = "README.md"
@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [project.scripts]
-umsmfburasbofe = "umsmfburasbofe.cli:main"
+manageroo = "manageroo.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -29,7 +29,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-umsmfburasbofe = [
+manageroo = [
   "assets/schemas/*.json",
   "assets/prompts/*.md",
   "assets/skills/*/SKILL.md",

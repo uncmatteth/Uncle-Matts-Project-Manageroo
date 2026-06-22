@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.ideas import IdeaInbox
+from manageroo.ideas import IdeaInbox
 
 
 class IdeaTests(unittest.TestCase):

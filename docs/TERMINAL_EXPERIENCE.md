@@ -2,21 +2,21 @@
 
 ## Name
 
-> **Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition**
+> **Uncle Matt's Project Manageroo**
 
 Run it:
 
-> **umsmfburasbofe**
+> **manageroo**
 
 Full incredibly super serious acronym:
 
-> **UMSMFBURASBOFE**
+> **MANAGEROO**
 
 ## Animation
 
-The installer and `umsmfburasbofe banner` use hand-authored UMSMFBURASBOFE ANSI artwork. No font package or terminal graphics dependency is installed.
+The installer and `manageroo banner` use hand-authored MANAGEROO ANSI artwork. No font package or terminal graphics dependency is installed.
 
-Animation disables automatically when output is not a TTY, `CI` is set, `TERM=dumb`, `NO_COLOR` is set, or `UMSMFBURASBOFE_ANIMATION=0` is set.
+Animation disables automatically when output is not a TTY, `CI` is set, `TERM=dumb`, `NO_COLOR` is set, or `MANAGEROO_ANIMATION=0` is set.
 
 ## Music
 
@@ -29,13 +29,13 @@ Music playback is best-effort and never required for success. The installer uses
 Commands:
 
 ```bash
-umsmfburasbofe music --cue install --variant 69
-umsmfburasbofe music --cue build --variant 69
-umsmfburasbofe music --cue success --variant 69
+manageroo music --cue install --variant 69
+manageroo music --cue build --variant 69
+manageroo music --cue success --variant 69
 ```
 
 Disable globally:
 
 ```bash
-export UMSMFBURASBOFE_MUSIC=0
+export MANAGEROO_MUSIC=0
 ```

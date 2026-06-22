@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.errors import StateTransitionError
-from umsmfburasbofe.state import Phase, RunState
+from manageroo.errors import StateTransitionError
+from manageroo.state import Phase, RunState
 
 
 class StateTests(unittest.TestCase):

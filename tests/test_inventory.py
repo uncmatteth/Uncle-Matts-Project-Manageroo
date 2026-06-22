@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.file_inspection import image_dimensions, media_summary, pdf_page_count, prose_chunks
-from umsmfburasbofe.inventory import build_inventory, inventory_summary
-from umsmfburasbofe.runner import CommandResult, CommandRunner
+from manageroo.file_inspection import image_dimensions, media_summary, pdf_page_count, prose_chunks
+from manageroo.inventory import build_inventory, inventory_summary
+from manageroo.runner import CommandResult, CommandRunner
 
 
 PNG_1X1 = base64.b64decode(
@@ -78,7 +78,7 @@ class InventoryTests(unittest.TestCase):
             pdf.write_bytes(b"%PDF-1.7\n/Type /Page\n")
             image = root / "hero.png"
             image.write_bytes(PNG_1X1)
-            with patch("umsmfburasbofe.file_inspection.shutil.which", return_value="/usr/bin/tool"):
+            with patch("manageroo.file_inspection.shutil.which", return_value="/usr/bin/tool"):
                 pdf_text, _ = media_summary(pdf, "book.pdf", runner=FakeRunner())
                 image_text, _ = media_summary(image, "hero.png", runner=FakeRunner())
             self.assertIn("Extracted text:", pdf_text)

@@ -12,6 +12,11 @@ SPEC.loader.exec_module(package_release)
 
 
 class PackageReleaseTests(unittest.TestCase):
+    def test_release_names_use_project_manageroo_brand(self):
+        self.assertEqual(package_release.ARCHIVE_ROOT, "Uncle-Matts-Project-Manageroo")
+        self.assertEqual(package_release.END_USER_ZIP, "Manageroo-End-User-Release-v2026.6.20.1.zip")
+        self.assertEqual(package_release.SOURCE_ZIP, "Manageroo-GitHub-Source-v2026.6.20.1.zip")
+
     def test_end_user_and_source_archives_use_different_file_sets(self):
         source = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}

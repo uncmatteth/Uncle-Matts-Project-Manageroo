@@ -7,7 +7,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.cli import main
+from manageroo.cli import main
 
 
 class CliSetupTests(unittest.TestCase):
@@ -18,15 +18,15 @@ class CliSetupTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             env = {
-                "UMSMFBURASBOFE_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
-                "UMSMFBURASBOFE_SKILLS_DIR": str(Path(temp) / "skills"),
+                "MANAGEROO_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills"),
             }
             stdout = io.StringIO()
             with patch.dict(os.environ, env), patch(
                 "sys.stdin.isatty",
                 return_value=False,
             ), patch(
-                "umsmfburasbofe.readiness.helper_skill_items",
+                "manageroo.readiness.helper_skill_items",
                 return_value=[
                     {
                         "name": "helper:test",
@@ -37,7 +37,7 @@ class CliSetupTests(unittest.TestCase):
                     }
                 ],
             ), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ), redirect_stdout(stdout):
                 code = main(["setup", str(repo), "--agent", "mock", "--skip-skills"])

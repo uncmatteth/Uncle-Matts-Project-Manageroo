@@ -7,9 +7,9 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.checks import add_check_gate
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.project import initialize_project
+from manageroo.checks import add_check_gate
+from manageroo.cli import main
+from manageroo.project import initialize_project
 
 
 class CliReleaseReadyTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class CliReleaseReadyTests(unittest.TestCase):
             subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             initialize_project(repo, agent="mock")
-            (repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md").write_text(
+            (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(
                 "# Product brief\n\nShip the thing.\n",
                 encoding="utf-8",
             )
@@ -32,7 +32,7 @@ class CliReleaseReadyTests(unittest.TestCase):
 
             stdout = io.StringIO()
             with patch(
-                "umsmfburasbofe.readiness.helper_skill_items",
+                "manageroo.readiness.helper_skill_items",
                 return_value=[
                     {
                         "name": "helper:test",
@@ -43,7 +43,7 @@ class CliReleaseReadyTests(unittest.TestCase):
                     }
                 ],
             ), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ), redirect_stdout(stdout):
                 code = main(
@@ -67,7 +67,7 @@ class CliReleaseReadyTests(unittest.TestCase):
             self.assertTrue(Path(payload["handoff_path"]).exists())
             self.assertIn("Production Handoff", payload["handoff_markdown"])
             self.assertTrue(payload["project_memory_update"]["ok"])
-            memory_text = (repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
+            memory_text = (repo / ".manageroo" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
             self.assertIn("Release-ready approved for manual production deploy", memory_text)
 
 

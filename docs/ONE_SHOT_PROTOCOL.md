@@ -48,14 +48,14 @@ Both loops have fixed limits. A model cannot skip a state or declare completion.
 
 ## Decisions
 
-UMSMFBURASBOFE automatically accepts a recommended choice when it is:
+MANAGEROO automatically accepts a recommended choice when it is:
 
 - reversible;
 - conventional;
 - cosmetic; or
 - purely internal implementation detail.
 
-UMSMFBURASBOFE stops for the operator when a decision can materially change:
+MANAGEROO stops for the operator when a decision can materially change:
 
 - destructive data behavior;
 - legal or regulatory exposure;

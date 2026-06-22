@@ -12,7 +12,7 @@ INSTALL_SCRIPT = ROOT / "scripts" / "install.py"
 
 
 def load_install_script():
-    spec = importlib.util.spec_from_file_location("umsmfburasbofe_install_script", INSTALL_SCRIPT)
+    spec = importlib.util.spec_from_file_location("manageroo_install_script", INSTALL_SCRIPT)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load installer script: {INSTALL_SCRIPT}")
     module = importlib.util.module_from_spec(spec)
@@ -46,7 +46,7 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("optional, but strongly suggested", prompt)
         self.assertIn("Default is yes", prompt)
         self.assertIn("You can skip it", prompt)
-        self.assertIn("umsmfburasbofe skills install", prompt)
+        self.assertIn("manageroo skills install", prompt)
 
     def test_skill_pack_non_interactive_uses_recommended_install(self):
         install = load_install_script()
@@ -73,13 +73,13 @@ class InstallScriptTests(unittest.TestCase):
         with redirect_stdout(output):
             install.print_next_commands()
         text = output.getvalue()
-        self.assertIn("umsmfburasbofe projects --pick", text)
-        self.assertIn("umsmfburasbofe projects --add", text)
-        self.assertIn("umsmfburasbofe stack-doctor", text)
-        self.assertIn("umsmfburasbofe intent show", text)
-        self.assertIn("umsmfburasbofe compact audit --summary SUMMARY.md", text)
+        self.assertIn("manageroo projects --pick", text)
+        self.assertIn("manageroo projects --add", text)
+        self.assertIn("manageroo stack-doctor", text)
+        self.assertIn("manageroo intent show", text)
+        self.assertIn("manageroo compact audit --summary SUMMARY.md", text)
         self.assertIn("checkbox-style list", text)
-        self.assertNotIn("cd /path/to/project && umsmfburasbofe solo", text)
+        self.assertNotIn("cd /path/to/project && manageroo solo", text)
 
     def test_project_discovery_prompt_defaults_to_add_selected_projects(self):
         install = load_install_script()

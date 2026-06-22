@@ -18,11 +18,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from umsmfburasbofe.branding import FULL_NAME, print_banner, status_line  # noqa: E402
-from umsmfburasbofe.chiptune import ThemePlayback, play_once  # noqa: E402
-from umsmfburasbofe.credits import format_special_thanks  # noqa: E402
-from umsmfburasbofe.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
-from umsmfburasbofe.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
+from manageroo.branding import FULL_NAME, print_banner, status_line  # noqa: E402
+from manageroo.chiptune import ThemePlayback, play_once  # noqa: E402
+from manageroo.credits import format_special_thanks  # noqa: E402
+from manageroo.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
+from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
 
 CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 GBRAIN_INSTALL_SOURCE = "github:garrytan/gbrain"
@@ -99,20 +99,20 @@ def command_version(executable: str) -> str:
 def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
-        launcher = bin_dir / "umsmfburasbofe.cmd"
+        launcher = bin_dir / "manageroo.cmd"
         launcher.write_text(
             f'@set "PYTHONPATH={app_root}"\r\n'
-            f'@set "UMSMFBURASBOFE_PREFIX={prefix}"\r\n'
-            f'@"{python}" -m umsmfburasbofe %*\r\n',
+            f'@set "MANAGEROO_PREFIX={prefix}"\r\n'
+            f'@"{python}" -m manageroo %*\r\n',
             encoding="utf-8",
         )
     else:
-        launcher = bin_dir / "umsmfburasbofe"
+        launcher = bin_dir / "manageroo"
         launcher.write_text(
             "#!/bin/sh\n"
             f'export PYTHONPATH="{app_root}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
-            f'export UMSMFBURASBOFE_PREFIX="{prefix}"\n'
-            f'exec "{python}" -m umsmfburasbofe "$@"\n',
+            f'export MANAGEROO_PREFIX="{prefix}"\n'
+            f'exec "{python}" -m manageroo "$@"\n',
             encoding="utf-8",
         )
         launcher.chmod(0o755)
@@ -158,7 +158,7 @@ def install_codex_latest(downloads: list[dict]) -> dict:
             }
         )
     else:
-        with tempfile.TemporaryDirectory(prefix="umsmfburasbofe-codex-") as temp:
+        with tempfile.TemporaryDirectory(prefix="manageroo-codex-") as temp:
             installer = Path(temp) / "codex-install.sh"
             request = urllib.request.Request(
                 CODEX_INSTALL_URL,
@@ -350,10 +350,10 @@ def prepend_tool_paths() -> None:
 
 def backup_path(path: Path) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    candidate = path.with_name(f"{path.name}.umsmfburasbofe-backup-{stamp}")
+    candidate = path.with_name(f"{path.name}.manageroo-backup-{stamp}")
     index = 2
     while candidate.exists():
-        candidate = path.with_name(f"{path.name}.umsmfburasbofe-backup-{stamp}-{index}")
+        candidate = path.with_name(f"{path.name}.manageroo-backup-{stamp}-{index}")
         index += 1
     return candidate
 
@@ -413,7 +413,7 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
                     "Paste this into your AI agent:",
                     f"Retrieve and follow the instructions at: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}",
                     "Afterward run: gbrain doctor --json",
-                    "Then rerun: umsmfburasbofe stack-status",
+                    "Then rerun: manageroo stack-status",
                 ],
                 GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
             ) | {
@@ -993,7 +993,7 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     if not sys.stdin.isatty():
         return "install"
     print("Recommended local skill pack:")
-    print("  - UMSMFBURASBOFE routing skill")
+    print("  - MANAGEROO routing skill")
     print("  - Pimp My Prompt for rough request cleanup")
     print("  - Brain, ingest, media, PDF, long-prose, and exact-text lanes")
     print("  - Diagnose, TDD, AUTOREVIEW, plain web copy, and website rescue lanes")
@@ -1001,7 +1001,7 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     print("  - Token reduction with two styles: clean Caveman or Uncle Matt's Caveman Curse")
     print("This is optional, but strongly suggested for AI IDE agents.")
     print("Default is yes because this saves the user from remembering skill names.")
-    print("You can skip it and install it later with: umsmfburasbofe skills install")
+    print("You can skip it and install it later with: manageroo skills install")
     answer = input("Install the recommended skill pack now? [Y/n]: ").strip().lower()
     return "skip" if answer in {"n", "no", "skip"} else "install"
 
@@ -1092,30 +1092,30 @@ def choose_stack_doctor_mode(selection: str) -> str:
 
 def print_next_commands() -> None:
     print("\nNext commands:")
-    print("  umsmfburasbofe --version")
-    print("  umsmfburasbofe self-test")
-    print("  umsmfburasbofe skills list")
+    print("  manageroo --version")
+    print("  manageroo self-test")
+    print("  manageroo skills list")
     print("  # Strongly suggested if you skipped the local agent skill pack:")
-    print("  umsmfburasbofe skills install")
+    print("  manageroo skills install")
     print("  # If you copied skills from another computer:")
-    print("  umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS")
-    print("  umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply")
-    print("  umsmfburasbofe stack-status")
-    print("  umsmfburasbofe stack-doctor")
-    print("  umsmfburasbofe repair-install --no-apply")
+    print("  manageroo skills scan /home/Tommy/Downloads/SKILLS")
+    print("  manageroo skills import /home/Tommy/Downloads/SKILLS --apply")
+    print("  manageroo stack-status")
+    print("  manageroo stack-doctor")
+    print("  manageroo repair-install --no-apply")
     print("  # Easiest first product setup: choose found repos with a checkbox-style list and paste missing paths")
-    print("  umsmfburasbofe projects --add")
+    print("  manageroo projects --add")
     print("  # Read-only picker for one next command:")
-    print("  umsmfburasbofe projects --pick")
-    print('  umsmfburasbofe solo /path/to/new-project --create --want "Describe the first useful version"')
+    print("  manageroo projects --pick")
+    print('  manageroo solo /path/to/new-project --create --want "Describe the first useful version"')
     print("  # After solo, inspect or audit the intent lock when a chat/handoff gets compacted:")
-    print("  umsmfburasbofe intent show")
-    print("  umsmfburasbofe compact audit --summary SUMMARY.md")
+    print("  manageroo intent show")
+    print("  manageroo compact audit --summary SUMMARY.md")
     print("  # If readiness says no checks exist:")
-    print("  umsmfburasbofe checks suggest")
+    print("  manageroo checks suggest")
     print("  # When readiness is green:")
-    print("  umsmfburasbofe run --apply")
-    print('  umsmfburasbofe release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')
+    print("  manageroo run --apply")
+    print('  manageroo release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')
 
 
 def main() -> int:
@@ -1123,7 +1123,7 @@ def main() -> int:
     parser.add_argument(
         "--prefix",
         type=Path,
-        default=Path.home() / ".local" / "share" / "umsmfburasbofe",
+        default=Path.home() / ".local" / "share" / "manageroo",
     )
     parser.add_argument(
         "--bin-dir",
@@ -1182,7 +1182,7 @@ def main() -> int:
     parser.add_argument(
         "--skip-skill-pack",
         action="store_true",
-        help="Same as --skill-pack skip. You can install it later with `umsmfburasbofe skills install`.",
+        help="Same as --skill-pack skip. You can install it later with `manageroo skills install`.",
     )
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
@@ -1231,7 +1231,7 @@ def main() -> int:
             helper_skills_record = {
                 "skipped": True,
                 "reason": "Recommended skill pack skipped. It is optional, but strongly suggested for AI IDE guidance.",
-                "install_later": "umsmfburasbofe skills install",
+                "install_later": "manageroo skills install",
                 "recommended_skills": sorted(CORE_HELPER_SKILLS),
             }
             status_line("SKILL PACK", "skipped; strongly recommended for AI IDE guidance", ok=True)
@@ -1298,11 +1298,11 @@ def main() -> int:
         launcher = install_launcher(args.bin_dir.expanduser().resolve(), python, app_root, prefix)
 
         installed_env = {"PYTHONPATH": str(app_root)}
-        version = run([str(python), "-m", "umsmfburasbofe", "--version"], cwd=prefix, env=installed_env)
+        version = run([str(python), "-m", "manageroo", "--version"], cwd=prefix, env=installed_env)
         if args.skip_self_test:
             self_test_output = "skipped by release smoke"
         else:
-            self_test = run([str(python), "-m", "umsmfburasbofe", "self-test"], cwd=prefix, env=installed_env)
+            self_test = run([str(python), "-m", "manageroo", "self-test"], cwd=prefix, env=installed_env)
             self_test_output = self_test.stdout.strip()
 
         lock = {
@@ -1315,7 +1315,7 @@ def main() -> int:
             "platform": platform.platform(),
             "prefix": str(prefix),
             "launcher": str(launcher),
-            "umsmfburasbofe_version_output": version.stdout.strip(),
+            "manageroo_version_output": version.stdout.strip(),
             "self_test_output": self_test_output,
             "token_mode": token_mode_record,
             "helper_skills": helper_skills_record,
@@ -1324,14 +1324,14 @@ def main() -> int:
             "uninstall_plan": uninstall_plan(prefix, args.bin_dir.expanduser().resolve()),
             "network_downloads": downloads,
             "dependency_policy": (
-                "Core install is UMSMFBURASBOFE. Real runs require a configured agent "
+                "Core install is MANAGEROO. Real runs require a configured agent "
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
                 "The recommended skill pack is optional but strongly suggested because it "
                 "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
                 "memory lookup, source ingest, media/PDF handling, long prose, exact text, "
                 "debugging, test-first work, closeout review, public copy, website cleanup, "
                 "and token reduction without the user memorizing skill names. "
-                "It includes UMSMFBURASBOFE routing, Pimp My Prompt for rough request intake, "
+                "It includes MANAGEROO routing, Pimp My Prompt for rough request intake, "
                 "Brain Ops and Query for GBrain-backed context, Ingest/Media Ingest/Voice Note "
                 "Ingest for source capture, Article Enrichment/Book Mirror/Strategic Reading "
                 "for long documents, PDF/Brain PDF/Citation Fixer/Reports/Exact Text Replacement "
@@ -1360,10 +1360,10 @@ def main() -> int:
     if stack_doctor_mode == "run":
         print("")
         optional_run(
-            [str(python), "-m", "umsmfburasbofe", "stack-doctor"],
+            [str(python), "-m", "manageroo", "stack-doctor"],
             downloads,
             "stack-doctor",
-            "umsmfburasbofe stack-doctor",
+            "manageroo stack-doctor",
             cwd=Path.home(),
             env=installed_env,
         )
@@ -1372,10 +1372,10 @@ def main() -> int:
         print("")
         project_args = ["projects", "--add" if project_discovery_mode == "add" else "--pick"]
         optional_run(
-            [str(python), "-m", "umsmfburasbofe", *project_args],
+            [str(python), "-m", "manageroo", *project_args],
             downloads,
             "project-discovery",
-            f"umsmfburasbofe {' '.join(project_args)}",
+            f"manageroo {' '.join(project_args)}",
             cwd=Path.home(),
             env=installed_env,
         )

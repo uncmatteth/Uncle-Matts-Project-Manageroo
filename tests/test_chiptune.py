@@ -3,7 +3,7 @@ import unittest
 import wave
 from pathlib import Path
 
-from umsmfburasbofe.chiptune import SAMPLE_RATE, generate_theme, note_frequency
+from manageroo.chiptune import SAMPLE_RATE, generate_theme, note_frequency
 
 
 class ChiptuneTests(unittest.TestCase):

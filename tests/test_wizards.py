@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.wizards import collect_gbrain_answers, collect_setup_answers, collect_solo_answers
+from manageroo.wizards import collect_gbrain_answers, collect_setup_answers, collect_solo_answers
 
 
 def input_from(values):

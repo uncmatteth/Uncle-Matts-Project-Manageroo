@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.brief_builder import build_product_brief, write_product_brief
+from manageroo.brief_builder import build_product_brief, write_product_brief
 
 
 class BriefBuilderTests(unittest.TestCase):

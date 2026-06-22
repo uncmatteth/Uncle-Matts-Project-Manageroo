@@ -18,9 +18,9 @@ The ecosystem already contains strong individual components:
 - Codex, Claude Code, OpenClaw, Gemini CLI, Cursor, and others: capable coding runtimes.
 - Git worktrees, containers, CI, linters, type systems, and tests: mechanical engineering controls.
 
-## What UMSMFBURASBOFE contributes
+## What MANAGEROO contributes
 
-UMSMFBURASBOFE does not attempt to replace those systems. Its distinct role is the operator-facing control contract:
+MANAGEROO does not attempt to replace those systems. Its distinct role is the operator-facing control contract:
 
 - one product intake;
 - rough request cleanup through the bundled `pimp-my-prompt` skill;

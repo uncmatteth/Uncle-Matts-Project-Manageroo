@@ -7,8 +7,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.projects import default_project_roots, selected_project_paths
+from manageroo.cli import main
+from manageroo.projects import default_project_roots, selected_project_paths
 
 
 class ProjectDiscoveryTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
             root = Path(temp)
             repo = self._git_repo(root, "plain-repo")
             initialized = self._git_repo(root, "already-ready")
-            (initialized / ".umsmfburasbofe").mkdir()
+            (initialized / ".manageroo").mkdir()
 
             stdout = io.StringIO()
             with redirect_stdout(stdout):
@@ -35,11 +35,11 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(payload["ok"], True)
             self.assertEqual(by_name["plain-repo"]["status"], "git repo")
-            self.assertEqual(by_name["plain-repo"]["next_command"], f"umsmfburasbofe solo {repo}")
+            self.assertEqual(by_name["plain-repo"]["next_command"], f"manageroo solo {repo}")
             self.assertEqual(by_name["already-ready"]["status"], "initialized")
             self.assertEqual(
                 by_name["already-ready"]["next_command"],
-                f"umsmfburasbofe next {initialized}",
+                f"manageroo next {initialized}",
             )
 
     def test_projects_text_explains_the_picker_and_new_project_path(self):
@@ -55,9 +55,9 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("PROJECT PICKER", output)
             self.assertIn(str(repo), output)
-            self.assertIn(f"Next: umsmfburasbofe solo {repo}", output)
+            self.assertIn(f"Next: manageroo solo {repo}", output)
             self.assertIn("New project:", output)
-            self.assertIn("umsmfburasbofe solo /path/to/new-project --create", output)
+            self.assertIn("manageroo solo /path/to/new-project --create", output)
 
     def test_default_roots_do_not_scan_the_whole_home_folder(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -112,9 +112,9 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertIn("Add another project folder path", output)
             self.assertIn("[x] alpha", output)
             self.assertIn("[x] extra", output)
-            self.assertTrue((alpha / ".umsmfburasbofe" / "config.toml").exists())
-            self.assertTrue((extra / ".umsmfburasbofe" / "config.toml").exists())
-            self.assertFalse((beta / ".umsmfburasbofe").exists())
+            self.assertTrue((alpha / ".manageroo" / "config.toml").exists())
+            self.assertTrue((extra / ".manageroo" / "config.toml").exists())
+            self.assertFalse((beta / ".manageroo").exists())
 
     def test_projects_add_can_create_missing_manual_project_path(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -132,7 +132,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("[x] new-product", output)
             self.assertTrue((new_project / ".git").is_dir())
-            self.assertTrue((new_project / ".umsmfburasbofe" / "config.toml").exists())
+            self.assertTrue((new_project / ".manageroo" / "config.toml").exists())
 
 
 if __name__ == "__main__":

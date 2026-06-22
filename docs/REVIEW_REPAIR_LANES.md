@@ -4,7 +4,7 @@ AUTOREVIEW and Clawpatch are command-owned repair lanes. They are not vague
 advice for the AI agent to reinterpret.
 
 When `autoreview_command` or `clawpatch_command` is configured in
-`.umsmfburasbofe/config.toml`, UMSMFBURASBOFE does this:
+`.manageroo/config.toml`, MANAGEROO does this:
 
 1. Runs the configured AUTOREVIEW command exactly as an argv array.
 2. Runs the configured Clawpatch command exactly as an argv array.
@@ -24,8 +24,8 @@ patch.
 
 The controller and AI agents must not freehand fixes from AUTOREVIEW or
 Clawpatch findings. If one of those tools has a repair/apply mode, configure
-that exact tool command. If the tool cannot repair something, UMSMFBURASBOFE
+that exact tool command. If the tool cannot repair something, MANAGEROO
 reports the exact command output and stops.
 
 That is the point: AUTOREVIEW owns its lane. Clawpatch owns its lane.
-UMSMFBURASBOFE owns orchestration, scope, evidence, gates, and final delivery.
+MANAGEROO owns orchestration, scope, evidence, gates, and final delivery.

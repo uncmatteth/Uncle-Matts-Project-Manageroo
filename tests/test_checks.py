@@ -4,13 +4,13 @@ import unittest
 import json
 from pathlib import Path
 
-from umsmfburasbofe.checks import (
+from manageroo.checks import (
     add_check_gate,
     add_first_suggested_check_gate,
     list_check_gates,
     suggest_check_gates,
 )
-from umsmfburasbofe.project import initialize_project
+from manageroo.project import initialize_project
 
 
 class CheckCommandTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class CheckCommandTests(unittest.TestCase):
             ids = [item["id"] for item in report["suggestions"]]
             self.assertEqual(ids, ["test", "build"])
             self.assertIn(
-                "umsmfburasbofe checks add test -- npm run test",
+                "manageroo checks add test -- npm run test",
                 report["suggestions"][0]["add_command"],
             )
 

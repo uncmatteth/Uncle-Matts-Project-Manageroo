@@ -7,19 +7,19 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from umsmfburasbofe.adapters.mock import MockAdapter
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.learning import (
+from manageroo.adapters.mock import MockAdapter
+from manageroo.cli import main
+from manageroo.learning import (
     apply_learning_card,
     generate_learning_cards,
     get_learning_card,
     pending_root,
     save_pending_learning_cards,
 )
-from umsmfburasbofe.orchestrator import Orchestrator
-from umsmfburasbofe.project import initialize_project
-from umsmfburasbofe.project_memory import project_memory_path
-from umsmfburasbofe.util import read_json
+from manageroo.orchestrator import Orchestrator
+from manageroo.project import initialize_project
+from manageroo.project_memory import project_memory_path
+from manageroo.util import read_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +35,7 @@ class LearningLaneTests(unittest.TestCase):
         repo.mkdir()
         for argv in (
             ["git", "init", "-q", "-b", "main"],
-            ["git", "config", "user.name", "UMSMFBURASBOFE Tests"],
+            ["git", "config", "user.name", "MANAGEROO Tests"],
             ["git", "config", "user.email", "tests@local.invalid"],
         ):
             subprocess.run(argv, cwd=repo, check=True)
@@ -45,15 +45,15 @@ class LearningLaneTests(unittest.TestCase):
             "from pathlib import Path\n\n"
             "class FixtureTest(unittest.TestCase):\n"
             "    def test_output(self):\n"
-            "        self.assertEqual(Path('umsmfburasbofe_fixture.txt').read_text(), "
-            "'UMSMFBURASBOFE deterministic fixture completed\\n')\n\n"
+            "        self.assertEqual(Path('manageroo_fixture.txt').read_text(), "
+            "'MANAGEROO deterministic fixture completed\\n')\n\n"
             "if __name__ == '__main__': unittest.main()\n",
             encoding="utf-8",
         )
         subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
         initialize_project(repo, agent="mock")
-        config = repo / ".umsmfburasbofe" / "config.toml"
+        config = repo / ".manageroo" / "config.toml"
         text = config.read_text(encoding="utf-8")
         text += (
             "\n[[verification.gates]]\n"
@@ -64,7 +64,7 @@ class LearningLaneTests(unittest.TestCase):
             f"argv = {_toml_array([sys.executable, '-m', 'unittest', 'discover'])}\n"
         )
         config.write_text(text, encoding="utf-8")
-        brief = repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md"
+        brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
         brief.write_text("# Product request\n\nCreate the deterministic fixture file.\n", encoding="utf-8")
         return repo
 
@@ -76,7 +76,7 @@ class LearningLaneTests(unittest.TestCase):
                 "status": "COMPLETE",
                 "product_summary": "Build shipped.",
                 "files_changed": ["app.py"],
-                "evidence_paths": {"run_root": str(repo / ".umsmfburasbofe" / "runs" / "run-123")},
+                "evidence_paths": {"run_root": str(repo / ".manageroo" / "runs" / "run-123")},
             }
             cards = generate_learning_cards(repo=repo, result=result)
             memory_cards = [card for card in cards if card["destination"] == "project-memory"]
@@ -165,7 +165,7 @@ class LearningLaneTests(unittest.TestCase):
             repo = self._fixture_repo(Path(temp))
 
             result = Orchestrator(repo, adapter=MockAdapter()).run(
-                brief_path=repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md",
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
                 mode="build",
                 apply_on_success=True,
             )
@@ -182,7 +182,7 @@ class LearningLaneTests(unittest.TestCase):
         docs = (ROOT / "docs" / "LEARNING_LANE.md").read_text(encoding="utf-8")
         skill = (
             ROOT
-            / "src/umsmfburasbofe/assets/skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md"
+            / "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md"
         ).read_text(encoding="utf-8")
 
         self.assertIn("approval-gated", docs)

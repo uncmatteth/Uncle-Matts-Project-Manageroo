@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.checks import add_check_gate
-from umsmfburasbofe.project import initialize_project
-from umsmfburasbofe.release_ready import format_release_ready, release_ready
+from manageroo.checks import add_check_gate
+from manageroo.project import initialize_project
+from manageroo.release_ready import format_release_ready, release_ready
 
 
 class ReleaseReadyTests(unittest.TestCase):
@@ -18,7 +18,7 @@ class ReleaseReadyTests(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
         (repo / "README.md").write_text("fixture\n", encoding="utf-8")
         initialize_project(repo, agent="mock")
-        brief = repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md"
+        brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
         brief.write_text("# Product brief\n\nShip the thing.\n", encoding="utf-8")
         add_check_gate(repo, gate_id="smoke", argv=["python3", "-c", "print('ok')"])
         subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
@@ -27,7 +27,7 @@ class ReleaseReadyTests(unittest.TestCase):
 
     def _release_patches(self):
         return patch(
-            "umsmfburasbofe.readiness.helper_skill_items",
+            "manageroo.readiness.helper_skill_items",
             return_value=[
                 {
                     "name": "helper:test",
@@ -38,7 +38,7 @@ class ReleaseReadyTests(unittest.TestCase):
                 }
             ],
         ), patch(
-            "umsmfburasbofe.readiness.gbrain_setup_status",
+            "manageroo.readiness.gbrain_setup_status",
             return_value={"ok": False, "status": {"source_count": 0}},
         )
 
@@ -71,7 +71,7 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn(memory_update["path"], handoff_text)
             self.assertIn("What Has Shipped", memory_update["updated_sections"])
             self.assertIn("Current Proof", memory_update["updated_sections"])
-            memory_text = (repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
+            memory_text = (repo / ".manageroo" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
             self.assertIn("Release-ready approved for manual production deploy", memory_text)
             self.assertIn("commit", memory_text)
             self.assertIn("release-ready passed smoke", memory_text)

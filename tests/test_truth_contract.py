@@ -16,9 +16,13 @@ def _compact(text: str) -> str:
     return " ".join(text.split())
 
 
+def _fixture(codes: list[int]) -> str:
+    return "".join(chr(code) for code in codes)
+
+
 def _load_installer_module():
     spec = importlib.util.spec_from_file_location(
-        "umsmfburasbofe_install_script",
+        "manageroo_install_script",
         ROOT / "scripts" / "install.py",
     )
     module = importlib.util.module_from_spec(spec)
@@ -82,7 +86,7 @@ class TruthContractTests(unittest.TestCase):
             "docs/ARCHITECTURE.md": [
                 "implementation prioritizes correctness over theatrical agent count",
                 "The controller does not run parallel implementation branches against the same files",
-                "Core acceptance still belongs to UMSMFBURASBOFE's state, scope, gates, and evidence",
+                "Core acceptance still belongs to MANAGEROO's state, scope, gates, and evidence",
             ],
         }
         for surface, required in surfaces.items():
@@ -106,22 +110,22 @@ class TruthContractTests(unittest.TestCase):
 
     def test_runtime_prompts_keep_agents_from_pretending(self):
         surfaces = {
-            "src/umsmfburasbofe/project.py": [
+            "src/manageroo/project.py": [
                 "claim completion without a `COMPLETE` controller state",
                 "pretend media metadata is real vision",
             ],
-            "src/umsmfburasbofe/orchestrator.py": [
+            "src/manageroo/orchestrator.py": [
                 "not handed to the AI as a freehand long-document repair prompt",
                 "The controller must not freehand fixes from their findings",
                 '"ai_freehand_repair_allowed": False',
                 "not full OCR or vision interpretation",
             ],
-            "src/umsmfburasbofe/report.py": [
+            "src/manageroo/report.py": [
                 "AI freehand repair from AUTOREVIEW/Clawpatch findings: no",
             ],
             (
-                "src/umsmfburasbofe/assets/skills/"
-                "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/"
+                "src/manageroo/assets/skills/"
+                "uncle-matts-project-manageroo/"
                 "SKILL.md"
             ): [
                 "Do not claim global completion",
@@ -196,6 +200,47 @@ class TruthContractTests(unittest.TestCase):
                         if not any(word in context for word in boundary_words):
                             offenders.append(context)
                     self.assertEqual(offenders, [])
+
+    def test_project_manageroo_rename_has_no_old_public_brand_surface(self):
+        old_title = _fixture([
+            85, 110, 99, 108, 101, 32, 77, 97, 116, 116, 39, 115, 32, 83, 117, 112, 101, 114, 32, 77, 101,
+            103, 97, 32, 70, 111, 114, 119, 97, 114, 100, 32, 66, 117, 105, 108, 100, 32, 85, 108, 116, 105,
+            109, 97, 116, 101, 32, 82, 101, 109, 105, 120, 32, 65, 108, 108, 45, 83, 116, 97, 114, 32, 66,
+            111, 111, 116, 121, 32, 111, 102, 32, 70, 105, 114, 101, 32, 69, 100, 105, 116, 105, 111, 110,
+        ])
+        old_short = _fixture([
+            83, 117, 112, 101, 114, 32, 77, 101, 103, 97, 32, 70, 111, 114, 119, 97, 114, 100, 32, 66, 117,
+            105, 108, 100,
+        ])
+        old_acronym = _fixture([85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69])
+        old_command = _fixture([117, 109, 115, 109, 102, 98, 117, 114, 97, 115, 98, 111, 102, 101])
+        old_slug = _fixture([
+            117, 110, 99, 108, 101, 45, 109, 97, 116, 116, 115, 45, 115, 117, 112, 101, 114, 45, 109, 101,
+            103, 97, 45, 102, 111, 114, 119, 97, 114, 100, 45, 98, 117, 105, 108, 100, 45, 117, 108, 116, 105,
+            109, 97, 116, 101, 45, 114, 101, 109, 105, 120, 45, 97, 108, 108, 45, 115, 116, 97, 114, 45, 98,
+            111, 111, 116, 121, 45, 111, 102, 45, 102, 105, 114, 101, 45, 101, 100, 105, 116, 105, 111, 110,
+        ])
+        old_project_dir = "." + old_command
+        checked_roots = [
+            "README.md",
+            "LOCAL_SETUP.md",
+            "GITHUB_DESCRIPTION.md",
+            "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
+            "PUBLISH_TO_GITHUB.md",
+            "pyproject.toml",
+            "scripts",
+            "src",
+            "docs",
+        ]
+        banned = [old_title, old_short, old_acronym, old_command, old_slug, old_project_dir]
+        for root in checked_roots:
+            path = ROOT / root
+            files = [path] if path.is_file() else sorted(item for item in path.rglob("*") if item.is_file())
+            for file_path in files:
+                text = file_path.read_text(encoding="utf-8", errors="replace")
+                for phrase in banned:
+                    with self.subTest(file=str(file_path.relative_to(ROOT)), phrase=phrase):
+                        self.assertNotIn(phrase, text)
 
 
 if __name__ == "__main__":

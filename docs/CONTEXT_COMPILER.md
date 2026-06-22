@@ -4,7 +4,7 @@
 
 A model context window is finite. Replaying an entire chat, repository, product notebook, and previous agent transcript causes omission, stale assumptions, lost-in-the-middle behavior, and expensive repetition.
 
-UMSMFBURASBOFE treats context as a compiled artifact.
+MANAGEROO treats context as a compiled artifact.
 
 Chat compaction is not the source of truth. The repo-local intent lock is the
 truth surface for the operator's current ask, must-not rules, rejected ideas,
@@ -55,17 +55,17 @@ The manifest records:
 
 ## Intent lock and compaction audit
 
-`umsmfburasbofe solo` writes:
+`manageroo solo` writes:
 
 ```text
-.umsmfburasbofe/intent/INTENT-LOCK.json
-.umsmfburasbofe/intent/INTENT-LOCK.md
+.manageroo/intent/INTENT-LOCK.json
+.manageroo/intent/INTENT-LOCK.md
 ```
 
 Run this when a long thread is summarized, compacted, or handed off:
 
 ```bash
-umsmfburasbofe compact audit --summary SUMMARY.md
+manageroo compact audit --summary SUMMARY.md
 ```
 
 The audit checks for exact locked phrases. That is intentionally strict. If the
@@ -111,8 +111,8 @@ whole book, transcript, PDF, or exact-text replacement.
 Discovery caches file, media, and prose summaries here:
 
 ```text
-.umsmfburasbofe/cache/file-summaries.json
-.umsmfburasbofe/cache/system-map.json
+.manageroo/cache/file-summaries.json
+.manageroo/cache/system-map.json
 ```
 
 The cache key is the repository-relative path plus file size and SHA-256. An

@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.runner import CommandRunner
-from umsmfburasbofe.workspace import WorkspaceMirror
+from manageroo.runner import CommandRunner
+from manageroo.workspace import WorkspaceMirror
 
 
 class WorkspaceTests(unittest.TestCase):

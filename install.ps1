@@ -84,5 +84,5 @@ if ($NoAnimation) { $InstallArgs += "--no-animation" }
 
 & $PythonExe @PythonPrefixArgs @InstallArgs
 if ($LASTEXITCODE -ne 0) {
-    throw "UMSMFBURASBOFE installer failed with exit code $LASTEXITCODE"
+    throw "MANAGEROO installer failed with exit code $LASTEXITCODE"
 }

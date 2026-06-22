@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.integration_config import configure_integrations
-from umsmfburasbofe.project import initialize_project
+from manageroo.integration_config import configure_integrations
+from manageroo.project import initialize_project
 
 
 class IntegrationConfigTests(unittest.TestCase):
@@ -25,10 +25,10 @@ class IntegrationConfigTests(unittest.TestCase):
             def which(name):
                 return f"/usr/bin/{name}" if name in {"gbrain", "gitnexus"} else None
 
-            with patch("umsmfburasbofe.integration_config.shutil.which", side_effect=which):
+            with patch("manageroo.integration_config.shutil.which", side_effect=which):
                 result = configure_integrations(repo, apply=True)
 
-            config_path = repo / ".umsmfburasbofe" / "config.toml"
+            config_path = repo / ".manageroo" / "config.toml"
             config = tomllib.loads(config_path.read_text(encoding="utf-8"))
             self.assertTrue(result["ok"])
             self.assertEqual(config["integrations"]["gbrain_search_command"][0], "gbrain")
@@ -39,14 +39,14 @@ class IntegrationConfigTests(unittest.TestCase):
     def test_missing_tools_report_one_next_command_without_writing(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
-            original = (repo / ".umsmfburasbofe" / "config.toml").read_text(encoding="utf-8")
-            with patch("umsmfburasbofe.integration_config.shutil.which", return_value=None):
+            original = (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")
+            with patch("manageroo.integration_config.shutil.which", return_value=None):
                 result = configure_integrations(repo, apply=True)
 
-            current = (repo / ".umsmfburasbofe" / "config.toml").read_text(encoding="utf-8")
+            current = (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")
             self.assertFalse(result["ok"])
             self.assertEqual(current, original)
-            self.assertEqual(result["next_command"], "Install GBrain, then run `umsmfburasbofe integrations configure`.")
+            self.assertEqual(result["next_command"], "Install GBrain, then run `manageroo integrations configure`.")
 
 
 if __name__ == "__main__":

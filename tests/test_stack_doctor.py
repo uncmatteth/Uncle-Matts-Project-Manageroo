@@ -5,8 +5,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.stack_doctor import format_stack_doctor, stack_doctor
+from manageroo.cli import main
+from manageroo.stack_doctor import format_stack_doctor, stack_doctor
 
 
 class StackDoctorTests(unittest.TestCase):

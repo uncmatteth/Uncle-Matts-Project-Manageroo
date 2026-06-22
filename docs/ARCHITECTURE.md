@@ -2,7 +2,7 @@
 
 ## Thin controller, strong artifacts
 
-UMSMFBURASBOFE deliberately avoids becoming another IDE, code graph database, memory system, or model host. The controller coordinates existing agents through a small number of durable primitives.
+MANAGEROO deliberately avoids becoming another IDE, code graph database, memory system, or model host. The controller coordinates existing agents through a small number of durable primitives.
 
 ```text
 CLI
@@ -21,12 +21,12 @@ CLI
 
 ## Source isolation
 
-The source repository is inventoried through Git-visible tracked and unignored files. UMSMFBURASBOFE copies those files into a run-owned repository and commits an internal baseline. Coding agents never need direct write access to the operator's source repository.
+The source repository is inventoried through Git-visible tracked and unignored files. MANAGEROO copies those files into a run-owned repository and commits an internal baseline. Coding agents never need direct write access to the operator's source repository.
 
 After successful delivery:
 
-1. UMSMFBURASBOFE generates a binary-capable Git patch from isolated baseline to final checkpoint.
-2. UMSMFBURASBOFE verifies that every source file still matches the original source manifest.
+1. MANAGEROO generates a binary-capable Git patch from isolated baseline to final checkpoint.
+2. MANAGEROO verifies that every source file still matches the original source manifest.
 3. `git apply --check` verifies the patch.
 4. The controller applies the patch when `--apply` or project policy allows it.
 
@@ -74,13 +74,13 @@ The surrounding stack provides lanes, not authorities:
   configured commands; their findings are never converted into AI freehand fixes.
 - OpenClaw/Claude/Gemini/Cursor: alternate execution surfaces.
 
-Core acceptance still belongs to UMSMFBURASBOFE's state, scope, gates, and evidence.
+Core acceptance still belongs to MANAGEROO's state, scope, gates, and evidence.
 
 ## Proactive learning, no silent self-mutation
 
 Every run can emit improvement cards under
 `artifacts/learning/improvement-cards.json` and copy pending cards into
-`.umsmfburasbofe/cache/learning/pending/`.
+`.manageroo/cache/learning/pending/`.
 
 Those cards are structured suggestions. They rank value and risk, route the
 lesson to a destination like project memory, skill improvement, config, docs,
@@ -88,4 +88,4 @@ installer, GBrain capture, or backlog, and cite run evidence.
 
 The controller may save pending cards automatically. It must not silently change
 behavior, skills, config, docs, installer behavior, or memory. Applying a
-supported card requires `umsmfburasbofe learning apply CARD_ID --approve`.
+supported card requires `manageroo learning apply CARD_ID --approve`.

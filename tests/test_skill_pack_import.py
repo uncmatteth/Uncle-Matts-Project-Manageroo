@@ -5,8 +5,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.skill_pack import import_skill_folder, scan_skill_folder
+from manageroo.cli import main
+from manageroo.skill_pack import import_skill_folder, scan_skill_folder
 
 
 def _skill(path: Path, name: str, body: str = "Use when testing.\n") -> Path:
@@ -56,7 +56,7 @@ class SkillPackImportTests(unittest.TestCase):
 
             dry_run = import_skill_folder(source, skills_dir=target, apply=False)
             self.assertFalse(dry_run["applied"])
-            self.assertIn("umsmfburasbofe skills import", dry_run["next_command"])
+            self.assertIn("manageroo skills import", dry_run["next_command"])
             self.assertIn("current", (target / "existing-skill" / "SKILL.md").read_text(encoding="utf-8"))
 
             applied = import_skill_folder(source, skills_dir=target, apply=True)
@@ -64,7 +64,7 @@ class SkillPackImportTests(unittest.TestCase):
             self.assertEqual(applied["imported"][0]["name"], "existing-skill")
             self.assertFalse((target / "existing-skill" / "extra.txt").exists())
             self.assertIn("incoming", (target / "existing-skill" / "SKILL.md").read_text(encoding="utf-8"))
-            backups = list((target / "existing-skill").glob("SKILL.md.umsmfburasbofe-backup-*"))
+            backups = list((target / "existing-skill").glob("SKILL.md.manageroo-backup-*"))
             self.assertEqual(len(backups), 1)
             self.assertIn("current", backups[0].read_text(encoding="utf-8"))
 

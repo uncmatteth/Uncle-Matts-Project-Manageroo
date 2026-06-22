@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.map_cache import (
+from manageroo.map_cache import (
     inventory_fingerprint,
     load_system_map_cache,
     write_system_map_cache,

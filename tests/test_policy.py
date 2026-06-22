@@ -1,7 +1,7 @@
 import unittest
 
-from umsmfburasbofe.errors import SafetyError
-from umsmfburasbofe.policy import CommandPolicy, ScopePolicy
+from manageroo.errors import SafetyError
+from manageroo.policy import CommandPolicy, ScopePolicy
 
 
 class PolicyTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_scope_blocks_controller_files(self):
         with self.assertRaises(SafetyError):
-            ScopePolicy((".umsmfburasbofe/**",)).validate_paths([".umsmfburasbofe/config.toml"])
+            ScopePolicy((".manageroo/**",)).validate_paths([".manageroo/config.toml"])
 
     def test_command_allowlist(self):
         CommandPolicy(("python",)).validate(["python", "-m", "unittest"])

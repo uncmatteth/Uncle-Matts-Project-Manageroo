@@ -3,7 +3,7 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.config import apply_agent_preset, config_template
+from manageroo.config import apply_agent_preset, config_template
 
 
 class ConfigTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class ConfigTests(unittest.TestCase):
     def test_apply_agent_preset_replaces_only_agent_block(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
-            config_path = repo / ".umsmfburasbofe" / "config.toml"
+            config_path = repo / ".manageroo" / "config.toml"
             config_path.parent.mkdir()
             config_path.write_text(config_template("codex", []), encoding="utf-8")
             result = apply_agent_preset(repo, "gemini")

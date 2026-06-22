@@ -1,6 +1,6 @@
-# Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition repository
+# Uncle Matt's Project Manageroo repository
 
-This repository implements the UMSMFBURASBOFE controller.
+This repository implements the MANAGEROO controller.
 
 Before editing:
 

@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.inventory import build_inventory
-from umsmfburasbofe.runner import CommandRunner
+from manageroo.inventory import build_inventory
+from manageroo.runner import CommandRunner
 
 
 class InventoryCacheTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class InventoryCacheTests(unittest.TestCase):
                 calls["count"] += 1
                 return (f"summary for {relative}", 3)
 
-            with patch("umsmfburasbofe.inventory.text_summary", side_effect=fake_summary):
+            with patch("manageroo.inventory.text_summary", side_effect=fake_summary):
                 first = build_inventory(repo, runner, summary_cache_path=cache_path)
                 second = build_inventory(repo, runner, summary_cache_path=cache_path)
 

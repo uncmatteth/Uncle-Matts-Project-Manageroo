@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from umsmfburasbofe.gbrain_setup import (
+from manageroo.gbrain_setup import (
     format_gbrain_setup,
     safe_probe_record,
     summarize_gbrain_config,

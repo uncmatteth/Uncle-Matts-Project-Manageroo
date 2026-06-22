@@ -6,21 +6,21 @@ are not random extras; they are the point of the setup.
 ## AI IDEs and CLI agents
 
 Any AI IDE or agent that can read the repo and run shell commands can use the
-same installed `umsmfburasbofe` command and repo-local skill. There should not
+same installed `manageroo` command and repo-local skill. There should not
 be a special build for every AI logo.
 
 ## Codex
 
 Codex is one adapter. When selected, this tool can start fresh `codex exec`
 processes and pass the repo path, sandbox mode, schema, and output path.
-`umsmfburasbofe ready` reports whether the selected CLI, brief, repo-local
+`manageroo ready` reports whether the selected CLI, brief, repo-local
 project memory, and checks are ready before a run.
 
 Official reference: https://developers.openai.com/codex/noninteractive
 
 ## OpenClaw
 
-OpenClaw can call `umsmfburasbofe`, host the same skill, or act as the surface
+OpenClaw can call `manageroo`, host the same skill, or act as the surface
 where the work happens.
 
 Official reference: https://docs.openclaw.ai/
@@ -60,16 +60,16 @@ That means a Postgres/Ollama setup is reported, not overwritten.
 Source mapping is guided, not guessed:
 
 ```bash
-umsmfburasbofe gbrain-setup
-umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
+manageroo gbrain-setup
+manageroo gbrain-setup --source-id my-product --path "$PWD" --apply --sync
 gbrain sources list
 gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder
 gbrain sync --source YOUR_SOURCE_ID --json --yes
 gbrain status --json --section sync
 ```
 
-When `gbrain_search_command` is configured in `.umsmfburasbofe/config.toml`,
-`umsmfburasbofe run` asks GBrain for brief-related context during discovery and
+When `gbrain_search_command` is configured in `.manageroo/config.toml`,
+`manageroo run` asks GBrain for brief-related context during discovery and
 feeds the successful output into planning. When `gbrain_capture_command` is
 configured, the final report/result can be captured after a successful run.
 Both are optional. If the command is missing, fails, or times out, the run
@@ -90,7 +90,7 @@ Review GitNexus licensing before commercial embedding.
 
 When `gitnexus_analyze_command` or `gitnexus_query_command` is configured,
 `run` records the output under
-`.umsmfburasbofe/runs/<run-id>/artifacts/discovery/external-intelligence.json`
+`.manageroo/runs/<run-id>/artifacts/discovery/external-intelligence.json`
 and includes passing context in the product, reuse, and planning prompts. Git
 files and current command output still win if GitNexus is stale or unavailable.
 
@@ -109,17 +109,17 @@ different path than normal code files.
 Every run writes a document manifest:
 
 ```text
-.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-manifest.json
+.manageroo/runs/<run-id>/artifacts/discovery/document-manifest.json
 ```
 
 The manifest lists document-like files, long-document flags, hashes, line
 counts, token estimates, and the rules the agent must respect. If
-`document_analysis_command` is configured, UMSMFBURASBOFE runs that argv with
+`document_analysis_command` is configured, MANAGEROO runs that argv with
 placeholders such as `{document_manifest_file}`, `{document_intelligence_file}`,
 and `{document_state_dir}`. The command output is captured in:
 
 ```text
-.umsmfburasbofe/runs/<run-id>/artifacts/discovery/document-intelligence.json
+.manageroo/runs/<run-id>/artifacts/discovery/document-intelligence.json
 ```
 
 This lane is optional intelligence. Passing output can inform planning. Failure
@@ -146,7 +146,7 @@ Command-owned review and repair lanes. AUTOREVIEW and Clawpatch can be
 configured as external commands, but their findings are not handed to the AI
 agent as freehand fix instructions.
 
-When `autoreview_command` or `clawpatch_command` is configured, UMSMFBURASBOFE
+When `autoreview_command` or `clawpatch_command` is configured, MANAGEROO
 runs that argv exactly inside the isolated workspace, captures the output in
 `review/external-review-repair.json`, scope-checks any edits, and blocks on a
 nonzero exit, timeout, `HEAD` change, or out-of-scope edit. If either command
@@ -183,7 +183,7 @@ agent-loop framing. The useful distinction is simple:
 - `loop`: repeat a bounded task while the operator is present.
 - `routine`: run later or on a schedule outside this local controller.
 
-UMSMFBURASBOFE is native goal-style local build/repair control. It can read the
+MANAGEROO is native goal-style local build/repair control. It can read the
 live catalog and turn a selected Loop Library entry into a repo-local product
 brief. The controller profile labels the entry as `goal`, `loop`, or `routine`
 and adds the missing safety rails: budget/caps, independent verification,
@@ -191,9 +191,9 @@ anti-spin stops, completion contract, and evidence. It caches the catalog for
 offline fallback and can print a controller profile for a loop:
 
 ```bash
-umsmfburasbofe loop-library search docs
-umsmfburasbofe loop-library profile overnight-docs-sweep
-umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
+manageroo loop-library search docs
+manageroo loop-library profile overnight-docs-sweep
+manageroo loop-library brief overnight-docs-sweep --output .manageroo/PRODUCT-BRIEF.md --force
 ```
 
 It does not require Loop Library for normal use. The guided installer can also
@@ -241,5 +241,5 @@ working across compaction, but turn repeated pain into reusable skills and keep
 those skills tight enough that future threads start clean.
 
 Codex's built-in `skill-creator` skill is also useful when it is present on a
-developer machine. UMSMFBURASBOFE does not copy that system skill into the
+developer machine. MANAGEROO does not copy that system skill into the
 public package; it ships its own smaller agent-neutral helpers instead.

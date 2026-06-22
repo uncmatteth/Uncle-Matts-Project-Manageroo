@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.context import ContextCompiler, ContextRequest
-from umsmfburasbofe.errors import ContextBudgetError, SafetyError
-from umsmfburasbofe.util import read_json
+from manageroo.context import ContextCompiler, ContextRequest
+from manageroo.errors import ContextBudgetError, SafetyError
+from manageroo.util import read_json
 
 
 class ContextTests(unittest.TestCase):

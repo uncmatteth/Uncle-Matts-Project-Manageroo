@@ -109,7 +109,7 @@ clawpatch next
 clawpatch fix --finding FINDING_ID
 ```
 
-UMSMFBURASBOFE can run configured AUTOREVIEW/Clawpatch commands as
+MANAGEROO can run configured AUTOREVIEW/Clawpatch commands as
 command-owned lanes, but it does not ask the AI to freehand repairs from their
 findings. See [`REVIEW_REPAIR_LANES.md`](REVIEW_REPAIR_LANES.md).
 
@@ -122,7 +122,7 @@ installer asks and defaults to yes. Non-interactive installs use the recommended
 yes path. Skip it with `./install.sh --skill-pack skip` or
 `./install.sh --skip-skill-pack`.
 
-- `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`:
+- `uncle-matts-project-manageroo`:
   tells agents how to follow the controller.
 - `pimp-my-prompt`: turns rough requests into exact scope, acceptance criteria,
   fallback rules, and runnable product briefs.
@@ -160,14 +160,14 @@ yes path. Skip it with `./install.sh --skill-pack skip` or
 They are available even when token mode is off. Reinstall them later with:
 
 ```bash
-umsmfburasbofe skills install
+manageroo skills install
 ```
 
 If you copied skills from another machine, scan before importing:
 
 ```bash
-umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS
-umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
+manageroo skills scan /home/Tommy/Downloads/SKILLS
+manageroo skills import /home/Tommy/Downloads/SKILLS --apply
 ```
 
 `scan` is read-only. `import --apply` copies only `SKILL.md` files into
@@ -177,14 +177,14 @@ umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply
 ## Validate
 
 ```bash
-umsmfburasbofe --version
-umsmfburasbofe banner --no-animation
-umsmfburasbofe self-test
-umsmfburasbofe skills list
-umsmfburasbofe token-mode status
-umsmfburasbofe stack-status
-umsmfburasbofe repair-install --no-apply
-umsmfburasbofe projects --add
+manageroo --version
+manageroo banner --no-animation
+manageroo self-test
+manageroo skills list
+manageroo token-mode status
+manageroo stack-status
+manageroo repair-install --no-apply
+manageroo projects --add
 ```
 
 ## Token reduction
@@ -199,9 +199,9 @@ files so you can switch later, but only the selected mode is active:
 Switch later:
 
 ```bash
-umsmfburasbofe token-mode set off
-umsmfburasbofe token-mode set caveman
-umsmfburasbofe token-mode set curse
+manageroo token-mode set off
+manageroo token-mode set caveman
+manageroo token-mode set curse
 ```
 
 If a different local `SKILL.md` already exists for one of those names, the tool
@@ -212,12 +212,12 @@ backs it up before installing the bundled copy.
 The easiest install-time path is guided project setup:
 
 ```bash
-umsmfburasbofe projects --add
+manageroo projects --add
 ```
 
 It scans common folders, shows a checkbox-style list, lets you choose exactly
 which repos to add, then asks whether you want to paste any extra project paths
-it missed. Selected existing Git repos get UMSMFBURASBOFE project files.
+it missed. Selected existing Git repos get MANAGEROO project files.
 Missing or empty manual paths can become new Git projects. Non-empty non-Git
 folders are refused until you run `git init` there yourself.
 
@@ -226,7 +226,7 @@ It does not initialize or edit every project on the machine.
 If you only want the read-only picker:
 
 ```bash
-umsmfburasbofe projects --pick
+manageroo projects --pick
 ```
 
 That scans common folders, lists Git repos, and prints the exact next command.
@@ -234,13 +234,13 @@ That scans common folders, lists Git repos, and prints the exact next command.
 For an existing Git repository:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/product
+manageroo solo /absolute/path/to/product
 ```
 
 For a brand-new missing or empty folder:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/new-product \
+manageroo solo /absolute/path/to/new-product \
   --create \
   --want "Describe what should be built first"
 ```
@@ -260,22 +260,22 @@ With `--create`, it initializes Git, writes a minimal `README.md` and
 `.gitignore`, and makes the first scaffold commit before continuing. It refuses
 non-empty non-Git folders and nested repos.
 
-It writes `.umsmfburasbofe/PRODUCT-BRIEF.md`, writes
-`.umsmfburasbofe/PROJECT-MEMORY.md`, captures
-`.umsmfburasbofe/intent/INTENT-LOCK.json`, writes or updates managed `AGENTS.md`
+It writes `.manageroo/PRODUCT-BRIEF.md`, writes
+`.manageroo/PROJECT-MEMORY.md`, captures
+`.manageroo/intent/INTENT-LOCK.json`, writes or updates managed `AGENTS.md`
 and `CONTEXT.md` guidance blocks, checks readiness, and prints exactly one next
 command. Existing human content in those files is preserved. If every required
 check is already ready during that first
 command, you can combine intake and execution:
 
 ```bash
-umsmfburasbofe solo --want "Describe the result" --run --apply --force
+manageroo solo --want "Describe the result" --run --apply --force
 ```
 
 When you are unsure where the project is in the path, ask for one next action:
 
 ```bash
-umsmfburasbofe next
+manageroo next
 ```
 
 It prints the stage, the reason, and one command to run next.
@@ -283,35 +283,35 @@ It prints the stage, the reason, and one command to run next.
 Lower-level setup is still available when you want only repo initialization:
 
 ```bash
-umsmfburasbofe setup
+manageroo setup
 ```
 
 Use `--agent codex` only when this tool should launch Codex itself. Use
-`umsmfburasbofe agent list` to see built-in agent presets:
+`manageroo agent list` to see built-in agent presets:
 
 Use project memory to keep future runs from forgetting what matters:
 
 ```bash
-umsmfburasbofe memory show
-umsmfburasbofe memory add --must-not "Do not remove the import flow"
+manageroo memory show
+manageroo memory add --must-not "Do not remove the import flow"
 ```
 
 Use the intent lock when a long chat, handoff, or continuation summary might
 have lost the real request:
 
 ```bash
-umsmfburasbofe intent show
-umsmfburasbofe compact audit --summary SUMMARY.md
+manageroo intent show
+manageroo compact audit --summary SUMMARY.md
 ```
 
 ```bash
-umsmfburasbofe agent list
-umsmfburasbofe agent preset gemini
-umsmfburasbofe agent preset generic
+manageroo agent list
+manageroo agent preset gemini
+manageroo agent preset generic
 ```
 
 The non-Codex presets are command templates. If your CLI needs different flags,
-edit `[agent].argv_template` in `.umsmfburasbofe/config.toml`.
+edit `[agent].argv_template` in `.manageroo/config.toml`.
 
 If an AI IDE can read the repo and run commands, it does not need a special
 vendor build. Give it the installed command plus the repo-local skill.
@@ -322,7 +322,7 @@ For a brand-new product, `solo --create` can start from a small starter instead
 of a blank repo:
 
 ```bash
-umsmfburasbofe solo /absolute/path/to/new-site \
+manageroo solo /absolute/path/to/new-site \
   --create \
   --starter static-site \
   --want "Build a simple product homepage"
@@ -334,7 +334,7 @@ The non-blank starters include no-dependency unittest smoke checks.
 Create a normal-language brief:
 
 ```bash
-umsmfburasbofe brief \
+manageroo brief \
   --want "Say exactly what should be built or fixed" \
   --outcome "The result that must be true" \
   --must-not "Anything the agent must not touch" \
@@ -345,7 +345,7 @@ umsmfburasbofe brief \
 Check whether it is ready to run:
 
 ```bash
-umsmfburasbofe ready
+manageroo ready
 ```
 
 Readiness is allowed to stop a run when the brief asks for a lane that is not
@@ -367,33 +367,33 @@ If the repo has no detected verification command, let the tool add the first
 detected repo-aware check without hand-editing TOML:
 
 ```bash
-umsmfburasbofe checks suggest --apply-first
-umsmfburasbofe checks list
+manageroo checks suggest --apply-first
+manageroo checks list
 ```
 
 If GBrain should know this repo, inspect first and map only the selected folder:
 
 ```bash
-umsmfburasbofe gbrain-setup
-umsmfburasbofe gbrain-setup --source-id my-product --path "$PWD" --apply --sync
+manageroo gbrain-setup
+manageroo gbrain-setup --source-id my-product --path "$PWD" --apply --sync
 ```
 
 Run the default build flow:
 
 ```bash
-umsmfburasbofe run --apply
+manageroo run --apply
 ```
 
 For already-broken code:
 
 ```bash
-umsmfburasbofe run --mode repair --apply
+manageroo run --mode repair --apply
 ```
 
 Before a real release, run the final operator gate:
 
 ```bash
-umsmfburasbofe release-ready \
+manageroo release-ready \
   --target "Production deploy path" \
   --rollback "Rollback steps" \
   --approved-by "Your name"
@@ -401,11 +401,11 @@ umsmfburasbofe release-ready \
 
 It does not deploy. It blocks until readiness is green, checks pass, Git is
 clean, and the release target, rollback plan, and human approval are recorded.
-It also writes `.umsmfburasbofe/cache/production-handoff.md` so the operator
+It also writes `.manageroo/cache/production-handoff.md` so the operator
 gets one plain-English release summary: current commit, latest changed files,
 proof commands, blockers, ship target, rollback plan, and next action. On a
 ready release, it appends the shipped target and passing proof to
-`.umsmfburasbofe/PROJECT-MEMORY.md`; commit that memory update if you want it
+`.manageroo/PROJECT-MEMORY.md`; commit that memory update if you want it
 tracked.
 
 ## Use a Loop Library loop
@@ -414,13 +414,13 @@ Matthew Berman / Forward Future's Loop Library can be used as the source of a
 job pattern:
 
 ```bash
-umsmfburasbofe loop-library search docs
-umsmfburasbofe loop-library show overnight-docs-sweep
-umsmfburasbofe loop-library profile overnight-docs-sweep
-umsmfburasbofe loop-library brief overnight-docs-sweep --output .umsmfburasbofe/PRODUCT-BRIEF.md --force
+manageroo loop-library search docs
+manageroo loop-library show overnight-docs-sweep
+manageroo loop-library profile overnight-docs-sweep
+manageroo loop-library brief overnight-docs-sweep --output .manageroo/PRODUCT-BRIEF.md --force
 ```
 
-UMSMFBURASBOFE reads the catalog and turns the selected loop into a repo-local
+MANAGEROO reads the catalog and turns the selected loop into a repo-local
 brief. It also caches the catalog for offline fallback and can print a structured
 controller profile for a loop. That profile calls out whether the pattern is a
 `goal`, `loop`, or `routine`, then adds budget/caps, verifier, anti-spin, and
@@ -432,22 +432,22 @@ operator separately asks for that exact tool.
 Print the plan first:
 
 ```bash
-umsmfburasbofe uninstall-plan
+manageroo uninstall-plan
 ```
 
 The plan does not delete anything. It names the core files and reminds you that
 third-party tools are separate.
 
 ```bash
-rm -rf "$HOME/.local/share/umsmfburasbofe"
-rm -f "$HOME/.local/bin/umsmfburasbofe" "$HOME/.local/bin/umsmfburasbofe.cmd"
+rm -rf "$HOME/.local/share/manageroo"
+rm -f "$HOME/.local/bin/manageroo" "$HOME/.local/bin/manageroo.cmd"
 ```
 
 If the launcher or recommended skill pack gets damaged, run:
 
 ```bash
-umsmfburasbofe repair-install --no-apply
-umsmfburasbofe repair-install
+manageroo repair-install --no-apply
+manageroo repair-install
 ```
 
 

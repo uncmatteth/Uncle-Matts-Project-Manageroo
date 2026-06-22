@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from umsmfburasbofe.project import initialize_project
-from umsmfburasbofe.readiness import format_readiness, readiness
+from manageroo.project import initialize_project
+from manageroo.readiness import format_readiness, readiness
 
 
 class ReadinessTests(unittest.TestCase):
@@ -14,7 +14,7 @@ class ReadinessTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
         (repo / "README.md").write_text("fixture\n", encoding="utf-8")
         initialize_project(repo, agent="mock")
-        config = repo / ".umsmfburasbofe" / "config.toml"
+        config = repo / ".manageroo" / "config.toml"
         config.write_text(
             config.read_text(encoding="utf-8")
             + "\n[[verification.gates]]\n"
@@ -25,7 +25,7 @@ class ReadinessTests(unittest.TestCase):
             + 'argv = ["python3", "-m", "compileall", "."]\n',
             encoding="utf-8",
         )
-        (repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md").write_text(brief, encoding="utf-8")
+        (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(brief, encoding="utf-8")
         return repo
 
     def test_readiness_reports_exact_next_step_for_missing_checks(self):
@@ -34,12 +34,12 @@ class ReadinessTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             initialize_project(repo, agent="mock")
-            (repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md").write_text(
+            (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(
                 "# Product brief\n\nMake it work.\n",
                 encoding="utf-8",
             )
             with patch(
-                "umsmfburasbofe.readiness.helper_skill_items",
+                "manageroo.readiness.helper_skill_items",
                 return_value=[
                     {
                         "name": "helper:test",
@@ -50,14 +50,14 @@ class ReadinessTests(unittest.TestCase):
                     }
                 ],
             ), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
                 report = readiness(repo)
             self.assertFalse(report["ok"])
             checks = [item for item in report["items"] if item["name"] == "checks"][0]
             self.assertFalse(checks["ok"])
-            self.assertEqual(checks["next"], "umsmfburasbofe checks suggest --apply-first")
+            self.assertEqual(checks["next"], "manageroo checks suggest --apply-first")
             gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
             self.assertFalse(gbrain["required"])
 
@@ -67,9 +67,9 @@ class ReadinessTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             initialize_project(repo, agent="mock")
-            (repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md").unlink()
+            (repo / ".manageroo" / "PROJECT-MEMORY.md").unlink()
             with patch(
-                "umsmfburasbofe.readiness.helper_skill_items",
+                "manageroo.readiness.helper_skill_items",
                 return_value=[
                     {
                         "name": "helper:test",
@@ -80,13 +80,13 @@ class ReadinessTests(unittest.TestCase):
                     }
                 ],
             ), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
                 report = readiness(repo)
             memory = [item for item in report["items"] if item["name"] == "project memory"][0]
             self.assertFalse(memory["ok"])
-            self.assertIn("umsmfburasbofe memory init", memory["next"])
+            self.assertIn("manageroo memory init", memory["next"])
 
     def test_explicit_document_request_blocks_when_document_lane_is_unconfigured(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -95,10 +95,10 @@ class ReadinessTests(unittest.TestCase):
                 "# Product brief\n\nClean up this PDF transcript and preserve exact wording.\n",
             )
             with patch(
-                "umsmfburasbofe.readiness.helper_skill_items",
+                "manageroo.readiness.helper_skill_items",
                 return_value=[],
             ), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
                 report = readiness(repo)
@@ -117,10 +117,10 @@ class ReadinessTests(unittest.TestCase):
             media.parent.mkdir()
             media.write_bytes(b"\x89PNG\r\n\x1a\n")
             with patch(
-                "umsmfburasbofe.readiness.helper_skill_items",
+                "manageroo.readiness.helper_skill_items",
                 return_value=[],
             ), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
                 report = readiness(repo)
@@ -139,10 +139,10 @@ class ReadinessTests(unittest.TestCase):
                 "# Product brief\n\nUse GBrain memory and prior decisions before changing this.\n",
             )
             with patch(
-                "umsmfburasbofe.readiness.helper_skill_items",
+                "manageroo.readiness.helper_skill_items",
                 return_value=[],
             ), patch(
-                "umsmfburasbofe.readiness.gbrain_setup_status",
+                "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
                 report = readiness(repo)

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.install_status import (
+from manageroo.install_status import (
     format_stack_status,
     summarize_external_tools,
     uninstall_plan,
@@ -47,7 +47,7 @@ class InstallStatusTests(unittest.TestCase):
             {
                 "ok": True,
                 "lock_path": "/tmp/install-lock.json",
-                "launcher": "/tmp/bin/umsmfburasbofe",
+                "launcher": "/tmp/bin/manageroo",
                 "stack_summary": {
                     "items": [
                         {

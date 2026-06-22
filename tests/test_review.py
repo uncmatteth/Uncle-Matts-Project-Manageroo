@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.errors import ValidationError
-from umsmfburasbofe.review import validate_review_evidence
+from manageroo.errors import ValidationError
+from manageroo.review import validate_review_evidence
 
 
 class ReviewTests(unittest.TestCase):

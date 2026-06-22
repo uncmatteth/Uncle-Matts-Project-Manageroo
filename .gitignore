@@ -4,5 +4,5 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-.umsmfburasbofe/runs/
-.umsmfburasbofe/cache/
+.manageroo/runs/
+.manageroo/cache/

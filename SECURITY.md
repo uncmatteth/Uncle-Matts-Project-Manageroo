@@ -1,6 +1,6 @@
 # Security policy
 
-UMSMFBURASBOFE is an alpha coding-agent control plane. Do not report security-sensitive details in a public issue.
+MANAGEROO is an alpha coding-agent control plane. Do not report security-sensitive details in a public issue.
 
 Before public deployment or use on sensitive repositories:
 

@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from umsmfburasbofe.adapters.mock import MockAdapter
-from umsmfburasbofe.errors import ValidationError
-from umsmfburasbofe.orchestrator import Orchestrator
-from umsmfburasbofe.project import initialize_project
-from umsmfburasbofe.util import read_json
+from manageroo.adapters.mock import MockAdapter
+from manageroo.errors import ValidationError
+from manageroo.orchestrator import Orchestrator
+from manageroo.project import initialize_project
+from manageroo.util import read_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +23,7 @@ def _toml_array(items):
 
 def _load_installer_module():
     spec = importlib.util.spec_from_file_location(
-        "umsmfburasbofe_install_script",
+        "manageroo_install_script",
         ROOT / "scripts" / "install.py",
     )
     module = importlib.util.module_from_spec(spec)
@@ -38,7 +38,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
         repo.mkdir()
         for argv in (
             ["git", "init", "-q", "-b", "main"],
-            ["git", "config", "user.name", "UMSMFBURASBOFE Tests"],
+            ["git", "config", "user.name", "MANAGEROO Tests"],
             ["git", "config", "user.email", "tests@local.invalid"],
         ):
             subprocess.run(argv, cwd=repo, check=True)
@@ -48,15 +48,15 @@ class ReviewRepairLaneTests(unittest.TestCase):
             "from pathlib import Path\n\n"
             "class FixtureTest(unittest.TestCase):\n"
             "    def test_output(self):\n"
-            "        self.assertEqual(Path('umsmfburasbofe_fixture.txt').read_text(), "
-            "'UMSMFBURASBOFE deterministic fixture completed\\n')\n\n"
+            "        self.assertEqual(Path('manageroo_fixture.txt').read_text(), "
+            "'MANAGEROO deterministic fixture completed\\n')\n\n"
             "if __name__ == '__main__': unittest.main()\n",
             encoding="utf-8",
         )
         subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
         initialize_project(repo, agent="mock")
-        config = repo / ".umsmfburasbofe" / "config.toml"
+        config = repo / ".manageroo" / "config.toml"
         text = config.read_text(encoding="utf-8")
         text += (
             "\n[[verification.gates]]\n"
@@ -67,7 +67,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
             f"argv = {_toml_array([sys.executable, '-m', 'unittest', 'discover'])}\n"
         )
         config.write_text(text, encoding="utf-8")
-        brief = repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md"
+        brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
         brief.write_text("# Product request\n\nCreate the deterministic fixture file.\n", encoding="utf-8")
         return repo
 
@@ -75,7 +75,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
         docs = (ROOT / "docs" / "REVIEW_REPAIR_LANES.md").read_text(encoding="utf-8")
         skill = (
             ROOT
-            / "src/umsmfburasbofe/assets/skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md"
+            / "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md"
         ).read_text(encoding="utf-8")
         self.assertIn("command-owned repair lanes", docs)
         self.assertIn("must not freehand fixes", docs)
@@ -86,7 +86,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
     def test_configured_external_lane_runs_as_command_owned_artifact(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._fixture_repo(Path(temp))
-            config = repo / ".umsmfburasbofe" / "config.toml"
+            config = repo / ".manageroo" / "config.toml"
             text = config.read_text(encoding="utf-8")
             text = text.replace(
                 "autoreview_command = []",
@@ -109,7 +109,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
             config.write_text(text, encoding="utf-8")
 
             result = Orchestrator(repo, adapter=MockAdapter()).run(
-                brief_path=repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md",
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
                 mode="build",
                 apply_on_success=True,
             )
@@ -128,7 +128,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
     def test_external_lane_failure_blocks_without_ai_repair_prompt(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._fixture_repo(Path(temp))
-            config = repo / ".umsmfburasbofe" / "config.toml"
+            config = repo / ".manageroo" / "config.toml"
             text = config.read_text(encoding="utf-8")
             text = text.replace(
                 "clawpatch_command = []",
@@ -140,7 +140,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
             orchestrator = Orchestrator(repo, adapter=MockAdapter())
             with self.assertRaises(ValidationError):
                 orchestrator.run(
-                    brief_path=repo / ".umsmfburasbofe" / "PRODUCT-BRIEF.md",
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
                     mode="build",
                     apply_on_success=True,
                 )

@@ -6,8 +6,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.intent_lock import (
+from manageroo.cli import main
+from manageroo.intent_lock import (
     audit_compaction_text,
     capture_intent_lock,
     format_compaction_audit,
@@ -34,7 +34,7 @@ class IntentLockTests(unittest.TestCase):
                 outcomes=["Writes a release handoff"],
                 must_not=["Do not deploy production"],
                 proof=["release-ready reports READY"],
-                corrections=["The command name is umsmfburasbofe"],
+                corrections=["The command name is manageroo"],
                 rejected=["Do not add GitHub Actions"],
                 questions=["Which deployment target should the operator use?"],
                 scopes=["Only this Git repo"],
@@ -85,7 +85,7 @@ class IntentLockTests(unittest.TestCase):
                 outcomes=["Writes a release handoff"],
                 must_not=["Do not deploy production"],
                 proof=["release-ready reports READY"],
-                corrections=["The command name is umsmfburasbofe"],
+                corrections=["The command name is manageroo"],
             )
             report = audit_compaction_text(
                 repo,
@@ -95,7 +95,7 @@ class IntentLockTests(unittest.TestCase):
                         "Outcome: Writes a release handoff.",
                         "Must not: Do not deploy production.",
                         "Proof: release-ready reports READY.",
-                        "Correction: The command name is umsmfburasbofe.",
+                        "Correction: The command name is manageroo.",
                     ]
                 ),
             )
@@ -147,16 +147,16 @@ class IntentLockTests(unittest.TestCase):
             {
                 "ok": False,
                 "status": "blocked",
-                "lock_path": "/repo/.umsmfburasbofe/intent/INTENT-LOCK.json",
+                "lock_path": "/repo/.manageroo/intent/INTENT-LOCK.json",
                 "missing": [{"category": "must_not", "text": "Do not deploy production"}],
                 "warnings": [{"code": "confidence_claim", "text": "perfect"}],
-                "next_command": "umsmfburasbofe intent show",
+                "next_command": "manageroo intent show",
             }
         )
         self.assertIn("COMPACTION AUDIT: BLOCKED", text)
         self.assertIn("MISSING must_not: Do not deploy production", text)
         self.assertIn("WARNING confidence_claim: perfect", text)
-        self.assertIn("Next: umsmfburasbofe intent show", text)
+        self.assertIn("Next: manageroo intent show", text)
 
     def test_public_docs_explain_intent_lock_and_compaction_audit(self):
         surfaces = {

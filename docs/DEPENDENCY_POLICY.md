@@ -25,7 +25,7 @@ installing or guiding them. Non-interactive installs skip them unless
 
 This should not need a special build for each AI vendor. Any AI IDE or agent
 that can read the repo and run shell commands can use the installed
-`umsmfburasbofe` CLI and the repo-local skill.
+`manageroo` CLI and the repo-local skill.
 
 When this tool launches fresh agent processes itself, it uses a configured
 adapter:
@@ -56,7 +56,7 @@ active:
 
 They are local skill files, not network dependencies. The installer can select a
 mode with `--token-mode caveman` or `--token-mode curse`. Users can switch later
-with `umsmfburasbofe token-mode set ...`.
+with `manageroo token-mode set ...`.
 
 Existing different local skill files are backed up before the bundled files are
 installed.
@@ -67,9 +67,9 @@ Core install offers the recommended skill pack under `~/.agents/skills`. The
 pack is optional but strongly suggested because it lets compatible AI IDE agents
 choose the right helper without the user remembering skill names. The installer
 defaults to installing it. Use `--skill-pack skip` or `--skip-skill-pack` to
-leave it out and install it later with `umsmfburasbofe skills install`.
+leave it out and install it later with `manageroo skills install`.
 
-- `uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition`
+- `uncle-matts-project-manageroo`
   for controller routing.
 - `pimp-my-prompt` for rough request intake and reusable prompt cleanup.
 - `brain-ops` and `query` for GBrain-backed memory lookup.
@@ -93,13 +93,13 @@ These are bundled files, not network dependencies. Existing different local
 versions are backed up before replacement. They are available even when token
 mode is off.
 
-Copied skill folders can be curated locally with `umsmfburasbofe skills scan`
-and `umsmfburasbofe skills import --apply`. This imports only `SKILL.md` files,
+Copied skill folders can be curated locally with `manageroo skills scan`
+and `manageroo skills import --apply`. This imports only `SKILL.md` files,
 backs up same-name conflicts, and does not fetch anything from the network.
 
 ## Loop Library
 
-UMSMFBURASBOFE can read Matthew Berman / Forward Future's live Loop Library
+MANAGEROO can read Matthew Berman / Forward Future's live Loop Library
 catalog, cache it locally for offline fallback, print a controller profile, and
 generate a local product brief from a selected loop. That is a network read of
 public catalog data, not a package dependency. Installing the Loop Library skill
@@ -115,7 +115,7 @@ uses the upstream package install path, `pnpm add -g clawpatch`, runs
 and records failures or missing package managers instead of claiming completion.
 
 When configured for a run, AUTOREVIEW and Clawpatch are command-owned repair
-lanes, not optional AI advice. UMSMFBURASBOFE runs the configured command,
+lanes, not optional AI advice. MANAGEROO runs the configured command,
 captures the result, scope-checks any edits, and blocks on command failure. The
 AI repairer must not freehand fixes from AUTOREVIEW or Clawpatch findings.
 
@@ -123,7 +123,7 @@ AI repairer must not freehand fixes from AUTOREVIEW or Clawpatch findings.
 
 The installer exposes both GBrain paths instead of hiding the choice:
 
-- `--gbrain-lane local`: the UMSMFBURASBOFE local lane using Bun, PGLite init,
+- `--gbrain-lane local`: the MANAGEROO local lane using Bun, PGLite init,
   status probes, and source-mapping commands.
 - `--gbrain-lane official`: the upstream GBrain agent-supervised protocol at
   `INSTALL_FOR_AGENTS.md`.

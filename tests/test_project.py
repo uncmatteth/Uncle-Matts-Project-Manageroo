@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from umsmfburasbofe.project import create_project_repo, initialize_project
+from manageroo.project import create_project_repo, initialize_project
 
 
 class ProjectInitializationTests(unittest.TestCase):
@@ -13,8 +13,8 @@ class ProjectInitializationTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             initialize_project(repo, agent="mock")
-            self.assertTrue((repo / ".umsmfburasbofe" / "config.toml").exists())
-            memory = repo / ".umsmfburasbofe" / "PROJECT-MEMORY.md"
+            self.assertTrue((repo / ".manageroo" / "config.toml").exists())
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
             self.assertTrue(memory.exists())
             memory_text = memory.read_text(encoding="utf-8")
             self.assertIn("## What This Project Is", memory_text)
@@ -22,17 +22,17 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn("## What Must Not Break", memory_text)
             agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
             context_text = (repo / "CONTEXT.md").read_text(encoding="utf-8")
-            self.assertIn(".umsmfburasbofe/PROJECT-MEMORY.md", agents_text)
+            self.assertIn(".manageroo/PROJECT-MEMORY.md", agents_text)
             self.assertIn("brain-ops", agents_text)
             self.assertIn("exact-text-replacement", agents_text)
-            self.assertIn(".umsmfburasbofe/PROJECT-MEMORY.md", context_text)
+            self.assertIn(".manageroo/PROJECT-MEMORY.md", context_text)
             self.assertIn("document/prose lane", context_text)
             self.assertTrue(
                 (
                     repo
                     / ".agents"
                     / "skills"
-                    / "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition"
+                    / "uncle-matts-project-manageroo"
                     / "SKILL.md"
                 ).exists()
             )
@@ -50,7 +50,7 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertEqual(Path(result["repo"]), repo)
             self.assertTrue((repo / ".git").is_dir())
             self.assertIn("New Product", (repo / "README.md").read_text(encoding="utf-8"))
-            self.assertIn(".umsmfburasbofe/runs/", (repo / ".gitignore").read_text(encoding="utf-8"))
+            self.assertIn(".manageroo/runs/", (repo / ".gitignore").read_text(encoding="utf-8"))
             head = subprocess.run(
                 ["git", "rev-parse", "--verify", "HEAD"],
                 cwd=repo,

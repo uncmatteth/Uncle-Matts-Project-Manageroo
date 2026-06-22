@@ -4,14 +4,14 @@ Use this when another AI tool is doing the install for you.
 
 ---
 
-You are installing **Uncle Matt's Super Mega Forward Build Ultimate Remix All-Star Booty of Fire Edition**.
+You are installing **Uncle Matt's Project Manageroo**.
 
 This is an install task. Do not rename the project, rewrite the docs, swap the
 architecture, or get creative.
 
 ## Inputs
 
-- `UMSMFBURASBOFE_SOURCE`: the extracted `Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition` directory.
+- `MANAGEROO_SOURCE`: the extracted `Uncle-Matts-Project-Manageroo` directory.
 - `TARGET_PROJECT`: the existing product Git repository, or the missing/empty folder to create.
 - `OPERATOR_REQUEST`: what the operator wants built or fixed.
 - `CREATE_PROJECT`: `yes` only when `TARGET_PROJECT` is allowed to be created if missing or empty.
@@ -22,33 +22,33 @@ input is missing, stop and say which one is missing. Do not guess.
 ## Required sequence
 
 ```bash
-cd "$UMSMFBURASBOFE_SOURCE"
+cd "$MANAGEROO_SOURCE"
 python3 scripts/verify_release.py
 ./install.sh
 export PATH="$HOME/.local/bin:$PATH"
-umsmfburasbofe --version
-umsmfburasbofe self-test
-umsmfburasbofe skills list
-umsmfburasbofe token-mode status
-umsmfburasbofe stack-status --json
-umsmfburasbofe repair-install --no-apply --json
+manageroo --version
+manageroo self-test
+manageroo skills list
+manageroo token-mode status
+manageroo stack-status --json
+manageroo repair-install --no-apply --json
 if [ "$CREATE_PROJECT" = "yes" ]; then
-  umsmfburasbofe solo "$TARGET_PROJECT" --create --agent codex --want "$OPERATOR_REQUEST" --force
+  manageroo solo "$TARGET_PROJECT" --create --agent codex --want "$OPERATOR_REQUEST" --force
   cd "$TARGET_PROJECT"
 else
   git -C "$TARGET_PROJECT" rev-parse --show-toplevel
   cd "$TARGET_PROJECT"
-  umsmfburasbofe solo --agent codex --want "$OPERATOR_REQUEST" --force
+  manageroo solo --agent codex --want "$OPERATOR_REQUEST" --force
 fi
-umsmfburasbofe memory show
-umsmfburasbofe ready --json
-umsmfburasbofe next --json
+manageroo memory show
+manageroo ready --json
+manageroo next --json
 ```
 
 Use `--agent codex` only when Codex is the selected runtime. Use
-`umsmfburasbofe agent list` to see presets for another CLI. The non-Codex
+`manageroo agent list` to see presets for another CLI. The non-Codex
 presets are command templates; configure `[agent].argv_template` in
-`.umsmfburasbofe/config.toml` when the default flags are wrong.
+`.manageroo/config.toml` when the default flags are wrong.
 
 Same installer, same behavior. Use `./install.sh` from a normal Unix-style
 terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
@@ -57,8 +57,8 @@ products.
 If the operator requests token reduction, use one of:
 
 ```bash
-umsmfburasbofe token-mode set caveman
-umsmfburasbofe token-mode set curse
+manageroo token-mode set caveman
+manageroo token-mode set curse
 ```
 
 If the operator's product request is rough, overloaded, or frustrated, use the
@@ -68,29 +68,29 @@ rules before filling the product brief.
 If the operator wants to provide the full request non-interactively, run:
 
 ```bash
-umsmfburasbofe solo \
+manageroo solo \
   --want "OPERATOR_REQUEST_HERE" \
   --outcome "VISIBLE_RESULT_HERE" \
   --must-not "OUT_OF_SCOPE_OR_DO_NOT_TOUCH_HERE" \
   --proof "CHECK_OR_DEMO_HERE" \
   --force
-umsmfburasbofe ready --json
-umsmfburasbofe next --json
+manageroo ready --json
+manageroo next --json
 ```
 
 If readiness says no checks are configured, first let the controller add the
 first detected repo-aware proof command:
 
 ```bash
-umsmfburasbofe checks suggest --apply-first
-umsmfburasbofe checks list
-umsmfburasbofe ready --json
+manageroo checks suggest --apply-first
+manageroo checks list
+manageroo ready --json
 ```
 
 If GBrain should know this repo, map only the selected target repository:
 
 ```bash
-umsmfburasbofe gbrain-setup --source-id target-repo --path "$TARGET_PROJECT" --apply --sync
+manageroo gbrain-setup --source-id target-repo --path "$TARGET_PROJECT" --apply --sync
 ```
 
 If a local skill is getting long, repetitive, or stale, use the bundled
@@ -102,8 +102,8 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 - Stop if `CREATE_PROJECT` is not `yes` and the target is not already a Git repository.
 - Stop if `CREATE_PROJECT` is `yes` but the target is a non-empty non-Git folder.
 - Stop if `ready.ok` is false and report every failed or action item exactly, plus the single `next.command`.
-- Do not run a real build until the operator completes `.umsmfburasbofe/PRODUCT-BRIEF.md`.
-- Before broad product work, read `.umsmfburasbofe/PROJECT-MEMORY.md` and preserve its `What Must Not Break` section.
+- Do not run a real build until the operator completes `.manageroo/PRODUCT-BRIEF.md`.
+- Before broad product work, read `.manageroo/PROJECT-MEMORY.md` and preserve its `What Must Not Break` section.
 
 ## Do not
 
@@ -119,15 +119,15 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 Return:
 
 - terminal/runtime environment;
-- UMSMFBURASBOFE version;
+- MANAGEROO version;
 - Python version;
 - selected agent adapter, version when discoverable, and executable path;
-- UMSMFBURASBOFE executable path;
+- MANAGEROO executable path;
 - install-lock path;
-- complete `umsmfburasbofe stack-status --json` output;
-- complete `umsmfburasbofe repair-install --no-apply --json` output;
+- complete `manageroo stack-status --json` output;
+- complete `manageroo repair-install --no-apply --json` output;
 - self-test result;
-- complete `umsmfburasbofe ready --json` output;
+- complete `manageroo ready --json` output;
 - target repository path;
 - readiness for a real product brief.
 

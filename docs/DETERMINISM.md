@@ -1,6 +1,6 @@
 # Determinism
 
-UMSMFBURASBOFE uses “deterministic” to mean reproducible control and evidence, not identical model prose.
+MANAGEROO uses “deterministic” to mean reproducible control and evidence, not identical model prose.
 
 Deterministic properties:
 

@@ -3,7 +3,7 @@
 Project configuration lives at:
 
 ```text
-.umsmfburasbofe/config.toml
+.manageroo/config.toml
 ```
 
 Agents are forbidden from editing it during a run.
@@ -27,10 +27,10 @@ Agents are forbidden from editing it during a run.
 Built-in presets:
 
 ```bash
-umsmfburasbofe agent list
-umsmfburasbofe agent preset codex
-umsmfburasbofe agent preset gemini
-umsmfburasbofe agent preset generic
+manageroo agent list
+manageroo agent preset codex
+manageroo agent preset gemini
+manageroo agent preset generic
 ```
 
 `mock` exists only for deterministic harness validation. Non-Codex presets are
@@ -42,10 +42,10 @@ different invocation.
 Global token-reduction mode is managed outside the project config:
 
 ```bash
-umsmfburasbofe token-mode status
-umsmfburasbofe token-mode set off
-umsmfburasbofe token-mode set caveman
-umsmfburasbofe token-mode set curse
+manageroo token-mode status
+manageroo token-mode set off
+manageroo token-mode set caveman
+manageroo token-mode set curse
 ```
 
 The setting lives under the current user's config directory and is recorded in
@@ -72,8 +72,8 @@ Implementation tasks still run in dependency order in one integration workspace.
 ## Learning lane
 
 Learning cards do not have a config switch that permits silent mutation. Cards
-are saved under `.umsmfburasbofe/cache/learning/pending/` and applied only
-through `umsmfburasbofe learning apply CARD_ID --approve`.
+are saved under `.manageroo/cache/learning/pending/` and applied only
+through `manageroo learning apply CARD_ID --approve`.
 
 ## `[safety]`
 
@@ -98,7 +98,7 @@ Planning agents may reference gate IDs. They may not introduce argv commands.
 
 ## `[integrations]`
 
-Stack integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery still belongs to UMSMFBURASBOFE state, scope, gates, and evidence.
+Stack integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery still belongs to MANAGEROO state, scope, gates, and evidence.
 
 GBrain and GitNexus commands are optional intelligence, not hard dependencies.
 They run with bounded timeouts, write redacted output artifacts, and do not

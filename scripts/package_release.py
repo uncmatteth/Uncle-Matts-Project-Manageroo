@@ -9,11 +9,11 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT.parent / "uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition-final.zip"
-ARCHIVE_ROOT = "Uncle-Matts-Super-Mega-Forward-Build-Ultimate-Remix-All-Star-Booty-of-Fire-Edition"
+OUTPUT = ROOT.parent / "uncle-matts-project-manageroo-final.zip"
+ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 DEFAULT_DROP_DIR = ROOT.parent / ARCHIVE_ROOT
-END_USER_ZIP = "UMSMFBURASBOFE-End-User-Release-v2026.6.20.1.zip"
-SOURCE_ZIP = "UMSMFBURASBOFE-GitHub-Source-v2026.6.20.1.zip"
+END_USER_ZIP = "Manageroo-End-User-Release-v2026.6.20.1.zip"
+SOURCE_ZIP = "Manageroo-GitHub-Source-v2026.6.20.1.zip"
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
 EXCLUDED_PARTS = {".git", ".venv", "__pycache__", "dist", "build"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
@@ -44,11 +44,11 @@ def end_user_files() -> list[Path]:
 
 
 def purpose(relative: str) -> str:
-    if relative.startswith("src/umsmfburasbofe/assets/schemas/"):
+    if relative.startswith("src/manageroo/assets/schemas/"):
         return "Structured agent-output contract"
-    if relative.startswith("src/umsmfburasbofe/assets/prompts/"):
+    if relative.startswith("src/manageroo/assets/prompts/"):
         return "Role procedure reference"
-    if relative.startswith("src/umsmfburasbofe/"):
+    if relative.startswith("src/manageroo/"):
         return "Harness runtime source"
     if relative.startswith("tests/"):
         return "Deterministic harness test"
@@ -96,12 +96,12 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
     copies = {
         END_USER_ZIP: end_user_archive,
         SOURCE_ZIP: source_archive,
-        "UMSMFBURASBOFE-SOURCE-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
-        "UMSMFBURASBOFE-FINAL-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
-        "UMSMFBURASBOFE-LOCAL-SETUP.md": ROOT / "LOCAL_SETUP.md",
-        "UMSMFBURASBOFE-PUBLISH-TO-GITHUB.md": ROOT / "PUBLISH_TO_GITHUB.md",
-        "UMSMFBURASBOFE-GIVE-THIS-TO-YOUR-IDE-AGENT.md": ROOT / "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
-        "UMSMFBURASBOFE-GITHUB-DESCRIPTION.md": ROOT / "GITHUB_DESCRIPTION.md",
+        "Manageroo-SOURCE-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
+        "Manageroo-FINAL-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
+        "Manageroo-LOCAL-SETUP.md": ROOT / "LOCAL_SETUP.md",
+        "Manageroo-PUBLISH-TO-GITHUB.md": ROOT / "PUBLISH_TO_GITHUB.md",
+        "Manageroo-GIVE-THIS-TO-YOUR-IDE-AGENT.md": ROOT / "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
+        "Manageroo-GITHUB-DESCRIPTION.md": ROOT / "GITHUB_DESCRIPTION.md",
     }
     for name, source in copies.items():
         shutil.copy2(source, drop_dir / name)
@@ -110,8 +110,8 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
         path = drop_dir / name
         checksum_lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
     checksums = "\n".join(checksum_lines) + "\n"
-    (drop_dir / "UMSMFBURASBOFE-Release-SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
-    (drop_dir / "UMSMFBURASBOFE-SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
+    (drop_dir / "Manageroo-Release-SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
+    (drop_dir / "Manageroo-SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
 
 
 def main() -> int:

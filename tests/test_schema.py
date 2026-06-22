@@ -1,7 +1,7 @@
 import unittest
 
-from umsmfburasbofe.errors import ValidationError
-from umsmfburasbofe.schema import extract_json, validate
+from manageroo.errors import ValidationError
+from manageroo.schema import extract_json, validate
 
 
 class SchemaTests(unittest.TestCase):

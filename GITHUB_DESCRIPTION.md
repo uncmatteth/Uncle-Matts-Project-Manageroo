@@ -8,7 +8,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 
 ## Plain-English About Text
 
-- The command is `umsmfburasbofe`.
+- The command is `manageroo`.
 - The full name is incredibly super serious.
 - Use it when you want an AI coding agent to work on a real Git repo without drifting all over the place.
 - If you are starting from nothing, `solo --create` can make a missing or empty Git repo first.
@@ -21,13 +21,13 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
 - It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
 - It includes one token-reduction feature with two styles: clean `caveman` or profane `curse`, because life is more fun with appropriately placed, well-used profanity.
-- The recommended skill pack is optional but strongly suggested. The installer offers it, defaults to yes, `--skill-pack skip` skips it, and `umsmfburasbofe skills install` adds it later.
+- The recommended skill pack is optional but strongly suggested. The installer offers it, defaults to yes, `--skill-pack skip` skips it, and `manageroo skills install` adds it later.
 - The installer can scan common project folders, show a checkbox-style list of found repos, initialize only the ones selected, and ask for extra paths it missed.
-- The repo-local UMSMFBURASBOFE skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
-- Project init handles `AGENTS.md`, `CONTEXT.md`, `.umsmfburasbofe/PROJECT-MEMORY.md`, and the repo-local skill block so the user does not have to figure out agent-context files by hand.
+- The repo-local MANAGEROO skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
+- Project init handles `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, and the repo-local skill block so the user does not have to figure out agent-context files by hand.
 - `skills scan` and `skills import --apply` turn a copied skills folder into a curated local toolbox without blindly copying duplicate folders.
-- The normal path is simple: run `umsmfburasbofe solo`, answer normal product questions, then follow the one next command.
-- `.umsmfburasbofe/PROJECT-MEMORY.md` keeps the project identity, shipped facts, must-not-break rules, proof, and operator notes in the repo instead of hidden in chat.
+- The normal path is simple: run `manageroo solo`, answer normal product questions, then follow the one next command.
+- `.manageroo/PROJECT-MEMORY.md` keeps the project identity, shipped facts, must-not-break rules, proof, and operator notes in the repo instead of hidden in chat.
 - Every run can leave learning cards with evidence: remember this, fix that lane, consider a media/prose workflow, or turn a repeated problem into a future task.
 - Learning cards are approval-gated. `learning apply CARD_ID --approve` is required, and only low-risk project-memory notes apply automatically right now.
 - Manual-only cards do not give the AI permission to rewrite skills, config, docs, installer behavior, checks, prompts, or code.
@@ -53,7 +53,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It is alpha software. First real run goes on a clone, branch, or disposable copy.
 - It is not a replacement for tests, backups, security review, or human judgment.
 
-## Special Thanks: The UMSMFBURASBOFE Super Team
+## Special Thanks: The MANAGEROO Super Team
 
 These are the real-world powers this project remixes:
 

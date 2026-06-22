@@ -11,7 +11,7 @@
 
 ## Principal threats
 
-1. Prompt or repository content instructs the agent to ignore UMSMFBURASBOFE.
+1. Prompt or repository content instructs the agent to ignore MANAGEROO.
 2. An agent changes files outside task scope.
 3. An agent commits, pushes, or alters Git metadata.
 4. A reviewer changes the code it reviews.
@@ -40,4 +40,4 @@
 
 ## Out of scope
 
-UMSMFBURASBOFE is not a hardened container runtime, malware sandbox, secrets manager, or authorization layer. A malicious executable already installed on the host can exceed these controls. Use a disposable OS/container boundary for untrusted code.
+MANAGEROO is not a hardened container runtime, malware sandbox, secrets manager, or authorization layer. A malicious executable already installed on the host can exceed these controls. Use a disposable OS/container boundary for untrusted code.

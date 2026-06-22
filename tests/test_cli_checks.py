@@ -6,8 +6,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from umsmfburasbofe.cli import main
-from umsmfburasbofe.project import initialize_project
+from manageroo.cli import main
+from manageroo.project import initialize_project
 
 
 class CliCheckTests(unittest.TestCase):
@@ -72,7 +72,7 @@ class CliCheckTests(unittest.TestCase):
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
             self.assertEqual(payload["added"]["id"], "python-compile")
-            config_text = (repo / ".umsmfburasbofe" / "config.toml").read_text(encoding="utf-8")
+            config_text = (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")
             self.assertIn('id = "python-compile"', config_text)
             self.assertIn('argv = ["python3", "-m", "compileall", "."]', config_text)
 
