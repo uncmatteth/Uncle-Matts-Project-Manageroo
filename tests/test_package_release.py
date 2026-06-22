@@ -18,6 +18,8 @@ def _fixture(codes: list[int]) -> str:
 class PackageReleaseTests(unittest.TestCase):
     def test_release_names_use_project_manageroo_brand(self):
         self.assertEqual(package_release.ARCHIVE_ROOT, "Uncle-Matts-Project-Manageroo")
+        self.assertEqual(package_release.DROP_ROOT, "Manageroo-Release-v2026.6.22.1")
+        self.assertNotEqual(package_release.DROP_ROOT, package_release.ARCHIVE_ROOT)
         self.assertEqual(package_release.END_USER_ZIP, "Manageroo-End-User-Release-v2026.6.22.1.zip")
         self.assertEqual(package_release.SOURCE_ZIP, "Manageroo-GitHub-Source-v2026.6.22.1.zip")
 

@@ -37,7 +37,7 @@
   ],
   "ok": true,
   "python_process_safety_violations": [],
-  "source_tree_sha256": "bbe4b78708976618934c4930c6495ab643998a9668d1ef24f5968f1d6db38a76",
+  "source_tree_sha256": "a40eaa1bfd60be4ffd79593c0c1fb451fd32ed9e7471132b44c7ee7052d64a39",
   "structural_checks": [
     {
       "name": "required:install.sh",

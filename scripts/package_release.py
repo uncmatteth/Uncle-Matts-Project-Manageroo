@@ -11,7 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT.parent / "uncle-matts-project-manageroo-final.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-DEFAULT_DROP_DIR = ROOT.parent / ARCHIVE_ROOT
+DROP_ROOT = "Manageroo-Release-v2026.6.22.1"
+DEFAULT_DROP_DIR = ROOT.parent / DROP_ROOT
 END_USER_ZIP = "Manageroo-End-User-Release-v2026.6.22.1.zip"
 SOURCE_ZIP = "Manageroo-GitHub-Source-v2026.6.22.1.zip"
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP

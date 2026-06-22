@@ -17,7 +17,7 @@ Keep it private while performing the first live agent validation. Change visibil
 
 ## 2. Push the source tree
 
-If you are using the prepared `GitHub-Upload` folder, start inside that folder.
+If you are using the local source checkout, start inside that repository folder.
 If you are starting from a source ZIP, extract it first:
 
 ```bash
