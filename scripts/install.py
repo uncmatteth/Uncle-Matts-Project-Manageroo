@@ -887,6 +887,8 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     print("  - Write A Skill, Skillify, and Edit Skill")
     print("  - Caveman and Uncle Matt's Caveman Curse token modes")
     print("This is optional, but strongly suggested for AI IDE agents.")
+    print("Default is yes because this saves the user from remembering skill names.")
+    print("You can skip it and install it later with: umsmfburasbofe skills install")
     answer = input("Install the recommended skill pack now? [Y/n]: ").strip().lower()
     return "skip" if answer in {"n", "no", "skip"} else "install"
 

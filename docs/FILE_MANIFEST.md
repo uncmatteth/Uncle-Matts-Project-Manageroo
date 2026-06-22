@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 705 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 18040 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 18215 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 6740 | Project metadata or handoff |
@@ -43,7 +43,7 @@ This manifest is generated from the release source tree.
 | `install.sh` | 755 | Installation, validation, or packaging |
 | `pyproject.toml` | 1242 | Project metadata or handoff |
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
-| `scripts/install.py` | 45835 | Installation, validation, or packaging |
+| `scripts/install.py` | 46007 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
 | `scripts/package_release.py` | 5290 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 6081 | Installation, validation, or packaging |
@@ -146,7 +146,7 @@ This manifest is generated from the release source tree.
 | `tests/test_gbrain_setup.py` | 3265 | Deterministic harness test |
 | `tests/test_ideas.py` | 648 | Deterministic harness test |
 | `tests/test_install_repair.py` | 3004 | Deterministic harness test |
-| `tests/test_install_script.py` | 1751 | Deterministic harness test |
+| `tests/test_install_script.py` | 2434 | Deterministic harness test |
 | `tests/test_install_status.py` | 2832 | Deterministic harness test |
 | `tests/test_integration_config.py` | 2390 | Deterministic harness test |
 | `tests/test_inventory.py` | 4057 | Deterministic harness test |

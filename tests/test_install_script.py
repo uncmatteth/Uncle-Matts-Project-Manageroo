@@ -35,6 +35,19 @@ class InstallScriptTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(install.choose_skill_pack_mode("ask", False), "install")
 
+    def test_skill_pack_prompt_explains_default_skip_and_later_install(self):
+        install = load_install_script()
+        output = io.StringIO()
+        with patch.object(install.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input", return_value="n"):
+                with redirect_stdout(output):
+                    self.assertEqual(install.choose_skill_pack_mode("ask", False), "skip")
+        prompt = output.getvalue()
+        self.assertIn("optional, but strongly suggested", prompt)
+        self.assertIn("Default is yes", prompt)
+        self.assertIn("You can skip it", prompt)
+        self.assertIn("umsmfburasbofe skills install", prompt)
+
     def test_skill_pack_non_interactive_uses_recommended_install(self):
         install = load_install_script()
         with patch.object(install.sys.stdin, "isatty", return_value=False):
