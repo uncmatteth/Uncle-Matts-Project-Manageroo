@@ -669,17 +669,6 @@ records hashes and line ranges, tracks omitted files, refuses silent truncation,
 uses generated summaries for media and oversized prose when explicitly requested,
 and rejects stale packets.
 
-If the controller, terminal, or agent process dies mid-run, resume the same run:
-
-```bash
-manageroo resume <run-id> --repo /path/to/product
-```
-
-Resume reopens the saved `state.json`, existing isolated workspace, locked
-artifacts, packets, task checkpoints, gate evidence, and review evidence. It
-does not ask completed agent roles to think again just because the chat or
-terminal restarted.
-
 Unchanged file/media/prose summaries are cached under:
 
 ```text

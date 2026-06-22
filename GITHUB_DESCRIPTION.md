@@ -28,7 +28,6 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - `skills scan` and `skills import --apply` turn a copied skills folder into a curated local toolbox without blindly copying duplicate folders.
 - The normal path is simple: run `manageroo solo`, answer normal product questions, then follow the one next command.
 - `.manageroo/PROJECT-MEMORY.md` keeps the project identity, shipped facts, must-not-break rules, proof, and operator notes in the repo instead of hidden in chat.
-- `resume RUN_ID` continues an interrupted run from saved controller state, task checkpoints, and evidence instead of trusting chat memory or rerunning finished agent roles.
 - Every run can leave learning cards with evidence: remember this, fix that lane, consider a media/prose workflow, or turn a repeated problem into a future task.
 - Learning cards are approval-gated. `learning apply CARD_ID --approve` is required, and only low-risk project-memory notes apply automatically right now.
 - Manual-only cards do not give the AI permission to rewrite skills, config, docs, installer behavior, checks, prompts, or code.

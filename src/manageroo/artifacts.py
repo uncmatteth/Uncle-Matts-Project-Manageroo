@@ -29,18 +29,6 @@ class ArtifactStore:
     def _ledger(self) -> dict:
         return read_json(self.ledger_path)
 
-    def path(self, relative: str) -> Path:
-        return self.root / relative
-
-    def exists(self, relative: str) -> bool:
-        return self.path(relative).is_file()
-
-    def read_json(self, relative: str) -> Any:
-        return read_json(self.path(relative))
-
-    def read_text(self, relative: str) -> str:
-        return self.path(relative).read_text(encoding="utf-8")
-
     def _record(self, relative: str, locked: bool) -> ArtifactRecord:
         with self._lock:
             path = self.root / relative
