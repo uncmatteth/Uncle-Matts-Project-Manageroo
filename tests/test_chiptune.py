@@ -1,9 +1,10 @@
+import struct
 import tempfile
 import unittest
 import wave
 from pathlib import Path
 
-from manageroo.chiptune import SAMPLE_RATE, generate_theme, note_frequency
+from manageroo.chiptune import FADE_SECONDS, SAMPLE_RATE, generate_theme, note_frequency, theme_duration_seconds
 
 
 class ChiptuneTests(unittest.TestCase):
@@ -18,6 +19,26 @@ class ChiptuneTests(unittest.TestCase):
                 self.assertEqual(audio.getnchannels(), 1)
                 self.assertEqual(audio.getframerate(), SAMPLE_RATE)
                 self.assertGreater(audio.getnframes(), SAMPLE_RATE)
+
+    def test_generated_themes_fade_in_and_out(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for cue in ("install", "build", "success"):
+                with self.subTest(cue=cue):
+                    path = generate_theme(Path(temp) / f"{cue}.wav", cue=cue, variant=69)
+                    with wave.open(str(path), "rb") as audio:
+                        frames = audio.readframes(audio.getnframes())
+                        first = struct.unpack("<h", frames[:2])[0]
+                        last = struct.unpack("<h", frames[-2:])[0]
+                        self.assertEqual(first, 0)
+                        self.assertEqual(last, 0)
+
+    def test_install_theme_is_long_enough_for_guided_install(self):
+        self.assertGreaterEqual(theme_duration_seconds("install"), 300)
+
+    def test_every_cue_is_long_enough_for_three_second_fades(self):
+        for cue in ("install", "build", "success"):
+            with self.subTest(cue=cue):
+                self.assertGreaterEqual(theme_duration_seconds(cue), FADE_SECONDS * 2)
 
 
 if __name__ == "__main__":

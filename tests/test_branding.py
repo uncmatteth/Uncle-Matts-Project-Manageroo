@@ -28,6 +28,16 @@ class BrandingTests(unittest.TestCase):
         self.assertNotIn("".join(("bt", "tlabs.fun")), rendered)
         self.assertNotIn("\033[", rendered)
 
+    def test_banner_box_edges_are_aligned(self):
+        stream = io.StringIO()
+        print_banner(stream, animation=False)
+        box = [line for line in stream.getvalue().splitlines() if line.startswith(("╔", "║", "╚"))]
+        self.assertEqual(len(box), 4)
+        self.assertEqual(len({len(line) for line in box}), 1)
+        for line in box[1:-1]:
+            self.assertTrue(line.startswith("║"))
+            self.assertTrue(line.endswith("║"))
+
 
 if __name__ == "__main__":
     unittest.main()

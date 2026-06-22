@@ -22,7 +22,9 @@ Animation disables automatically when output is not a TTY, `CI` is set, `TERM=du
 
 The soundtrack is original and generated from code at runtime. No browser, MP3 bundle, audio framework, or permanent music file is installed.
 
-The synthesizer uses square-wave lead, triangle-wave bass, deterministic noise percussion, and fixed original patterns.
+The synthesizer uses square-wave lead, triangle-wave bass, deterministic noise percussion, and fixed original patterns. The install cue is about five minutes long, with changing sections instead of one tiny loop repeated forever.
+
+Every generated cue has a three-second fade in and a three-second fade out.
 
 Music playback is best-effort and never required for success. The installer uses the first available local audio player it can find and continues silently when no player is available.
 

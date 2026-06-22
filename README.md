@@ -75,7 +75,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - Token reduction is one feature with two styles: clean `caveman` or
   `uncle-matts-caveman-curse`. Curse mode exists because life is more fun with
   appropriately placed, well-used profanity.
-- The installer should be simple for normal users, but still fun: color, ASCII art, and generated chiptune music.
+- The installer should be simple for normal users, but still fun: color, ASCII art, and generated chiptune music with a long install theme and smooth three-second fades.
 
 ## What Problem It Solves
 

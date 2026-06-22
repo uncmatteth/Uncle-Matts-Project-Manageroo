@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 90 | Project metadata or handoff |
 | `AGENTS.md` | 647 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 29147 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 29655 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8396 | Project metadata or handoff |
@@ -14,7 +14,7 @@ This manifest is generated from the release source tree.
 | `LICENSE` | 1067 | Project metadata or handoff |
 | `LOCAL_SETUP.md` | 7647 | Project metadata or handoff |
 | `PUBLISH_TO_GITHUB.md` | 2353 | Project metadata or handoff |
-| `README.md` | 30703 | Project metadata or handoff |
+| `README.md` | 30759 | Project metadata or handoff |
 | `SECURITY.md` | 719 | Project metadata or handoff |
 | `docs/00_START_HERE.md` | 7910 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 3892 | Operator and engineering documentation |
@@ -38,7 +38,7 @@ This manifest is generated from the release source tree.
 | `docs/REVIEW_REPAIR_LANES.md` | 1528 | Operator and engineering documentation |
 | `docs/SECURITY_THREAT_MODEL.md` | 1524 | Operator and engineering documentation |
 | `docs/SOLO_OPERATOR_MODE.md` | 7650 | Operator and engineering documentation |
-| `docs/TERMINAL_EXPERIENCE.md` | 1115 | Operator and engineering documentation |
+| `docs/TERMINAL_EXPERIENCE.md` | 1302 | Operator and engineering documentation |
 | `examples/README.md` | 243 | Example product input |
 | `examples/product-brief-client-portal.md` | 1124 | Example product input |
 | `examples/product-brief-repair.md` | 888 | Example product input |
@@ -106,10 +106,10 @@ This manifest is generated from the release source tree.
 | `src/manageroo/assets/skills/write-a-skill/SKILL.md` | 1384 | Harness runtime source |
 | `src/manageroo/assets/templates/PRODUCT-BRIEF.md` | 1958 | Harness runtime source |
 | `src/manageroo/assets.py` | 210 | Harness runtime source |
-| `src/manageroo/branding.py` | 3522 | Harness runtime source |
+| `src/manageroo/branding.py` | 3093 | Harness runtime source |
 | `src/manageroo/brief_builder.py` | 2655 | Harness runtime source |
 | `src/manageroo/checks.py` | 8006 | Harness runtime source |
-| `src/manageroo/chiptune.py` | 6944 | Harness runtime source |
+| `src/manageroo/chiptune.py` | 10121 | Harness runtime source |
 | `src/manageroo/cli.py` | 55329 | Harness runtime source |
 | `src/manageroo/config.py` | 7985 | Harness runtime source |
 | `src/manageroo/context.py` | 8873 | Harness runtime source |
@@ -152,10 +152,10 @@ This manifest is generated from the release source tree.
 | `src/manageroo/util.py` | 3372 | Harness runtime source |
 | `src/manageroo/wizards.py` | 8444 | Harness runtime source |
 | `src/manageroo/workspace.py` | 6346 | Harness runtime source |
-| `tests/test_branding.py` | 1259 | Deterministic harness test |
+| `tests/test_branding.py` | 1725 | Deterministic harness test |
 | `tests/test_brief_builder.py` | 1695 | Deterministic harness test |
 | `tests/test_checks.py` | 3597 | Deterministic harness test |
-| `tests/test_chiptune.py` | 821 | Deterministic harness test |
+| `tests/test_chiptune.py` | 1925 | Deterministic harness test |
 | `tests/test_cli_checks.py` | 3208 | Deterministic harness test |
 | `tests/test_cli_memory.py` | 2217 | Deterministic harness test |
 | `tests/test_cli_next.py` | 3547 | Deterministic harness test |

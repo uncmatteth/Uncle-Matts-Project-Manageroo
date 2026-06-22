@@ -25,11 +25,20 @@ _COLORS = (
     "\033[38;5;220m",
 )
 
+
+_BOX_WIDTH = 96
+
+
+def _box_line(text: str = "", *, align: str = "left") -> str:
+    content = text.center(_BOX_WIDTH) if align == "center" else f" {text}".ljust(_BOX_WIDTH)
+    return f"║{content[:_BOX_WIDTH]}║"
+
+
 _MANAGEROO_ART = (
-    "╔════════════════════════════════════════════════════════════════════════════════════════════════╗",
-    "║                                      MANAGEROO                                             ║",
-    "║ Uncle Matt's Project Manageroo                                                        ║",
-    "╚════════════════════════════════════════════════════════════════════════════════════════════════╝",
+    f"╔{'═' * _BOX_WIDTH}╗",
+    _box_line("MANAGEROO", align="center"),
+    _box_line("Uncle Matt's Project Manageroo"),
+    f"╚{'═' * _BOX_WIDTH}╝",
 )
 
 
