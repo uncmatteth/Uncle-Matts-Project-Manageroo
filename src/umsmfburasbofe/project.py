@@ -36,6 +36,11 @@ silently broadening the current task.
 Read `.umsmfburasbofe/PROJECT-MEMORY.md` before broad product work. Preserve the
 `What Must Not Break` section unless the operator explicitly changes it.
 
+Read `.umsmfburasbofe/intent/INTENT-LOCK.md` before relying on a compacted chat,
+handoff, or old summary. If a summary drops a must-not rule, rejected idea,
+latest correction, proof requirement, or scope boundary, stop and run
+`umsmfburasbofe compact audit --summary SUMMARY.md`.
+
 Use the recommended UMSMFBURASBOFE skill pack automatically:
 - rough, overloaded, or frustrated request -> `pimp-my-prompt`;
 - existing memory, people, prior decisions, or project history -> `brain-ops`
@@ -64,14 +69,20 @@ For broad work, agents and AI IDEs should read these in order:
 
 1. `.umsmfburasbofe/PROJECT-MEMORY.md` for durable project identity, shipped
    facts, must-not-break rules, proof, and operator notes.
-2. `.umsmfburasbofe/PRODUCT-BRIEF.md` for the current requested build or repair.
-3. `AGENTS.md` for repo operating rules.
-4. This `CONTEXT.md` file when the repo has extra background, product language,
+2. `.umsmfburasbofe/intent/INTENT-LOCK.md` for the current ask, must-not rules,
+   rejected ideas, latest corrections, proof, and scope boundaries.
+3. `.umsmfburasbofe/PRODUCT-BRIEF.md` for the current requested build or repair.
+4. `AGENTS.md` for repo operating rules.
+5. This `CONTEXT.md` file when the repo has extra background, product language,
    audience notes, or document/prose instructions.
 
 If long prose, PDFs, screenshots, transcripts, or exact wording matter, use the
 document/prose lane and the bundled memory/document skills. Do not silently
 paraphrase exact user text or pretend media metadata is real vision.
+
+If chat compaction or a handoff is involved, run
+`umsmfburasbofe compact audit --summary SUMMARY.md` before treating the summary
+as authoritative.
 <!-- UMSMFBURASBOFE-CONTEXT:END -->
 """
 

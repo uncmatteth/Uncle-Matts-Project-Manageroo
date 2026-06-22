@@ -52,6 +52,8 @@ def format_solo_report(payload: dict[str, Any]) -> str:
             "OK product brief written from your request",
         ]
     )
+    if payload.get("intent_lock"):
+        lines.append("OK intent lock captured for compaction/drift audits")
     if payload.get("installed_skills") == []:
         lines.append("OK skill pack install skipped by flag")
     else:

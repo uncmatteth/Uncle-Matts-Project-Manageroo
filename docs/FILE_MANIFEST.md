@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 100 | Project metadata or handoff |
 | `AGENTS.md` | 705 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 26612 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 28126 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 690 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8269 | Project metadata or handoff |
@@ -14,21 +14,21 @@ This manifest is generated from the release source tree.
 | `LICENSE` | 1067 | Project metadata or handoff |
 | `LOCAL_SETUP.md` | 7534 | Project metadata or handoff |
 | `PUBLISH_TO_GITHUB.md` | 2702 | Project metadata or handoff |
-| `README.md` | 29648 | Project metadata or handoff |
+| `README.md` | 30846 | Project metadata or handoff |
 | `SECURITY.md` | 724 | Project metadata or handoff |
-| `docs/00_START_HERE.md` | 7579 | Operator and engineering documentation |
+| `docs/00_START_HERE.md` | 8006 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 3927 | Operator and engineering documentation |
 | `docs/CODEX_RUNTIME.md` | 533 | Operator and engineering documentation |
 | `docs/CONFIG_REFERENCE.md` | 5329 | Operator and engineering documentation |
-| `docs/CONTEXT_COMPILER.md` | 4066 | Operator and engineering documentation |
+| `docs/CONTEXT_COMPILER.md` | 5014 | Operator and engineering documentation |
 | `docs/CREDITS.md` | 3300 | Operator and engineering documentation |
 | `docs/DEPENDENCY_POLICY.md` | 5765 | Operator and engineering documentation |
 | `docs/DETERMINISM.md` | 853 | Operator and engineering documentation |
 | `docs/DOCUMENT_LANE.md` | 3311 | Operator and engineering documentation |
-| `docs/ENFORCEMENT_MATRIX.md` | 2072 | Operator and engineering documentation |
+| `docs/ENFORCEMENT_MATRIX.md` | 2183 | Operator and engineering documentation |
 | `docs/EXTERNAL_INTEGRATIONS.md` | 10725 | Operator and engineering documentation |
 | `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 5512 | Operator and engineering documentation |
-| `docs/INSTALLATION.md` | 14524 | Operator and engineering documentation |
+| `docs/INSTALLATION.md` | 14772 | Operator and engineering documentation |
 | `docs/LEARNING_LANE.md` | 2729 | Operator and engineering documentation |
 | `docs/LIMITATIONS.md` | 3706 | Operator and engineering documentation |
 | `docs/ONE_SHOT_PROTOCOL.md` | 1670 | Operator and engineering documentation |
@@ -37,7 +37,7 @@ This manifest is generated from the release source tree.
 | `docs/RESEARCH_CONCLUSIONS.md` | 2147 | Operator and engineering documentation |
 | `docs/REVIEW_REPAIR_LANES.md` | 1548 | Operator and engineering documentation |
 | `docs/SECURITY_THREAT_MODEL.md` | 1534 | Operator and engineering documentation |
-| `docs/SOLO_OPERATOR_MODE.md` | 6591 | Operator and engineering documentation |
+| `docs/SOLO_OPERATOR_MODE.md` | 7469 | Operator and engineering documentation |
 | `docs/TERMINAL_EXPERIENCE.md` | 1213 | Operator and engineering documentation |
 | `examples/README.md` | 248 | Example product input |
 | `examples/product-brief-client-portal.md` | 1124 | Example product input |
@@ -46,7 +46,7 @@ This manifest is generated from the release source tree.
 | `install.sh` | 755 | Installation, validation, or packaging |
 | `pyproject.toml` | 1242 | Project metadata or handoff |
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
-| `scripts/install.py` | 54300 | Installation, validation, or packaging |
+| `scripts/install.py` | 55851 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
 | `scripts/package_release.py` | 5290 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 10229 | Installation, validation, or packaging |
@@ -101,7 +101,7 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/assets/skills/strategic-reading/SKILL.md` | 437 | Harness runtime source |
 | `src/umsmfburasbofe/assets/skills/tdd/SKILL.md` | 1240 | Harness runtime source |
 | `src/umsmfburasbofe/assets/skills/uncle-matts-caveman-curse/SKILL.md` | 3909 | Harness runtime source |
-| `src/umsmfburasbofe/assets/skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md` | 5125 | Harness runtime source |
+| `src/umsmfburasbofe/assets/skills/uncle-matts-super-mega-forward-build-ultimate-remix-all-star-booty-of-fire-edition/SKILL.md` | 5646 | Harness runtime source |
 | `src/umsmfburasbofe/assets/skills/voice-note-ingest/SKILL.md` | 511 | Harness runtime source |
 | `src/umsmfburasbofe/assets/skills/write-a-skill/SKILL.md` | 1384 | Harness runtime source |
 | `src/umsmfburasbofe/assets/templates/PRODUCT-BRIEF.md` | 1968 | Harness runtime source |
@@ -110,7 +110,7 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/brief_builder.py` | 2655 | Harness runtime source |
 | `src/umsmfburasbofe/checks.py` | 8006 | Harness runtime source |
 | `src/umsmfburasbofe/chiptune.py` | 6954 | Harness runtime source |
-| `src/umsmfburasbofe/cli.py` | 46060 | Harness runtime source |
+| `src/umsmfburasbofe/cli.py` | 52238 | Harness runtime source |
 | `src/umsmfburasbofe/config.py` | 8031 | Harness runtime source |
 | `src/umsmfburasbofe/context.py` | 8873 | Harness runtime source |
 | `src/umsmfburasbofe/credits.py` | 4266 | Harness runtime source |
@@ -126,6 +126,7 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/install_status.py` | 6853 | Harness runtime source |
 | `src/umsmfburasbofe/integration_config.py` | 5732 | Harness runtime source |
 | `src/umsmfburasbofe/integrations.py` | 3290 | Harness runtime source |
+| `src/umsmfburasbofe/intent_lock.py` | 12756 | Harness runtime source |
 | `src/umsmfburasbofe/inventory.py` | 5239 | Harness runtime source |
 | `src/umsmfburasbofe/learning.py` | 14391 | Harness runtime source |
 | `src/umsmfburasbofe/loop_library.py` | 16018 | Harness runtime source |
@@ -133,7 +134,7 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/next_action.py` | 4253 | Harness runtime source |
 | `src/umsmfburasbofe/orchestrator.py` | 61957 | Harness runtime source |
 | `src/umsmfburasbofe/policy.py` | 2033 | Harness runtime source |
-| `src/umsmfburasbofe/project.py` | 18395 | Harness runtime source |
+| `src/umsmfburasbofe/project.py` | 18972 | Harness runtime source |
 | `src/umsmfburasbofe/project_memory.py` | 6074 | Harness runtime source |
 | `src/umsmfburasbofe/projects.py` | 5188 | Harness runtime source |
 | `src/umsmfburasbofe/readiness.py` | 12264 | Harness runtime source |
@@ -144,7 +145,8 @@ This manifest is generated from the release source tree.
 | `src/umsmfburasbofe/schema.py` | 3174 | Harness runtime source |
 | `src/umsmfburasbofe/selftest.py` | 3123 | Harness runtime source |
 | `src/umsmfburasbofe/skill_pack.py` | 7754 | Harness runtime source |
-| `src/umsmfburasbofe/solo.py` | 3046 | Harness runtime source |
+| `src/umsmfburasbofe/solo.py` | 3157 | Harness runtime source |
+| `src/umsmfburasbofe/stack_doctor.py` | 12563 | Harness runtime source |
 | `src/umsmfburasbofe/state.py` | 3357 | Harness runtime source |
 | `src/umsmfburasbofe/token_modes.py` | 8353 | Harness runtime source |
 | `src/umsmfburasbofe/util.py` | 3372 | Harness runtime source |
@@ -159,7 +161,7 @@ This manifest is generated from the release source tree.
 | `tests/test_cli_next.py` | 3602 | Deterministic harness test |
 | `tests/test_cli_release_ready.py` | 3139 | Deterministic harness test |
 | `tests/test_cli_setup.py` | 1801 | Deterministic harness test |
-| `tests/test_cli_solo.py` | 8555 | Deterministic harness test |
+| `tests/test_cli_solo.py` | 9016 | Deterministic harness test |
 | `tests/test_config.py` | 1392 | Deterministic harness test |
 | `tests/test_context.py` | 3885 | Deterministic harness test |
 | `tests/test_credits.py` | 552 | Deterministic harness test |
@@ -169,9 +171,10 @@ This manifest is generated from the release source tree.
 | `tests/test_gbrain_setup.py` | 3265 | Deterministic harness test |
 | `tests/test_ideas.py` | 648 | Deterministic harness test |
 | `tests/test_install_repair.py` | 3004 | Deterministic harness test |
-| `tests/test_install_script.py` | 3412 | Deterministic harness test |
+| `tests/test_install_script.py` | 4092 | Deterministic harness test |
 | `tests/test_install_status.py` | 2832 | Deterministic harness test |
 | `tests/test_integration_config.py` | 2390 | Deterministic harness test |
+| `tests/test_intent_lock.py` | 7693 | Deterministic harness test |
 | `tests/test_inventory.py` | 4057 | Deterministic harness test |
 | `tests/test_inventory_cache.py` | 1403 | Deterministic harness test |
 | `tests/test_learning.py` | 8481 | Deterministic harness test |
@@ -189,6 +192,7 @@ This manifest is generated from the release source tree.
 | `tests/test_schema.py` | 853 | Deterministic harness test |
 | `tests/test_selftest.py` | 430 | Deterministic harness test |
 | `tests/test_skill_pack_import.py` | 5521 | Deterministic harness test |
+| `tests/test_stack_doctor.py` | 3205 | Deterministic harness test |
 | `tests/test_state.py` | 854 | Deterministic harness test |
 | `tests/test_token_modes.py` | 8740 | Deterministic harness test |
 | `tests/test_truth_contract.py` | 8272 | Deterministic harness test |

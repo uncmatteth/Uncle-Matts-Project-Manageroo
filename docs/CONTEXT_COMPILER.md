@@ -6,6 +6,12 @@ A model context window is finite. Replaying an entire chat, repository, product 
 
 UMSMFBURASBOFE treats context as a compiled artifact.
 
+Chat compaction is not the source of truth. The repo-local intent lock is the
+truth surface for the operator's current ask, must-not rules, rejected ideas,
+latest corrections, proof, open questions, and scope boundaries. A compacted
+summary or handoff has to preserve that truth before the next long-running agent
+step can rely on it.
+
 ## Packet structure
 
 Every role receives a packet directory:
@@ -44,6 +50,27 @@ The manifest records:
 8. Review is partitioned across changed-code chunks when the changed set exceeds the review packet budget.
 9. Media files are represented as generated metadata summaries, not silently skipped.
 10. Oversized prose can be included through explicit summary mode; full required prose still must be sliced or decomposed.
+11. Intent locks are audited with a strict phrase-preservation audit before a
+    compact summary is trusted.
+
+## Intent lock and compaction audit
+
+`umsmfburasbofe solo` writes:
+
+```text
+.umsmfburasbofe/intent/INTENT-LOCK.json
+.umsmfburasbofe/intent/INTENT-LOCK.md
+```
+
+Run this when a long thread is summarized, compacted, or handed off:
+
+```bash
+umsmfburasbofe compact audit --summary SUMMARY.md
+```
+
+The audit checks for exact locked phrases. That is intentionally strict. If the
+operator said "Do not deploy production", a compacted summary that only says
+"be careful with release stuff" is not good enough.
 
 ## Repository map/reduce
 

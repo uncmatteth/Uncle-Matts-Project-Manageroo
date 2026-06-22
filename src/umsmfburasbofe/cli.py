@@ -32,6 +32,15 @@ from .install_status import (
     uninstall_plan,
 )
 from .install_repair import format_repair_install, repair_install
+from .intent_lock import (
+    audit_compaction_file,
+    capture_intent_lock,
+    format_compaction_audit,
+    format_intent_lock,
+    pinned_context_block,
+    read_intent_lock,
+    save_compaction_checkpoint,
+)
 from .integration_config import configure_integrations, format_integration_config
 from .learning import (
     apply_learning_card,
@@ -66,6 +75,7 @@ from .skill_pack import (
     scan_skill_folder,
 )
 from .solo import format_solo_report, solo_next_command
+from .stack_doctor import format_stack_doctor, stack_doctor
 from .token_modes import (
     CORE_HELPER_SKILLS,
     install_core_helper_skills,
@@ -298,6 +308,43 @@ def parser() -> argparse.ArgumentParser:
     memory_add.add_argument("--note", action="append", default=[])
     memory_add.add_argument("--json", action="store_true")
 
+    intent = sub.add_parser("intent", help="Capture and inspect repo-local intent truth for long-running work.")
+    intent_sub = intent.add_subparsers(dest="intent_command", required=True)
+    intent_capture = intent_sub.add_parser("capture", help="Write .umsmfburasbofe/intent/INTENT-LOCK files.")
+    intent_capture.add_argument("repo", nargs="?", default=".")
+    intent_capture.add_argument("--want", default="")
+    intent_capture.add_argument("--outcome", action="append", default=[])
+    intent_capture.add_argument("--must-not", action="append", default=[])
+    intent_capture.add_argument("--proof", action="append", default=[])
+    intent_capture.add_argument("--correction", action="append", default=[])
+    intent_capture.add_argument("--rejected", action="append", default=[])
+    intent_capture.add_argument("--question", action="append", default=[])
+    intent_capture.add_argument("--scope", action="append", default=[])
+    intent_capture.add_argument("--source", default="")
+    intent_capture.add_argument("--force", action="store_true")
+    intent_capture.add_argument("--json", action="store_true")
+    intent_show = intent_sub.add_parser("show", help="Show the current intent lock.")
+    intent_show.add_argument("repo", nargs="?", default=".")
+    intent_show.add_argument("--json", action="store_true")
+    intent_audit = intent_sub.add_parser("audit", help="Audit a compacted summary against the intent lock.")
+    intent_audit.add_argument("repo", nargs="?", default=".")
+    intent_audit.add_argument("--summary", type=Path, required=True)
+    intent_audit.add_argument("--json", action="store_true")
+    intent_pin = intent_sub.add_parser("pinned", help="Print the compact pinned context block.")
+    intent_pin.add_argument("repo", nargs="?", default=".")
+    intent_pin.add_argument("--json", action="store_true")
+
+    compact = sub.add_parser("compact", help="Checkpoint and audit summaries before or after chat compaction.")
+    compact_sub = compact.add_subparsers(dest="compact_command", required=True)
+    compact_audit = compact_sub.add_parser("audit", help="Block if a summary drops locked intent.")
+    compact_audit.add_argument("repo", nargs="?", default=".")
+    compact_audit.add_argument("--summary", type=Path, required=True)
+    compact_audit.add_argument("--json", action="store_true")
+    compact_checkpoint = compact_sub.add_parser("checkpoint", help="Save a compact summary plus its audit evidence.")
+    compact_checkpoint.add_argument("repo", nargs="?", default=".")
+    compact_checkpoint.add_argument("--summary", type=Path, required=True)
+    compact_checkpoint.add_argument("--json", action="store_true")
+
     learning = sub.add_parser("learning", help="List, inspect, and approval-apply run learning cards.")
     learning_sub = learning.add_subparsers(dest="learning_command", required=True)
     learning_list = learning_sub.add_parser("list", help="List pending or applied learning cards.")
@@ -468,6 +515,10 @@ def parser() -> argparse.ArgumentParser:
     stack.add_argument("--lock", type=Path)
     stack.add_argument("--json", action="store_true")
 
+    stack_doc = sub.add_parser("stack-doctor", help="Read-only smart doctor for existing stack dependencies.")
+    stack_doc.add_argument("--agent", choices=sorted(AGENT_PRESETS), default="codex")
+    stack_doc.add_argument("--json", action="store_true")
+
     uninstall = sub.add_parser("uninstall-plan", help="Print the core uninstall plan without deleting anything.")
     uninstall.add_argument("--prefix", type=Path)
     uninstall.add_argument("--bin-dir", type=Path)
@@ -623,6 +674,16 @@ def main(argv: list[str] | None = None) -> int:
             brief_path = default_brief_path(repo)
             brief_force = args.force or brief_is_template(brief_path)
             written_brief = write_product_brief(brief_path, markdown, force=brief_force)
+            intent_lock = capture_intent_lock(
+                repo,
+                want=answers["want"],
+                outcomes=answers["outcomes"],
+                must_not=answers["must_not"],
+                proof=answers["proof"],
+                scopes=[f"Repo: {repo}"],
+                source="solo",
+                force=True,
+            )
             integration_config = configure_integrations(
                 repo,
                 gbrain=bool(answers["integrations"].get("gbrain")),
@@ -655,6 +716,7 @@ def main(argv: list[str] | None = None) -> int:
                 "flow": "solo-operator",
                 "repo": str(repo),
                 "brief": str(written_brief),
+                "intent_lock": intent_lock,
                 "agent_name": answers["agent"],
                 "agent": agent_result,
                 "created_project": created_project,
@@ -688,6 +750,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_next_action(result), end="")
+            return 0
+
+        if args.command == "stack-doctor":
+            result = stack_doctor(agent=args.agent)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_stack_doctor(result), end="")
             return 0
 
         if args.command == "projects":
@@ -730,6 +800,62 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_project_memory(result), end="")
             return 0 if result["ok"] else 2
+
+        if args.command == "intent":
+            repo = _repo(args.repo)
+            if args.intent_command == "capture":
+                result = capture_intent_lock(
+                    repo,
+                    want=args.want,
+                    outcomes=args.outcome,
+                    must_not=args.must_not,
+                    proof=args.proof,
+                    corrections=args.correction,
+                    rejected=args.rejected,
+                    questions=args.question,
+                    scopes=args.scope,
+                    source=args.source,
+                    force=args.force,
+                )
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(format_intent_lock(result), end="")
+                return 0
+            if args.intent_command == "show":
+                result = read_intent_lock(repo)
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(format_intent_lock(result), end="")
+                return 0 if result.get("ok") else 2
+            if args.intent_command == "pinned":
+                result = pinned_context_block(repo)
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                elif result.get("ok"):
+                    print(result["content"], end="")
+                else:
+                    print(format_intent_lock(result), end="")
+                return 0 if result.get("ok") else 2
+            result = audit_compaction_file(repo, args.summary)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_compaction_audit(result), end="")
+            return 0 if result.get("ok") else 2
+
+        if args.command == "compact":
+            repo = _repo(args.repo)
+            if args.compact_command == "checkpoint":
+                result = save_compaction_checkpoint(repo, args.summary)
+            else:
+                result = audit_compaction_file(repo, args.summary)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_compaction_audit(result), end="")
+            return 0 if result.get("ok") else 2
 
         if args.command == "learning":
             repo = _repo(getattr(args, "repo", "."))

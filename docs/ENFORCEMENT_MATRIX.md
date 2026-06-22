@@ -14,6 +14,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change | Artifact hash ledger | Detective, blocks next phase |
+| Compaction cannot drop must-not rules | Intent lock plus compaction audit | Detective, blocks continuation |
 | Stale context cannot be reused | Source hashes in packet manifest | Detective, blocks execution |
 | Required context cannot disappear | Budget compiler raises instead of truncating | Preventive |
 | Model cannot mark run complete | Controller state machine | Preventive |

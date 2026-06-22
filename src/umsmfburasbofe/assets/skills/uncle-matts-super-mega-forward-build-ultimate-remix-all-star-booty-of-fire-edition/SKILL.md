@@ -21,11 +21,24 @@ to participate without freelancing.
 9. When you discover a possible future feature, report it as an idea; do not silently build it.
 10. Every factual review finding must cite current file evidence.
 11. Read `.umsmfburasbofe/PROJECT-MEMORY.md` before broad product work and preserve `What Must Not Break`.
-12. Do not apply learning cards without explicit approval from the operator.
+12. Read `.umsmfburasbofe/intent/INTENT-LOCK.md` before trusting compacted chat, handoffs, or old summaries.
+13. Do not apply learning cards without explicit approval from the operator.
 
 ## Context rule
 
 No role receives or relies on the full prior conversation. The packet is the complete authority for that role. Read its `manifest.json` when provenance or omissions matter.
+
+If a compacted summary, handoff, or resumed chat drops the locked ask, must-not
+rules, rejected ideas, latest corrections, proof, or scope boundaries, stop and
+run:
+
+```bash
+umsmfburasbofe compact audit --summary SUMMARY.md
+```
+
+Do not say a plan is best, smartest, perfect, ready, or 100% complete unless
+the current evidence proves that exact claim. Without proof, call it a
+recommendation or partial status.
 
 ## Recommended skill pack routing
 

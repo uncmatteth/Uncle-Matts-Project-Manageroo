@@ -61,6 +61,12 @@ class CliSoloTests(unittest.TestCase):
             self.assertIn("Make checkout sane", memory_text)
             self.assertIn("Do not change exports", memory_text)
             self.assertIn("Run checkout tests", memory_text)
+            intent = repo / ".umsmfburasbofe" / "intent" / "INTENT-LOCK.json"
+            intent_payload = json.loads(intent.read_text(encoding="utf-8"))
+            self.assertEqual(intent_payload["want"], "Make checkout sane")
+            self.assertIn("One clear payment path", intent_payload["outcomes"])
+            self.assertIn("Do not change exports", intent_payload["must_not"])
+            self.assertIn("Run checkout tests", intent_payload["proof"])
 
     def test_solo_json_reports_run_command_when_ready(self):
         with tempfile.TemporaryDirectory() as temp:

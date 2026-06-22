@@ -61,6 +61,8 @@ class InstallScriptTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("Memory lane", text)
         self.assertIn("Document/prose lane", text)
+        self.assertIn("Intent lock lane", text)
+        self.assertIn("compaction audit", text)
         self.assertIn("document_analysis_command", text)
         self.assertIn("ready prints WARN but does not block", text)
         self.assertIn("AUTOREVIEW/Clawpatch lane", text)
@@ -72,8 +74,18 @@ class InstallScriptTests(unittest.TestCase):
             install.print_next_commands()
         text = output.getvalue()
         self.assertIn("umsmfburasbofe projects --pick", text)
+        self.assertIn("umsmfburasbofe stack-doctor", text)
+        self.assertIn("umsmfburasbofe intent show", text)
+        self.assertIn("umsmfburasbofe compact audit --summary SUMMARY.md", text)
         self.assertIn("guided project picker", text)
         self.assertNotIn("cd /path/to/project && umsmfburasbofe solo", text)
+
+    def test_stack_doctor_prompt_defaults_to_run_when_interactive(self):
+        install = load_install_script()
+        with patch.object(install.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input", return_value=""):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(install.choose_stack_doctor_mode("ask"), "run")
 
 
 if __name__ == "__main__":

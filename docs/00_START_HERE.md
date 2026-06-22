@@ -12,6 +12,7 @@ The acronym is `UMSMFBURASBOFE` because this is incredibly super serious.
 You write what should be built or fixed.
 If the request is messy, $pimp-my-prompt can turn it into scope and proof.
 Solo Operator Mode turns the ask into a brief and one next action.
+Solo also writes an intent lock so long chats and handoffs can be audited.
 The tool reads the repo and breaks the job up.
 If configured, GBrain/GitNexus add memory and code-graph context.
 Independent map/review chunks can run in parallel.
@@ -20,6 +21,7 @@ configured document/prose command lane.
 Your AI agent does the code work.
 The tool runs checks and keeps the receipts.
 Bad work goes back through review and repair.
+Compacted summaries must keep the intent lock intact.
 If skills get bloated, $edit-skill trims duplicate and stale instructions.
 If a painful workflow repeats, $write-a-skill and $skillify package it.
 ```
@@ -113,6 +115,20 @@ use, what should be built or fixed, what must not break, what proof should pass,
 and whether to check GBrain, GitNexus, Obsidian, or Loop Library. It writes the
 brief, writes `.umsmfburasbofe/PROJECT-MEMORY.md`, and prints exactly one next
 command.
+
+It also writes:
+
+```text
+.umsmfburasbofe/intent/INTENT-LOCK.json
+.umsmfburasbofe/intent/INTENT-LOCK.md
+```
+
+If an agent compacts the chat, summarizes the thread, or hands off to another
+agent, audit that summary before relying on it:
+
+```bash
+umsmfburasbofe compact audit --summary SUMMARY.md
+```
 
 At any later point, use this when you just need to know the next move:
 

@@ -54,17 +54,18 @@ Starter choices:
 4. If `--create` is passed, create a missing or empty Git repo first.
 5. If `--starter` is selected, add a small starter scaffold and smoke check.
 6. Turn the ask into `.umsmfburasbofe/PRODUCT-BRIEF.md`.
-7. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
-8. Install or refresh the recommended skill pack.
-9. Optionally wire GBrain and GitNexus command templates.
-10. Report the status of selected extras like Obsidian and Loop Library.
-11. Run readiness checks.
-12. Print exactly one next command.
-13. If `--run` is passed and readiness is green, start the build or repair run.
-14. At release time, `release-ready` writes a plain-English production handoff.
-15. When the release gate is ready, `release-ready` also updates
+7. `solo` captures an intent lock for drift and compaction audits.
+8. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
+9. Install or refresh the recommended skill pack.
+10. Optionally wire GBrain and GitNexus command templates.
+11. Report the status of selected extras like Obsidian and Loop Library.
+12. Run readiness checks.
+13. Print exactly one next command.
+14. If `--run` is passed and readiness is green, start the build or repair run.
+15. At release time, `release-ready` writes a plain-English production handoff.
+16. When the release gate is ready, `release-ready` also updates
     `.umsmfburasbofe/PROJECT-MEMORY.md` with what shipped and what proof passed.
-16. After runs, learning cards capture useful lessons and wait for explicit
+17. After runs, learning cards capture useful lessons and wait for explicit
     approval before any supported apply.
 
 It reuses the same controller, brief builder, readiness checker, integration
@@ -132,6 +133,33 @@ Useful commands:
 umsmfburasbofe memory show
 umsmfburasbofe memory add --shipped "First release shipped" --must-not "Do not break checkout"
 ```
+
+## Intent Lock And Compaction Audit
+
+solo captures an intent lock during intake so compaction has a truth file to
+check against.
+
+`solo` captures an intent lock during intake:
+
+```text
+.umsmfburasbofe/intent/INTENT-LOCK.json
+.umsmfburasbofe/intent/INTENT-LOCK.md
+```
+
+This is the short truth file for long-running work. It records what the user
+wants, what must not happen, what proof matters, rejected ideas, latest
+corrections, open questions, and scope boundaries.
+
+When a chat, handoff, or agent summary gets compacted, audit it before trusting
+the summary:
+
+```bash
+umsmfburasbofe compact audit --summary SUMMARY.md
+```
+
+If the summary drops a must-not rule or rejected idea, the command blocks. That
+is the point: the compacted text is not allowed to become a weaker version of
+the user's real request.
 
 ## Learning Cards
 

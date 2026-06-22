@@ -36,6 +36,10 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - If the request is messy, angry, long, or half-formed, the bundled
   `pimp-my-prompt` skill helps turn it into exact scope, proof, and stop rules
   without losing what you meant.
+- `solo` also captures an intent lock: what you want, what must not happen,
+  what proof matters, what got rejected, and the latest corrections.
+- Before or after a long chat gets compacted, run a compaction audit so the
+  summary cannot quietly drop must-not rules or rejected ideas.
 - `umsmfburasbofe` reads the repo and breaks the job into smaller chunks.
 - The recommended skill pack gives agents built-in lanes for rough intake,
   memory lookup, source ingest, media/PDF work, long prose, exact wording,
@@ -241,6 +245,32 @@ Right now the supported automatic apply target is a project-memory note. Higher
 risk cards, like skill cleanup, config changes, installer changes, failed
 AUTOREVIEW/Clawpatch lanes, media lanes, or long-document lanes, stay
 manual-only until you approve a separate scoped task.
+
+## Intent lock and compaction audit
+
+Long-running AI work should not depend on a giant chat transcript staying good
+forever. Chat compaction is useful, but it is not the source of truth.
+
+`solo` captures the important intake facts here:
+
+```text
+.umsmfburasbofe/intent/INTENT-LOCK.json
+.umsmfburasbofe/intent/INTENT-LOCK.md
+```
+
+That lock records the plain ask, required outcomes, must-not rules, proof,
+corrections, rejected ideas, open questions, and scope boundaries.
+
+When an agent or tool gives you a compact summary or handoff, audit it:
+
+```bash
+umsmfburasbofe compact audit --summary SUMMARY.md
+```
+
+The audit is strict on purpose. If the summary drops a locked phrase like "Do
+not deploy production" or "Do not add GitHub Actions", the audit blocks. If an
+agent says "best", "smartest", "perfect", "ready", or "100% done" without the
+evidence preserved, treat that as a recommendation, not proven best.
 
 If the repo has no detected tests or build checks, add one real command without
 editing config by hand:

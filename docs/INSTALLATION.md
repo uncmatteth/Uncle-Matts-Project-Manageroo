@@ -247,8 +247,9 @@ With `--create`, it initializes Git, writes a minimal `README.md` and
 non-empty non-Git folders and nested repos.
 
 It writes `.umsmfburasbofe/PRODUCT-BRIEF.md`, writes
-`.umsmfburasbofe/PROJECT-MEMORY.md`, writes or updates managed `AGENTS.md` and
-`CONTEXT.md` guidance blocks, checks readiness, and prints exactly one next
+`.umsmfburasbofe/PROJECT-MEMORY.md`, captures
+`.umsmfburasbofe/intent/INTENT-LOCK.json`, writes or updates managed `AGENTS.md`
+and `CONTEXT.md` guidance blocks, checks readiness, and prints exactly one next
 command. Existing human content in those files is preserved. If every required
 check is already ready during that first
 command, you can combine intake and execution:
@@ -279,6 +280,14 @@ Use project memory to keep future runs from forgetting what matters:
 ```bash
 umsmfburasbofe memory show
 umsmfburasbofe memory add --must-not "Do not remove the import flow"
+```
+
+Use the intent lock when a long chat, handoff, or continuation summary might
+have lost the real request:
+
+```bash
+umsmfburasbofe intent show
+umsmfburasbofe compact audit --summary SUMMARY.md
 ```
 
 ```bash

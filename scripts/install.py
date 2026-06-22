@@ -1055,9 +1055,10 @@ def print_lane_explainer() -> None:
     print("Lane readiness, plain English:")
     print("  - Memory lane: if the brief asks for GBrain, memory, Obsidian, or prior decisions, map GBrain sources before the run.")
     print("  - Document/prose lane: if the brief asks for PDFs, transcripts, screenshots, images, long prose, or exact wording, configure document_analysis_command first.")
+    print("  - Intent lock lane: solo captures what you want, must-not rules, proof, rejected ideas, and corrections; compacted handoffs should pass compaction audit.")
     print("  - Passive files: if the repo merely contains documents or media, ready prints WARN but does not block.")
     print("  - AUTOREVIEW/Clawpatch lane: if configured, those commands own their findings and repairs; the AI must not freehand fixes from them.")
-    print("  - Where to read more: docs/DOCUMENT_LANE.md, docs/REVIEW_REPAIR_LANES.md, docs/EXTERNAL_INTEGRATIONS.md")
+    print("  - Where to read more: docs/SOLO_OPERATOR_MODE.md, docs/CONTEXT_COMPILER.md, docs/DOCUMENT_LANE.md, docs/REVIEW_REPAIR_LANES.md, docs/EXTERNAL_INTEGRATIONS.md")
 
 
 def choose_project_discovery_mode(selection: str) -> str:
@@ -1074,6 +1075,20 @@ def choose_project_discovery_mode(selection: str) -> str:
     return "pick"
 
 
+def choose_stack_doctor_mode(selection: str) -> str:
+    if selection != "ask":
+        return selection
+    if not sys.stdin.isatty():
+        return "skip"
+    print("")
+    print("Smart dependency check?")
+    print("This is read-only. It checks existing GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Loop Library, and Codex setup.")
+    answer = input("Run smart stack doctor now? [Y/n]: ").strip().lower()
+    if answer in {"n", "no", "skip"}:
+        return "skip"
+    return "run"
+
+
 def print_next_commands() -> None:
     print("\nNext commands:")
     print("  umsmfburasbofe --version")
@@ -1085,10 +1100,14 @@ def print_next_commands() -> None:
     print("  umsmfburasbofe skills scan /home/Tommy/Downloads/SKILLS")
     print("  umsmfburasbofe skills import /home/Tommy/Downloads/SKILLS --apply")
     print("  umsmfburasbofe stack-status")
+    print("  umsmfburasbofe stack-doctor")
     print("  umsmfburasbofe repair-install --no-apply")
     print("  # Easiest first product setup: guided project picker")
     print("  umsmfburasbofe projects --pick")
     print('  umsmfburasbofe solo /path/to/new-project --create --want "Describe the first useful version"')
+    print("  # After solo, inspect or audit the intent lock when a chat/handoff gets compacted:")
+    print("  umsmfburasbofe intent show")
+    print("  umsmfburasbofe compact audit --summary SUMMARY.md")
     print("  # If readiness says no checks exist:")
     print("  umsmfburasbofe checks suggest")
     print("  # When readiness is green:")
@@ -1144,6 +1163,12 @@ def main() -> int:
         choices=["ask", "pick", "skip"],
         default="ask",
         help="After install, optionally run the read-only guided project picker.",
+    )
+    parser.add_argument(
+        "--stack-doctor",
+        choices=["ask", "run", "skip"],
+        default="ask",
+        help="After install, optionally run the read-only smart stack dependency doctor.",
     )
     parser.add_argument(
         "--skill-pack",
@@ -1328,6 +1353,17 @@ def main() -> int:
         print(f"Add {args.bin_dir.expanduser().resolve()} to PATH, then open a new terminal.")
     if not args.no_music:
         play_once(cue="success", variant=69)
+    stack_doctor_mode = choose_stack_doctor_mode(args.stack_doctor)
+    if stack_doctor_mode == "run":
+        print("")
+        optional_run(
+            [str(python), "-m", "umsmfburasbofe", "stack-doctor"],
+            downloads,
+            "stack-doctor",
+            "umsmfburasbofe stack-doctor",
+            cwd=Path.home(),
+            env=installed_env,
+        )
     project_discovery_mode = choose_project_discovery_mode(args.project_discovery)
     if project_discovery_mode == "pick":
         print("")
