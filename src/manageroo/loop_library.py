@@ -302,7 +302,7 @@ def loop_brief(loop: dict[str, Any], request: str = "") -> str:
         )
     steps_text = _quoted_catalog_list(steps)
 
-    operator_request = request.strip() or "TODO: describe the exact repo-local outcome you want from this loop."
+    operator_request = request.strip() or "Describe the exact repo-local outcome you want from this loop."
     source_prompt = str(prompt).strip() or "No loop prompt text was provided in the catalog entry."
     use_when = str(loop.get("useWhen") or "Use when this loop matches the operator's requested outcome.").strip()
     why = str(loop.get("why") or "").strip()

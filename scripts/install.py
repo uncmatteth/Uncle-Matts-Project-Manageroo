@@ -411,8 +411,8 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
                 "gbrain",
                 "Official GBrain agent-supervised install lane selected. The installer will not guess API keys, search mode, source mapping, or recurring jobs.",
                 [
-                    "Paste this into your AI agent:",
-                    f"Retrieve and follow the instructions at: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}",
+                    f"Open the official GBrain agent install guide: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}",
+                    "Follow it with your chosen AI agent so keys, search mode, source mapping, and recurring jobs stay intentional.",
                     "Afterward run: gbrain doctor --json",
                     "Then rerun: manageroo stack-status",
                 ],

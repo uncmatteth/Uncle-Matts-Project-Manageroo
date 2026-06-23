@@ -131,6 +131,16 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertNotIn("/home/Tommy/Downloads/SKILLS", text)
                 self.assertIn("~/Downloads/SKILLS", text)
 
+    def test_official_gbrain_lane_does_not_tell_users_to_copy_paste(self):
+        install = load_install_script()
+        output = io.StringIO()
+        with patch.object(install, "command_version", return_value="not installed"):
+            with redirect_stdout(output):
+                result = install.install_gbrain([], lane="official")
+        text = output.getvalue() + "\n".join(result["next_commands"])
+        self.assertIn("official GBrain agent install guide", text)
+        self.assertNotIn("Paste this into your AI agent", text)
+
 
 if __name__ == "__main__":
     unittest.main()

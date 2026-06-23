@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 102 | Project metadata or handoff |
 | `AGENTS.md` | 647 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 38875 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 39339 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8530 | Project metadata or handoff |
@@ -47,7 +47,7 @@ This manifest is generated from the release source tree.
 | `install.sh` | 755 | Installation, validation, or packaging |
 | `pyproject.toml` | 1222 | Project metadata or handoff |
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
-| `scripts/install.py` | 57307 | Installation, validation, or packaging |
+| `scripts/install.py` | 57392 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
 | `scripts/package_release.py` | 5658 | Installation, validation, or packaging |
 | `scripts/smoke_release_install.py` | 8372 | Installation, validation, or packaging |
@@ -178,7 +178,7 @@ This manifest is generated from the release source tree.
 | `src/manageroo/inventory.py` | 5239 | Harness runtime source |
 | `src/manageroo/jobs.py` | 13650 | Harness runtime source |
 | `src/manageroo/learning.py` | 14381 | Harness runtime source |
-| `src/manageroo/loop_library.py` | 15983 | Harness runtime source |
+| `src/manageroo/loop_library.py` | 15977 | Harness runtime source |
 | `src/manageroo/map_cache.py` | 1776 | Harness runtime source |
 | `src/manageroo/next_action.py` | 4248 | Harness runtime source |
 | `src/manageroo/orchestrator.py` | 79664 | Harness runtime source |
@@ -221,7 +221,7 @@ This manifest is generated from the release source tree.
 | `tests/test_gbrain_setup.py` | 3986 | Deterministic harness test |
 | `tests/test_ideas.py` | 643 | Deterministic harness test |
 | `tests/test_install_repair.py` | 2974 | Deterministic harness test |
-| `tests/test_install_script.py` | 6158 | Deterministic harness test |
+| `tests/test_install_script.py` | 6702 | Deterministic harness test |
 | `tests/test_install_status.py` | 2822 | Deterministic harness test |
 | `tests/test_integration_config.py` | 2350 | Deterministic harness test |
 | `tests/test_intent_lock.py` | 7653 | Deterministic harness test |
