@@ -61,6 +61,19 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
         self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
 
+    def test_package_release_runs_end_user_zip_smoke(self):
+        package_text = (ROOT / "scripts" / "package_release.py").read_text(encoding="utf-8")
+        verifier_text = (ROOT / "scripts" / "verify_release.py").read_text(encoding="utf-8")
+        smoke_text = (ROOT / "scripts" / "smoke_release_install.py").read_text(encoding="utf-8")
+
+        self.assertIn("scripts/smoke_release_install.py", package_text)
+        self.assertIn("--skip-install-tests", package_text)
+        self.assertIn("scripts/smoke_release_install.py", verifier_text)
+        self.assertIn("EXPECTED_SKILL_COUNT = 49", smoke_text)
+        self.assertIn('"manageroo"', smoke_text)
+        self.assertIn('"solo"', smoke_text)
+        self.assertIn('"run"', smoke_text)
+
     def test_drop_folder_copies_distinct_archives(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

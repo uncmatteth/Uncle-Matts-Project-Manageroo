@@ -211,6 +211,20 @@ manageroo repair-install --no-apply
 manageroo projects --add
 ```
 
+## Release ZIP smoke proof
+
+For release verification, run the install path from the ZIP in a clean temporary
+home directory:
+
+```bash
+python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.6.22.1.zip
+```
+
+That verifies the launcher, `self-test`, the 49-skill routed pack, skill support
+files, `skills reconcile`, first project creation through `solo`, readiness, and
+a complete mock Manageroo run. The packaging script runs this smoke against the
+generated ZIP before refreshing the release drop.
+
 ## Token reduction
 
 Token reduction is one feature with two styles. The package includes both skill

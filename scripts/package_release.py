@@ -144,6 +144,19 @@ def main() -> int:
 
     write_archive(OUTPUT, end_user_files())
     write_archive(SOURCE_OUTPUT, included_files())
+    smoke = subprocess.run(
+        [
+            sys.executable,
+            "scripts/smoke_release_install.py",
+            "--archive",
+            str(OUTPUT),
+            "--skip-install-tests",
+        ],
+        cwd=ROOT,
+        shell=False,
+    )
+    if smoke.returncode:
+        return smoke.returncode
     refresh_drop_folder(DEFAULT_DROP_DIR, OUTPUT, SOURCE_OUTPUT)
     print(OUTPUT)
     print(SOURCE_OUTPUT)

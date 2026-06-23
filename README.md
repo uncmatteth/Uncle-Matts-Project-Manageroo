@@ -400,6 +400,18 @@ If Bun, Node/npm/npx/pnpm, Flatpak, Snap, Homebrew, or Winget is missing, the
 installer records the missing piece and prints the exact next commands instead
 of pretending it finished that part.
 
+Release trust check:
+
+```bash
+python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.6.22.1.zip
+```
+
+That command creates a clean temporary home directory, installs from the
+end-user ZIP, verifies the launcher, runs `self-test`, checks the 49-skill pack
+and support files, creates a throwaway product repo, runs `solo`, checks
+readiness, and completes a mock Manageroo run. `package_release.py` runs the
+same smoke against the generated ZIP before refreshing the release drop.
+
 If GBrain already exists, the stack lane inspects it instead of blindly running
 `gbrain init --pglite` over an existing Postgres/Ollama setup. It records the
 engine, embedding model, schema pack, source count, and embedding coverage, then

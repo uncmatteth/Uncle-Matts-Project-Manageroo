@@ -94,6 +94,7 @@ def structural_checks() -> list[dict]:
     required = [
         "install.sh",
         "install.ps1",
+        "scripts/smoke_release_install.py",
         "README.md",
         "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
         "docs/CONTEXT_COMPILER.md",

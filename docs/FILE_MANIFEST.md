@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 102 | Project metadata or handoff |
 | `AGENTS.md` | 647 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 38645 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 38875 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8530 | Project metadata or handoff |
@@ -14,7 +14,7 @@ This manifest is generated from the release source tree.
 | `LICENSE` | 1067 | Project metadata or handoff |
 | `LOCAL_SETUP.md` | 7734 | Project metadata or handoff |
 | `PUBLISH_TO_GITHUB.md` | 2676 | Project metadata or handoff |
-| `README.md` | 30960 | Project metadata or handoff |
+| `README.md` | 31479 | Project metadata or handoff |
 | `SECURITY.md` | 719 | Project metadata or handoff |
 | `docs/00_START_HERE.md` | 8059 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 5717 | Operator and engineering documentation |
@@ -28,7 +28,7 @@ This manifest is generated from the release source tree.
 | `docs/ENFORCEMENT_MATRIX.md` | 3421 | Operator and engineering documentation |
 | `docs/EXTERNAL_INTEGRATIONS.md` | 11985 | Operator and engineering documentation |
 | `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 5352 | Operator and engineering documentation |
-| `docs/INSTALLATION.md` | 16596 | Operator and engineering documentation |
+| `docs/INSTALLATION.md` | 17135 | Operator and engineering documentation |
 | `docs/LEARNING_LANE.md` | 2664 | Operator and engineering documentation |
 | `docs/LIMITATIONS.md` | 4591 | Operator and engineering documentation |
 | `docs/ONE_SHOT_PROTOCOL.md` | 1799 | Operator and engineering documentation |
@@ -49,8 +49,9 @@ This manifest is generated from the release source tree.
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
 | `scripts/install.py` | 57307 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
-| `scripts/package_release.py` | 5345 | Installation, validation, or packaging |
-| `scripts/verify_release.py` | 12085 | Installation, validation, or packaging |
+| `scripts/package_release.py` | 5658 | Installation, validation, or packaging |
+| `scripts/smoke_release_install.py` | 8372 | Installation, validation, or packaging |
+| `scripts/verify_release.py` | 12129 | Installation, validation, or packaging |
 | `sitecustomize.py` | 241 | Project metadata or handoff |
 | `src/manageroo/__init__.py` | 67 | Harness runtime source |
 | `src/manageroo/__main__.py` | 48 | Harness runtime source |
@@ -232,7 +233,7 @@ This manifest is generated from the release source tree.
 | `tests/test_loop_library.py` | 6112 | Deterministic harness test |
 | `tests/test_map_cache.py` | 1585 | Deterministic harness test |
 | `tests/test_orchestrator_jobs.py` | 17435 | Deterministic harness test |
-| `tests/test_package_release.py` | 5662 | Deterministic harness test |
+| `tests/test_package_release.py` | 6411 | Deterministic harness test |
 | `tests/test_policy.py` | 1534 | Deterministic harness test |
 | `tests/test_project.py` | 4593 | Deterministic harness test |
 | `tests/test_projects.py` | 6095 | Deterministic harness test |
