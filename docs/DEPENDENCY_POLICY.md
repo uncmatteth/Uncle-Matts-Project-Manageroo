@@ -7,9 +7,6 @@
 - A Git-backed target repository for real product runs
 - One AI IDE, CLI agent, or configured runtime for live coding-agent operation
 - At least one deterministic verification gate for completion claims
-
-## Intended local stack
-
 - GBrain
 - GitNexus
 - Obsidian
@@ -17,9 +14,12 @@
 - Clawpatch
 - Loop Library catalog
 
-These are the intended surrounding tools. Interactive installs ask before
-installing or guiding them. Non-interactive installs skip them unless
-`--install-stack` is passed.
+## Required local stack
+
+The surrounding stack stays external, but it is not an alternate partial install.
+Interactive and non-interactive installs run the stack lane. Missing stack
+pieces remain blockers until installed, configured, or explicitly handled by
+their documented lane.
 
 ## Agent surfaces
 
@@ -40,7 +40,8 @@ No single AI product is the point.
 - Any particular IDE
 - Codex specifically, unless the project config selects the Codex adapter
 - Node, npm, Cargo, Go, Maven, Gradle, or other build tools unless the target repo's verification gates call them
-- Bun or Node unless the user chooses the recommended stack lane
+- Bun or Node unless required by a missing stack installer path or the target
+  repo's own verification gates
 
 The installer records selected external tools in `install-lock.json`. It installs Codex only when run with `--install-codex`.
 
@@ -61,13 +62,11 @@ with `manageroo token-mode set ...`.
 Existing different local skill files are backed up before the bundled files are
 installed.
 
-## Recommended skill pack
+## Required skill pack
 
-Core install offers the recommended skill pack under `~/.agents/skills`. The
-pack is optional but strongly suggested because it lets compatible AI IDE agents
-choose the right helper without the user remembering skill names. The installer
-defaults to installing it. Use `--skill-pack skip` or `--skip-skill-pack` to
-leave it out and install it later with `manageroo skills reconcile --apply`.
+Core install adds the Manageroo skill pack under `~/.agents/skills`. The pack is
+part of the full install because it lets compatible AI IDE agents choose the
+right helper without the user remembering skill names.
 
 - `uncle-matts-project-manageroo`
   for controller routing.
@@ -83,6 +82,7 @@ leave it out and install it later with `manageroo skills reconcile --apply`.
 - `skillify` for deciding whether a workflow deserves a skill and checking its proof.
 - `diagnose` for broken, flaky, confusing, or slow behavior.
 - `tdd` for one behavior test at a time.
+- `go-get-uncle-matts-hammerrr` for explicit claim-vs-runtime project truth audits.
 - `autoreview` for closeout code review before commit, release, or handoff.
 - `plain-web-copy` for factual public copy.
 - `fix-my-bad-website` for website and app-screen cleanup when the page looks generic.
@@ -104,8 +104,8 @@ fetch anything from the network.
 MANAGEROO can read Matthew Berman / Forward Future's live Loop Library
 catalog, cache it locally for offline fallback, print a controller profile, and
 generate a local product brief from a selected loop. That is a network read of
-public catalog data, not a package dependency. Installing the Loop Library skill
-itself remains optional and must be requested separately.
+public catalog data. Stack installation owns the Loop Library skill dependency;
+the catalog reader does not install it on the fly.
 
 ## AUTOREVIEW and Clawpatch
 

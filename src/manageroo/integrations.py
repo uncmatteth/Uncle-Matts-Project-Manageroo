@@ -16,7 +16,7 @@ def _terms(query: str) -> set[str]:
 
 
 class ObsidianIntegration:
-    """Reads/writes plain Markdown. Obsidian itself is not required."""
+    """Reads/writes an Obsidian vault as plain Markdown."""
 
     def __init__(self, vault: str, export_folder: str):
         self.vault = Path(vault).expanduser().resolve() if vault else None
@@ -55,7 +55,7 @@ class ObsidianIntegration:
 
 
 class ExternalCommandIntegration:
-    """Optional integration point with argv-only execution and explicit configuration."""
+    """Command-owned integration point with argv-only execution and explicit configuration."""
 
     def __init__(self, argv_template: Iterable[str], runner: CommandRunner):
         self.argv_template = list(argv_template)

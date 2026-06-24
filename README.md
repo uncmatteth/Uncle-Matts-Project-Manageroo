@@ -54,16 +54,16 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - `manageroo run --continue <run-id>` replays the controller from the saved run
   folder, skips completed worker jobs, and gives unfinished jobs a fresh packet.
   It is not a magic terminal-keepalive trick.
-- The recommended skill pack gives agents built-in lanes for rough intake,
+- The required skill pack gives agents built-in lanes for rough intake,
   memory lookup, source ingest, media/PDF work, long prose, exact wording,
-  debugging, test-first work, closeout review, public copy, website cleanup,
-  reusable skills, and token reduction.
-- You do not have to figure out `AGENTS.md` and `CONTEXT.md` by hand. Project
-  init writes managed guidance blocks, preserves existing files, and the
-  context compiler prioritizes `AGENTS.md`, `CONTEXT.md`, project memory, and
-  docs when building packets.
-- If GBrain or GitNexus commands are configured, it asks them for useful memory
-  or code-graph context during discovery and records what worked or failed.
+  debugging, test-first work, claim-vs-reality audits, closeout review, public
+  copy, website cleanup, reusable skills, and token reduction.
+- You do not have to figure out `AGENTS.md`, `CONTEXT.md`, starter PRDs, or
+  starter task lists by hand. Project init writes managed guidance blocks,
+  preserves existing files, and the context compiler prioritizes `AGENTS.md`,
+  `CONTEXT.md`, project memory, and docs when building packets.
+- GBrain and GitNexus command lanes are required; it asks them for memory and
+  code-graph context during discovery and blocks if they are missing or failing.
 - Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
 - Pictures, PDFs, and big prose files are not invisible. The tool records media
   metadata, writes a document manifest, and can run a configured
@@ -229,7 +229,10 @@ manageroo solo \
 
 `solo` prepares the project, writes the product brief, writes
 `.manageroo/PROJECT-MEMORY.md`, checks readiness, and prints exactly one
-next command. If readiness is already green during the first intake command,
+next command. With `--create`, the first scaffold also includes `PRD.md` and
+`TASKS.md` as human-facing planning surfaces; they are not proof. Current
+files, tests, builds, browser checks, live probes, and command output still
+prove status. If readiness is already green during the first intake command,
 add `--run --apply` to let it start the build or repair run.
 
 When you are not sure what to do next, ask the tool for only the next action:
@@ -329,7 +332,7 @@ terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
 products.
 
 The installer validates the source, runs the tests, installs the command for the
-current user, offers the recommended skill pack, runs `self-test`, and writes
+current user, installs the required skill pack, runs `self-test`, and writes
 `install-lock.json`. It does not require Codex. Use `./install.sh
 --install-codex` only when you specifically want this machine to install or
 update Codex too.
@@ -350,15 +353,12 @@ If you only want the older read-only picker that prints one next command:
 manageroo projects --pick
 ```
 
-The skill pack is optional but strongly suggested. It is what lets AI IDE agents
-choose the right helper without the user remembering magic skill names. Agents
-should load only the helper skill needed for the current job, not the whole
-pack. The installer asks in a normal terminal and defaults to yes.
-Non-interactive installs use the recommended yes path. Skip it with
-`./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`; reconcile
-it later with `manageroo skills reconcile --apply`.
+The skill pack is part of the full Manageroo install. It is what lets AI IDE
+agents choose the right helper without the user remembering magic skill names.
+Agents should load only the helper skill needed for the current job, not the
+whole pack. Non-interactive installs use the same full-scope path.
 
-The recommended skill pack is installed under `~/.agents/skills`:
+The required skill pack is installed under `~/.agents/skills`:
 
 - `uncle-matts-project-manageroo`:
   tells agents how to follow the controller instead of freelancing.
@@ -370,8 +370,9 @@ The recommended skill pack is installed under `~/.agents/skills`:
   `data-research`, and `perplexity-research`.
 - Documents and exact wording: `pdf`, `brain-pdf`, `citation-fixer`,
   `reports`, and `exact-text-replacement`.
-- Build proof: `diagnose`, `tdd`, `testing`, `autoreview`,
-  `security-review`, `cross-modal-review`, `handoff`, and `skillpack-check`.
+- Build proof: `diagnose`, `tdd`, `testing`, `go-get-uncle-matts-hammerrr`,
+  `autoreview`, `security-review`, `cross-modal-review`, `handoff`, and
+  `skillpack-check`.
 - Website/UI proof: `plain-web-copy`, `fix-my-bad-website`,
   `web-design-guidelines`, `open-design`, `playwright`, and
   `playwright-interactive`.
@@ -380,7 +381,7 @@ The recommended skill pack is installed under `~/.agents/skills`:
 - Big-work routing: `subagent-orchestrator` and `minion-orchestrator`.
 - Token reduction: `caveman` and `uncle-matts-caveman-curse`.
 
-The installer also offers the recommended local stack:
+The installer also runs the required local stack lane:
 
 - GBrain for memory.
 - GitNexus for code graph context.
@@ -389,8 +390,8 @@ The installer also offers the recommended local stack:
 - Obsidian for human-readable notes.
 - Matthew Berman / Forward Future's Loop Library skill for published agent loops.
 
-Interactive installs ask before touching those third-party tools. To force the
-guided stack lane:
+`--install-stack` is accepted as an explicit spelling of the default required
+stack lane:
 
 ```bash
 ./install.sh --install-stack --loop-library-agent codex
@@ -407,7 +408,7 @@ python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-
 ```
 
 That command creates a clean temporary home directory, installs from the
-end-user ZIP, verifies the launcher, runs `self-test`, checks the 49-skill pack
+end-user ZIP, verifies the launcher, runs `self-test`, checks the 50-skill pack
 and support files, creates a throwaway product repo, runs `solo`, checks
 readiness, and completes a mock Manageroo run. `package_release.py` runs the
 same smoke against the generated ZIP before refreshing the release drop.
@@ -444,7 +445,6 @@ Choose token-reduction mode during install:
 ```bash
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
-./install.sh --token-mode off
 ```
 
 `caveman` is token reduction in the clean style. `curse` is the same token
@@ -489,7 +489,7 @@ Run bare `setup` for the lower-level wizard. It asks:
 
 - what AI you are using;
 - what repo you want to work on;
-- whether you want GBrain, GitNexus, Obsidian, or Loop Library help.
+- how to wire the required GBrain/GitNexus stack and supporting local tools.
 
 Project setup writes `.manageroo/PROJECT-MEMORY.md`, the current product
 brief, a repo-local MANAGEROO skill, and managed `AGENTS.md`/`CONTEXT.md`
@@ -516,7 +516,6 @@ use `manageroo`.
 Switch token-reduction mode later:
 
 ```bash
-manageroo token-mode set off
 manageroo token-mode set caveman
 manageroo token-mode set curse
 ```
@@ -526,7 +525,7 @@ The switch command installs the bundled `caveman` and
 different local skill file already exists there, it is backed up before the
 bundled copy is installed.
 
-Reinstall the recommended skill pack later if needed:
+Reinstall the required skill pack later if needed:
 
 ```bash
 manageroo skills reconcile --apply
@@ -571,12 +570,13 @@ manageroo ready
 manageroo next
 ```
 
-`ready` now checks the brief for lane needs in plain English. If the brief asks
+`ready` now checks stack and brief lane needs in plain English. GBrain and
+GitNexus command lanes are required for normal runs. If the brief asks
 for PDFs, transcripts, screenshots, images, long prose, or exact wording, it
 blocks until `document_analysis_command` is configured. If the repo merely
 contains document/media files but the brief does not ask to use them, it prints
-a `WARN` instead of blocking. If the brief asks for GBrain, memory, Obsidian, or
-prior decisions, GBrain becomes required for that run.
+a `WARN` instead of blocking. GBrain must also have mapped sources before the
+run starts.
 
 If readiness says no checks are configured, ask the tool to suggest the simplest
 real proof command for that repo and add the first detected one:
@@ -594,16 +594,18 @@ manageroo gbrain-setup
 manageroo gbrain-setup --source-id my-product --path "$PWD" --apply --sync
 ```
 
-If you want `run` to use your memory or code graph, wire the commands in
-`.manageroo/config.toml`. Empty arrays mean off. Failed optional tools are
-recorded, but they do not block the normal controller path:
+`run` uses GBrain memory and GitNexus code graph context through required
+command templates in `.manageroo/config.toml`. Empty arrays are readiness
+failures. Missing or failing GBrain/GitNexus commands block before planning:
 
 ```toml
 [integrations]
-gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
+gbrain_search_command = ["gbrain", "call", "query", "{gbrain_query_payload}"]
 gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
-gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
-gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
+gbrain_readiness_probe_command = []
+gitnexus_analyze_command = ["gitnexus", "analyze", "{workspace}", "--skip-agents-md", "--skip-skills"]
+gitnexus_status_command = ["gitnexus", "status"]
+gitnexus_readiness_probe_command = []
 ```
 
 If the local command gets broken after install, inspect or repair it:
@@ -627,8 +629,8 @@ That reads the live catalog, credits the source loop, and turns it into a
 repo-local MANAGEROO brief with a controller profile. The profile labels
 the pattern as `goal`, `loop`, or `routine`, adds budget and anti-spin stops,
 and states the verifier rule: the worker does not grade itself. The catalog is
-cached for offline fallback. It does not install Loop Library or make it a
-required dependency.
+cached for offline fallback. It does not install Loop Library by itself; stack
+installation and `stack-doctor` own that dependency.
 
 Run the build:
 
@@ -689,11 +691,11 @@ instead of doing that work again. The system-map cache is stricter: it reuses
 the repo map only when the inventory fingerprint and product brief hash match
 exactly.
 
-Configured GBrain and GitNexus commands are treated as optional context, not as
-the source of truth. Passing output is included in the planning prompts. Missing
-or failing tools are written to
+Configured GBrain and GitNexus commands are required repo-intelligence lanes,
+not replacements for current disk truth. Passing output is included in the
+planning prompts. Missing or failing tools are written to
 `.manageroo/runs/<run-id>/artifacts/discovery/external-intelligence.json`
-so you can see exactly what happened.
+and block the run so you can see exactly what happened.
 
 Configured document/prose commands work the same way. Every run writes:
 
@@ -703,9 +705,10 @@ Configured document/prose commands work the same way. Every run writes:
 ```
 
 `document_analysis_command` can read that manifest and produce evidence for
-books, articles, PDFs, transcripts, or long notes. If it fails, the failure is
-recorded as optional context. The AI does not get permission to freehand a whole
-manuscript or pretend metadata is real visual understanding.
+books, articles, PDFs, transcripts, or long notes. Passive repo documents can be
+recorded as non-blocking inventory context; explicit document/prose/exact-text
+requests make failure blocking. The AI does not get permission to freehand a whole manuscript
+or pretend metadata is real visual understanding.
 
 See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).
 See [`docs/DOCUMENT_LANE.md`](docs/DOCUMENT_LANE.md).

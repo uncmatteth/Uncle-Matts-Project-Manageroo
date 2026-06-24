@@ -107,11 +107,34 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
     patch_path = Path(patch_value) if patch_value else delivery / "final.patch"
     review_status = data.get("review", {}).get("status")
     applied = bool(data.get("applied_to_source"))
+    external_capture_passed = bool(
+        data.get("external_capture", {}).get("summary", {}).get("passed")
+    )
+    external_capture_path = run_root / "artifacts" / "delivery" / "external-capture.json"
+    external_capture_artifact_passed = False
+    external_capture_artifact_error = ""
+    if external_capture_path.is_file():
+        try:
+            external_capture_artifact = read_json(external_capture_path)
+            external_capture_artifact_passed = bool(
+                external_capture_artifact.get("summary", {}).get("passed")
+            )
+        except Exception as exc:
+            external_capture_artifact_error = str(exc)
     failures: list[str] = []
     if data.get("status") != "COMPLETE":
         failures.append(f"status is {data.get('status', 'missing')}")
     if review_status != "approved":
         failures.append(f"review is {review_status or 'missing'}")
+    if not external_capture_passed:
+        failures.append("required external capture proof is missing or failed")
+    if not external_capture_path.is_file():
+        failures.append("external capture artifact is missing")
+    elif not external_capture_artifact_passed:
+        detail = "external capture artifact is failed or missing a passed summary"
+        if external_capture_artifact_error:
+            detail += f": {external_capture_artifact_error}"
+        failures.append(detail)
     if not report_path.is_file():
         failures.append("final report is missing")
     if not patch_path.is_file():
@@ -124,10 +147,11 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         "result_path": str(result_path),
         "final_report": str(report_path),
         "final_patch": str(patch_path),
+        "external_capture": str(external_capture_path),
         "review_status": review_status or "",
         "applied_to_source": applied,
         "detail": (
-            f"run {run_id}; report={report_path}; patch={patch_path}; review={review_status}; applied={applied}"
+            f"run {run_id}; report={report_path}; patch={patch_path}; external_capture={external_capture_path}; review={review_status}; applied={applied}"
             if not failures
             else f"run {run_id} incomplete: " + "; ".join(failures)
         ),

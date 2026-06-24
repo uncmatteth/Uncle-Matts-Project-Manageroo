@@ -49,8 +49,8 @@ class StackDoctorTests(unittest.TestCase):
             code = main(["stack-doctor", "--json"])
 
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(code, 0)
-        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["ok"], payload["ready"])
+        self.assertEqual(code, 0 if payload["ready"] else 2)
         self.assertFalse(payload["executes_changes"])
         self.assertIn("items", payload)
 
@@ -76,12 +76,13 @@ class StackDoctorTests(unittest.TestCase):
         self.assertIn("read-only", text)
         self.assertIn("ACTION gitnexus", text)
         self.assertIn("gitnexus setup", text)
+        self.assertNotIn("--install-stack", text)
 
-    def test_gitnexus_installed_is_warning_not_permanent_required_failure(self):
+    def test_gitnexus_requires_status_and_analyze_probes(self):
         def which(name: str) -> str | None:
             return "/usr/bin/gitnexus" if name == "gitnexus" else None
 
-        def runner(argv: list[str], timeout_seconds: int = 30) -> dict:
+        def runner(argv: list[str], timeout_seconds: int = 30, *, cwd: Path | None = None) -> dict:
             if Path(argv[0]).name == "gitnexus" and argv[1:] == ["--version"]:
                 return {"ok": True, "exit_code": 0, "output": "gitnexus 1.0.0"}
             return {"ok": False, "exit_code": 1, "output": "unexpected"}
@@ -91,9 +92,38 @@ class StackDoctorTests(unittest.TestCase):
 
         gitnexus = next(item for item in report["items"] if item["name"] == "gitnexus")
         self.assertTrue(gitnexus["installed"])
-        self.assertIn(gitnexus["status"], {"ok", "warning"})
+        self.assertEqual(gitnexus["status"], "needs_action")
+        self.assertFalse(gitnexus["configured"])
+        self.assertIn("gitnexus status", gitnexus["next_commands"])
+        self.assertIn("gitnexus analyze <repo> --skip-agents-md --skip-skills", gitnexus["next_commands"])
+
+    def test_gitnexus_required_probes_ready(self):
+        def which(name: str) -> str | None:
+            return "/usr/bin/gitnexus" if name == "gitnexus" else None
+
+        def runner(argv: list[str], timeout_seconds: int = 30, *, cwd: Path | None = None) -> dict:
+            if Path(argv[0]).name == "gitnexus" and argv[1:] == ["--version"]:
+                return {"ok": True, "exit_code": 0, "output": "ok"}
+            if Path(argv[0]).name == "gitnexus" and argv[1:] == ["status"] and cwd:
+                return {"ok": True, "exit_code": 0, "cwd": str(cwd), "output": "ok"}
+            if (
+                Path(argv[0]).name == "gitnexus"
+                and len(argv) == 5
+                and argv[1] == "analyze"
+                and argv[3:] == ["--skip-agents-md", "--skip-skills"]
+                and cwd
+            ):
+                return {"ok": True, "exit_code": 0, "cwd": str(cwd), "output": "ok"}
+            return {"ok": False, "exit_code": 1, "output": "unexpected"}
+
+        with tempfile.TemporaryDirectory() as temp:
+            report = stack_doctor(which=which, runner=runner, home=Path(temp))
+
+        gitnexus = next(item for item in report["items"] if item["name"] == "gitnexus")
+        self.assertTrue(gitnexus["installed"])
+        self.assertEqual(gitnexus["status"], "ok")
         self.assertTrue(gitnexus["configured"])
-        self.assertNotEqual(gitnexus["status"], "needs_action")
+        self.assertEqual(gitnexus["next_commands"], [])
 
 
 if __name__ == "__main__":

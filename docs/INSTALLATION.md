@@ -26,20 +26,16 @@ products.
 ./install.sh --no-animation
 ./install.sh --install-codex
 ./install.sh --install-stack
-./install.sh --skip-stack
 ./install.sh --gbrain-lane local
 ./install.sh --gbrain-lane official
 ./install.sh --clawpatch-codex-login run
 ./install.sh --loop-library-agent codex
 ./install.sh --loop-library-agent YOUR_AGENT
 ./install.sh --skill-pack install
-./install.sh --skill-pack skip
 ./install.sh --project-discovery add
 ./install.sh --project-discovery pick
-./install.sh --project-discovery skip
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
-./install.sh --skip-tests
 ```
 
 Normal users should not need these.
@@ -48,9 +44,9 @@ PowerShell exposes the same important controls with parameter names like
 `-GBrainLane`, `-ProjectDiscovery`, `-StackDoctor`, and
 `-ClawpatchCodexLogin`.
 
-## Recommended stack
+## Required stack
 
-The installer can install or guide the surrounding stack that makes the whole
+The installer installs or guides the surrounding stack that makes the whole
 thing useful:
 
 - GBrain: choose `--gbrain-lane local` for this installer's local CLI path, or
@@ -66,11 +62,12 @@ thing useful:
 - Loop Library: installed with `npx --yes skills add Forward-Future/loop-library --skill loop-library ...` for the selected agent.
 - Obsidian: installed through a detected package manager when possible, otherwise the installer prints the official install path.
 
-Interactive installs ask whether to run this lane. Non-interactive installs skip
-it unless `--install-stack` is passed.
+Interactive and non-interactive installs run this lane by default. `--install-stack`
+is still accepted as an explicit spelling of the default. There is no alternate
+partial install mode for real Manageroo runs.
 
 The installer writes a stack summary into `install-lock.json`. It lists what was
-installed, what was skipped, what still needs action, and the next command for
+installed, what still needs action, and the next command for
 each unfinished piece.
 
 For an existing GBrain install, the lock records the detected engine, embedding
@@ -117,17 +114,12 @@ MANAGEROO can run configured AUTOREVIEW/Clawpatch commands as
 command-owned lanes, but it does not ask the AI to freehand repairs from their
 findings. See [`REVIEW_REPAIR_LANES.md`](REVIEW_REPAIR_LANES.md).
 
-## Recommended skill pack
+## Required skill pack
 
-The installer offers the routed Manageroo skill pack under `~/.agents/skills`.
-The pack is optional but strongly suggested because it lets AI IDE agents pick
-the right helper without making the user remember which skill to call. Agents
+The installer adds the routed Manageroo skill pack under `~/.agents/skills`.
+The pack is part of the full install because it lets AI IDE agents pick the
+right helper without making the user remember which skill to call. Agents
 should load only the skills that match the current job, not the whole pack.
-
-In a normal terminal, the installer asks and defaults to yes. Non-interactive
-installs use the recommended yes path. Skip it with `./install.sh --skill-pack
-skip` or `./install.sh --skip-skill-pack`. Reconcile it later with
-`manageroo skills reconcile --apply`.
 
 - `uncle-matts-project-manageroo`:
   tells agents how to follow the controller.
@@ -179,7 +171,8 @@ skip` or `./install.sh --skip-skill-pack`. Reconcile it later with
 - `uncle-matts-caveman-curse`: the same token reduction with appropriately
   placed profanity when selected.
 
-They are available even when token mode is off. Reinstall them later with:
+They are available no matter whether the clean `caveman` or curse token style is
+selected. Reinstall them later with:
 
 ```bash
 manageroo skills reconcile --apply
@@ -220,7 +213,7 @@ home directory:
 python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.6.22.1.zip
 ```
 
-That verifies the launcher, `self-test`, the 49-skill routed pack, skill support
+That verifies the launcher, `self-test`, the 50-skill routed pack, skill support
 files, `skills reconcile`, first project creation through `solo`, readiness, and
 a complete mock Manageroo run. The packaging script runs this smoke against the
 generated ZIP before refreshing the release drop.
@@ -237,7 +230,6 @@ files so you can switch later, but only the selected mode is active:
 Switch later:
 
 ```bash
-manageroo token-mode set off
 manageroo token-mode set caveman
 manageroo token-mode set curse
 ```
@@ -292,11 +284,13 @@ Bare `solo` is the normal first-run path. It asks:
 - what result must be true;
 - what must not break;
 - what proof should verify the work;
-- whether to check GBrain, GitNexus, Obsidian, or Loop Library.
+- how to wire the required stack and supporting local tools.
 
-With `--create`, it initializes Git, writes a minimal `README.md` and
-`.gitignore`, and makes the first scaffold commit before continuing. It refuses
-non-empty non-Git folders and nested repos.
+With `--create`, it initializes Git, writes a minimal `README.md`, `.gitignore`,
+`PRD.md`, and `TASKS.md`, and makes the first scaffold commit before continuing.
+`PRD.md` and `TASKS.md` are human-facing planning surfaces, not proof; current
+files, tests, builds, browser checks, live probes, and command output still
+prove status. It refuses non-empty non-Git folders and nested repos.
 
 It writes `.manageroo/PRODUCT-BRIEF.md`, writes
 `.manageroo/PROJECT-MEMORY.md`, captures
@@ -389,8 +383,8 @@ manageroo ready
 Readiness is allowed to stop a run when the brief asks for a lane that is not
 configured. Plain English version:
 
-- If the brief asks for GBrain, memory, Obsidian, or prior decisions, map
-  GBrain sources before the run starts.
+- GBrain and GitNexus command lanes are required before normal runs.
+- map GBrain sources before the run starts.
 - If the brief asks for PDFs, transcripts, screenshots, images, long prose, or
   exact wording, configure `document_analysis_command` first.
 - If the repo only contains document/media files and the brief does not ask to
@@ -465,7 +459,7 @@ brief. It also caches the catalog for offline fallback and can print a structure
 controller profile for a loop. That profile calls out whether the pattern is a
 `goal`, `loop`, or `routine`, then adds budget/caps, verifier, anti-spin, and
 completion-contract fields. Loop Library itself is not installed unless the
-operator separately asks for that exact tool.
+required stack installer or operator action installs that exact tool.
 
 ## Uninstall
 
@@ -483,7 +477,7 @@ rm -rf "$HOME/.local/share/manageroo"
 rm -f "$HOME/.local/bin/manageroo" "$HOME/.local/bin/manageroo.cmd"
 ```
 
-If the launcher or recommended skill pack gets damaged, run:
+If the launcher or required skill pack gets damaged, run:
 
 ```bash
 manageroo repair-install --no-apply

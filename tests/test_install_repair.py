@@ -48,7 +48,9 @@ class InstallRepairTests(unittest.TestCase):
             with patch.dict(os.environ, {"MANAGEROO_SKILLS_DIR": str(skills)}):
                 result = repair_install(prefix=prefix, bin_dir=bin_dir, apply=False)
             self.assertFalse((skills / "pimp-my-prompt").exists())
-            self.assertTrue(result["ok"])
+            self.assertFalse(result["ok"])
+            self.assertIn("required", result["checks"][-1]["detail"])
+            self.assertIn("manageroo skills reconcile --apply", result["next_commands"])
 
     def test_reports_bin_dir_from_lock_launcher(self):
         with tempfile.TemporaryDirectory() as temp:

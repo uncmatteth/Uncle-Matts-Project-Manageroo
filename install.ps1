@@ -1,26 +1,22 @@
 [CmdletBinding()]
 param(
-    [switch]$SkipCodex,
     [switch]$InstallCodex,
     [switch]$InstallStack,
-    [switch]$SkipStack,
-    [switch]$SkipTests,
-    [switch]$SkipSkillPack,
     [switch]$NoMusic,
     [switch]$NoAnimation,
-    [ValidateSet("ask", "off", "caveman", "curse")]
+    [ValidateSet("ask", "caveman", "curse")]
     [string]$TokenMode = "ask",
-    [ValidateSet("ask", "install", "skip")]
+    [ValidateSet("ask", "install")]
     [string]$SkillPack = "ask",
-    [ValidateSet("ask", "skip", "install")]
+    [ValidateSet("ask", "install")]
     [string]$Stack = "ask",
-    [ValidateSet("ask", "local", "official", "skip")]
+    [ValidateSet("ask", "local", "official")]
     [string]$GBrainLane = "ask",
-    [ValidateSet("ask", "pick", "add", "skip")]
+    [ValidateSet("ask", "pick", "add")]
     [string]$ProjectDiscovery = "ask",
-    [ValidateSet("ask", "run", "skip")]
+    [ValidateSet("ask", "run")]
     [string]$StackDoctor = "ask",
-    [ValidateSet("ask", "run", "skip")]
+    [ValidateSet("ask", "run", "check")]
     [string]$ClawpatchCodexLogin = "ask",
     [ValidateSet("auto", "guide", "flatpak", "snap", "brew", "winget")]
     [string]$ObsidianMethod = "auto",
@@ -76,12 +72,8 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 
 $InstallArgs = @((Join-Path $Root "scripts\install.py"))
-if ($SkipCodex) { $InstallArgs += "--skip-codex" }
 if ($InstallCodex) { $InstallArgs += "--install-codex" }
 if ($InstallStack) { $InstallArgs += "--install-stack" }
-if ($SkipStack) { $InstallArgs += "--skip-stack" }
-if ($SkipTests) { $InstallArgs += "--skip-tests" }
-if ($SkipSkillPack) { $InstallArgs += "--skip-skill-pack" }
 if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
 if ($SkillPack) { $InstallArgs += @("--skill-pack", $SkillPack) }
 if ($Stack) { $InstallArgs += @("--stack", $Stack) }

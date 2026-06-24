@@ -22,36 +22,53 @@ def load_install_script():
 
 
 class InstallScriptTests(unittest.TestCase):
-    def test_skill_pack_is_recommended_default_but_can_be_skipped(self):
+    def test_skill_pack_is_required_and_cannot_be_skipped(self):
         install = load_install_script()
         self.assertEqual(install.choose_skill_pack_mode("install", False), "install")
-        self.assertEqual(install.choose_skill_pack_mode("skip", False), "skip")
-        self.assertEqual(install.choose_skill_pack_mode("ask", True), "skip")
+        self.assertEqual(install.choose_skill_pack_mode("ask", False), "install")
+        with self.assertRaises(SystemExit):
+            install.choose_skill_pack_mode("skip", False)
+        with self.assertRaises(SystemExit):
+            install.choose_skill_pack_mode("ask", True)
 
-    def test_skill_pack_prompt_defaults_to_install(self):
-        install = load_install_script()
-        with patch.object(install.sys.stdin, "isatty", return_value=True):
-            with patch("builtins.input", return_value=""):
-                with redirect_stdout(io.StringIO()):
-                    self.assertEqual(install.choose_skill_pack_mode("ask", False), "install")
-
-    def test_skill_pack_prompt_explains_default_skip_and_later_install(self):
+    def test_skill_pack_prompt_defaults_to_install_without_choice(self):
         install = load_install_script()
         output = io.StringIO()
         with patch.object(install.sys.stdin, "isatty", return_value=True):
-            with patch("builtins.input", return_value="n"):
-                with redirect_stdout(output):
-                    self.assertEqual(install.choose_skill_pack_mode("ask", False), "skip")
+            with redirect_stdout(output):
+                self.assertEqual(install.choose_skill_pack_mode("ask", False), "install")
         prompt = output.getvalue()
-        self.assertIn("optional, but strongly suggested", prompt)
-        self.assertIn("Default is yes", prompt)
-        self.assertIn("You can skip it", prompt)
-        self.assertIn("manageroo skills reconcile --apply", prompt)
+        self.assertIn("Required local skill pack", prompt)
+        self.assertIn("full Manageroo install", prompt)
+        self.assertNotIn("optional", prompt.lower())
+        self.assertNotIn("skip", prompt.lower())
 
-    def test_skill_pack_non_interactive_uses_recommended_install(self):
+    def test_skill_pack_non_interactive_uses_required_install(self):
         install = load_install_script()
         with patch.object(install.sys.stdin, "isatty", return_value=False):
             self.assertEqual(install.choose_skill_pack_mode("ask", False), "install")
+
+    def test_stack_mode_is_required_and_cannot_be_skipped(self):
+        install = load_install_script()
+        self.assertEqual(install.choose_stack_mode("ask", False, False), "install")
+        self.assertEqual(install.choose_stack_mode("install", False, False), "install")
+        with self.assertRaises(SystemExit):
+            install.choose_stack_mode("ask", False, True)
+        with self.assertRaises(SystemExit):
+            install.choose_stack_mode("skip", False, False)
+
+    def test_token_mode_has_only_caveman_or_curse(self):
+        install = load_install_script()
+        with patch.object(install.sys.stdin, "isatty", return_value=False):
+            self.assertEqual(install.choose_token_mode("ask"), "caveman")
+        self.assertEqual(install.choose_token_mode("caveman"), "caveman")
+        self.assertEqual(install.choose_token_mode("curse"), "curse")
+        with self.assertRaises(SystemExit):
+            install.choose_token_mode("off")
+        with self.assertRaises(SystemExit):
+            install.choose_token_mode("none")
+        with self.assertRaises(SystemExit):
+            install.choose_token_mode("normal")
 
     def test_lane_explainer_is_plain_english(self):
         install = load_install_script()
@@ -94,6 +111,13 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("checkbox-style", text)
         self.assertIn("choose which ones to add", text)
         self.assertIn("paste extra paths", text)
+        with self.assertRaises(SystemExit):
+            install.choose_project_discovery_mode("skip")
+        with patch.object(install.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input", return_value="skip"):
+                with redirect_stdout(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        install.choose_project_discovery_mode("ask")
 
     def test_stack_doctor_prompt_defaults_to_run_when_interactive(self):
         install = load_install_script()
@@ -101,6 +125,64 @@ class InstallScriptTests(unittest.TestCase):
             with patch("builtins.input", return_value=""):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(install.choose_stack_doctor_mode("ask"), "run")
+        with self.assertRaises(SystemExit):
+            install.choose_stack_doctor_mode("skip")
+
+    def test_loop_library_defaults_to_codex_instead_of_skip(self):
+        install = load_install_script()
+        output = io.StringIO()
+        with (
+            patch.object(install.shutil, "which", return_value="/usr/bin/npx"),
+            patch.object(install.sys.stdin, "isatty", return_value=True),
+            patch("builtins.input", return_value=""),
+            patch.object(install, "optional_run", return_value={"ok": True, "argv": ["npx"]}) as run_mock,
+            redirect_stdout(output),
+        ):
+            result = install.install_loop_library([], [])
+
+        self.assertTrue(result["installed"])
+        self.assertEqual(result["agents"], ["codex"])
+        self.assertNotIn("skip", output.getvalue().lower())
+        argv = run_mock.call_args.args[0]
+        self.assertIn("--agent", argv)
+        self.assertIn("codex", argv)
+
+    def test_loop_library_rejects_removed_skip_answer(self):
+        install = load_install_script()
+        with (
+            patch.object(install.shutil, "which", return_value="/usr/bin/npx"),
+            patch.object(install.sys.stdin, "isatty", return_value=True),
+            patch("builtins.input", return_value="skip"),
+            patch.object(install, "optional_run") as run_mock,
+            redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit):
+                install.install_loop_library([], [])
+        run_mock.assert_not_called()
+
+    def test_clawpatch_codex_login_prompt_treats_legacy_skip_as_no(self):
+        install = load_install_script()
+        with (
+            patch.object(install.shutil, "which", return_value="/usr/bin/codex"),
+            patch.object(install, "probe_command", return_value={"ok": False, "returncode": 1}),
+            patch.object(install.sys.stdin, "isatty", return_value=True),
+            patch("builtins.input", return_value="skip"),
+            patch.object(install, "run_interactive_action") as login_mock,
+        ):
+            result = install.check_clawpatch_codex_provider("ask")
+        self.assertFalse(result["ok"])
+        self.assertIsNone(result["login_result"])
+        login_mock.assert_not_called()
+
+    def test_gbrain_prompt_rejects_removed_skip_lane(self):
+        install = load_install_script()
+        with (
+            patch.object(install.sys.stdin, "isatty", return_value=True),
+            patch("builtins.input", return_value="3"),
+            redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit):
+                install.choose_gbrain_lane("ask")
 
     def test_powershell_installer_exposes_important_python_flags(self):
         ps1 = (ROOT / "install.ps1").read_text(encoding="utf-8")
@@ -116,6 +198,9 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertIn(flag, py)
                 self.assertIn(f"${parameter}", ps1)
                 self.assertIn(flag, ps1)
+        self.assertIn("--skip-tests", py)
+        self.assertNotIn("$SkipTests", ps1)
+        self.assertNotIn("--skip-tests", ps1)
 
     def test_public_installer_and_docs_do_not_hardcode_tommy_skill_import_path(self):
         public_files = [

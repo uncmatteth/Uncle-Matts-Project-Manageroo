@@ -25,6 +25,7 @@ from .errors import (
     ValidationError,
 )
 from .gates import Gate, GateRunner, gates_from_config
+from .gbrain_scope import gbrain_query_payload, gbrain_source_scope, scope_gbrain_search_record
 from .ideas import IdeaInbox
 from .integrations import ExternalCommandIntegration, ObsidianIntegration, command_record
 from .inventory import build_inventory, inventory_summary
@@ -32,6 +33,12 @@ from .jobs import JobStatus, JobStore
 from .learning import generate_learning_cards, pending_root, save_pending_learning_cards
 from .map_cache import load_system_map_cache, write_system_map_cache
 from .policy import CommandPolicy, ScopePolicy, validate_allowed_scope_patterns
+from .readiness import (
+    document_lane_required,
+    gbrain_repo_source_item,
+    stack_capture_command_safety_item,
+    stack_command_lane_items,
+)
 from .report import write_report
 from .review import inventory_hashes, validate_review_evidence
 from .runner import CommandRunner
@@ -322,9 +329,11 @@ class Orchestrator:
         return self.artifacts.root / "planning" / "blocking-decisions.json"
 
     def _apply_pending_delivery(self, result: dict[str, Any]) -> dict[str, Any]:
+        if self.state.phase not in {Phase.DELIVERING.value, Phase.COMPLETE.value}:
+            self._transition(Phase.DELIVERING, "Continuing durable delivery from saved final result")
         patch_value = result.get("evidence_paths", {}).get("patch")
         patch_path = Path(patch_value) if patch_value else self.run_root / "delivery" / "final.patch"
-        if not self.mirror.patch_already_applied_to_source(patch_path):
+        if not self.mirror.delivery_patch_already_applied_cleanly(patch_path):
             self.mirror.apply_patch_to_source(patch_path)
         result["applied_to_source"] = True
         result["finished_at"] = utc_now()
@@ -333,6 +342,54 @@ class Orchestrator:
         write_report(report_path, result)
         atomic_write_json(final_result_path, result)
         self._transition(Phase.COMPLETE, "Previously completed delivery patch is applied to source")
+        return result
+
+    def _delivery_capture_passed(self, result: dict[str, Any]) -> bool:
+        summary = result.get("external_capture", {}).get("summary", {})
+        if not summary.get("passed"):
+            return False
+        capture_path = self.run_root / "artifacts" / "delivery" / "external-capture.json"
+        if not capture_path.is_file():
+            return False
+        capture_data = read_json(capture_path)
+        if not isinstance(capture_data, dict):
+            return False
+        capture_summary = capture_data.get("summary", {})
+        return bool(capture_summary.get("passed"))
+
+    def _ensure_delivery_capture(
+        self,
+        result: dict[str, Any],
+        *,
+        complete_after_repair: bool = True,
+    ) -> dict[str, Any]:
+        if self._delivery_capture_passed(result):
+            return result
+        reopened_complete = False
+        if self.state.phase == Phase.COMPLETE.value:
+            self.state.reopen_for_continue(
+                "Required external capture proof missing from completed run"
+            )
+            self.state.save(self.state_path)
+            self._transition(Phase.DELIVERING, "Repairing required external capture proof")
+            reopened_complete = True
+        report_path = self.run_root / "delivery" / "FINAL-REPORT.md"
+        final_result_path = self.run_root / "delivery" / "final-result.json"
+        patch_value = result.get("evidence_paths", {}).get("patch")
+        patch_path = Path(patch_value) if patch_value else self.run_root / "delivery" / "final.patch"
+        write_report(report_path, result)
+        atomic_write_json(final_result_path, result)
+        external_capture = self._capture_external_outcome(
+            report_path=report_path,
+            result_path=final_result_path,
+            patch_path=patch_path,
+            result=result,
+        )
+        result["external_capture"] = external_capture
+        markdown = write_report(report_path, result)
+        atomic_write_json(final_result_path, result)
+        if reopened_complete and complete_after_repair:
+            self._transition(Phase.COMPLETE, "Required external capture proof repaired")
         return result
 
     def _next_call_name(self, role: str) -> str:
@@ -618,6 +675,7 @@ class Orchestrator:
         assert self.workspace is not None
         return {
             "repo": str(self.source_repo),
+            "source_repo": str(self.source_repo),
             "workspace": str(self.workspace),
             "run_root": str(self.run_root),
             "query": _one_line_query(brief),
@@ -630,6 +688,52 @@ class Orchestrator:
             "document_state_dir": str(self.artifacts.root / "discovery" / "document-state"),
         }
 
+    def _run_external_command(
+        self,
+        *,
+        name: str,
+        argv_template: list[str],
+        values: dict[str, str],
+        cwd: Path,
+        timeout_seconds: int = 180,
+        required: bool = False,
+    ) -> dict:
+        if not argv_template:
+            return {
+                "name": name,
+                "enabled": required,
+                "ok": False,
+                "required": required,
+                "error_type": "ConfigurationError",
+                "error": "required command template is empty" if required else "",
+            }
+        try:
+            result = ExternalCommandIntegration(argv_template, self.runner).run(
+                cwd=cwd,
+                values=values,
+                timeout_seconds=timeout_seconds,
+                log_name=f"external-{name}",
+            )
+            record = command_record(name, result)
+            record["required"] = required
+            return record
+        except Exception as exc:
+            return {
+                "name": name,
+                "enabled": True,
+                "ok": False,
+                "required": required,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+
+    def _scope_gbrain_search_record(
+        self,
+        record: dict[str, Any],
+        source_item: dict[str, Any],
+    ) -> dict[str, Any]:
+        return scope_gbrain_search_record(record, source_item)
+
     def _run_optional_external_command(
         self,
         *,
@@ -639,24 +743,14 @@ class Orchestrator:
         cwd: Path,
         timeout_seconds: int = 180,
     ) -> dict:
-        if not argv_template:
-            return {"name": name, "enabled": False, "ok": False}
-        try:
-            result = ExternalCommandIntegration(argv_template, self.runner).run(
-                cwd=cwd,
-                values=values,
-                timeout_seconds=timeout_seconds,
-                log_name=f"external-{name}",
-            )
-            return command_record(name, result)
-        except Exception as exc:
-            return {
-                "name": name,
-                "enabled": True,
-                "ok": False,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-            }
+        return self._run_external_command(
+            name=name,
+            argv_template=argv_template,
+            values=values,
+            cwd=cwd,
+            timeout_seconds=timeout_seconds,
+            required=False,
+        )
 
     def _document_intelligence(self, *, brief: str, inventory: dict[str, Any]) -> dict:
         existing = self._artifact_json("discovery/document-intelligence.json")
@@ -680,12 +774,14 @@ class Orchestrator:
             }
         )
 
-        record = self._run_optional_external_command(
+        required = document_lane_required(brief)
+        record = self._run_external_command(
             name="document-analysis",
             argv_template=list(cfg.get("document_analysis_command", []) or []),
             values=values,
             cwd=self.run_root,
             timeout_seconds=600,
+            required=required,
         )
         records = [record] if record.get("enabled") else []
         skipped_reason = ""
@@ -703,50 +799,159 @@ class Orchestrator:
                 "failed_optional": [
                     item["name"]
                     for item in records
-                    if item.get("enabled") and not item.get("ok")
+                    if item.get("enabled") and not item.get("required") and not item.get("ok")
+                ],
+                "failed_required": [
+                    item["name"]
+                    for item in records
+                    if item.get("enabled") and item.get("required") and not item.get("ok")
                 ],
                 "skipped_reason": skipped_reason,
             },
             "records": records,
             "manifest_file": str(self.artifacts.root / "discovery" / "document-manifest.json"),
             "note": (
-                "Document/prose analysis is an optional command-owned evidence lane. "
-                "Passing output may inform planning. Failure is recorded as optional context, "
+                "Document/prose analysis is a command-owned evidence lane. "
+                "Passive repo documents are non-blocking inventory context, but explicit document/prose/exact-text "
+                "requests make this lane required. Failure is recorded against the lane, "
                 "not handed to the AI as a freehand long-document repair prompt."
             ),
         }
         self.artifacts.write_json("discovery/document-intelligence.json", payload, lock=True)
         return payload
 
+    def _require_gbrain_repo_source(self, brief: str) -> dict[str, Any]:
+        existing_path = self.artifacts.root / "discovery" / "gbrain-source-readiness.json"
+        if existing_path.is_file():
+            existing = read_json(existing_path)
+            if existing.get("ok"):
+                return existing
+            raise ValidationError(
+                "Required GBrain repo source is not ready in existing run artifact: "
+                + str(existing.get("detail", "unknown GBrain source failure"))
+                + ". Start a fresh run after mapping the exact target repo."
+            )
+        item = gbrain_repo_source_item(self.source_repo, brief)
+        self.artifacts.write_json("discovery/gbrain-source-readiness.json", item, lock=True)
+        if not item.get("ok"):
+            next_command = item.get("next")
+            detail = str(item.get("detail", "unknown GBrain source failure"))
+            raise ValidationError(
+                "Required GBrain repo source is not ready: "
+                + detail
+                + (f". Next: {next_command}" if next_command else "")
+            )
+        return item
+
+    def _require_stack_command_readiness(self, gbrain_source: dict[str, Any]) -> None:
+        failed = [
+            item
+            for item in stack_command_lane_items(
+                self.source_repo,
+                self.config,
+                gbrain_source_item=gbrain_source,
+            )
+            if not item.get("ok")
+        ]
+        if failed:
+            detail = "; ".join(
+                f"{item.get('name', 'required command lane')}: {item.get('detail', 'not ready')}"
+                for item in failed
+            )
+            raise ValidationError(
+                "Required stack command readiness failed before external execution: "
+                + detail
+            )
+
+    def _gitnexus_intelligence_workspace(self) -> Path:
+        if self.workspace is None:
+            raise ValidationError("GitNexus requires an initialized Manageroo workspace.")
+        return self.mirror.clone_for_review(self.run_root / "gitnexus-workspace")
+
     def _external_intelligence(self, brief: str, inventory: dict[str, Any]) -> dict:
         existing = self._artifact_json("discovery/external-intelligence.json")
         if existing is not None:
+            summary = existing.get("summary", {}) if isinstance(existing, dict) else {}
+            required_lanes = {"gbrain-search", "gitnexus-analyze", "gitnexus-status"}
+            passed = set(summary.get("passed", []))
+            failed_required = list(summary.get("failed_required", []))
+            failed_optional = set(summary.get("failed_optional", []))
+            missing_required = sorted(required_lanes - passed)
+            legacy_optional_required = sorted(required_lanes & failed_optional)
+            if failed_required or missing_required or legacy_optional_required:
+                problems = []
+                if failed_required:
+                    problems.append(
+                        "failed required: " + ", ".join(str(item) for item in failed_required)
+                    )
+                if missing_required:
+                    problems.append("missing required proof: " + ", ".join(missing_required))
+                if legacy_optional_required:
+                    problems.append(
+                        "legacy optional failure: " + ", ".join(legacy_optional_required)
+                    )
+                raise ValidationError(
+                    "Required repo-intelligence lane is not proven in existing run artifact: "
+                    + "; ".join(problems)
+                    + ". Start a fresh run after fixing the required lane."
+                )
             return existing
         cfg = self.config.get("integrations", {})
         values = self._external_values(brief=brief)
+        gbrain_source = self._require_gbrain_repo_source(brief)
+        self._require_stack_command_readiness(gbrain_source)
+        gbrain_source_ids, gbrain_source_paths = gbrain_source_scope(gbrain_source)
         document_intelligence = self._document_intelligence(brief=brief, inventory=inventory)
-        commands = [
+        required_commands = [
             ("gbrain-search", cfg.get("gbrain_search_command", [])),
             ("gitnexus-analyze", cfg.get("gitnexus_analyze_command", [])),
-            ("gitnexus-query", cfg.get("gitnexus_query_command", [])),
+            ("gitnexus-status", cfg.get("gitnexus_status_command", [])),
         ]
         records = list(document_intelligence.get("records", []))
-        records.extend(
-            self._run_optional_external_command(
+        gitnexus_workspace: Path | None = None
+        for name, argv_template in required_commands:
+            command_values = values
+            command_cwd = self.source_repo
+            if name == "gbrain-search":
+                command_values = {
+                    **values,
+                    "gbrain_source_id": sorted(gbrain_source_ids)[0] if gbrain_source_ids else "",
+                    "gbrain_source_path": sorted(gbrain_source_paths)[0] if gbrain_source_paths else "",
+                    "gbrain_query_payload": gbrain_query_payload(values["query"], gbrain_source),
+                }
+            if name in {"gitnexus-analyze", "gitnexus-status"}:
+                if gitnexus_workspace is None:
+                    gitnexus_workspace = self._gitnexus_intelligence_workspace()
+                command_values = {
+                    **values,
+                    "repo": str(gitnexus_workspace),
+                    "workspace": str(gitnexus_workspace),
+                    "source_repo": str(self.source_repo),
+                }
+                command_cwd = gitnexus_workspace
+            record = self._run_external_command(
                 name=name,
                 argv_template=list(argv_template or []),
-                values=values,
-                cwd=self.source_repo,
+                values=command_values,
+                cwd=command_cwd,
+                required=True,
             )
-            for name, argv_template in commands
-        )
+            if name == "gbrain-search":
+                record = self._scope_gbrain_search_record(record, gbrain_source)
+            records.append(record)
+        failed_required = [
+            item["name"]
+            for item in records
+            if item.get("required") and not item.get("ok")
+        ]
         summary = {
             "enabled": [item["name"] for item in records if item.get("enabled")],
             "passed": [item["name"] for item in records if item.get("ok")],
+            "failed_required": failed_required,
             "failed_optional": [
                 item["name"]
                 for item in records
-                if item.get("enabled") and not item.get("ok")
+                if item.get("enabled") and not item.get("required") and not item.get("ok")
             ],
         }
         payload = {
@@ -754,11 +959,17 @@ class Orchestrator:
             "records": records,
             "document_intelligence": document_intelligence,
             "note": (
-                "These tools are optional context. Passing output may inform planning; "
-                "failed or missing tools do not block the core controller run."
+                "GBrain and GitNexus are required repo-intelligence lanes. Missing, empty, "
+                "or failing required command lanes block the controller run before planning."
             ),
         }
         self.artifacts.write_json("discovery/external-intelligence.json", payload, lock=True)
+        if failed_required:
+            raise ValidationError(
+                "Required repo-intelligence lane failed: "
+                + ", ".join(failed_required)
+                + ". See discovery/external-intelligence.json."
+            )
         return payload
 
     def _external_review_repair_commands(self) -> list[tuple[str, list[str]]]:
@@ -890,11 +1101,33 @@ class Orchestrator:
         result_path: Path,
         patch_path: Path,
         result: dict,
-    ) -> dict | None:
+    ) -> dict:
         cfg = self.config.get("integrations", {})
         argv_template = list(cfg.get("gbrain_capture_command", []) or [])
-        if not argv_template:
-            return None
+        safety = stack_capture_command_safety_item(self.source_repo, self.config)
+        if not safety.get("ok"):
+            record = {
+                "name": "gbrain-capture",
+                "enabled": True,
+                "ok": False,
+                "required": True,
+                "error_type": "ValidationError",
+                "error": safety.get("detail", "gbrain capture command is not ready"),
+            }
+            payload = {
+                "summary": {
+                    "enabled": True,
+                    "passed": False,
+                    "failed_required": ["gbrain-capture"],
+                    "failed_optional": [],
+                },
+                "records": [record],
+            }
+            self.artifacts.write_json("delivery/external-capture.json", payload)
+            raise ValidationError(
+                "Required external capture lane failed: gbrain-capture. "
+                "See delivery/external-capture.json."
+            )
         values = {
             "repo": str(self.source_repo),
             "run_root": str(self.run_root),
@@ -905,21 +1138,28 @@ class Orchestrator:
             "summary": str(result.get("product_summary", "")),
             "files_changed": ",".join(result.get("files_changed", [])),
         }
-        record = self._run_optional_external_command(
+        record = self._run_external_command(
             name="gbrain-capture",
             argv_template=argv_template,
             values=values,
             cwd=self.source_repo,
+            required=True,
         )
         payload = {
             "summary": {
                 "enabled": True,
                 "passed": bool(record.get("ok")),
-                "failed_optional": [] if record.get("ok") else ["gbrain-capture"],
+                "failed_required": [] if record.get("ok") else ["gbrain-capture"],
+                "failed_optional": [],
             },
             "records": [record],
         }
         self.artifacts.write_json("delivery/external-capture.json", payload)
+        if not record.get("ok"):
+            raise ValidationError(
+                "Required external capture lane failed: gbrain-capture. "
+                "See delivery/external-capture.json."
+            )
         return payload
 
     def _record_learning(
@@ -1224,12 +1464,27 @@ class Orchestrator:
                     if apply_on_success is None
                     else apply_on_success
                 )
+                delivery_result = self._ensure_delivery_capture(
+                    delivery_result,
+                    complete_after_repair=not should_apply_pending,
+                )
                 if should_apply_pending:
                     return self._apply_pending_delivery(delivery_result)
-                if self.state.phase == Phase.COMPLETE.value:
-                    return delivery_result
+                if self.state.phase not in {Phase.DELIVERING.value, Phase.COMPLETE.value}:
+                    self._transition(
+                        Phase.DELIVERING,
+                        "Continuing durable delivery from saved final result",
+                    )
+                if self.state.phase != Phase.COMPLETE.value:
+                    self._transition(
+                        Phase.COMPLETE,
+                        "Required external capture passed; delivery is ready to apply",
+                    )
+                return delivery_result
             completed = self._completed_result()
             if completed is not None:
+                if not self._delivery_capture_passed(completed):
+                    completed = self._ensure_delivery_capture(completed)
                 return completed
             if mode not in {"build", "repair"}:
                 raise ValidationError("Mode must be 'build' or 'repair'.")
@@ -1276,6 +1531,7 @@ class Orchestrator:
             if memory is None:
                 memory = obsidian.search(brief)
                 self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
+            self._require_gbrain_repo_source(brief)
             external_intelligence = self._external_intelligence(brief, raw_inventory)
 
             product = self._artifact_json("planning/product-model.json")
@@ -1663,20 +1919,19 @@ class Orchestrator:
             final_result_path = self.run_root / "delivery" / "final-result.json"
             markdown = write_report(report_path, result)
             atomic_write_json(final_result_path, result)
-            if should_apply:
-                self.mirror.apply_patch_to_source(patch_path)
-                result["applied_to_source"] = True
-                result["finished_at"] = utc_now()
-                markdown = write_report(report_path, result)
-                atomic_write_json(final_result_path, result)
             external_capture = self._capture_external_outcome(
                 report_path=report_path,
                 result_path=final_result_path,
                 patch_path=patch_path,
                 result=result,
             )
-            if external_capture is not None:
-                result["external_capture"] = external_capture
+            result["external_capture"] = external_capture
+            markdown = write_report(report_path, result)
+            atomic_write_json(final_result_path, result)
+            if should_apply:
+                self.mirror.apply_patch_to_source(patch_path)
+                result["applied_to_source"] = True
+                result["finished_at"] = utc_now()
                 markdown = write_report(report_path, result)
                 atomic_write_json(final_result_path, result)
             obsidian.export(f"{self.run_id}.md", markdown)
@@ -1693,6 +1948,10 @@ class Orchestrator:
                     self._transition(Phase.BLOCKED, f"{type(exc).__name__}: {exc}")
                 except Exception:
                     pass
+            if external_intelligence is None:
+                external_path = self.artifacts.root / "discovery" / "external-intelligence.json"
+                if external_path.is_file():
+                    external_intelligence = read_json(external_path)
             result.update(
                 {
                     "status": self.state.phase,

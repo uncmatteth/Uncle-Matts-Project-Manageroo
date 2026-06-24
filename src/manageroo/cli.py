@@ -239,8 +239,8 @@ def parser() -> argparse.ArgumentParser:
     setup = sub.add_parser("setup", help="Guided first-run setup for a product repository.")
     setup.add_argument("repo", nargs="?")
     setup.add_argument("--agent", choices=sorted(AGENT_PRESETS))
-    setup.add_argument("--token-mode", choices=["off", "caveman", "curse"])
-    setup.add_argument("--skip-skills", action="store_true")
+    setup.add_argument("--token-mode", choices=["caveman", "curse"])
+    setup.add_argument("--skip-skills", action="store_true", help=argparse.SUPPRESS)
     setup.add_argument("--json", action="store_true")
 
     solo = sub.add_parser(
@@ -257,8 +257,8 @@ def parser() -> argparse.ArgumentParser:
     solo.add_argument("--stop", default="")
     solo.add_argument("--later", action="append", default=[])
     solo.add_argument("--mode", choices=["build", "repair"], default="build")
-    solo.add_argument("--token-mode", choices=["off", "caveman", "curse"])
-    solo.add_argument("--skip-skills", action="store_true")
+    solo.add_argument("--token-mode", choices=["caveman", "curse"])
+    solo.add_argument("--skip-skills", action="store_true", help=argparse.SUPPRESS)
     solo.add_argument("--use-gbrain", action="store_true")
     solo.add_argument("--use-gitnexus", action="store_true")
     solo.add_argument("--use-obsidian", action="store_true")
@@ -272,7 +272,7 @@ def parser() -> argparse.ArgumentParser:
     solo_apply.add_argument("--apply", dest="apply", action="store_true", default=True)
     solo_apply.add_argument("--no-apply", dest="apply", action="store_false")
 
-    ready = sub.add_parser("ready", help="Say exactly what is ready, missing, optional, and next.")
+    ready = sub.add_parser("ready", help="Say exactly what is ready, missing, scoped, and next.")
     ready.add_argument("repo", nargs="?", default=".")
     ready.add_argument("--require-gbrain", action="store_true")
     ready.add_argument("--json", action="store_true")
@@ -438,7 +438,7 @@ def parser() -> argparse.ArgumentParser:
     gbrain_setup.add_argument("--sync", action="store_true")
     gbrain_setup.add_argument("--json", action="store_true")
 
-    integrations = sub.add_parser("integrations", help="Configure optional GBrain/GitNexus command wiring.")
+    integrations = sub.add_parser("integrations", help="Configure required GBrain/GitNexus command wiring.")
     integrations_sub = integrations.add_subparsers(dest="integrations_command", required=True)
     integrations_configure = integrations_sub.add_parser(
         "configure",
@@ -507,14 +507,14 @@ def parser() -> argparse.ArgumentParser:
     token = sub.add_parser("token-mode", help="Choose token-reduction mode for agent prose.")
     token_sub = token.add_subparsers(dest="token_command", required=True)
     token_set = token_sub.add_parser("set", help="Switch token-reduction mode.")
-    token_set.add_argument("mode", choices=["off", "caveman", "curse"])
+    token_set.add_argument("mode", choices=["caveman", "curse"])
     token_sub.add_parser("status", help="Show selected token-reduction mode.")
     token_sub.add_parser("install-skills", help="Install bundled caveman token skills.")
 
-    skills = sub.add_parser("skills", help="Install or list the recommended local agent skill pack.")
+    skills = sub.add_parser("skills", help="Install or list the required local agent skill pack.")
     skills_sub = skills.add_subparsers(dest="skills_command", required=True)
-    skills_sub.add_parser("install", help="Install the recommended local agent skill pack.")
-    skills_sub.add_parser("list", help="List bundled skills in the recommended pack.")
+    skills_sub.add_parser("install", help="Install the required local agent skill pack.")
+    skills_sub.add_parser("list", help="List bundled skills in the required pack.")
     skills_scan = skills_sub.add_parser("scan", help="Scan a copied skills folder without changing anything.")
     skills_scan.add_argument("source", type=Path)
     skills_scan.add_argument("--skills-dir", type=Path)
@@ -595,6 +595,9 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
+        if getattr(args, "skip_skills", False):
+            raise ValueError("The Manageroo skill pack is required; --skip-skills was removed.")
+
         if args.command == "init":
             created_project = None
             if args.create:
@@ -618,7 +621,7 @@ def main(argv: list[str] | None = None) -> int:
             result = initialize_project(Path(answers["repo"]), agent=answers["agent"])
             repo = Path(result["repo"])
             agent_result = apply_agent_preset(repo, answers["agent"])
-            skills_result = [] if args.skip_skills else install_core_helper_skills()
+            skills_result = install_core_helper_skills()
             token_result = set_token_mode(args.token_mode) if args.token_mode else read_token_mode()
             integrations = _integration_guidance(answers["integrations"], answers["agent"])
             integration_config = configure_integrations(
@@ -695,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             repo = Path(result["repo"])
             agent_result = apply_agent_preset(repo, answers["agent"])
-            skills_result = [] if args.skip_skills else install_core_helper_skills()
+            skills_result = install_core_helper_skills()
             token_result = set_token_mode(args.token_mode) if args.token_mode else read_token_mode()
             markdown = build_product_brief(
                 want=answers["want"],
@@ -793,7 +796,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_stack_doctor(result), end="")
-            return 0
+            return 0 if result.get("ready") else 2
 
         if args.command == "projects":
             roots = args.root if args.root else None

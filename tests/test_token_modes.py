@@ -32,6 +32,13 @@ class TokenModeTests(unittest.TestCase):
             diagnose = Path(temp) / "diagnose" / "SKILL.md"
             tdd = Path(temp) / "tdd" / "SKILL.md"
             autoreview = Path(temp) / "autoreview" / "SKILL.md"
+            hammerrr = Path(temp) / "go-get-uncle-matts-hammerrr" / "SKILL.md"
+            hammerrr_template = (
+                Path(temp)
+                / "go-get-uncle-matts-hammerrr"
+                / "templates"
+                / "PROJECT_TRUTH_AUDIT.md"
+            )
             plain_web_copy = Path(temp) / "plain-web-copy" / "SKILL.md"
             fix_website = Path(temp) / "fix-my-bad-website" / "SKILL.md"
             playwright_reference = Path(temp) / "playwright" / "references" / "cli.md"
@@ -54,6 +61,8 @@ class TokenModeTests(unittest.TestCase):
             self.assertTrue(diagnose.exists())
             self.assertTrue(tdd.exists())
             self.assertTrue(autoreview.exists())
+            self.assertTrue(hammerrr.exists())
+            self.assertTrue(hammerrr_template.exists())
             self.assertTrue(plain_web_copy.exists())
             self.assertTrue(fix_website.exists())
             self.assertTrue(playwright_reference.exists())
@@ -74,6 +83,7 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("Build a feedback loop first", diagnose.read_text(encoding="utf-8"))
             self.assertIn("one behavior test", tdd.read_text(encoding="utf-8"))
             self.assertIn("closeout code review", autoreview.read_text(encoding="utf-8"))
+            self.assertIn("Hardcore Audit of Misleading Models", hammerrr.read_text(encoding="utf-8"))
             self.assertIn("truth before tone", plain_web_copy.read_text(encoding="utf-8"))
             self.assertIn("not generic AI output", fix_website.read_text(encoding="utf-8"))
             self.assertIn("Do not make the user remember skill names", controller.read_text(encoding="utf-8"))
@@ -100,6 +110,17 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("appropriately placed, well-used profanity", token_mode_prompt("curse"))
             self.assertTrue((skills / "caveman" / "SKILL.md").exists())
             self.assertTrue((skills / "uncle-matts-caveman-curse" / "SKILL.md").exists())
+
+    def test_default_token_mode_is_caveman_not_off(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp) / "missing-token-mode.json"
+            self.assertEqual(read_token_mode(state)["mode"], "caveman")
+            with self.assertRaises(ValueError):
+                token_mode_prompt("off")
+            with self.assertRaises(ValueError):
+                token_mode_prompt("none")
+            with self.assertRaises(ValueError):
+                token_mode_prompt("normal")
 
     def test_existing_user_skill_is_backed_up_before_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:

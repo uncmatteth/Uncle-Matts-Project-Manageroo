@@ -21,7 +21,7 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
 - It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
 - It includes one token-reduction feature with two styles: clean `caveman` or profane `curse`, because life is more fun with appropriately placed, well-used profanity.
-- The recommended skill pack is optional but strongly suggested. The installer offers it, defaults to yes, `--skill-pack skip` skips it, and `manageroo skills reconcile --apply` adds it later.
+- The local skill pack is part of the full install. The installer installs it by default, removed the skip path, and `manageroo skills reconcile --apply` repairs or reapplies it later.
 - The installer can scan common project folders, show a checkbox-style list of found repos, initialize only the ones selected, and ask for extra paths it missed.
 - The repo-local MANAGEROO skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
 - Project init handles `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, and the repo-local skill block so the user does not have to figure out agent-context files by hand.
@@ -33,18 +33,18 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - Manual-only cards do not give the AI permission to rewrite skills, config, docs, installer behavior, checks, prompts, or code.
 - `setup`, `brief`, `ready`, `run --apply`, and `release-ready` are still available when you want lower-level control.
 - `next` is the low-noise helper for "what do I do now?": it prints the current stage, the reason, and one command.
-- Bare `setup` is the lower-level wizard: AI choice, repo path, and optional stack checks.
-- If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.
+- Bare `setup` is the lower-level wizard: AI choice, repo path, and required stack checks.
+- GBrain and GitNexus feed memory and code-graph context into the run. If their required lanes fail, the run blocks before planning instead of pretending the core path can continue without them.
 - If configured, `document_analysis_command` reads a run-owned document manifest and adds long-prose/PDF/transcript evidence without giving the AI permission to freehand a whole manuscript.
 - GBrain setup has two lanes: the local Bun/PGLite path, or the official upstream agent-supervised `INSTALL_FOR_AGENTS.md` protocol.
 - Clawpatch setup checks `clawpatch doctor` and Codex login status for its codex provider.
 - AUTOREVIEW and Clawpatch are command-owned lanes; their findings do not become AI freehand repair prompts.
 - `gbrain-setup` can prompt for one selected folder. No broad personal-folder crawl.
 - `agent list` and `agent preset` make Codex, Gemini, Claude Code, mock, or generic CLI setup visible instead of hidden in docs.
-- `repair-install` inspects and fixes the local launcher and recommended skill-pack install.
+- `repair-install` inspects and fixes the local launcher and required skill-pack install.
 - It was built around GBrain, GitNexus, Obsidian, AUTOREVIEW, Clawpatch, and any AI IDE or CLI agent that can run commands in the repo.
-- The installer can guide or install the recommended local stack: GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew Berman / Forward Future's Loop Library skill.
-- Solo Operator Mode reports every selected extra: configured, missing, skipped, or the exact command to fix next.
+- The installer can guide or install the required local stack: GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew Berman / Forward Future's Loop Library skill.
+- Solo Operator Mode reports every selected lane: configured, missing, adapter-scoped, or the exact command to fix next.
 - `checks suggest --apply-first` looks at the repo and saves the first detected proof command without hand-editing TOML.
 - `release-ready` is the final no-bullshit operator gate: completed Manageroo run proven, review approved, final report and patch present, patch applied to source, checks green, Git clean, deployment target named, rollback notes written, human approval recorded, and a plain-English production handoff written.
 - Credit to Matthew Berman / Forward Future's Loop Library for making the agent-loop idea easy to point at: bounded action, fixed check, stop condition, evidence.

@@ -25,7 +25,8 @@ Not every control is equally strong. This document distinguishes prevention from
 | Required context cannot disappear | Budget compiler raises instead of truncating | Preventive |
 | Model cannot mark run complete | Controller state machine | Preventive |
 | Unverified patch cannot reach source | Apply only after COMPLETE path and source hash check | Preventive |
-| Crash during final apply loses proof | Final result/report/patch are written before source apply; continue retries apply only | Detective and recoverable |
+| Crash or required capture failure during delivery loses proof | Final result/report/patch are written before source apply; required capture runs before source apply; continue retries blocked capture or apply from saved delivery proof only | Detective and recoverable |
+| GBrain memory can be broad, stale, or unmapped for this repo | `ready` and `run` require an exact GBrain source path match for the target repo before planning | Preventive |
 | Acceptance cannot be auto-passed | `verification/acceptance-evidence.json` binds outcomes to gates, demo evidence, and review | Preventive in controller |
 | Release-ready cannot ship without a Manageroo run | Latest completed run proof, approved review, final report, final patch, and applied-source status | Preventive release gate |
 | Generic third-party agent is fully sandboxed | Not guaranteed | Unsupported claim; use Codex adapter for hard mode |

@@ -11,4 +11,4 @@ Before editing:
 5. Update tests and documentation with behavior changes.
 6. Run `python scripts/verify_release.py` before completion.
 
-The controller must remain thin. Do not embed a new IDE, model runtime, memory database, code graph database, or marketplace. Integrate such systems through explicit optional adapters.
+The controller must remain thin. Do not embed a new IDE, model runtime, memory database, code graph database, or marketplace. Integrate required stack systems through explicit adapters and hard readiness gates; other integrations must be explicit and must not weaken the required stack.

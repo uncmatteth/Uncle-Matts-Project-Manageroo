@@ -12,6 +12,12 @@ from manageroo.errors import ValidationError
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 from manageroo.util import read_json
+from tests.stack_shims import (
+    gbrain_capture_command,
+    gbrain_search_command,
+    gitnexus_analyze_command,
+    gitnexus_status_command,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +39,23 @@ def _load_installer_module():
 
 
 class ReviewRepairLaneTests(unittest.TestCase):
+    def setUp(self):
+        self._gbrain_source_patch = mock.patch(
+            "manageroo.orchestrator.gbrain_repo_source_item",
+            return_value={
+                "name": "gbrain",
+                "ok": True,
+                "detail": "test repo-scoped source is mapped",
+                "next": "",
+                "required": True,
+                "matched_sources": [{"id": "fixture"}],
+            },
+        )
+        self._gbrain_source_patch.start()
+
+    def tearDown(self):
+        self._gbrain_source_patch.stop()
+
     def _fixture_repo(self, root: Path) -> Path:
         repo = root / "product"
         repo.mkdir()
@@ -56,8 +79,39 @@ class ReviewRepairLaneTests(unittest.TestCase):
         subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
         initialize_project(repo, agent="mock")
+        probe_dir = root / "operator-bin"
+        probe_dir.mkdir()
+        gbrain_probe = probe_dir / "gbrain-readiness-probe"
+        gitnexus_probe = probe_dir / "gitnexus-readiness-probe"
+        for probe in (gbrain_probe, gitnexus_probe):
+            probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            probe.chmod(0o755)
         config = repo / ".manageroo" / "config.toml"
         text = config.read_text(encoding="utf-8")
+        text = text.replace(
+            "gbrain_readiness_probe_command = []",
+            "gbrain_readiness_probe_command = " + _toml_array([str(gbrain_probe)]),
+        )
+        text = text.replace(
+            "gitnexus_readiness_probe_command = []",
+            "gitnexus_readiness_probe_command = " + _toml_array([str(gitnexus_probe)]),
+        )
+        text = text.replace(
+            'gbrain_search_command = ["gbrain", "call", "query", "{gbrain_query_payload}"]',
+            "gbrain_search_command = " + _toml_array(gbrain_search_command()),
+        )
+        text = text.replace(
+            'gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]',
+            "gbrain_capture_command = " + _toml_array(gbrain_capture_command()),
+        )
+        text = text.replace(
+            'gitnexus_analyze_command = ["gitnexus", "analyze", "{workspace}", "--skip-agents-md", "--skip-skills"]',
+            "gitnexus_analyze_command = " + _toml_array(gitnexus_analyze_command()),
+        )
+        text = text.replace(
+            'gitnexus_status_command = ["gitnexus", "status"]',
+            "gitnexus_status_command = " + _toml_array(gitnexus_status_command()),
+        )
         text += (
             "\n[[verification.gates]]\n"
             'id = "fixture-check"\n'
@@ -182,7 +236,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
                 return_value={"ok": False, "exit_code": 1, "argv": ["codex", "login", "status"], "output": ""},
             ),
         ):
-            result = installer.install_clawpatch([], codex_login_mode="skip")
+            result = installer.install_clawpatch([], codex_login_mode="check")
 
         self.assertTrue(result["installed"])
         self.assertFalse(result["configured"])

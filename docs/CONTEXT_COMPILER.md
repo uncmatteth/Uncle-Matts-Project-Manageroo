@@ -108,9 +108,10 @@ budget.
 The document/prose lane adds a command-owned evidence hook on top of that
 inventory. Each run writes `document-manifest.json`; a configured
 `document_analysis_command` can read it and produce additional intelligence in
-`document-intelligence.json`. Missing or failing document commands are recorded
-as optional context. They do not become permission for a model to freehand a
-whole book, transcript, PDF, or exact-text replacement.
+`document-intelligence.json`. Passive repo documents can be recorded as
+non-blocking inventory context. Explicit document/prose/exact-text requests
+make missing or failing document commands blocking. They do not become permission for a model to
+freehand a whole book, transcript, PDF, or exact-text replacement.
 
 ## Summary cache
 

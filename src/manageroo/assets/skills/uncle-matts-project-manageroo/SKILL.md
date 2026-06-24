@@ -40,7 +40,7 @@ Do not say a plan is best, smartest, perfect, ready, or 100% complete unless
 the current evidence proves that exact claim. Without proof, call it a
 recommendation or partial status.
 
-## Recommended skill pack routing
+## Required skill pack routing
 
 Do not make the user remember skill names. Do not load the whole skill pack.
 Pick only the helper skill or skills that match the current job, read those
@@ -86,6 +86,9 @@ entrypoints, then continue.
   fast feedback loop is needed before editing.
 - Use `$tdd` when adding or changing behavior that should be protected by tests.
 - Use `$testing` for broader test-suite health or skill conformance checks.
+- Use `$go-get-uncle-matts-hammerrr` only when the user explicitly names it or
+  asks for the HAMMERRR read-only project-truth audit. It is for claim-vs-runtime
+  audits, not ordinary PR review or implementation.
 - Use `$improve-codebase-architecture` when the repo structure or domain model
   needs deeper design review before more code is added.
 - Use `$security-review` for auth, secrets, deployments, custody, data loss,

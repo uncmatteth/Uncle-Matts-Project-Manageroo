@@ -121,8 +121,8 @@ def repair_install(
         checks.append(
             _check(
                 "skill-pack",
-                True,
-                "present" if present else "missing; strongly suggested",
+                present,
+                "present" if present else "missing; required by the full Manageroo install",
                 "manageroo skills reconcile --apply",
             )
         )

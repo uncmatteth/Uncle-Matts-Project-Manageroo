@@ -30,7 +30,7 @@ DOCUMENT_RULES = [
     },
     {
         "id": "command-owned-doc-lane",
-        "rule": "Configured document analysis commands provide evidence; failed commands are optional context.",
+        "rule": "Configured document analysis commands provide evidence; explicit document/prose/exact-text requests make failed commands blocking.",
     },
 ]
 

@@ -54,12 +54,10 @@ Same installer, same behavior. Use `./install.sh` from a normal Unix-style
 terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
 products.
 
-The recommended local skill pack is optional but strongly suggested. Let the
-installer add it unless the operator explicitly chooses `--skill-pack skip` or
-`--skip-skill-pack`; install it later with `manageroo skills reconcile --apply` if it
-was skipped. The pack includes helper lanes for rough prompts, memory lookup,
-source ingest, media/PDF handling, long prose, exact text, debugging, tests,
-review, public copy, website cleanup, skill creation, skill cleanup, and token
+The local skill pack is part of the full Manageroo install. The pack includes
+helper lanes for rough prompts, memory lookup, source ingest, media/PDF
+handling, long prose, exact text, debugging, tests, review, public copy, website
+cleanup, claim-vs-reality audits, skill creation, skill cleanup, and token
 reduction. Do not load the whole pack into context. Read only the helper skill
 or skills that match the current job.
 

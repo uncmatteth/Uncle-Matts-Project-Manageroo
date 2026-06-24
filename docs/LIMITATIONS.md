@@ -13,14 +13,15 @@
 11. Independent map and review chunks can run in parallel. Implementation tasks remain dependency ordered for correctness.
 12. Media support is bounded support. MANAGEROO records images, PDFs, and design/media assets in inventory and can use local OCR/PDF text extractors when installed, but it does not perform real vision interpretation or design understanding.
 13. Long prose support includes line counts, summaries, document manifests, optional `document_analysis_command` output, explicit summary context, and task decomposition. Exact edits still require bounded line ranges or an external document-specific command that owns the evidence.
-14. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
+14. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed; missing required stack lanes block normal runs.
 15. Configured AUTOREVIEW and Clawpatch commands are deterministic command-owned lanes. MANAGEROO captures their output and can accept their scoped edits, but it does not ask the AI repairer to freehand fixes from their findings.
-16. `solo --create` creates only missing or empty top-level project folders. Starters are small local scaffolds, not production frameworks. The command refuses non-empty non-Git folders and missing paths inside another Git repo so it does not accidentally commit personal files, secrets, archives, or nested repositories.
+16. `solo --create` creates only missing or empty top-level project folders. It seeds root-level `README.md`, `.gitignore`, `PRD.md`, and `TASKS.md`; the PRD and task list are planning surfaces, not proof. Starters are small local scaffolds, not production frameworks. The command refuses non-empty non-Git folders and missing paths inside another Git repo so it does not accidentally commit personal files, secrets, archives, or nested repositories.
 17. MANAGEROO does not replace CI, production monitoring, backups, security review, or legal review.
 18. `release-ready` is a final operator gate, not a deployment tool. It checks
-    readiness, a completed Manageroo run, approved review, final report, final
-    patch, applied-to-source status, gates, clean Git state, target, rollback
-    notes, and approval, then writes `.manageroo/cache/production-handoff.md`.
+    readiness, a completed Manageroo run, approved review, required external
+    capture proof, final report, final patch, applied-to-source status, gates,
+    clean Git state, target, rollback notes, and approval, then writes
+    `.manageroo/cache/production-handoff.md`.
     On a ready release it also updates `.manageroo/PROJECT-MEMORY.md` with the
     shipped target, Manageroo run ID, and proof; the operator can commit that
     memory update if desired. It does not push, deploy, monitor, or roll back

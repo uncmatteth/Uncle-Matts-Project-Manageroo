@@ -6,26 +6,36 @@ from pathlib import Path
 from typing import Any
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
-from .config import DEFAULT_CONFIG, load_config
+from .config import (
+    DEFAULT_CONFIG,
+    GBRAIN_CAPTURE_COMMAND,
+    GBRAIN_SEARCH_COMMAND,
+    GITNEXUS_ANALYZE_COMMAND,
+    GITNEXUS_STATUS_COMMAND,
+    load_config,
+)
 from .errors import ConfigurationError
 from .util import atomic_write_text
 
-
-GBRAIN_SEARCH_COMMAND = ["gbrain", "search", "{query}", "--json"]
-GBRAIN_CAPTURE_COMMAND = ["gbrain", "capture", "--file", "{report_file}"]
-GITNEXUS_ANALYZE_COMMAND = ["gitnexus", "analyze", "{repo}", "--json"]
-GITNEXUS_QUERY_COMMAND = ["gitnexus", "query", "{query}", "--json"]
 
 INTEGRATION_ORDER = [
     "obsidian_vault",
     "obsidian_export_folder",
     "gbrain_search_command",
     "gbrain_capture_command",
+    "gbrain_readiness_probe_command",
     "gitnexus_analyze_command",
-    "gitnexus_query_command",
+    "gitnexus_status_command",
+    "gitnexus_readiness_probe_command",
     "document_analysis_command",
     "autoreview_command",
     "clawpatch_command",
+]
+
+OLD_MANAGEROO_GITNEXUS_ANALYZE_COMMAND = ["gitnexus", "analyze", "{repo}", "--json"]
+OLD_MANAGEROO_GBRAIN_SEARCH_COMMANDS = [
+    ["gbrain", "search", "{query}", "--json"],
+    ["gbrain", "call", "search", '{{"query":"{query}","limit":20}}'],
 ]
 
 
@@ -88,7 +98,11 @@ def configure_integrations(
         installed = shutil.which("gbrain")
         if installed:
             changed = False
-            if force or not values.get("gbrain_search_command"):
+            if (
+                force
+                or not values.get("gbrain_search_command")
+                or values.get("gbrain_search_command") in OLD_MANAGEROO_GBRAIN_SEARCH_COMMANDS
+            ):
                 values["gbrain_search_command"] = GBRAIN_SEARCH_COMMAND
                 changed = True
             if force or not values.get("gbrain_capture_command"):
@@ -116,11 +130,16 @@ def configure_integrations(
         installed = shutil.which("gitnexus")
         if installed:
             changed = False
-            if force or not values.get("gitnexus_analyze_command"):
+            if (
+                force
+                or not values.get("gitnexus_analyze_command")
+                or values.get("gitnexus_analyze_command")
+                == OLD_MANAGEROO_GITNEXUS_ANALYZE_COMMAND
+            ):
                 values["gitnexus_analyze_command"] = GITNEXUS_ANALYZE_COMMAND
                 changed = True
-            if force or not values.get("gitnexus_query_command"):
-                values["gitnexus_query_command"] = GITNEXUS_QUERY_COMMAND
+            if force or not values.get("gitnexus_status_command"):
+                values["gitnexus_status_command"] = GITNEXUS_STATUS_COMMAND
                 changed = True
             records.append(
                 {

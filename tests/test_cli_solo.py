@@ -45,7 +45,6 @@ class CliSoloTests(unittest.TestCase):
                         "Do not change exports",
                         "--proof",
                         "Run checkout tests",
-                        "--skip-skills",
                         "--force",
                     ]
                 )
@@ -79,10 +78,14 @@ class CliSoloTests(unittest.TestCase):
                 "next_commands": [],
             }
             stdout = io.StringIO()
+            env = {
+                "MANAGEROO_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills"),
+            }
             with patch(
                 "manageroo.cli.readiness",
                 return_value=ready,
-            ), redirect_stdout(stdout):
+            ), patch.dict(os.environ, env), redirect_stdout(stdout):
                 code = main(
                     [
                         "solo",
@@ -96,7 +99,6 @@ class CliSoloTests(unittest.TestCase):
                         "--json",
                         "--force",
                         "--no-apply",
-                        "--skip-skills",
                     ]
                 )
             payload = json.loads(stdout.getvalue())
@@ -118,10 +120,14 @@ class CliSoloTests(unittest.TestCase):
             def which(name):
                 return "/usr/bin/npx" if name == "npx" else None
 
+            env = {
+                "MANAGEROO_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
+                "MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills"),
+            }
             with patch("manageroo.cli.readiness", return_value=ready), patch(
                 "manageroo.cli.shutil.which",
                 side_effect=which,
-            ), redirect_stdout(stdout):
+            ), patch.dict(os.environ, env), redirect_stdout(stdout):
                 code = main(
                     [
                         "solo",
@@ -133,7 +139,6 @@ class CliSoloTests(unittest.TestCase):
                         "--use-loop-library",
                         "--json",
                         "--force",
-                        "--skip-skills",
                     ]
                 )
 
@@ -162,7 +167,6 @@ class CliSoloTests(unittest.TestCase):
                         "Build a useful first release checklist",
                         "--outcome",
                         "The repo has a launch checklist",
-                        "--skip-skills",
                         "--json",
                     ]
                 )
@@ -171,6 +175,11 @@ class CliSoloTests(unittest.TestCase):
             self.assertEqual(payload["created_project"]["status"], "created")
             self.assertTrue((repo / ".git").is_dir())
             self.assertIn("Build a useful first release checklist", (repo / "README.md").read_text(encoding="utf-8"))
+            self.assertIn(
+                "Build a useful first release checklist",
+                (repo / "PRD.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn("Proof Needed", (repo / "TASKS.md").read_text(encoding="utf-8"))
             self.assertIn(
                 "Build a useful first release checklist",
                 (repo / ".manageroo" / "PRODUCT-BRIEF.md").read_text(encoding="utf-8"),
@@ -200,7 +209,6 @@ class CliSoloTests(unittest.TestCase):
                         "mock",
                         "--want",
                         "Build a simple product homepage",
-                        "--skip-skills",
                         "--json",
                     ]
                 )

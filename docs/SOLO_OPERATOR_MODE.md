@@ -47,9 +47,14 @@ manageroo solo /absolute/path/to/new-site \
   --want "Build a simple product homepage"
 ```
 
+Every new project also gets root-level `PRD.md` and `TASKS.md` as
+human-facing planning surfaces. They are not proof; current files, tests,
+builds, browser checks, live probes, and command output still prove status.
+
 Starter choices:
 
-- `blank`: only `README.md` and `.gitignore`.
+- `blank`: no product scaffold beyond the base `README.md`, `.gitignore`,
+  `PRD.md`, and `TASKS.md`.
 - `static-site`: `index.html`, `styles.css`, and a no-dependency smoke test.
 - `python-cli`: `app.py` and a no-dependency smoke test.
 - `docs-project`: project docs, release checklist, and a no-dependency smoke test.
@@ -61,14 +66,15 @@ Starter choices:
 1. Pick the project repository.
 2. Pick the AI agent preset.
 3. Ask what should be built or fixed in normal language.
-4. If `--create` is passed, create a missing or empty Git repo first.
+4. If `--create` is passed, create a missing or empty Git repo first and seed
+   `README.md`, `.gitignore`, `PRD.md`, and `TASKS.md`.
 5. If `--starter` is selected, add a small starter scaffold and smoke check.
 6. Turn the ask into `.manageroo/PRODUCT-BRIEF.md`.
 7. `solo` captures an intent lock for drift and compaction audits.
 8. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
-9. Install or refresh the recommended skill pack.
-10. Optionally wire GBrain and GitNexus command templates.
-11. Report the status of selected extras like Obsidian and Loop Library.
+9. Install or refresh the required skill pack.
+10. Wire or validate the required GBrain and GitNexus command templates.
+11. Report the status of supporting tools like Obsidian and Loop Library.
 12. Run readiness checks.
 13. Print exactly one next command.
 14. If `--run` is passed and readiness is green, start the build or repair run.
@@ -254,7 +260,7 @@ and the next operator action. On a ready release, `release-ready` also updates
 passing proof, handoff path, rollback plan, and approver. Commit that memory
 update if you want future agents to see it from Git.
 
-Wire optional local context tools if they are installed:
+Explicitly request local context guidance when needed:
 
 ```bash
 manageroo solo --use-gbrain --use-gitnexus

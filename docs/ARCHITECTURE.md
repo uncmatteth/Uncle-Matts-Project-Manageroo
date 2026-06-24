@@ -29,13 +29,19 @@ After successful delivery:
 1. MANAGEROO generates a binary-capable Git patch from isolated baseline to final checkpoint.
 2. MANAGEROO writes `delivery/final-result.json`, `delivery/FINAL-REPORT.md`,
    and `delivery/final.patch` with `applied_to_source: false`.
-3. MANAGEROO verifies that every source file still matches the original source manifest.
-4. `git apply --check` verifies the patch.
-5. The controller applies the patch when `--apply` or project policy allows it.
-6. The controller rewrites the final result and report with
+3. MANAGEROO runs the required external capture lane against that durable
+   pre-apply delivery proof.
+4. MANAGEROO verifies that every source file still matches the original source manifest.
+5. `git apply --check` verifies the patch.
+6. The controller applies the patch when `--apply` or project policy allows it.
+7. The controller rewrites the final result and report with
    `applied_to_source: true`.
 
 A concurrent source change blocks application instead of guessing.
+When a continued run finds the delivery patch already present in the source
+tree, MANAGEROO reconstructs the approved final state from the saved source
+snapshot plus `delivery/final.patch` and requires the real source tree to match
+that state exactly. Patch presence alone is not treated as source safety.
 
 ## Fresh process roles
 
@@ -101,18 +107,20 @@ parallel implementation branches against the same files.
 
 ## External systems
 
-The surrounding stack provides lanes, not authorities:
+The surrounding stack provides required lanes, not authorities:
 
 - GBrain: durable memory retrieval/capture.
-- GitNexus: supplementary code graph analysis.
+- GitNexus: code graph and impact analysis.
 - Obsidian: human-readable Markdown knowledge.
-- Document/prose command lane: optional evidence over a run-owned manifest for
-  long prose, PDFs, transcripts, articles, and exact-text workflows.
+- Document/prose command lane: task-scoped evidence over a run-owned manifest
+  for long prose, PDFs, transcripts, articles, and exact-text workflows.
 - Clawpatch/AUTOREVIEW: command-owned review/repair lanes that run their own
   configured commands; their findings are never converted into AI freehand fixes.
 - OpenClaw/Claude/Gemini/Cursor: alternate execution surfaces.
 
 Core acceptance still belongs to MANAGEROO's state, scope, gates, and evidence.
+Current files and current command output outrank stale stack output, but missing
+or failing required stack lanes block normal runs.
 Manageroo writes `verification/acceptance-evidence.json` instead of auto-marking
 human acceptance outcomes as passed. User-journey, browser, demo, deploy,
 visual, and security claims need matching demonstration evidence or they remain

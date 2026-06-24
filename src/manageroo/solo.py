@@ -54,10 +54,7 @@ def format_solo_report(payload: dict[str, Any]) -> str:
     )
     if payload.get("intent_lock"):
         lines.append("OK intent lock captured for compaction/drift audits")
-    if payload.get("installed_skills") == []:
-        lines.append("OK skill pack install skipped by flag")
-    else:
-        lines.append("OK recommended skill pack installed or refreshed")
+    lines.append("OK required skill pack installed or refreshed")
     if payload.get("integration_config", {}).get("records"):
         for record in payload["integration_config"]["records"]:
             label = "OK" if record.get("status") in {"configured", "kept"} else "ACTION"

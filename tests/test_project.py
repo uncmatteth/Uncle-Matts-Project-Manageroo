@@ -51,6 +51,15 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertTrue((repo / ".git").is_dir())
             self.assertIn("New Product", (repo / "README.md").read_text(encoding="utf-8"))
             self.assertIn(".manageroo/runs/", (repo / ".gitignore").read_text(encoding="utf-8"))
+            self.assertIn("PRD.md", result["created_files"])
+            self.assertIn("TASKS.md", result["created_files"])
+            prd_text = (repo / "PRD.md").read_text(encoding="utf-8")
+            self.assertIn("Name: `New Product`", prd_text)
+            self.assertIn("Make the first release less painful.", prd_text)
+            self.assertIn("planning truth, not proof", prd_text)
+            tasks_text = (repo / "TASKS.md").read_text(encoding="utf-8")
+            self.assertIn("Proof Needed", tasks_text)
+            self.assertIn("A task is not `verified`", tasks_text)
             head = subprocess.run(
                 ["git", "rev-parse", "--verify", "HEAD"],
                 cwd=repo,

@@ -65,7 +65,7 @@ class TruthContractTests(unittest.TestCase):
                 "AUTOREVIEW and Clawpatch for command-owned review and repair lanes",
             ],
             "docs/00_START_HERE.md": [
-                "`ready` blocks when the brief explicitly asks for a missing lane",
+                "`ready` blocks when the required stack is missing",
                 "Passive document/media files in the repo show as `WARN`, not a block",
             ],
             "docs/INSTALLATION.md": [
@@ -75,7 +75,7 @@ class TruthContractTests(unittest.TestCase):
                 "The AI must not freehand fixes from them",
             ],
             "docs/DOCUMENT_LANE.md": [
-                "Failure is optional context",
+                "Explicit document/prose/exact-text requests make that failure blocking",
                 "pretend it understood images",
                 "Media metadata is not vision",
             ],

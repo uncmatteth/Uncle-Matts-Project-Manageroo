@@ -30,7 +30,7 @@ class Phase(str, Enum):
 
 
 _ALLOWED: dict[Phase, set[Phase]] = {
-    Phase.CREATED: {Phase.INTAKE, Phase.BLOCKED},
+    Phase.CREATED: {Phase.INTAKE, Phase.DELIVERING, Phase.BLOCKED},
     Phase.INTAKE: {Phase.DISCOVERY, Phase.BLOCKED},
     Phase.DISCOVERY: {Phase.DECISIONS, Phase.BLOCKED},
     Phase.DECISIONS: {

@@ -68,9 +68,9 @@ def doctor(repo: Path) -> dict:
 
     obsidian = config["integrations"].get("obsidian_vault")
     checks.append({
-        "name": "obsidian-optional",
+        "name": "obsidian-vault-path",
         "ok": True,
-        "detail": "disabled" if not obsidian else (
+        "detail": "not configured" if not obsidian else (
             "available" if Path(obsidian).expanduser().is_dir() else "configured path missing"
         ),
         "required": False,

@@ -3,19 +3,21 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Callable
 
 from .gbrain_setup import summarize_gbrain_config, summarize_sync_status
 
 WhichFn = Callable[[str], str | None]
-RunnerFn = Callable[[list[str], int], dict]
+RunnerFn = Callable[..., dict]
 
 
-def run_probe(argv: list[str], timeout_seconds: int = 30) -> dict:
+def run_probe(argv: list[str], timeout_seconds: int = 30, *, cwd: Path | None = None) -> dict:
     try:
         completed = subprocess.run(
             argv,
+            cwd=cwd,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -26,13 +28,56 @@ def run_probe(argv: list[str], timeout_seconds: int = 30) -> dict:
             "ok": completed.returncode == 0,
             "exit_code": completed.returncode,
             "argv": argv,
+            "cwd": str(cwd) if cwd else "",
             "output": completed.stdout,
         }
     except subprocess.TimeoutExpired as exc:
         output = exc.stdout if isinstance(exc.stdout, str) else ""
-        return {"ok": False, "exit_code": 124, "argv": argv, "output": output + "\nTIMEOUT"}
+        return {
+            "ok": False,
+            "exit_code": 124,
+            "argv": argv,
+            "cwd": str(cwd) if cwd else "",
+            "output": output + "\nTIMEOUT",
+        }
     except OSError as exc:
-        return {"ok": False, "exit_code": 127, "argv": argv, "output": str(exc)}
+        return {
+            "ok": False,
+            "exit_code": 127,
+            "argv": argv,
+            "cwd": str(cwd) if cwd else "",
+            "output": str(exc),
+        }
+
+
+def _run_probe(
+    runner: RunnerFn,
+    argv: list[str],
+    timeout_seconds: int = 30,
+    *,
+    cwd: Path | None = None,
+) -> dict:
+    try:
+        return runner(argv, timeout_seconds, cwd=cwd)
+    except TypeError:
+        return runner(argv, timeout_seconds)
+
+
+def _init_disposable_git_repo(root: Path) -> dict:
+    repo = root / "gitnexus-probe-repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / "README.md").write_text("# Manageroo GitNexus stack-doctor probe\n", encoding="utf-8")
+    for argv in (
+        ["git", "init", "-q", "-b", "manageroo-stack-doctor"],
+        ["git", "config", "user.name", "MANAGEROO Stack Doctor"],
+        ["git", "config", "user.email", "manageroo-stack-doctor@local.invalid"],
+        ["git", "add", "README.md"],
+        ["git", "commit", "-q", "-m", "MANAGEROO GitNexus stack-doctor baseline"],
+    ):
+        probe = run_probe(argv, 30, cwd=repo)
+        if not probe.get("ok"):
+            return probe | {"repo": str(repo)}
+    return {"ok": True, "repo": str(repo)}
 
 
 def _safe_probe_record(probe: dict | None) -> dict | None:
@@ -43,6 +88,8 @@ def _safe_probe_record(probe: dict | None) -> dict | None:
         "exit_code": probe.get("exit_code"),
         "argv": probe.get("argv", []),
     }
+    if probe.get("cwd"):
+        record["cwd"] = probe.get("cwd")
     if not probe.get("ok"):
         record["output"] = str(probe.get("output", ""))[:2000]
     return record
@@ -136,21 +183,64 @@ def _gitnexus(which: WhichFn, runner: RunnerFn) -> dict:
             ["Install Node.js 18+", "npm install -g gitnexus", "gitnexus setup"],
             reference="https://github.com/abhigyanpatwari/GitNexus",
         )
-    version_probe = runner([path, "--version"], 30)
-    configured = bool(version_probe.get("ok"))
+    version_probe = _run_probe(runner, [path, "--version"], 30)
+    with tempfile.TemporaryDirectory(prefix="manageroo-gitnexus-doctor-") as temp:
+        repo_probe = _init_disposable_git_repo(Path(temp))
+        if repo_probe.get("ok"):
+            probe_repo = Path(str(repo_probe["repo"]))
+            analyze_probe = _run_probe(
+                runner,
+                [path, "analyze", str(probe_repo), "--skip-agents-md", "--skip-skills"],
+                60,
+                cwd=probe_repo,
+            )
+            status_probe = _run_probe(runner, [path, "status"], 30, cwd=probe_repo)
+        else:
+            analyze_probe = {
+                "ok": False,
+                "exit_code": repo_probe.get("exit_code"),
+                "argv": [path, "analyze", "<repo>", "--skip-agents-md", "--skip-skills"],
+                "output": "Could not initialize disposable Git repo: "
+                + str(repo_probe.get("output", "")),
+            }
+            status_probe = {
+                "ok": False,
+                "exit_code": repo_probe.get("exit_code"),
+                "argv": [path, "status"],
+                "output": "Could not initialize disposable Git repo: "
+                + str(repo_probe.get("output", "")),
+            }
+    configured = bool(
+        version_probe.get("ok")
+        and status_probe.get("ok")
+        and analyze_probe.get("ok")
+    )
+    next_commands: list[str] = []
+    if not version_probe.get("ok"):
+        next_commands.append("gitnexus --version")
+    if not status_probe.get("ok"):
+        next_commands.append("gitnexus status")
+    if not analyze_probe.get("ok"):
+        next_commands.append("gitnexus analyze <repo> --skip-agents-md --skip-skills")
+    if not configured:
+        next_commands.append("gitnexus setup")
     return {
         "name": "gitnexus",
-        "status": "warning" if configured else "needs_action",
+        "status": "ok" if configured else "needs_action",
         "installed": True,
         "configured": configured,
         "path": path,
         "detail": (
-            "installed; setup probe is not authoritative, run `gitnexus setup` if your agent cannot see it"
+            "installed; required status and analyze probes passed"
             if configured
-            else "installed; version probe failed, run `gitnexus setup`"
+            else "installed; required GitNexus probes need attention"
         ),
-        "next_commands": ["gitnexus setup"] if not configured else [],
-        "probes": {"version": _safe_probe_record(version_probe)},
+        "next_commands": next_commands,
+        "probes": {
+            "version": _safe_probe_record(version_probe),
+            "status": _safe_probe_record(status_probe),
+            "analyze": _safe_probe_record(analyze_probe),
+        },
         "reference": "https://github.com/abhigyanpatwari/GitNexus",
     }
 
@@ -190,10 +280,10 @@ def _codex(which: WhichFn, runner: RunnerFn) -> dict:
     if not path:
         return _missing(
             "codex",
-            "Codex CLI not found. This is optional unless the selected agent or Clawpatch provider needs it.",
-            ["Install Codex only if this machine should use Codex.", "codex login"],
+            "Codex CLI not found. Required when the selected agent or Clawpatch provider uses Codex.",
+            ["Install Codex if this machine should use Codex.", "codex login"],
             reference="https://chatgpt.com/codex",
-        ) | {"optional": True}
+        ) | {"adapter_scoped": True}
     status_probe = runner([path, "login", "status"], 30)
     configured = bool(status_probe.get("ok"))
     return {
@@ -201,7 +291,7 @@ def _codex(which: WhichFn, runner: RunnerFn) -> dict:
         "status": "ok" if configured else "needs_action",
         "installed": True,
         "configured": configured,
-        "optional": True,
+        "adapter_scoped": True,
         "path": path,
         "detail": "login ready" if configured else "installed; login not ready",
         "next_commands": [] if configured else ["codex login"],
@@ -318,11 +408,12 @@ def stack_doctor(
     needs_action = [
         item
         for item in items
-        if item.get("status") in {"missing", "needs_action"} and not item.get("optional")
+        if item.get("status") in {"missing", "needs_action"} and not item.get("adapter_scoped")
     ]
+    ready = not needs_action
     return {
-        "ok": True,
-        "ready": not needs_action,
+        "ok": ready,
+        "ready": ready,
         "executes_changes": False,
         "agent": agent,
         "counts": {
@@ -346,15 +437,9 @@ def format_stack_doctor(report: dict) -> str:
     ]
     for item in report.get("items", []):
         label = "OK" if item.get("status") == "ok" else "WARN" if item.get("status") == "warning" else "ACTION"
-        optional = " optional" if item.get("optional") else ""
-        lines.append(f"- {label} {item['name']}{optional}: {item.get('detail', '')}")
+        scope = " adapter-scoped" if item.get("adapter_scoped") else ""
+        lines.append(f"- {label} {item['name']}{scope}: {item.get('detail', '')}")
         for command in item.get("next_commands", []):
             lines.append(f"  next: {command}")
-    lines.extend(
-        [
-            "",
-            "To let the installer guide missing pieces later:",
-            "  ./install.sh --install-stack",
-        ]
-    )
+    lines.extend(["", "Fix ACTION items before using Manageroo for real runs or release readiness."])
     return "\n".join(lines) + "\n"

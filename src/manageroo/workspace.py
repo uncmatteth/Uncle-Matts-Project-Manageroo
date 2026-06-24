@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -119,6 +120,91 @@ class WorkspaceMirror:
         destination.write_text(result.stdout, encoding="utf-8", newline="\n")
         return destination
 
+    def _visible_file_records(self, repo: Path, *, label: str) -> dict[str, SourceFile]:
+        records: dict[str, SourceFile] = {}
+        for relative in git_visible_files(repo, self.runner):
+            path = repo / relative
+            if not path.exists():
+                continue
+            if not path.is_file() or path.is_symlink():
+                raise SafetyError(f"{label} contains a visible non-regular file: {relative}")
+            records[relative] = SourceFile(
+                path=relative,
+                sha256=sha256_file(path),
+                bytes=path.stat().st_size,
+                mode=0o755 if os.access(path, os.X_OK) else 0o644,
+            )
+        return records
+
+    def _expected_records_after_patch(self, patch: Path) -> dict[str, SourceFile]:
+        if not self.baseline_commit:
+            raise SafetyError("Run workspace baseline commit is missing.")
+        self.run_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="expected-source-", dir=self.run_root) as temp:
+            expected_repo = Path(temp) / "repo"
+            clone = self.runner.run(
+                ["git", "clone", "--no-hardlinks", "--quiet", str(self.workspace), str(expected_repo)],
+                cwd=self.run_root,
+                timeout_seconds=300,
+            )
+            if not clone.passed:
+                raise SafetyError("Could not create expected source verifier clone:\n" + clone.stderr)
+            checkout = self.runner.run(
+                ["git", "checkout", "--quiet", self.baseline_commit],
+                cwd=expected_repo,
+                timeout_seconds=300,
+            )
+            if not checkout.passed:
+                raise SafetyError("Could not check out source snapshot baseline:\n" + checkout.stderr)
+            if patch.exists() and patch.stat().st_size > 0:
+                check = self.runner.run(
+                    ["git", "apply", "--check", "--binary", str(patch)],
+                    cwd=expected_repo,
+                    timeout_seconds=300,
+                )
+                if not check.passed:
+                    raise SafetyError("Final patch cannot build approved source state:\n" + check.stderr)
+                applied = self.runner.run(
+                    ["git", "apply", "--binary", str(patch)],
+                    cwd=expected_repo,
+                    timeout_seconds=300,
+                )
+                if not applied.passed:
+                    raise SafetyError("Failed to build approved source state:\n" + applied.stderr)
+            return self._visible_file_records(expected_repo, label="Approved delivery state")
+
+    def assert_source_matches_snapshot_plus_patch(self, patch: Path) -> None:
+        expected = self._expected_records_after_patch(patch)
+        current = self._visible_file_records(self.source_repo, label="Source tree")
+        if set(current) != set(expected):
+            missing = sorted(set(expected) - set(current))
+            extra = sorted(set(current) - set(expected))
+            raise SafetyError(
+                "Source tree does not match approved delivery patch. "
+                f"Missing={missing}; extra={extra}"
+            )
+        changed = sorted(
+            relative
+            for relative, expected_record in expected.items()
+            if current[relative].sha256 != expected_record.sha256
+            or current[relative].mode != expected_record.mode
+        )
+        if changed:
+            raise SafetyError(
+                "Source tree does not match approved delivery patch: " + ", ".join(changed)
+            )
+
+    def delivery_patch_already_applied_cleanly(self, patch: Path) -> bool:
+        try:
+            self.assert_source_matches_snapshot_plus_patch(patch)
+            return True
+        except SafetyError as delivery_error:
+            try:
+                self.assert_source_unchanged()
+            except SafetyError:
+                raise delivery_error
+            return False
+
     def assert_source_unchanged(self) -> None:
         import json
 
@@ -155,16 +241,7 @@ class WorkspaceMirror:
         )
         if not applied.passed:
             raise SafetyError("Failed to apply validated patch:\n" + applied.stderr)
-
-    def patch_already_applied_to_source(self, patch: Path) -> bool:
-        if not patch.exists() or patch.stat().st_size == 0:
-            return True
-        reverse_check = self.runner.run(
-            ["git", "apply", "--reverse", "--check", "--binary", str(patch)],
-            cwd=self.source_repo,
-            timeout_seconds=300,
-        )
-        return reverse_check.passed
+        self.assert_source_matches_snapshot_plus_patch(patch)
 
     def clone_for_review(self, destination: Path) -> Path:
         if destination.exists():

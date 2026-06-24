@@ -43,7 +43,6 @@ Global token-reduction mode is managed outside the project config:
 
 ```bash
 manageroo token-mode status
-manageroo token-mode set off
 manageroo token-mode set caveman
 manageroo token-mode set curse
 ```
@@ -100,17 +99,20 @@ Planning agents may reference gate IDs. They may not introduce argv commands.
 
 ## `[integrations]`
 
-Stack integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery still belongs to MANAGEROO state, scope, gates, and evidence.
+Stack integration commands are argv arrays, never shell strings. Empty GBrain
+or GitNexus arrays are readiness failures. Core delivery still belongs to
+MANAGEROO state, scope, gates, and evidence.
 
-GBrain and GitNexus commands are optional intelligence, not hard dependencies.
-They run with bounded timeouts, write redacted output artifacts, and do not
-block the core run if they fail.
+GBrain and GitNexus commands are required repo-intelligence lanes. They run
+with bounded timeouts, write redacted output artifacts, and block the core run
+if they are missing or fail.
 
-`document_analysis_command` is also optional intelligence. The controller writes
-`document-manifest.json` for prose, PDFs, transcripts, and other document-like
-inputs, runs the configured argv if present, and records the result in
-`document-intelligence.json`. Failure is optional context, not an AI freehand
-repair prompt.
+`document_analysis_command` is conditional command-owned intelligence. The
+controller writes `document-manifest.json` for prose, PDFs, transcripts, and
+other document-like inputs, runs the configured argv if present, and records the
+result in `document-intelligence.json`. Passive repo documents can stay
+non-blocking inventory context; explicit document/prose/exact-text requests make failure blocking. It
+is never an AI freehand repair prompt.
 
 AUTOREVIEW and Clawpatch commands are different. When `autoreview_command` or
 `clawpatch_command` is configured, it is a command-owned review/repair lane. The
@@ -124,8 +126,10 @@ Discovery command placeholders:
 ```text
 {repo}
 {workspace}
+{source_repo}
 {run_root}
 {query}
+{gbrain_query_payload}
 {brief_file}
 {inventory_file}
 {obsidian_context_file}
@@ -134,6 +138,17 @@ Discovery command placeholders:
 {document_intelligence_file}
 {document_state_dir}
 ```
+
+`gitnexus_analyze_command` and `gitnexus_status_command` are forced to run from
+a disposable GitNexus copy of the isolated workspace, and for those lanes
+`{repo}` is also resolved to `{workspace}`. Use `{source_repo}` only for custom
+read-only discovery commands that intentionally need the original checkout path.
+Required GBrain and GitNexus command executables must be operator-owned outside
+the target repo; repo-local wrappers are rejected before readiness or runtime
+execution. If you need `gbrain_readiness_probe_command` or
+`gitnexus_readiness_probe_command` for custom operator-owned commands, the probe
+executable must also be outside the target repo; repo-local probe scripts are
+not executed by readiness.
 
 Final capture command placeholders:
 
@@ -168,10 +183,12 @@ Example:
 
 ```toml
 [integrations]
-gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
+gbrain_search_command = ["gbrain", "call", "query", "{gbrain_query_payload}"]
 gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
-gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
-gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
+gbrain_readiness_probe_command = []
+gitnexus_analyze_command = ["gitnexus", "analyze", "{workspace}", "--skip-agents-md", "--skip-skills"]
+gitnexus_status_command = ["gitnexus", "status"]
+gitnexus_readiness_probe_command = []
 document_analysis_command = ["python3", "scripts/document_intel.py", "{document_manifest_file}", "{document_state_dir}"]
 autoreview_command = []
 clawpatch_command = []

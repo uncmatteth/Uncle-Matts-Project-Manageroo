@@ -41,7 +41,7 @@ handoff, or old summary. If a summary drops a must-not rule, rejected idea,
 latest correction, proof requirement, or scope boundary, stop and run
 `manageroo compact audit --summary SUMMARY.md`.
 
-Use the recommended MANAGEROO skill pack automatically:
+Use the required MANAGEROO skill pack automatically:
 - rough, overloaded, or frustrated request -> `pimp-my-prompt`;
 - existing memory, people, prior decisions, or project history -> `brain-ops`
   or `query`;
@@ -318,6 +318,137 @@ def _write_starter_files(target: Path, starter: str, display_name: str, descript
     return created
 
 
+def _project_control_docs(display_name: str, description: str) -> dict[str, str]:
+    prd = "\n".join(
+        [
+            "# Product Requirements",
+            "",
+            "This file describes what the project is supposed to become. It is planning truth, not proof.",
+            "Current repo files, tests, builds, browser checks, live probes, and command output prove status.",
+            "",
+            "## Project",
+            "",
+            f"- Name: `{display_name}`",
+            f"- One-line product description: {description}",
+            "- Target user: `[who this is for]`",
+            "- Problem solved: `[real problem]`",
+            "",
+            "## V1 Scope",
+            "",
+            "Must have:",
+            "",
+            "- `[feature/workflow]`",
+            "- `[feature/workflow]`",
+            "",
+            "Out of scope:",
+            "",
+            "- `[future feature/workflow]`",
+            "- `[future feature/workflow]`",
+            "",
+            "## User Flows",
+            "",
+            "### Flow 1: `[name]`",
+            "",
+            "1. `[step]`",
+            "2. `[step]`",
+            "3. `[expected result]`",
+            "",
+            "### Flow 2: `[name]`",
+            "",
+            "1. `[step]`",
+            "2. `[step]`",
+            "3. `[expected result]`",
+            "",
+            "## Requirements",
+            "",
+            "| Requirement | Acceptance Criteria | Proof |",
+            "|---|---|---|",
+            "| `[requirement]` | `[observable behavior]` | `[command/check]` |",
+            "| `[requirement]` | `[observable behavior]` | `[command/check]` |",
+            "",
+            "## Stack Decisions",
+            "",
+            "- Frontend: `[choice or undecided]`",
+            "- Backend: `[choice or undecided]`",
+            "- Database/storage: `[choice or undecided]`",
+            "- Auth: `[choice or undecided]`",
+            "- Hosting/deploy: `[choice or undecided]`",
+            "- External APIs/services: `[choice or none]`",
+            "",
+            "## Readiness Gates",
+            "",
+            "| Level | Required Proof |",
+            "|---|---|",
+            "| local preview | `[local command/browser proof]` |",
+            "| public demo | `[public URL/API/browser proof]` |",
+            "| paid pilot | `[real auth/data/service/payment/client proof]` |",
+            "| real-value production | `[live value-bearing proof]` |",
+            "| scale-clean production | `[load/security/ops/monitoring proof]` |",
+            "",
+            "## External Blockers",
+            "",
+            "- `[credential/API/account/approval/legal/deploy access]`",
+            "",
+            "## Risks",
+            "",
+            "| Risk | Mitigation |",
+            "|---|---|",
+            "| `[risk]` | `[mitigation]` |",
+            "",
+            "## Do Not Change Without Approval",
+            "",
+            "- `[provider]`",
+            "- `[schema/API contract]`",
+            "- `[business rule]`",
+            "- `[public claim/copy]`",
+            "",
+        ]
+    )
+    tasks = "\n".join(
+        [
+            "# Tasks",
+            "",
+            "Use this file for current human-facing work. Keep tasks small enough to verify.",
+            "Manageroo's controller-owned implementation task graph still lives in run artifacts.",
+            "",
+            "## Intake",
+            "",
+            f"- First request: {description}",
+            "",
+            "## Current",
+            "",
+            "| ID | Task | Status | Proof Needed | Notes |",
+            "|---|---|---|---|---|",
+            "| T001 | Define the first verified product slice | `not started` | Fill `PRD.md`, `.manageroo/PRODUCT-BRIEF.md`, and at least one real check command | Seeded by MANAGEROO create |",
+            "",
+            "## Status Labels",
+            "",
+            "- `not started`",
+            "- `in progress`",
+            "- `implemented`",
+            "- `verified`",
+            "- `blocked`",
+            "",
+            "## Done Rule",
+            "",
+            "A task is not `verified` until the proof command/check listed for that task has passed in the current repo.",
+            "",
+        ]
+    )
+    return {"PRD.md": prd, "TASKS.md": tasks}
+
+
+def _write_project_control_docs(target: Path, display_name: str, description: str) -> list[str]:
+    created: list[str] = []
+    for relative, text in _project_control_docs(display_name, description).items():
+        path = target / relative
+        if path.exists():
+            continue
+        atomic_write_text(path, text)
+        created.append(relative)
+    return created
+
+
 def create_project_repo(
     path: Path,
     *,
@@ -396,6 +527,7 @@ def create_project_repo(
             ),
         )
         created_files.append(".gitignore")
+    created_files.extend(_write_project_control_docs(target, display_name, description))
     created_files.extend(_write_starter_files(target, starter, display_name, description))
 
     _run_git(runner, ["init", "-b", "main"], target)

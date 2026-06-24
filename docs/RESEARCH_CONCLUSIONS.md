@@ -41,4 +41,4 @@ MANAGEROO does not attempt to replace those systems. Its distinct role is the op
 
 ## Why the architecture is intentionally smaller
 
-An earlier design risked becoming a new IDE, memory service, graph database, workflow marketplace, and multi-agent platform simultaneously. The final architecture removes those ambitions. It is a thin local controller with explicit adapters. Optional tools can improve it without becoming hidden dependencies.
+An earlier design risked becoming a new IDE, memory service, graph database, workflow marketplace, and multi-agent platform simultaneously. The final architecture removes those ambitions. It is a thin local controller with explicit adapters. Required stack lanes stay required and visible; any additional tool must be configured deliberately without becoming a hidden dependency.

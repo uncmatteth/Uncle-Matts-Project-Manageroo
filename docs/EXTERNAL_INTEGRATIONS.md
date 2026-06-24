@@ -46,8 +46,8 @@ The guided installer offers two lanes:
   is for the full setup: API-key questions, search-mode choice, source mapping,
   bundled skills, recurring jobs, and verification.
 
-Default interactive installs ask. Non-interactive stack installs use the local
-lane unless a lane is passed explicitly.
+Interactive and non-interactive installs use the local lane unless a lane is
+passed explicitly.
 
 If GBrain already exists, the installer does not run a new init. It probes:
 
@@ -73,12 +73,19 @@ gbrain sync --source YOUR_SOURCE_ID --json --yes
 gbrain status --json --section sync
 ```
 
-When `gbrain_search_command` is configured in `.manageroo/config.toml`,
-`manageroo run` asks GBrain for brief-related context during discovery and
-feeds the successful output into planning. When `gbrain_capture_command` is
-configured, the final report/result can be captured after a successful run.
-Both are optional. If the command is missing, fails, or times out, the run
-records that fact and continues through the normal controller path.
+`gbrain_search_command` and `gbrain_capture_command` are required command
+templates in `.manageroo/config.toml`.
+`manageroo run` first verifies that GBrain has an exact source mapping for the
+target repo; a broad parent folder or nested subfolder does not satisfy that
+gate. The run then asks GBrain for brief-related context during discovery and
+filters the JSON search output to the exact mapped repo source before it can
+enter planning prompts. Search output that is not JSON, lacks source metadata,
+or contains no results for the exact repo source fails the required GBrain lane.
+The final report/result is captured through the required capture command before
+source apply. If the exact source mapping, search command, or capture command is
+missing, fails, or times out, the run records that fact and blocks.
+`manageroo ready` probes capture only through a non-mutating `capture --help`
+style command; it does not run the real capture during readiness.
 
 Project reference: https://github.com/garrytan/gbrain
 
@@ -90,19 +97,36 @@ The guided installer can run `npm install -g gitnexus` when npm is available.
 Run `gitnexus setup` afterward when you want its MCP wiring.
 
 `stack-doctor` treats a found `gitnexus` command with a working version probe
-as installed with setup uncertainty. That is a warning/unknown state, not a
-permanent hard failure, because GitNexus does not expose one universal local
-probe for every agent wiring.
+as installed. A missing command or failing version probe is an ACTION item.
 
 Project reference: https://github.com/abhigyanpatwari/GitNexus
 
 Review GitNexus licensing before commercial embedding.
 
-When `gitnexus_analyze_command` or `gitnexus_query_command` is configured,
+`gitnexus_analyze_command` and `gitnexus_status_command` are required command
+templates. During `run`, MANAGEROO
 `run` records the output under
 `.manageroo/runs/<run-id>/artifacts/discovery/external-intelligence.json`
-and includes passing context in the product, reuse, and planning prompts. Git
-files and current command output still win if GitNexus is stale or unavailable.
+and includes passing context in the product, reuse, and planning prompts. A
+missing, empty, or failing GitNexus command blocks before planning. Git files
+and current command output still win if GitNexus output is stale.
+
+GitNexus analyze runs against a disposable copy of the isolated MANAGEROO
+workspace, not the source checkout and not the implementation workspace that
+later produces the final patch. The default template uses `{workspace}` so
+GitNexus index files, registration files, or ignore updates cannot mutate the
+operator's source repo or leak into the delivered diff. If a custom read-only
+command needs the original checkout path, use `{source_repo}` deliberately.
+
+Required GBrain and GitNexus command executables must resolve to
+operator-owned executables outside the target repo. Repo-local wrappers are not
+accepted, even when a separate readiness probe exists. Readiness never executes
+custom required stack wrappers unless an explicit non-mutating probe is
+configured. Use `gbrain_readiness_probe_command` or
+`gitnexus_readiness_probe_command` for custom operator-owned commands that are
+valid at run time but cannot be safely probed with the built-in defaults. The
+readiness probe must also resolve to an operator-owned executable outside the
+target repo; repo-local probe scripts are rejected during readiness.
 
 ## Obsidian
 
@@ -132,10 +156,11 @@ and `{document_state_dir}`. The command output is captured in:
 .manageroo/runs/<run-id>/artifacts/discovery/document-intelligence.json
 ```
 
-This lane is optional intelligence. Passing output can inform planning. Failure
-is recorded as optional context. It does not give the AI permission to freehand
-a whole manuscript, silently paraphrase exact text, or pretend file metadata is
-real visual understanding.
+This lane is conditional command-owned intelligence. Passive repo documents can
+be recorded as non-blocking inventory context. Explicit document/prose/exact-text requests
+make the command required and failures blocking. Failure does not give the AI
+permission to freehand a whole manuscript, silently paraphrase exact text, or
+pretend file metadata is real visual understanding.
 
 Useful paired skills:
 
@@ -206,10 +231,9 @@ manageroo loop-library profile overnight-docs-sweep
 manageroo loop-library brief overnight-docs-sweep --output .manageroo/PRODUCT-BRIEF.md --force
 ```
 
-It does not require Loop Library for normal use. The guided installer can also
-install the Loop Library skill for selected agents, for example
-`--install-stack --loop-library-agent codex`. Other skills-compatible agents can
-be passed the same way.
+The guided installer installs or guides the Loop Library skill for selected
+agents, for example `--install-stack --loop-library-agent codex`. Other
+skills-compatible agents can be passed the same way.
 
 Reference: https://signals.forwardfuture.ai/loop-library/
 
@@ -235,8 +259,9 @@ current job.
 - `diagnose`: builds a fast failure loop before fixing broken, flaky, confusing,
   or slow behavior.
 - `tdd`: keeps behavior changes test-first when proof should be executable.
-- `testing`, `security-review`, and `cross-modal-review`: add broader test
-  health, production-risk review, and second-model pressure.
+- `testing`, `go-get-uncle-matts-hammerrr`, `security-review`, and
+  `cross-modal-review`: add broader test health, explicit claim-vs-reality
+  audits, production-risk review, and second-model pressure.
 - `autoreview`: gives the agent a closeout review lane before commit, release,
   or handoff.
 - `to-prd`, `to-issues`, `grill-me`, and `grill-with-docs`: turn rough product

@@ -14,7 +14,7 @@ If the request is messy, $pimp-my-prompt can turn it into scope and proof.
 Solo Operator Mode turns the ask into a brief and one next action.
 Solo also writes an intent lock so long chats and handoffs can be audited.
 The tool reads the repo and breaks the job up.
-If configured, GBrain/GitNexus add memory and code-graph context.
+GBrain/GitNexus add required memory and code-graph context.
 Independent map/review chunks can run in parallel.
 Media and big prose files are recorded in a document manifest and can use a
 configured document/prose command lane.
@@ -46,19 +46,18 @@ manageroo stack-status
 manageroo projects --add
 ```
 
-Optional token modes:
+Token mode choices:
 
 ```bash
 manageroo token-mode set caveman
 manageroo token-mode set curse
-manageroo token-mode set off
 ```
 
 Token reduction is one feature with two styles. `caveman` is terse and clean.
 `curse` is the same compression with appropriately placed profanity because
 life is more fun that way.
 
-Recommended skill pack:
+Required skill pack:
 
 ```bash
 manageroo skills reconcile --apply
@@ -66,16 +65,17 @@ manageroo skills reconcile --apply
 
 That installs the MANAGEROO router skill plus helper lanes for rough
 intake, memory lookup, source ingest, media/PDF work, long prose, exact wording,
-debugging, test-first work, closeout review, public copy, website cleanup,
-reusable skills, and token reduction under `~/.agents/skills`. The
-installer offers this pack during normal install, defaults to yes, and lets you
-skip it with `--skill-pack skip` or `--skip-skill-pack`. It is optional but
-strongly suggested because agents can use the router skill to choose helpers
-automatically.
+debugging, test-first work, claim-vs-reality audits, closeout review, public
+copy, website cleanup, reusable skills, and token reduction under
+`~/.agents/skills`. The installer adds this pack as part of the full Manageroo
+install because agents can use the router skill to choose helpers automatically.
 
 Project init also handles the agent/context files. It writes managed blocks to
 `AGENTS.md` and `CONTEXT.md` if they are missing, preserves existing content,
 and points agents at `.manageroo/PROJECT-MEMORY.md` and the current brief.
+When `solo --create` makes a new repo, it also seeds `PRD.md` and `TASKS.md`
+for human-facing scope and task tracking. Those files are planning surfaces,
+not proof; current command output and run evidence still win.
 
 If you copied a skills folder from another computer, do not copy it whole over
 your current skills. Let Manageroo reconcile it:
@@ -121,7 +121,7 @@ manageroo solo /absolute/path/to/new-product \
 
 Bare `solo` is the main wizard. It asks what AI you are using, which repo to
 use, what should be built or fixed, what must not break, what proof should pass,
-and whether to check GBrain, GitNexus, Obsidian, or Loop Library. It writes the
+and how to wire the required stack and supporting local tools. It writes the
 brief, writes `.manageroo/PROJECT-MEMORY.md`, and prints exactly one next
 command.
 
@@ -161,8 +161,9 @@ manageroo solo /absolute/path/to/new-site \
 ```
 
 Starter choices are `blank`, `static-site`, `python-cli`, and `docs-project`.
-The non-blank starters include a small `python3 -m unittest discover` smoke
-check so the first repo has a proof command.
+Every created project gets `README.md`, `.gitignore`, `PRD.md`, and `TASKS.md`.
+The non-blank starters also include a small `python3 -m unittest discover`
+smoke check so the first repo has a proof command.
 
 Use lower-level `setup` only when you want to initialize the repo without
 writing the product brief yet:
@@ -204,11 +205,11 @@ manageroo ready
 manageroo next
 ```
 
-`ready` blocks when the brief explicitly asks for a missing lane. Document,
-media, transcript, long-prose, or exact-wording requests need
-`document_analysis_command`. GBrain/memory/prior-decision requests need mapped
-GBrain sources. Passive document/media files in the repo show as `WARN`, not a
-block.
+`ready` blocks when the required stack is missing or when the brief explicitly
+asks for a missing lane. GBrain and GitNexus command lanes are required.
+Document, media, transcript, long-prose, or exact-wording requests need
+`document_analysis_command`. GBrain needs mapped sources. Passive document/media
+files in the repo show as `WARN`, not a block.
 
 If it says no checks are configured, ask for repo-aware suggestions:
 

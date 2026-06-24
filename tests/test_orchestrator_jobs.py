@@ -11,10 +11,17 @@ from unittest.mock import patch
 from manageroo.adapters.mock import MockAdapter
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.cli import main, parser
-from manageroo.errors import AgentExecutionError, BlockingDecisionError
+from manageroo.errors import AgentExecutionError, BlockingDecisionError, SafetyError, ValidationError
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 from manageroo.util import read_json
+from tests.stack_shims import (
+    gbrain_capture_command,
+    gbrain_search_command,
+    gitnexus_analyze_command,
+    gitnexus_status_command,
+    text_command,
+)
 
 
 def _toml_array(items):
@@ -22,6 +29,23 @@ def _toml_array(items):
 
 
 class OrchestratorJobCliTests(unittest.TestCase):
+    def setUp(self):
+        self._gbrain_source_patch = patch(
+            "manageroo.orchestrator.gbrain_repo_source_item",
+            return_value={
+                "name": "gbrain",
+                "ok": True,
+                "detail": "test repo-scoped source is mapped",
+                "next": "",
+                "required": True,
+                "matched_sources": [{"id": "fixture"}],
+            },
+        )
+        self._gbrain_source_patch.start()
+
+    def tearDown(self):
+        self._gbrain_source_patch.stop()
+
     def _repo(self, root: Path) -> Path:
         repo = root / "repo"
         repo.mkdir()
@@ -45,8 +69,39 @@ class OrchestratorJobCliTests(unittest.TestCase):
         subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
         initialize_project(repo, agent="mock")
+        probe_dir = root / "operator-bin"
+        probe_dir.mkdir()
+        gbrain_probe = probe_dir / "gbrain-readiness-probe"
+        gitnexus_probe = probe_dir / "gitnexus-readiness-probe"
+        for probe in (gbrain_probe, gitnexus_probe):
+            probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            probe.chmod(0o755)
         config = repo / ".manageroo" / "config.toml"
         text = config.read_text(encoding="utf-8")
+        text = text.replace(
+            "gbrain_readiness_probe_command = []",
+            "gbrain_readiness_probe_command = " + _toml_array([str(gbrain_probe)]),
+        )
+        text = text.replace(
+            "gitnexus_readiness_probe_command = []",
+            "gitnexus_readiness_probe_command = " + _toml_array([str(gitnexus_probe)]),
+        )
+        text = text.replace(
+            'gbrain_search_command = ["gbrain", "call", "query", "{gbrain_query_payload}"]',
+            "gbrain_search_command = " + _toml_array(gbrain_search_command()),
+        )
+        text = text.replace(
+            'gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]',
+            "gbrain_capture_command = " + _toml_array(gbrain_capture_command()),
+        )
+        text = text.replace(
+            'gitnexus_analyze_command = ["gitnexus", "analyze", "{workspace}", "--skip-agents-md", "--skip-skills"]',
+            "gitnexus_analyze_command = " + _toml_array(gitnexus_analyze_command()),
+        )
+        text = text.replace(
+            'gitnexus_status_command = ["gitnexus", "status"]',
+            "gitnexus_status_command = " + _toml_array(gitnexus_status_command()),
+        )
         text += (
             "\n[[verification.gates]]\n"
             'id = "fixture-check"\n'
@@ -159,6 +214,190 @@ class OrchestratorJobCliTests(unittest.TestCase):
 
             self.assertEqual(continued["run_id"], result["run_id"])
             self.assertEqual(continued["status"], "COMPLETE")
+
+    def test_continue_completed_applied_run_repairs_missing_capture_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=True,
+            )
+            run_root = Path(result["evidence_paths"]["run_root"])
+            final_result_path = run_root / "delivery" / "final-result.json"
+            capture_path = run_root / "artifacts" / "delivery" / "external-capture.json"
+            saved = read_json(final_result_path)
+            saved.pop("external_capture", None)
+            final_result_path.write_text(json.dumps(saved, indent=2) + "\n", encoding="utf-8")
+            capture_path.unlink()
+
+            class ExplodingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    raise AssertionError("completed capture repair should not launch workers")
+
+            continued = Orchestrator(
+                repo,
+                adapter=ExplodingAdapter(),
+                run_id=result["run_id"],
+                continue_existing=True,
+            ).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=True,
+            )
+
+            self.assertEqual(continued["status"], "COMPLETE")
+            self.assertTrue(continued["applied_to_source"])
+            self.assertTrue(continued["external_capture"]["summary"]["passed"])
+            self.assertTrue(capture_path.is_file())
+            saved_after = read_json(final_result_path)
+            self.assertTrue(saved_after["external_capture"]["summary"]["passed"])
+
+    def test_continue_completed_unapplied_run_repairs_missing_capture_sidecar_before_apply(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            run_root = Path(result["evidence_paths"]["run_root"])
+            final_result_path = run_root / "delivery" / "final-result.json"
+            capture_path = run_root / "artifacts" / "delivery" / "external-capture.json"
+            self.assertTrue(read_json(final_result_path)["external_capture"]["summary"]["passed"])
+            capture_path.unlink()
+
+            class ExplodingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    raise AssertionError("capture repair should not launch workers")
+
+            continued = Orchestrator(
+                repo,
+                adapter=ExplodingAdapter(),
+                run_id=result["run_id"],
+                continue_existing=True,
+            ).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=True,
+            )
+
+            self.assertEqual(continued["status"], "COMPLETE")
+            self.assertTrue(continued["applied_to_source"])
+            self.assertTrue(capture_path.is_file())
+            self.assertTrue(read_json(final_result_path)["external_capture"]["summary"]["passed"])
+            journal_path = run_root / "controller" / "phase-journal.jsonl"
+            journal = [
+                json.loads(line)
+                for line in journal_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertFalse(
+                any(event["reason"] == "Required external capture proof repaired" for event in journal)
+            )
+            apply_events = [
+                event
+                for event in journal
+                if event["reason"] == "Previously completed delivery patch is applied to source"
+            ]
+            self.assertEqual(apply_events[-1]["from"], "DELIVERING")
+            self.assertEqual(apply_events[-1]["to"], "COMPLETE")
+
+    def test_continue_completed_unapplied_run_blocks_repo_local_capture_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            run_root = Path(result["evidence_paths"]["run_root"])
+            capture_path = run_root / "artifacts" / "delivery" / "external-capture.json"
+            capture_path.unlink()
+            marker = repo / "repo-local-capture-ran.txt"
+            evil = repo / "tools" / "evil-capture"
+            evil.parent.mkdir(exist_ok=True)
+            evil.write_text(
+                "#!/bin/sh\n"
+                f"printf ran > {marker}\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            evil.chmod(0o755)
+            config = repo / ".manageroo" / "config.toml"
+            text = config.read_text(encoding="utf-8")
+            text = "\n".join(
+                'gbrain_capture_command = ["tools/evil-capture", "{report_file}"]'
+                if line.startswith("gbrain_capture_command = ")
+                else line
+                for line in text.splitlines()
+            ) + "\n"
+            config.write_text(text, encoding="utf-8")
+
+            class ExplodingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    raise AssertionError("capture safety failure should not launch workers")
+
+            with self.assertRaisesRegex(ValidationError, "Required external capture lane failed"):
+                Orchestrator(
+                    repo,
+                    adapter=ExplodingAdapter(),
+                    run_id=result["run_id"],
+                    continue_existing=True,
+                ).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=True,
+                )
+            self.assertFalse(marker.exists())
+            self.assertTrue(capture_path.is_file())
+            capture = read_json(capture_path)
+            self.assertFalse(capture["summary"]["passed"])
+            self.assertIn("operator-owned outside the target repo", capture["records"][0]["error"])
+
+    def test_failed_completed_capture_repair_marks_run_blocked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            run_root = Path(result["evidence_paths"]["run_root"])
+            final_result_path = run_root / "delivery" / "final-result.json"
+            capture_path = run_root / "artifacts" / "delivery" / "external-capture.json"
+            capture_path.unlink()
+
+            config = repo / ".manageroo" / "config.toml"
+            config.write_text(
+                "\n".join(
+                    "gbrain_capture_command = "
+                    + _toml_array(text_command("gbrain-capture-fail", "GBRAIN CAPTURE FAIL", exit_code=7))
+                    if line.startswith("gbrain_capture_command = ")
+                    else line
+                    for line in config.read_text(encoding="utf-8").splitlines()
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValidationError, "Required external capture lane failed"):
+                Orchestrator(
+                    repo,
+                    adapter=MockAdapter(),
+                    run_id=result["run_id"],
+                    continue_existing=True,
+                ).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+            self.assertEqual(read_json(run_root / "state.json")["phase"], "BLOCKED")
+            failure = read_json(run_root / "delivery" / "failure.json")
+            self.assertEqual(failure["status"], "BLOCKED")
+            capture = read_json(capture_path)
+            self.assertFalse(capture["summary"]["passed"])
 
     def test_continue_blocked_worker_run_retries_from_disk(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -409,6 +648,62 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 (repo / "manageroo_fixture.txt").read_text(encoding="utf-8"),
                 "MANAGEROO deterministic fixture completed\n",
             )
+
+    def test_continue_completed_unapplied_run_blocks_applied_patch_plus_source_edit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            patch_path = Path(result["evidence_paths"]["patch"])
+            subprocess.run(["git", "apply", "--binary", str(patch_path)], cwd=repo, check=True)
+            (repo / "README.md").write_text("# Fixture\noutside edit\n", encoding="utf-8")
+
+            class ExplodingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    raise AssertionError("contaminated delivery continue should not launch workers")
+
+            with self.assertRaisesRegex(SafetyError, "Source tree does not match approved delivery patch"):
+                Orchestrator(
+                    repo,
+                    adapter=ExplodingAdapter(),
+                    run_id=result["run_id"],
+                    continue_existing=True,
+                ).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=True,
+                )
+
+    def test_continue_completed_unapplied_run_blocks_applied_patch_plus_extra_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            patch_path = Path(result["evidence_paths"]["patch"])
+            subprocess.run(["git", "apply", "--binary", str(patch_path)], cwd=repo, check=True)
+            (repo / "outside.txt").write_text("outside edit\n", encoding="utf-8")
+
+            class ExplodingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    raise AssertionError("contaminated delivery continue should not launch workers")
+
+            with self.assertRaisesRegex(SafetyError, "Source tree does not match approved delivery patch"):
+                Orchestrator(
+                    repo,
+                    adapter=ExplodingAdapter(),
+                    run_id=result["run_id"],
+                    continue_existing=True,
+                ).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=True,
+                )
 
 
 if __name__ == "__main__":

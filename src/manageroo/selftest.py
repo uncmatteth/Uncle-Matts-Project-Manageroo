@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -9,6 +10,10 @@ from .adapters.mock import MockAdapter
 from .orchestrator import Orchestrator
 from .project import initialize_project
 from .runner import CommandRunner
+
+
+def _toml_array(items: list[str]) -> str:
+    return "[" + ", ".join(json.dumps(item) for item in items) + "]"
 
 
 def run_self_test() -> dict:
@@ -42,8 +47,54 @@ def run_self_test() -> dict:
                 raise RuntimeError(result.stderr)
 
         initialize_project(repo, agent="mock")
+        bin_dir = Path(temp) / "bin"
+        bin_dir.mkdir()
+        gbrain = bin_dir / "gbrain"
+        gbrain.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json\n"
+            "import sys\n\n"
+            f"repo = {json.dumps(str(repo))}\n"
+            "argv = sys.argv[1:]\n"
+            "if argv == ['config', 'show']:\n"
+            "    print('engine: selftest')\n"
+            "    print('embedding_model: selftest')\n"
+            "    print('embedding_dimensions: 1')\n"
+            "    print('schema_pack: selftest')\n"
+            "elif argv == ['status', '--json', '--section', 'sync']:\n"
+            "    print(json.dumps({'sync': {'sources': [{"
+            "'source_id': 'selftest', 'name': 'selftest', 'local_path': repo, "
+            "'pages': 1, 'chunks_total': 1, 'chunks_unembedded': 0, "
+            "'embedding_coverage_pct': 100}], 'unacknowledged_failures': 0}}))\n"
+            "elif argv[:2] == ['call', 'query']:\n"
+            "    print(json.dumps({'results': [{'source_id': 'selftest', 'text': 'GBRAIN OK'}]}))\n"
+            "elif argv[:1] == ['capture']:\n"
+            "    print('GBRAIN CAPTURE OK')\n"
+            "else:\n"
+            "    print('selftest gbrain shim')\n",
+            encoding="utf-8",
+        )
+        gbrain.chmod(0o755)
+        gitnexus = bin_dir / "gitnexus"
+        gitnexus.write_text("#!/bin/sh\nprintf '%s\\n' 'GITNEXUS OK'\n", encoding="utf-8")
+        gitnexus.chmod(0o755)
+        old_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(bin_dir) + os.pathsep + old_path
         config_path = repo / ".manageroo" / "config.toml"
         text = config_path.read_text(encoding="utf-8")
+        gbrain_probe = bin_dir / "gbrain-readiness-probe"
+        gitnexus_probe = bin_dir / "gitnexus-readiness-probe"
+        for probe in (gbrain_probe, gitnexus_probe):
+            probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            probe.chmod(0o755)
+        text = text.replace(
+            "gbrain_readiness_probe_command = []",
+            "gbrain_readiness_probe_command = " + _toml_array([str(gbrain_probe)]),
+        )
+        text = text.replace(
+            "gitnexus_readiness_probe_command = []",
+            "gitnexus_readiness_probe_command = " + _toml_array([str(gitnexus_probe)]),
+        )
         if "[[verification.gates]]" not in text:
             text += (
                 "\n[[verification.gates]]\n"
@@ -65,11 +116,14 @@ def run_self_test() -> dict:
             "Create `manageroo_fixture.txt` with the deterministic fixture text.\n",
             encoding="utf-8",
         )
-        result = Orchestrator(repo, adapter=MockAdapter()).run(
-            brief_path=brief,
-            mode="build",
-            apply_on_success=True,
-        )
+        try:
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=brief,
+                mode="build",
+                apply_on_success=True,
+            )
+        finally:
+            os.environ["PATH"] = old_path
         target = repo / "manageroo_fixture.txt"
         return {
             "ok": result["status"] == "COMPLETE" and target.exists(),

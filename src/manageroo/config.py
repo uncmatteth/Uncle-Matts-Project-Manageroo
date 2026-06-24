@@ -12,6 +12,17 @@ from .errors import ConfigurationError
 from .util import atomic_write_text
 
 
+GBRAIN_SEARCH_COMMAND = ["gbrain", "call", "query", "{gbrain_query_payload}"]
+GBRAIN_CAPTURE_COMMAND = ["gbrain", "capture", "--file", "{report_file}"]
+GITNEXUS_ANALYZE_COMMAND = [
+    "gitnexus",
+    "analyze",
+    "{workspace}",
+    "--skip-agents-md",
+    "--skip-skills",
+]
+GITNEXUS_STATUS_COMMAND = ["gitnexus", "status"]
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "project": {
         "apply_on_success": True,
@@ -42,6 +53,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "allowed_programs": [
             "python", "python3", "node", "npm", "pnpm", "yarn", "bun",
             "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make",
+            "gbrain", "gitnexus", "autoreview", "clawpatch",
         ],
         "block_agent_commits": True,
         "require_source_unchanged_before_apply": True,
@@ -50,10 +62,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "integrations": {
         "obsidian_vault": "",
         "obsidian_export_folder": FULL_ACRONYM,
-        "gbrain_search_command": [],
-        "gbrain_capture_command": [],
-        "gitnexus_analyze_command": [],
-        "gitnexus_query_command": [],
+        "gbrain_search_command": GBRAIN_SEARCH_COMMAND,
+        "gbrain_capture_command": GBRAIN_CAPTURE_COMMAND,
+        "gbrain_readiness_probe_command": [],
+        "gitnexus_analyze_command": GITNEXUS_ANALYZE_COMMAND,
+        "gitnexus_status_command": GITNEXUS_STATUS_COMMAND,
+        "gitnexus_readiness_probe_command": [],
         "document_analysis_command": [],
         "autoreview_command": [],
         "clawpatch_command": [],
@@ -192,17 +206,19 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "parallel_review = true",
         "",
         "[safety]",
-        'allowed_programs = ["python", "python3", "node", "npm", "pnpm", "yarn", "bun", "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make"]',
+        'allowed_programs = ["python", "python3", "node", "npm", "pnpm", "yarn", "bun", "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make", "gbrain", "gitnexus", "autoreview", "clawpatch"]',
         "block_agent_commits = true",
         "require_source_unchanged_before_apply = true",
         "",
         "[integrations]",
         'obsidian_vault = ""',
         f'obsidian_export_folder = "{FULL_ACRONYM}"',
-        "gbrain_search_command = []",
-        "gbrain_capture_command = []",
-        "gitnexus_analyze_command = []",
-        "gitnexus_query_command = []",
+        f"gbrain_search_command = {_toml_value(GBRAIN_SEARCH_COMMAND)}",
+        f"gbrain_capture_command = {_toml_value(GBRAIN_CAPTURE_COMMAND)}",
+        "gbrain_readiness_probe_command = []",
+        f"gitnexus_analyze_command = {_toml_value(GITNEXUS_ANALYZE_COMMAND)}",
+        f"gitnexus_status_command = {_toml_value(GITNEXUS_STATUS_COMMAND)}",
+        "gitnexus_readiness_probe_command = []",
         "document_analysis_command = []",
         "autoreview_command = []",
         "clawpatch_command = []",

@@ -155,25 +155,24 @@ def generate_learning_cards(
             )
         )
 
-    failed_optional = []
+    failed_required = []
     if external_intelligence:
         summary = external_intelligence.get("summary", {})
         if isinstance(summary, dict):
-            failed_optional = summary.get("failed_optional", [])
-    if isinstance(failed_optional, list) and failed_optional:
+            failed_required = summary.get("failed_required", [])
+    if isinstance(failed_required, list) and failed_required:
         cards.append(
             _base_card(
                 run_id=run_id,
                 category="tool-lane",
-                title="Fix optional repo intelligence tools that failed",
+                title="Fix required repo intelligence tools that failed",
                 destination="config-or-installer",
                 recommendation=(
-                    "Check the configured GBrain/GitNexus command lane before relying on "
-                    "external repo intelligence in future runs."
+                    "Fix the configured GBrain/GitNexus command lane before starting future runs."
                 ),
-                evidence=[f"failed optional tool: {item}" for item in failed_optional] + [f"run evidence: {run_root}"],
+                evidence=[f"failed required tool: {item}" for item in failed_required] + [f"run evidence: {run_root}"],
                 risk="medium",
-                priority=65,
+                priority=90,
                 apply_policy="manual_only",
                 apply_kind="none",
             )

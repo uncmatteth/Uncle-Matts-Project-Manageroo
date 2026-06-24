@@ -17,7 +17,7 @@ Same installer, same behavior. Use `./install.sh` from a normal Unix-style
 terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
 products.
 
-Token-reduction mode is optional:
+Choose token-reduction style:
 
 ```bash
 ./install.sh --token-mode caveman
@@ -27,7 +27,7 @@ Token-reduction mode is optional:
 `caveman` is clean. `curse` is Uncle Matt's Caveman Curse, the funny profane
 version.
 
-The recommended stack lane is optional:
+The local stack lane is required:
 
 ```bash
 ./install.sh --install-stack --loop-library-agent codex
@@ -49,10 +49,9 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Persist that line in the shell profile used on the machine, such as `~/.zshrc` or `~/.bashrc`.
 
-The installer offers the recommended skill pack under `~/.agents/skills`. It is
-optional but strongly suggested because it lets AI IDE agents choose the right
-helper without you memorizing skill names. The default answer is yes. Skip it
-with `./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`.
+The installer adds the required Manageroo skill pack under `~/.agents/skills`.
+It lets AI IDE agents choose the right helper without you memorizing skill
+names. This is part of the full install, not a lite-mode add-on.
 
 - `uncle-matts-project-manageroo`
   for routing agents through the controller.
@@ -126,7 +125,6 @@ by `manageroo solo`.
 Switch token-reduction mode later:
 
 ```bash
-manageroo token-mode set off
 manageroo token-mode set caveman
 manageroo token-mode set curse
 ```
@@ -185,8 +183,8 @@ folder or create a nested repo inside another Git repo, so it does not
 accidentally commit personal files, secrets, or a random archive.
 
 Bare `solo` asks what AI you are using, what should be built or fixed, what
-must not break, what proof should pass, and whether to check GBrain, GitNexus,
-Obsidian, or Loop Library. It initializes the repo, writes the product brief,
+must not break, what proof should pass, and how to wire the required stack and
+supporting local tools. It initializes the repo, writes the product brief,
 writes `.manageroo/PROJECT-MEMORY.md`, runs readiness, and prints exactly
 one next command.
 

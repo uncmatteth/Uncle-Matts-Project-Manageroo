@@ -21,13 +21,6 @@ class TokenMode:
 
 
 TOKEN_MODES = {
-    "off": TokenMode(
-        id="off",
-        label="Off",
-        skill_name=None,
-        asset=None,
-        prompt="",
-    ),
     "caveman": TokenMode(
         id="caveman",
         label="Token Reduction: Caveman",
@@ -55,7 +48,7 @@ TOKEN_MODES = {
     ),
 }
 
-RECOMMENDED_SKILL_PACK = {
+REQUIRED_SKILL_PACK = {
     "uncle-matts-project-manageroo": (
         "skills/uncle-matts-project-manageroo/SKILL.md"
     ),
@@ -93,6 +86,7 @@ RECOMMENDED_SKILL_PACK = {
     "diagnose": "skills/diagnose/SKILL.md",
     "tdd": "skills/tdd/SKILL.md",
     "testing": "skills/testing/SKILL.md",
+    "go-get-uncle-matts-hammerrr": "skills/go-get-uncle-matts-hammerrr/SKILL.md",
     "improve-codebase-architecture": "skills/improve-codebase-architecture/SKILL.md",
     "security-review": "skills/security-review/SKILL.md",
     "cross-modal-review": "skills/cross-modal-review/SKILL.md",
@@ -108,11 +102,10 @@ RECOMMENDED_SKILL_PACK = {
     "caveman": "skills/caveman/SKILL.md",
     "uncle-matts-caveman-curse": "skills/uncle-matts-caveman-curse/SKILL.md",
 }
-CORE_HELPER_SKILLS = RECOMMENDED_SKILL_PACK
+CORE_HELPER_SKILLS = REQUIRED_SKILL_PACK
 
 ALIASES = {
-    "none": "off",
-    "normal": "off",
+    "regular": "caveman",
     "clean": "caveman",
     "uncle": "curse",
     "uncle-matts-caveman-curse": "curse",
@@ -192,7 +185,7 @@ def install_core_helper_skills(skills_dir: Path | None = None) -> dict[str, str]
     root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
     return {
         skill_name: _install_bundled_skill(root, skill_name, asset)
-        for skill_name, asset in RECOMMENDED_SKILL_PACK.items()
+        for skill_name, asset in REQUIRED_SKILL_PACK.items()
     }
 
 
@@ -210,14 +203,14 @@ def read_token_mode(state_path: Path | None = None) -> dict[str, Any]:
     path = (state_path or token_mode_state_path()).expanduser()
     if not path.exists():
         return {
-            "mode": "off",
-            "label": TOKEN_MODES["off"].label,
+            "mode": "caveman",
+            "label": TOKEN_MODES["caveman"].label,
             "state_path": str(path),
             "skills_dir": str(token_mode_skills_dir()),
             "installed_skills": {},
         }
     data = json.loads(path.read_text(encoding="utf-8"))
-    mode = normalize_mode(str(data.get("mode", "off")))
+    mode = normalize_mode(str(data.get("mode", "caveman")))
     data["mode"] = mode
     data["label"] = TOKEN_MODES[mode].label
     data.setdefault("state_path", str(path))
@@ -234,7 +227,7 @@ def set_token_mode(
     install_skills: bool = True,
 ) -> dict[str, Any]:
     normalized = normalize_mode(mode)
-    installed = install_token_skills(skills_dir) if install_skills and normalized != "off" else {}
+    installed = install_token_skills(skills_dir) if install_skills else {}
     path = (state_path or token_mode_state_path()).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {

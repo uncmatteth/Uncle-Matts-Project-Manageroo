@@ -22,9 +22,11 @@ runs that argv and records the output here:
 .manageroo/runs/<run-id>/artifacts/discovery/document-intelligence.json
 ```
 
-Passing output can inform planning. Failure is optional context. It is not a
-reason for the AI to freehand an entire manuscript, rewrite exact wording, or
-pretend it understood images.
+Passing output can inform planning. If the brief only happens to contain
+passive document/media files, failure is recorded as non-blocking inventory
+context. Explicit document/prose/exact-text requests make that failure blocking. Either way, a
+failed command is not permission for the AI to freehand an entire manuscript,
+rewrite exact wording, or pretend it understood images.
 
 ## Config
 
@@ -81,7 +83,7 @@ source repository path.
 
 ## Bundled Skills
 
-The recommended skill pack includes helper lanes for this:
+The required skill pack includes helper lanes for this:
 
 - `brain-ops` and `query` for GBrain-backed context.
 - `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest` for getting

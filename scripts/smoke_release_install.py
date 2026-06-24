@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_TAG = "v2026.6.22.1"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-EXPECTED_SKILL_COUNT = 49
+EXPECTED_SKILL_COUNT = 50
 
 
 def run(
@@ -75,6 +75,142 @@ def default_archive() -> Path:
     return candidates[0]
 
 
+def write_executable(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def install_smoke_stack_shims(bin_dir: Path) -> None:
+    shebang = f"#!{sys.executable}\n"
+    home = bin_dir.parent.parent
+    autoreview_skill = home / ".agents" / "skills" / "autoreview"
+    (autoreview_skill / "scripts").mkdir(parents=True, exist_ok=True)
+    (autoreview_skill / "SKILL.md").write_text(
+        "---\nname: autoreview\n---\n# Smoke AUTOREVIEW\n",
+        encoding="utf-8",
+    )
+    write_executable(
+        autoreview_skill / "scripts" / "autoreview",
+        shebang
+        + """import sys
+
+if "--version" in sys.argv[1:]:
+    print("autoreview smoke 0.0")
+else:
+    print("autoreview smoke clean")
+""",
+    )
+    write_executable(
+        bin_dir / "gbrain",
+        shebang
+        + """import json
+import os
+import sys
+
+args = sys.argv[1:]
+source_path = os.environ.get("MANAGEROO_SMOKE_GBRAIN_SOURCE_PATH") or "."
+if args in (["--version"], ["version"]):
+    print("gbrain smoke 0.0")
+elif args[:2] == ["config", "show"]:
+    print("engine: smoke")
+    print("embedding_model: smoke")
+    print("embedding_dimensions: 1")
+    print("schema_pack: smoke")
+elif args[:1] == ["status"]:
+    print(json.dumps({
+        "sync": {
+            "sources": [
+                {
+                    "source_id": "release-smoke",
+                    "name": "release smoke",
+                    "local_path": source_path,
+                    "pages": 1,
+                    "chunks_total": 1,
+                    "chunks_unembedded": 0,
+                    "embedding_coverage_pct": 100,
+                }
+            ],
+            "unacknowledged_failures": 0,
+        }
+    }))
+elif args[:1] == ["doctor"]:
+    print("{}")
+elif args[:1] == ["search"] or args[:2] == ["call", "query"]:
+    print(json.dumps({
+        "results": [
+            {
+                "source_id": "release-smoke",
+                "text": "gbrain smoke scoped result",
+            }
+        ]
+    }))
+elif args[:1] in (["capture"], ["sync"]) or args[:2] == ["sources", "add"]:
+    print(json.dumps({"ok": True, "args": args}))
+else:
+    print(json.dumps({"ok": True, "args": args}))
+""",
+    )
+    write_executable(
+        bin_dir / "gitnexus",
+        shebang
+        + """import json
+import sys
+
+args = sys.argv[1:]
+if args in (["--version"], ["version"]):
+    print("gitnexus smoke 0.0")
+elif args[:1] in (["setup"], ["analyze"], ["query"]):
+    print(json.dumps({"ok": True, "args": args, "results": []}))
+else:
+    print(json.dumps({"ok": True, "args": args}))
+""",
+    )
+    write_executable(
+        bin_dir / "clawpatch",
+        shebang
+        + """import sys
+
+args = sys.argv[1:]
+if args in (["--version"], ["version"]):
+    print("clawpatch smoke 0.0")
+else:
+    print("clawpatch smoke ok")
+""",
+    )
+    write_executable(
+        bin_dir / "codex",
+        shebang
+        + """import sys
+
+args = sys.argv[1:]
+if args in (["--version"], ["version"]):
+    print("codex smoke 0.0")
+elif args == ["login", "status"]:
+    print("logged in")
+else:
+    print("codex smoke ok")
+""",
+    )
+    write_executable(
+        bin_dir / "obsidian",
+        shebang + """print("obsidian smoke 0.0")\n""",
+    )
+    write_executable(
+        bin_dir / "npx",
+        shebang
+        + """from pathlib import Path
+import sys
+
+home = Path.home()
+skill = home / ".agents" / "skills" / "loop-library"
+skill.mkdir(parents=True, exist_ok=True)
+(skill / "SKILL.md").write_text("---\\nname: loop-library\\n---\\n# Smoke Loop Library\\n", encoding="utf-8")
+print("npx smoke ok")
+""",
+    )
+
+
 def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = False) -> dict[str, Any]:
     archive = archive.expanduser().resolve()
     if not archive.is_file():
@@ -95,6 +231,7 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PATH"] = f"{home / '.local' / 'bin'}{os.pathsep}{env.get('PATH', '')}"
+        install_smoke_stack_shims(home / ".local" / "bin")
 
         install_args = [
             "sh",
@@ -104,17 +241,17 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
             "--bin-dir",
             str(home / ".local" / "bin"),
             "--stack",
-            "skip",
+            "install",
             "--gbrain-lane",
-            "skip",
+            "local",
             "--clawpatch-codex-login",
-            "skip",
+            "check",
             "--token-mode",
-            "off",
+            "caveman",
             "--project-discovery",
-            "skip",
+            "pick",
             "--stack-doctor",
-            "skip",
+            "run",
             "--skill-pack",
             "install",
             "--no-music",
@@ -160,6 +297,7 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
             raise RuntimeError(f"Skill reconcile failed proof: {reconcile}")
 
         product = temp_root / "product"
+        env["MANAGEROO_SMOKE_GBRAIN_SOURCE_PATH"] = str(product)
         solo = parse_json_command(
             [
                 "manageroo",
@@ -179,7 +317,7 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
                 "--mode",
                 "build",
                 "--token-mode",
-                "off",
+                "caveman",
                 "--no-apply",
                 "--json",
             ],

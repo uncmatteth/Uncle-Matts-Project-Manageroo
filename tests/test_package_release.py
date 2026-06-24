@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import tempfile
 import unittest
 from collections import Counter
@@ -10,6 +11,13 @@ SPEC = importlib.util.spec_from_file_location("package_release", ROOT / "scripts
 assert SPEC and SPEC.loader
 package_release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package_release)
+SMOKE_SPEC = importlib.util.spec_from_file_location(
+    "smoke_release_install",
+    ROOT / "scripts" / "smoke_release_install.py",
+)
+assert SMOKE_SPEC and SMOKE_SPEC.loader
+smoke_release_install = importlib.util.module_from_spec(SMOKE_SPEC)
+SMOKE_SPEC.loader.exec_module(smoke_release_install)
 
 
 def _fixture(codes: list[int]) -> str:
@@ -60,6 +68,14 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertEqual([name for name, count in counts.items() if count > 1], [])
         self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
         self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
+        self.assertIn(
+            "src/manageroo/assets/skills/go-get-uncle-matts-hammerrr/templates/PROJECT_TRUTH_AUDIT.md",
+            included,
+        )
+        self.assertIn(
+            "src/manageroo/assets/skills/go-get-uncle-matts-hammerrr/schemas/project-truth-audit.schema.json",
+            included,
+        )
 
     def test_package_release_runs_end_user_zip_smoke(self):
         package_text = (ROOT / "scripts" / "package_release.py").read_text(encoding="utf-8")
@@ -69,10 +85,21 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("scripts/smoke_release_install.py", package_text)
         self.assertIn("--skip-install-tests", package_text)
         self.assertIn("scripts/smoke_release_install.py", verifier_text)
-        self.assertIn("EXPECTED_SKILL_COUNT = 49", smoke_text)
+        self.assertIn("EXPECTED_SKILL_COUNT = 50", smoke_text)
         self.assertIn('"manageroo"', smoke_text)
         self.assertIn('"solo"', smoke_text)
         self.assertIn('"run"', smoke_text)
+
+    def test_release_smoke_shims_autoreview_without_network(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp) / "home"
+            bin_dir = home / ".local" / "bin"
+
+            smoke_release_install.install_smoke_stack_shims(bin_dir)
+
+            autoreview = home / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview"
+            self.assertTrue(autoreview.is_file())
+            self.assertTrue(os.access(autoreview, os.X_OK))
 
     def test_drop_folder_copies_distinct_archives(self):
         with tempfile.TemporaryDirectory() as temp:

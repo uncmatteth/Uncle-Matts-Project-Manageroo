@@ -391,17 +391,7 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
     before = command_version("gbrain")
     status_line("GBRAIN", f"current: {before}")
     if lane == "skip":
-        return {
-            "name": "gbrain",
-            "installed": before != "not installed",
-            "configured": False,
-            "skipped": True,
-            "reason": "GBrain stack lane skipped by installer option.",
-            "version": before,
-            "path": shutil.which("gbrain"),
-            "lane": "skip",
-            "reference": GBRAIN_LOCAL_INSTALL_REFERENCE,
-        }
+        raise SystemExit("GBrain is part of the required Manageroo stack; the skip lane was removed.")
     installed_before = before != "not installed"
     installed = installed_before
     install_result: dict | None = None
@@ -728,11 +718,11 @@ def check_clawpatch_codex_provider(login_mode: str) -> dict:
         }
     status_probe = probe_command([codex, "login", "status"], cwd=Path.home(), timeout=30)
     login_result = None
-    if not status_probe.get("ok") and login_mode != "skip":
+    if not status_probe.get("ok") and login_mode != "check":
         should_run = login_mode == "run"
         if login_mode == "ask" and sys.stdin.isatty():
             answer = input("Clawpatch's codex provider needs Codex login. Run `codex login` now? [Y/n]: ").strip().lower()
-            should_run = answer not in {"n", "no", "skip"}
+            should_run = answer not in {"n", "no", "s", "skip"}
         if should_run:
             login_result = run_interactive_action([codex, "login"], cwd=Path.home())
             status_probe = probe_command([codex, "login", "status"], cwd=Path.home(), timeout=30)
@@ -819,20 +809,26 @@ def install_loop_library(downloads: list[dict], agents: list[str]) -> dict:
     selected_agents = agents
     if not selected_agents and sys.stdin.isatty():
         print("Loop Library skill target:")
-        print("  1) skip")
-        print("  2) codex")
-        print("  3) cursor")
-        print("  4) claude-code")
+        print("  1) codex")
+        print("  2) cursor")
+        print("  3) claude-code")
         answer = input("Choose target [1]: ").strip().lower()
         selected_agents = {
-            "2": ["codex"],
+            "": ["codex"],
+            "1": ["codex"],
             "codex": ["codex"],
-            "3": ["cursor"],
+            "2": ["cursor"],
             "cursor": ["cursor"],
-            "4": ["claude-code"],
+            "3": ["claude-code"],
             "claude": ["claude-code"],
             "claude-code": ["claude-code"],
-        }.get(answer, [])
+        }.get(answer)
+        if selected_agents is None:
+            if answer in {"s", "skip", "n", "no"}:
+                raise SystemExit("Loop Library is part of the required Manageroo stack; skipping was removed.")
+            raise SystemExit("Loop Library target is required; choose 1, 2, or 3.")
+    if not selected_agents:
+        selected_agents = ["codex"]
     if selected_agents:
         argv = [npx, "--yes", "skills", "add", LOOP_LIBRARY_SKILL_SOURCE, "--skill", "loop-library"]
         for agent in selected_agents:
@@ -942,36 +938,37 @@ def install_obsidian(downloads: list[dict], method: str) -> dict:
 
 
 def choose_stack_mode(selection: str, install_flag: bool, skip_flag: bool) -> str:
-    if install_flag:
-        return "install"
     if skip_flag:
-        return "skip"
-    if selection != "ask":
-        return selection
-    if not sys.stdin.isatty():
-        return "skip"
-    print("Recommended local stack:")
+        raise SystemExit("The Manageroo local stack is required; stack skipping was removed.")
+    if selection == "skip":
+        raise SystemExit("The Manageroo local stack is required; --stack skip was removed.")
+    if install_flag or selection in {"ask", "install"}:
+        return "install"
+    return "install"
+
+
+def print_required_stack() -> None:
+    print("Required local stack:")
     print("  - GBrain memory")
     print("  - GitNexus code graph")
     print("  - AUTOREVIEW review helper")
     print("  - Clawpatch review and fix loop")
     print("  - Obsidian notes")
     print("  - Matthew Berman / Forward Future Loop Library skill")
-    answer = input("Install and guide this stack now? [Y/n]: ").strip().lower()
-    return "skip" if answer in {"n", "no", "skip"} else "install"
 
 
 def choose_gbrain_lane(selection: str) -> str:
     if selection != "ask":
+        if selection == "skip":
+            raise SystemExit("GBrain is part of the required Manageroo stack; the skip lane was removed.")
         return selection
     if not sys.stdin.isatty():
         return "local"
     print("GBrain setup lane:")
     print("  1) local - installer uses Bun, `gbrain init --pglite`, probes status, and guides source mapping")
     print("  2) official - print Garry Tan/GBrain's agent-supervised INSTALL_FOR_AGENTS.md protocol")
-    print("  3) skip")
-    answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
-    return {
+    answer = input("Choose 1 or 2 [1]: ").strip().lower()
+    selected = {
         "": "local",
         "1": "local",
         "local": "local",
@@ -981,34 +978,30 @@ def choose_gbrain_lane(selection: str) -> str:
         "official": "official",
         "upstream": "official",
         "agent": "official",
-        "3": "skip",
-        "skip": "skip",
-    }.get(answer, "local")
+    }.get(answer)
+    if selected is None:
+        if answer in {"3", "s", "skip", "n", "no"}:
+            raise SystemExit("GBrain is part of the required Manageroo stack; the skip lane was removed.")
+        raise SystemExit("Invalid GBrain setup lane. Choose 1 or 2.")
+    return selected
 
 
 def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     if skip_flag or selection == "skip":
-        return "skip"
-    if selection == "install":
-        return "install"
-    if not sys.stdin.isatty():
-        return "install"
-    print("Recommended local skill pack:")
+        raise SystemExit("The Manageroo local skill pack is required; skill-pack skipping was removed.")
+    print("Required local skill pack:")
     print("  - MANAGEROO routing skill")
     print("  - Prompt cleanup, brain lookup, ingest, media, PDF, long-prose, exact text")
-    print("  - PRD/issues, grilling, diagnosis, TDD, testing, security, review")
+    print("  - PRD/issues, grilling, diagnosis, TDD, testing, claim-vs-reality audit, security, review")
     print("  - Website/UI proof, Playwright browser checks, web copy, and design cleanup")
     print("  - Subagent/minion routing for work large enough to split safely")
     print("  - Write A Skill, Skillify, Edit Skill, and skillpack health")
     print("  - Token reduction with two styles: clean Caveman or Uncle Matt's Caveman Curse")
-    print("This is optional, but strongly suggested for AI IDE agents.")
-    print("Default is yes because this saves the user from remembering skill names.")
-    print("You can skip it and install it later with: manageroo skills reconcile --apply")
-    answer = input("Install the recommended skill pack now? [Y/n]: ").strip().lower()
-    return "skip" if answer in {"n", "no", "skip"} else "install"
+    print("This is part of the full Manageroo install.")
+    return "install"
 
 
-def install_recommended_stack(
+def install_required_stack(
     downloads: list[dict],
     agents: list[str],
     obsidian_method: str,
@@ -1016,7 +1009,7 @@ def install_recommended_stack(
     gbrain_lane: str,
     clawpatch_codex_login: str,
 ) -> list[dict]:
-    status_line("STACK", "installing recommended local stack")
+    status_line("STACK", "installing required local stack")
     return [
         install_gbrain(downloads, gbrain_lane),
         install_gitnexus(downloads),
@@ -1029,27 +1022,25 @@ def install_recommended_stack(
 
 def choose_token_mode(selection: str) -> str:
     if selection != "ask":
+        if selection not in {"caveman", "curse", "uncle", "uncle-matts-caveman-curse"}:
+            raise SystemExit("Token mode has two choices: caveman or curse.")
         return selection
     if not sys.stdin.isatty():
-        return "off"
+        return "caveman"
     print("Token reduction mode:")
-    print("  1) off")
-    print("  2) caveman - same token reduction, clean style")
-    print("  3) curse - same token reduction, appropriately placed profanity")
+    print("  1) caveman - clean compressed style")
+    print("  2) curse - same compression with appropriately placed profanity")
     print("Curse mode exists because life is more fun with appropriately placed, well-used profanity.")
-    answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
+    answer = input("Choose 1 or 2 [1]: ").strip().lower()
     return {
-        "": "off",
-        "1": "off",
-        "off": "off",
-        "none": "off",
-        "2": "caveman",
+        "": "caveman",
+        "1": "caveman",
         "caveman": "caveman",
-        "3": "curse",
+        "2": "curse",
         "curse": "curse",
         "uncle": "curse",
         "uncle-matts-caveman-curse": "curse",
-    }.get(answer, "off")
+    }.get(answer, "caveman")
 
 
 def print_lane_explainer() -> None:
@@ -1069,30 +1060,31 @@ def print_lane_explainer() -> None:
 
 def choose_project_discovery_mode(selection: str) -> str:
     if selection != "ask":
+        if selection == "skip":
+            raise SystemExit("Project discovery skip was removed from the installer. Use pick for read-only discovery or add for guided setup.")
         return selection
     if not sys.stdin.isatty():
-        return "skip"
+        return "pick"
     print("")
     print("Find and add your projects now?")
     print("The guided project setup scans common folders, shows a checkbox-style list, lets you choose which ones to add, and lets you paste extra paths if it missed one.")
     print("It only initializes the projects you select.")
     answer = input("Run guided project setup now? [Y/n]: ").strip().lower()
-    if answer in {"n", "no", "skip"}:
-        return "skip"
+    if answer in {"s", "skip"}:
+        raise SystemExit("Project discovery skip was removed from the installer. Use pick for read-only discovery or add for guided setup.")
+    if answer in {"n", "no"}:
+        return "pick"
     return "add"
 
 
 def choose_stack_doctor_mode(selection: str) -> str:
     if selection != "ask":
+        if selection == "skip":
+            raise SystemExit("Stack doctor is the read-only proof gate; --stack-doctor skip was removed.")
         return selection
-    if not sys.stdin.isatty():
-        return "skip"
     print("")
     print("Smart dependency check?")
     print("This is read-only. It checks existing GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Loop Library, and Codex setup.")
-    answer = input("Run smart stack doctor now? [Y/n]: ").strip().lower()
-    if answer in {"n", "no", "skip"}:
-        return "skip"
     return "run"
 
 
@@ -1101,7 +1093,6 @@ def print_next_commands() -> None:
     print("  manageroo --version")
     print("  manageroo self-test")
     print("  manageroo skills list")
-    print("  # Strongly suggested if you skipped the local agent skill pack:")
     print("  manageroo skills reconcile --apply")
     print("  # If you copied skills from another computer:")
     print("  manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply")
@@ -1135,18 +1126,16 @@ def main() -> int:
         type=Path,
         default=Path.home() / ".local" / "bin",
     )
-    parser.add_argument("--skip-tests", action="store_true")
+    parser.add_argument("--skip-tests", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--skip-self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--install-codex", action="store_true")
-    parser.add_argument("--skip-codex", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--stack", choices=["ask", "skip", "install"], default="ask")
+    parser.add_argument("--stack", choices=["ask", "install"], default="ask")
     parser.add_argument("--install-stack", action="store_true")
-    parser.add_argument("--skip-stack", action="store_true")
     parser.add_argument(
         "--loop-library-agent",
         action="append",
         default=[],
-        help="Agent target for the optional Loop Library skill, such as codex, cursor, claude-code, gemini, or another skills-compatible agent.",
+        help="Agent target for the required Loop Library skill, such as codex, cursor, claude-code, gemini, or another skills-compatible agent.",
     )
     parser.add_argument(
         "--obsidian-method",
@@ -1155,52 +1144,38 @@ def main() -> int:
     )
     parser.add_argument(
         "--gbrain-lane",
-        choices=["ask", "local", "official", "skip"],
+        choices=["ask", "local", "official"],
         default="ask",
-        help="Choose the GBrain stack lane: local CLI install, official agent-supervised protocol, or skip.",
+        help="Choose the GBrain stack lane: local CLI install or official agent-supervised protocol.",
     )
     parser.add_argument(
         "--clawpatch-codex-login",
-        choices=["ask", "run", "skip"],
+        choices=["ask", "run", "check"],
         default="ask",
         help="For Clawpatch's codex provider, check Codex login and optionally run `codex login`.",
     )
-    parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
+    parser.add_argument("--token-mode", choices=["ask", "caveman", "curse"], default="ask")
     parser.add_argument(
         "--project-discovery",
-        choices=["ask", "pick", "add", "skip"],
+        choices=["ask", "pick", "add"],
         default="ask",
-        help="After install, optionally run guided project setup.",
+        help="After install, run read-only project discovery or guided project setup.",
     )
     parser.add_argument(
         "--stack-doctor",
-        choices=["ask", "run", "skip"],
+        choices=["ask", "run"],
         default="ask",
-        help="After install, optionally run the read-only smart stack dependency doctor.",
+        help="After install, run the read-only smart stack dependency doctor.",
     )
     parser.add_argument(
         "--skill-pack",
-        choices=["ask", "install", "skip"],
+        choices=["ask", "install"],
         default="ask",
-        help="Choose whether to install the optional but strongly suggested local agent skill pack.",
-    )
-    parser.add_argument(
-        "--skip-skill-pack",
-        action="store_true",
-        help="Same as --skill-pack skip. You can install it later with `manageroo skills reconcile --apply`.",
+        help="Install the required local agent skill pack.",
     )
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
     args = parser.parse_args()
-    if args.install_stack and args.skip_stack:
-        raise SystemExit("--install-stack and --skip-stack conflict. Choose one.")
-    if args.install_stack and args.stack == "skip":
-        raise SystemExit("--install-stack conflicts with --stack skip.")
-    if args.skip_stack and args.stack == "install":
-        raise SystemExit("--skip-stack conflicts with --stack install.")
-    if args.skip_skill_pack and args.skill_pack == "install":
-        raise SystemExit("--skip-skill-pack conflicts with --skill-pack install.")
-
     banner_ticker = print_banner(animation=not args.no_animation, persistent_rainbow=True)
     if banner_ticker:
         atexit.register(banner_ticker.stop)
@@ -1231,39 +1206,34 @@ def main() -> int:
                 env=source_env,
             )
 
-        token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
+        token_mode_record = set_token_mode(token_mode, install_skills=True)
         status_line("TOKEN MODE", token_mode_record["label"], ok=True)
-        skill_pack_mode = choose_skill_pack_mode(args.skill_pack, args.skip_skill_pack)
-        if skill_pack_mode == "skip":
-            helper_skills_record = {
-                "skipped": True,
-                "reason": "Recommended skill pack skipped. It is optional, but strongly suggested for AI IDE guidance.",
-                "install_later": "manageroo skills reconcile --apply",
-                "recommended_skills": sorted(CORE_HELPER_SKILLS),
-            }
-            status_line("SKILL PACK", "skipped; strongly recommended for AI IDE guidance", ok=True)
-        else:
-            helper_skills_record = install_core_helper_skills()
-            status_line("SKILL PACK", ", ".join(sorted(helper_skills_record)), ok=True)
+        choose_skill_pack_mode(args.skill_pack, False)
+        helper_skills_record = install_core_helper_skills()
+        status_line("SKILL PACK", ", ".join(sorted(helper_skills_record)), ok=True)
 
-        if args.install_codex and not args.skip_codex:
+        if args.install_codex:
             external_tools.append({"name": "codex", **install_codex_latest(downloads)})
         else:
-            external_tools.append(
-                {
-                    "name": "codex",
-                    "path": shutil.which("codex"),
-                    "version": command_version("codex"),
-                    "skipped": True,
-                    "reason": "Codex is an adapter choice, not a core installer requirement.",
-                }
-            )
+            codex_path = shutil.which("codex")
+            if codex_path:
+                external_tools.append(
+                    {
+                        "name": "codex",
+                        "installed": True,
+                        "configured": True,
+                        "path": codex_path,
+                        "version": command_version("codex"),
+                        "reason": "Detected local Codex adapter.",
+                    }
+                )
 
-        stack_mode = choose_stack_mode(args.stack, args.install_stack, args.skip_stack)
+        stack_mode = choose_stack_mode(args.stack, args.install_stack, False)
         if stack_mode == "install":
+            print_required_stack()
             gbrain_lane = choose_gbrain_lane(args.gbrain_lane)
             external_tools.extend(
-                install_recommended_stack(
+                install_required_stack(
                     downloads,
                     args.loop_library_agent,
                     args.obsidian_method,
@@ -1271,14 +1241,6 @@ def main() -> int:
                     gbrain_lane,
                     args.clawpatch_codex_login,
                 )
-            )
-        else:
-            external_tools.append(
-                {
-                    "name": "recommended-stack",
-                    "skipped": True,
-                    "reason": "Stack install was skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Loop Library.",
-                }
             )
 
         stack_summary = summarize_external_tools(external_tools)
@@ -1335,11 +1297,11 @@ def main() -> int:
                 "adapter, a Git-backed target repo, and deterministic verification gates. "
                 "MANAGEROO is not AI remembers better; it saves truth on disk and "
                 "hands disposable workers complete packets. "
-                "The recommended skill pack is optional but strongly suggested because it "
+                "The required local skill pack is part of the full install because it "
                 "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
                 "memory lookup, source ingest, media/PDF handling, long prose, exact text, "
                 "PRD/issue planning, requirement grilling, debugging, test-first work, "
-                "test-suite health, security review, second-model review, browser proof, "
+                "test-suite health, claim-vs-reality audits, security review, second-model review, browser proof, "
                 "subagent/minion fan-out, public copy, website cleanup, UI/design review, "
                 "and token reduction without the user memorizing skill names. "
                 "It includes MANAGEROO routing, Pimp My Prompt for rough request intake, "
@@ -1353,8 +1315,9 @@ def main() -> int:
                 "user-facing work, Subagent Orchestrator/Minion Orchestrator for safe split "
                 "work, Write A Skill/Skillify/Edit Skill for improving repeat workflows, "
                 "Skillpack Check for GBrain skill health, and both Caveman modes. "
-                "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
-                "Obsidian, and Loop Library when configured."
+                "The required local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
+                "Obsidian, and Loop Library. Missing stack items are installation blockers, "
+                "not an alternate partial install."
             ),
         }
         (prefix / "install-lock.json").write_text(

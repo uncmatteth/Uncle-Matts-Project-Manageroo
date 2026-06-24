@@ -3,7 +3,7 @@ import os
 import subprocess
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,10 +40,21 @@ class CliSetupTests(unittest.TestCase):
                 "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ), redirect_stdout(stdout):
-                code = main(["setup", str(repo), "--agent", "mock", "--skip-skills"])
+                code = main(["setup", str(repo), "--agent", "mock"])
             output = stdout.getvalue()
             self.assertEqual(code, 0)
             self.assertEqual(output.count("\nNext:"), 1, output)
+
+    def test_setup_rejects_removed_skip_skills_flag(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                code = main(["setup", str(repo), "--agent", "mock", "--skip-skills"])
+            self.assertEqual(code, 1)
+            self.assertIn("--skip-skills was removed", stderr.getvalue())
 
 
 if __name__ == "__main__":
