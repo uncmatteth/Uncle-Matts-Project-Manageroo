@@ -22,6 +22,17 @@ GITNEXUS_ANALYZE_COMMAND = [
     "--skip-skills",
 ]
 GITNEXUS_STATUS_COMMAND = ["gitnexus", "status"]
+AUTOREVIEW_COMMAND = ["autoreview", "--mode", "local"]
+CLAWPATCH_COMMAND = [
+    "clawpatch",
+    "review",
+    "--limit",
+    "3",
+    "--jobs",
+    "3",
+    "--state-dir",
+    "{external_state_dir}/clawpatch",
+]
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "project": {
@@ -69,8 +80,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "gitnexus_status_command": GITNEXUS_STATUS_COMMAND,
         "gitnexus_readiness_probe_command": [],
         "document_analysis_command": [],
-        "autoreview_command": [],
-        "clawpatch_command": [],
+        "autoreview_command": AUTOREVIEW_COMMAND,
+        "clawpatch_command": CLAWPATCH_COMMAND,
     },
 }
 
@@ -220,8 +231,8 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         f"gitnexus_status_command = {_toml_value(GITNEXUS_STATUS_COMMAND)}",
         "gitnexus_readiness_probe_command = []",
         "document_analysis_command = []",
-        "autoreview_command = []",
-        "clawpatch_command = []",
+        f"autoreview_command = {_toml_value(AUTOREVIEW_COMMAND)}",
+        f"clawpatch_command = {_toml_value(CLAWPATCH_COMMAND)}",
         "",
     ]
     for gate in gates:

@@ -3,8 +3,12 @@ import unittest
 
 from manageroo.gbrain_setup import (
     format_gbrain_setup,
+    gbrain_activation_status,
     safe_probe_record,
     summarize_gbrain_config,
+    summarize_integrations_list,
+    summarize_recommendation_json,
+    summarize_search_modes,
     summarize_sync_status,
 )
 
@@ -26,6 +30,80 @@ class GBrainSetupTests(unittest.TestCase):
         self.assertEqual(summary["engine"], "postgres")
         self.assertEqual(summary["embedding_model"], "ollama:nomic-embed-text")
         self.assertEqual(summary["schema_pack"], "gbrain-base-v2")
+
+    def test_activation_summarizers_extract_gbrain_setup_state(self):
+        self.assertEqual(
+            summarize_search_modes("Search mode (active): balanced\n"),
+            {"ok": True, "active_mode": "balanced"},
+        )
+        recommendations = summarize_recommendation_json(
+            json.dumps(
+                {
+                    "recommendations": [
+                        {
+                            "id": "autopilot",
+                            "title": "Install autopilot",
+                            "command": "gbrain autopilot --install",
+                            "apply_policy": "operator",
+                            "auto_fixable": False,
+                            "ignored": "noisy",
+                        }
+                    ],
+                    "summary": {"status": "needs_action"},
+                    "brain_score": 45,
+                }
+            )
+        )
+        self.assertTrue(recommendations["ok"])
+        self.assertEqual(recommendations["recommendation_count"], 1)
+        self.assertEqual(
+            recommendations["recommendations"][0]["command"],
+            "gbrain autopilot --install",
+        )
+        integrations = summarize_integrations_list(
+            "retrieval-reflex CONFIGURED\nx-to-brain AVAILABLE\n"
+        )
+        self.assertTrue(integrations["ok"])
+        self.assertEqual(integrations["configured"], ["retrieval-reflex"])
+        self.assertEqual(integrations["available"], ["x-to-brain"])
+
+    def test_gbrain_activation_status_uses_official_surfaces_without_guessing(self):
+        def runner(argv, timeout_seconds=60):
+            command = argv[1:]
+            if command == ["search", "modes"]:
+                return {"ok": True, "argv": argv, "exit_code": 0, "output": "Search mode (active): balanced"}
+            if command == ["onboard", "--check", "--json"]:
+                return {
+                    "ok": True,
+                    "argv": argv,
+                    "exit_code": 0,
+                    "output": json.dumps(
+                        {
+                            "recommendations": [
+                                {"command": "gbrain autopilot --install", "title": "Autopilot"}
+                            ]
+                        }
+                    ),
+                }
+            if command == ["features", "--json"]:
+                return {"ok": True, "argv": argv, "exit_code": 0, "output": json.dumps({"recommendations": []})}
+            if command == ["integrations", "list"]:
+                return {"ok": True, "argv": argv, "exit_code": 0, "output": "retrieval-reflex CONFIGURED"}
+            if command == ["check-update", "--json"]:
+                return {"ok": False, "argv": argv, "exit_code": 1, "output": "offline"}
+            return {"ok": False, "argv": argv, "exit_code": 2, "output": "unexpected"}
+
+        report = gbrain_activation_status("/usr/bin/gbrain", runner=runner)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["search"]["active_mode"], "balanced")
+        self.assertEqual(report["integrations"]["configured_count"], 1)
+        self.assertIn("gbrain autopilot --install", report["next_commands"])
+        self.assertIn("gbrain dream --json", report["recurring_job_commands"])
+        self.assertIn(
+            "gbrain integrations show retrieval-reflex",
+            report["integration_setup_choices"],
+        )
 
     def test_summarize_sync_status_rejects_warning_only_json(self):
         summary = summarize_sync_status(json.dumps({"warning": "old status shape"}))

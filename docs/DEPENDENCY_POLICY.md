@@ -116,8 +116,8 @@ uses the upstream package install path, `pnpm add -g clawpatch`, runs
 `clawpatch doctor`, checks Codex login status for Clawpatch's codex provider,
 and records failures or missing package managers instead of claiming completion.
 
-When configured for a run, AUTOREVIEW and Clawpatch are command-owned repair
-lanes, not optional AI advice. MANAGEROO runs the configured command,
+AUTOREVIEW and Clawpatch are command-owned repair lanes for normal runs, not
+optional AI advice. MANAGEROO runs the configured command,
 captures the result, scope-checks any edits, and blocks on command failure. The
 AI repairer must not freehand fixes from AUTOREVIEW or Clawpatch findings.
 

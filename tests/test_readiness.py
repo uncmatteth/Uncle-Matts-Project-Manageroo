@@ -43,7 +43,7 @@ def _gbrain_status_without_repo_source(repo: Path) -> dict:
 
 class ReadinessTests(unittest.TestCase):
     def _which_stack(self, name: str) -> str | None:
-        if name in {"git", "gbrain", "gitnexus", "codex"}:
+        if name in {"git", "gbrain", "gitnexus", "codex", "autoreview", "clawpatch"}:
             return f"/usr/bin/{name}"
         return None
 

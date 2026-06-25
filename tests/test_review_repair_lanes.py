@@ -13,6 +13,8 @@ from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 from manageroo.util import read_json
 from tests.stack_shims import (
+    autoreview_command,
+    clawpatch_command,
     gbrain_capture_command,
     gbrain_search_command,
     gitnexus_analyze_command,
@@ -112,6 +114,14 @@ class ReviewRepairLaneTests(unittest.TestCase):
             'gitnexus_status_command = ["gitnexus", "status"]',
             "gitnexus_status_command = " + _toml_array(gitnexus_status_command()),
         )
+        text = text.replace(
+            'autoreview_command = ["autoreview", "--mode", "local"]',
+            "autoreview_command = " + _toml_array(autoreview_command()),
+        )
+        text = text.replace(
+            'clawpatch_command = ["clawpatch", "review", "--limit", "3", "--jobs", "3", "--state-dir", "{external_state_dir}/clawpatch"]',
+            "clawpatch_command = " + _toml_array(clawpatch_command()),
+        )
         text += (
             "\n[[verification.gates]]\n"
             'id = "fixture-check"\n'
@@ -142,24 +152,21 @@ class ReviewRepairLaneTests(unittest.TestCase):
             repo = self._fixture_repo(Path(temp))
             config = repo / ".manageroo" / "config.toml"
             text = config.read_text(encoding="utf-8")
-            text = text.replace(
-                "autoreview_command = []",
-                "autoreview_command = "
-                + _toml_array(
-                    [
-                        sys.executable,
-                        "-c",
-                        (
-                            "import pathlib, sys; "
-                            "state = pathlib.Path(sys.argv[1]); "
-                            "state.mkdir(parents=True, exist_ok=True); "
-                            "(state / 'autoreview.txt').write_text('ok', encoding='utf-8'); "
-                            "print('AUTOREVIEW LANE')"
-                        ),
-                        "{external_state_dir}",
-                    ]
-                ),
+            tool = Path(temp) / "operator-bin" / "autoreview-lane"
+            tool.write_text(
+                "#!/bin/sh\n"
+                "mkdir -p \"$1\"\n"
+                "printf '%s' ok > \"$1/autoreview.txt\"\n"
+                "printf '%s\\n' 'AUTOREVIEW LANE'\n",
+                encoding="utf-8",
             )
+            tool.chmod(0o755)
+            text = "\n".join(
+                "autoreview_command = " + _toml_array([str(tool), "{external_state_dir}"])
+                if line.startswith("autoreview_command = ")
+                else line
+                for line in text.splitlines()
+            ) + "\n"
             config.write_text(text, encoding="utf-8")
 
             result = Orchestrator(repo, adapter=MockAdapter()).run(
@@ -174,7 +181,8 @@ class ReviewRepairLaneTests(unittest.TestCase):
             self.assertTrue(external["summary"]["command_owned_repair_lanes"])
             self.assertFalse(external["summary"]["ai_freehand_repair_allowed"])
             self.assertIn("autoreview", external["summary"]["passed"])
-            self.assertIn("AUTOREVIEW LANE", external["records"][0]["stdout"])
+            autoreview = [item for item in external["records"] if item["name"] == "autoreview"][0]
+            self.assertIn("AUTOREVIEW LANE", autoreview["stdout"])
             self.assertTrue(
                 (run_root / "artifacts" / "review" / "external-state" / "autoreview.txt").is_file()
             )
@@ -184,11 +192,12 @@ class ReviewRepairLaneTests(unittest.TestCase):
             repo = self._fixture_repo(Path(temp))
             config = repo / ".manageroo" / "config.toml"
             text = config.read_text(encoding="utf-8")
-            text = text.replace(
-                "clawpatch_command = []",
-                "clawpatch_command = "
-                + _toml_array([sys.executable, "-c", "print('CLAWPATCH FAIL'); raise SystemExit(7)"]),
-            )
+            text = "\n".join(
+                "clawpatch_command = " + _toml_array(clawpatch_command("CLAWPATCH FAIL", exit_code=7))
+                if line.startswith("clawpatch_command = ")
+                else line
+                for line in text.splitlines()
+            ) + "\n"
             config.write_text(text, encoding="utf-8")
 
             orchestrator = Orchestrator(repo, adapter=MockAdapter())
@@ -204,7 +213,8 @@ class ReviewRepairLaneTests(unittest.TestCase):
             )
             self.assertIn("clawpatch", external["summary"]["failed"])
             self.assertIn("not fed to the AI repairer", external["note"])
-            self.assertIn("CLAWPATCH FAIL", external["records"][0]["stdout"])
+            clawpatch = [item for item in external["records"] if item["name"] == "clawpatch"][0]
+            self.assertIn("CLAWPATCH FAIL", clawpatch["stdout"])
 
     def test_installer_exposes_official_gbrain_lane_without_guessing_setup(self):
         installer = _load_installer_module()

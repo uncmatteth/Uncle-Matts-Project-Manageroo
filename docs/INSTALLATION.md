@@ -284,7 +284,8 @@ Bare `solo` is the normal first-run path. It asks:
 - what result must be true;
 - what must not break;
 - what proof should verify the work;
-- how to wire the required stack and supporting local tools.
+- how to wire the required local stack: GBrain, GitNexus, AUTOREVIEW,
+  Clawpatch, Obsidian, and adapted Loop Library skill support.
 
 With `--create`, it initializes Git, writes a minimal `README.md`, `.gitignore`,
 `PRD.md`, and `TASKS.md`, and makes the first scaffold commit before continuing.
@@ -389,8 +390,8 @@ configured. Plain English version:
   exact wording, configure `document_analysis_command` first.
 - If the repo only contains document/media files and the brief does not ask to
   use them, readiness prints `WARN` but does not block.
-- If AUTOREVIEW or Clawpatch commands are configured, those commands own their
-  findings and repairs. The AI must not freehand fixes from them.
+- AUTOREVIEW and Clawpatch commands own their findings and repairs. The AI
+  must not freehand fixes from them.
 
 More detail lives in `docs/DOCUMENT_LANE.md`,
 `docs/REVIEW_REPAIR_LANES.md`, and `docs/EXTERNAL_INTEGRATIONS.md`.

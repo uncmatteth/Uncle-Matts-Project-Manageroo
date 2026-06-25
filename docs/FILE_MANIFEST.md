@@ -5,8 +5,17 @@ This manifest is generated from the release source tree.
 | File | Bytes | Purpose |
 |---|---:|---|
 | `.gitignore` | 102 | Project metadata or handoff |
+| `.gitnexus/.gitignore` | 2 | Project metadata or handoff |
+| `.gitnexus/lbug` | 55779328 | Project metadata or handoff |
+| `.gitnexus/meta.json` | 29972 | Project metadata or handoff |
+| `.gitnexus/parse-cache/11bf72c1401ea88a2216c629f844dc65ac61b8202ab648168a6e9d56ce7cd41e.json` | 3897902 | Project metadata or handoff |
+| `.gitnexus/parse-cache/index.json` | 97 | Project metadata or handoff |
+| `.gitnexus/parsedfile-cache/11bf72c1401ea88a2216c629f844dc65ac61b8202ab648168a6e9d56ce7cd41e/11bf72c1401ea88a2216c629f844dc65ac61b8202ab648168a6e9d56ce7cd41e-w1-0.json` | 4232894 | Project metadata or handoff |
+| `.gitnexus/parsedfile-cache/11bf72c1401ea88a2216c629f844dc65ac61b8202ab648168a6e9d56ce7cd41e/11bf72c1401ea88a2216c629f844dc65ac61b8202ab648168a6e9d56ce7cd41e-w1-1.json` | 2001614 | Project metadata or handoff |
+| `.gitnexus/parsedfile-cache/index.json` | 97 | Project metadata or handoff |
+| `.gitnexus/run.cjs` | 15584 | Project metadata or handoff |
 | `AGENTS.md` | 749 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 51848 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 52864 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8571 | Project metadata or handoff |
@@ -14,30 +23,30 @@ This manifest is generated from the release source tree.
 | `LICENSE` | 1067 | Project metadata or handoff |
 | `LOCAL_SETUP.md` | 7599 | Project metadata or handoff |
 | `PUBLISH_TO_GITHUB.md` | 2676 | Project metadata or handoff |
-| `README.md` | 31820 | Project metadata or handoff |
+| `README.md` | 31876 | Project metadata or handoff |
 | `SECURITY.md` | 719 | Project metadata or handoff |
-| `docs/00_START_HERE.md` | 8279 | Operator and engineering documentation |
+| `docs/00_START_HERE.md` | 8258 | Operator and engineering documentation |
 | `docs/ARCHITECTURE.md` | 6267 | Operator and engineering documentation |
 | `docs/CODEX_RUNTIME.md` | 518 | Operator and engineering documentation |
-| `docs/CONFIG_REFERENCE.md` | 6346 | Operator and engineering documentation |
+| `docs/CONFIG_REFERENCE.md` | 6421 | Operator and engineering documentation |
 | `docs/CONTEXT_COMPILER.md` | 5543 | Operator and engineering documentation |
 | `docs/CREDITS.md` | 3290 | Operator and engineering documentation |
-| `docs/DEPENDENCY_POLICY.md` | 5793 | Operator and engineering documentation |
+| `docs/DEPENDENCY_POLICY.md` | 5782 | Operator and engineering documentation |
 | `docs/DETERMINISM.md` | 848 | Operator and engineering documentation |
 | `docs/DOCUMENT_LANE.md` | 3476 | Operator and engineering documentation |
 | `docs/ENFORCEMENT_MATRIX.md` | 3710 | Operator and engineering documentation |
-| `docs/EXTERNAL_INTEGRATIONS.md` | 13714 | Operator and engineering documentation |
+| `docs/EXTERNAL_INTEGRATIONS.md` | 13694 | Operator and engineering documentation |
 | `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 5182 | Operator and engineering documentation |
-| `docs/INSTALLATION.md` | 17030 | Operator and engineering documentation |
+| `docs/INSTALLATION.md` | 17069 | Operator and engineering documentation |
 | `docs/LEARNING_LANE.md` | 2681 | Operator and engineering documentation |
 | `docs/LIMITATIONS.md` | 4805 | Operator and engineering documentation |
 | `docs/ONE_SHOT_PROTOCOL.md` | 1799 | Operator and engineering documentation |
 | `docs/OPERATOR_GUIDE.md` | 2639 | Operator and engineering documentation |
 | `docs/RECOVERY.md` | 1998 | Operator and engineering documentation |
 | `docs/RESEARCH_CONCLUSIONS.md` | 2207 | Operator and engineering documentation |
-| `docs/REVIEW_REPAIR_LANES.md` | 1528 | Operator and engineering documentation |
+| `docs/REVIEW_REPAIR_LANES.md` | 1537 | Operator and engineering documentation |
 | `docs/SECURITY_THREAT_MODEL.md` | 1524 | Operator and engineering documentation |
-| `docs/SOLO_OPERATOR_MODE.md` | 8159 | Operator and engineering documentation |
+| `docs/SOLO_OPERATOR_MODE.md` | 8183 | Operator and engineering documentation |
 | `docs/STATELESS_ORCHESTRATION.md` | 3579 | Operator and engineering documentation |
 | `docs/TERMINAL_EXPERIENCE.md` | 1682 | Operator and engineering documentation |
 | `examples/README.md` | 243 | Example product input |
@@ -49,7 +58,7 @@ This manifest is generated from the release source tree.
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
 | `scripts/install.py` | 56138 | Installation, validation, or packaging |
 | `scripts/install.sh` | 115 | Installation, validation, or packaging |
-| `scripts/package_release.py` | 5658 | Installation, validation, or packaging |
+| `scripts/package_release.py` | 5622 | Installation, validation, or packaging |
 | `scripts/smoke_release_install.py` | 12154 | Installation, validation, or packaging |
 | `scripts/verify_release.py` | 12129 | Installation, validation, or packaging |
 | `sitecustomize.py` | 241 | Project metadata or handoff |
@@ -176,8 +185,8 @@ This manifest is generated from the release source tree.
 | `src/manageroo/brief_builder.py` | 2655 | Harness runtime source |
 | `src/manageroo/checks.py` | 8006 | Harness runtime source |
 | `src/manageroo/chiptune.py` | 10157 | Harness runtime source |
-| `src/manageroo/cli.py` | 57900 | Harness runtime source |
-| `src/manageroo/config.py` | 8912 | Harness runtime source |
+| `src/manageroo/cli.py` | 59556 | Harness runtime source |
+| `src/manageroo/config.py` | 9220 | Harness runtime source |
 | `src/manageroo/context.py` | 8873 | Harness runtime source |
 | `src/manageroo/credits.py` | 4261 | Harness runtime source |
 | `src/manageroo/detector.py` | 3068 | Harness runtime source |
@@ -187,12 +196,12 @@ This manifest is generated from the release source tree.
 | `src/manageroo/file_inspection.py` | 9582 | Harness runtime source |
 | `src/manageroo/gates.py` | 2147 | Harness runtime source |
 | `src/manageroo/gbrain_scope.py` | 5557 | Harness runtime source |
-| `src/manageroo/gbrain_setup.py` | 7683 | Harness runtime source |
+| `src/manageroo/gbrain_setup.py` | 15130 | Harness runtime source |
 | `src/manageroo/ideas.py` | 1565 | Harness runtime source |
 | `src/manageroo/install_repair.py` | 5314 | Harness runtime source |
 | `src/manageroo/install_status.py` | 6843 | Harness runtime source |
-| `src/manageroo/integration_config.py` | 6214 | Harness runtime source |
-| `src/manageroo/integrations.py` | 3283 | Harness runtime source |
+| `src/manageroo/integration_config.py` | 9008 | Harness runtime source |
+| `src/manageroo/integrations.py` | 3819 | Harness runtime source |
 | `src/manageroo/intent_lock.py` | 12756 | Harness runtime source |
 | `src/manageroo/inventory.py` | 5239 | Harness runtime source |
 | `src/manageroo/jobs.py` | 13650 | Harness runtime source |
@@ -205,22 +214,22 @@ This manifest is generated from the release source tree.
 | `src/manageroo/project.py` | 23356 | Harness runtime source |
 | `src/manageroo/project_memory.py` | 6059 | Harness runtime source |
 | `src/manageroo/projects.py` | 7722 | Harness runtime source |
-| `src/manageroo/readiness.py` | 35024 | Harness runtime source |
-| `src/manageroo/release_ready.py` | 17809 | Harness runtime source |
+| `src/manageroo/readiness.py` | 35857 | Harness runtime source |
+| `src/manageroo/release_ready.py` | 25774 | Harness runtime source |
 | `src/manageroo/report.py` | 5077 | Harness runtime source |
 | `src/manageroo/review.py` | 3277 | Harness runtime source |
 | `src/manageroo/runner.py` | 2978 | Harness runtime source |
 | `src/manageroo/schema.py` | 3174 | Harness runtime source |
-| `src/manageroo/selftest.py` | 5505 | Harness runtime source |
+| `src/manageroo/selftest.py` | 5842 | Harness runtime source |
 | `src/manageroo/skill_pack.py` | 13714 | Harness runtime source |
 | `src/manageroo/solo.py` | 3032 | Harness runtime source |
 | `src/manageroo/stack_doctor.py` | 16007 | Harness runtime source |
 | `src/manageroo/state.py` | 3562 | Harness runtime source |
 | `src/manageroo/token_modes.py` | 10038 | Harness runtime source |
 | `src/manageroo/util.py` | 3372 | Harness runtime source |
-| `src/manageroo/wizards.py` | 8444 | Harness runtime source |
+| `src/manageroo/wizards.py` | 9050 | Harness runtime source |
 | `src/manageroo/workspace.py` | 11021 | Harness runtime source |
-| `tests/stack_shims.py` | 1128 | Deterministic harness test |
+| `tests/stack_shims.py` | 1437 | Deterministic harness test |
 | `tests/test_acceptance_evidence.py` | 1341 | Deterministic harness test |
 | `tests/test_branding.py` | 4361 | Deterministic harness test |
 | `tests/test_brief_builder.py` | 1695 | Deterministic harness test |
@@ -228,40 +237,40 @@ This manifest is generated from the release source tree.
 | `tests/test_chiptune.py` | 2558 | Deterministic harness test |
 | `tests/test_cli_checks.py` | 3208 | Deterministic harness test |
 | `tests/test_cli_memory.py` | 2217 | Deterministic harness test |
-| `tests/test_cli_next.py` | 5748 | Deterministic harness test |
-| `tests/test_cli_release_ready.py` | 6351 | Deterministic harness test |
+| `tests/test_cli_next.py` | 5975 | Deterministic harness test |
+| `tests/test_cli_release_ready.py` | 8877 | Deterministic harness test |
 | `tests/test_cli_setup.py` | 2313 | Deterministic harness test |
-| `tests/test_cli_solo.py` | 9400 | Deterministic harness test |
+| `tests/test_cli_solo.py` | 9744 | Deterministic harness test |
 | `tests/test_config.py` | 1560 | Deterministic harness test |
 | `tests/test_context.py` | 3870 | Deterministic harness test |
 | `tests/test_credits.py` | 547 | Deterministic harness test |
 | `tests/test_detector.py` | 1171 | Deterministic harness test |
-| `tests/test_document_lane.py` | 9265 | Deterministic harness test |
-| `tests/test_external_intelligence.py` | 29376 | Deterministic harness test |
-| `tests/test_gbrain_setup.py` | 3986 | Deterministic harness test |
+| `tests/test_document_lane.py` | 9743 | Deterministic harness test |
+| `tests/test_external_intelligence.py` | 30122 | Deterministic harness test |
+| `tests/test_gbrain_setup.py` | 7520 | Deterministic harness test |
 | `tests/test_ideas.py` | 643 | Deterministic harness test |
 | `tests/test_install_repair.py` | 3134 | Deterministic harness test |
 | `tests/test_install_script.py` | 10705 | Deterministic harness test |
 | `tests/test_install_status.py` | 2822 | Deterministic harness test |
-| `tests/test_integration_config.py` | 8268 | Deterministic harness test |
+| `tests/test_integration_config.py` | 8666 | Deterministic harness test |
 | `tests/test_intent_lock.py` | 7653 | Deterministic harness test |
 | `tests/test_inventory.py` | 4037 | Deterministic harness test |
 | `tests/test_inventory_cache.py` | 1388 | Deterministic harness test |
 | `tests/test_job_runner.py` | 5619 | Deterministic harness test |
 | `tests/test_jobs.py` | 5639 | Deterministic harness test |
-| `tests/test_learning.py` | 10611 | Deterministic harness test |
+| `tests/test_learning.py` | 11089 | Deterministic harness test |
 | `tests/test_loop_library.py` | 6112 | Deterministic harness test |
 | `tests/test_map_cache.py` | 1585 | Deterministic harness test |
-| `tests/test_orchestrator_jobs.py` | 31002 | Deterministic harness test |
-| `tests/test_package_release.py` | 7523 | Deterministic harness test |
+| `tests/test_orchestrator_jobs.py` | 31480 | Deterministic harness test |
+| `tests/test_package_release.py` | 7584 | Deterministic harness test |
 | `tests/test_policy.py` | 1534 | Deterministic harness test |
 | `tests/test_project.py` | 5179 | Deterministic harness test |
 | `tests/test_projects.py` | 6095 | Deterministic harness test |
-| `tests/test_readiness.py` | 71369 | Deterministic harness test |
-| `tests/test_release_ready.py` | 12179 | Deterministic harness test |
+| `tests/test_readiness.py` | 71396 | Deterministic harness test |
+| `tests/test_release_ready.py` | 18698 | Deterministic harness test |
 | `tests/test_report.py` | 1123 | Deterministic harness test |
 | `tests/test_review.py` | 2776 | Deterministic harness test |
-| `tests/test_review_repair_lanes.py` | 10581 | Deterministic harness test |
+| `tests/test_review_repair_lanes.py` | 11176 | Deterministic harness test |
 | `tests/test_schema.py` | 843 | Deterministic harness test |
 | `tests/test_selftest.py` | 420 | Deterministic harness test |
 | `tests/test_skill_pack_import.py` | 8572 | Deterministic harness test |
@@ -269,5 +278,5 @@ This manifest is generated from the release source tree.
 | `tests/test_state.py` | 844 | Deterministic harness test |
 | `tests/test_token_modes.py` | 8711 | Deterministic harness test |
 | `tests/test_truth_contract.py` | 11249 | Deterministic harness test |
-| `tests/test_wizards.py` | 3807 | Deterministic harness test |
+| `tests/test_wizards.py` | 4286 | Deterministic harness test |
 | `tests/test_workspace.py` | 2923 | Deterministic harness test |

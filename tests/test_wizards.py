@@ -16,7 +16,7 @@ class WizardTests(unittest.TestCase):
             repo=None,
             agent=None,
             interactive=True,
-            input_fn=input_from(["gemini", "/tmp/product", "y", "n", "y", "n"]),
+            input_fn=input_from(["gemini", "/tmp/product", "y"]),
             output_fn=messages.append,
         )
         self.assertEqual(answers["agent"], "gemini")
@@ -25,9 +25,11 @@ class WizardTests(unittest.TestCase):
             answers["integrations"],
             {
                 "gbrain": True,
-                "gitnexus": False,
+                "gitnexus": True,
                 "obsidian": True,
-                "loop_library": False,
+                "autoreview": True,
+                "clawpatch": True,
+                "loop_library": True,
             },
         )
         self.assertTrue(any("What AI" in message for message in messages))
@@ -36,7 +38,12 @@ class WizardTests(unittest.TestCase):
         answers = collect_setup_answers(repo=None, agent=None, interactive=False)
         self.assertEqual(answers["agent"], "codex")
         self.assertEqual(answers["repo"], Path("."))
-        self.assertFalse(any(answers["integrations"].values()))
+        self.assertTrue(answers["integrations"]["gbrain"])
+        self.assertTrue(answers["integrations"]["gitnexus"])
+        self.assertTrue(answers["integrations"]["obsidian"])
+        self.assertTrue(answers["integrations"]["autoreview"])
+        self.assertTrue(answers["integrations"]["clawpatch"])
+        self.assertFalse(answers["integrations"]["loop_library"])
 
     def test_solo_answers_collect_human_build_request(self):
         messages: list[str] = []
@@ -52,7 +59,7 @@ class WizardTests(unittest.TestCase):
             later=[],
             mode="build",
             run=None,
-            integrations={"gbrain": False, "gitnexus": False, "obsidian": False, "loop_library": False},
+            integrations={"loop_library": False},
             interactive=True,
             input_fn=input_from(
                 [
@@ -66,9 +73,6 @@ class WizardTests(unittest.TestCase):
                     "Stop after one failed payment sandbox",
                     "repair",
                     "y",
-                    "n",
-                    "n",
-                    "n",
                     "y",
                 ]
             ),
@@ -82,6 +86,10 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(answers["proof"], ["Run checkout tests"])
         self.assertEqual(answers["mode"], "repair")
         self.assertTrue(answers["integrations"]["gbrain"])
+        self.assertTrue(answers["integrations"]["gitnexus"])
+        self.assertTrue(answers["integrations"]["obsidian"])
+        self.assertTrue(answers["integrations"]["autoreview"])
+        self.assertTrue(answers["integrations"]["clawpatch"])
         self.assertTrue(answers["run"])
         self.assertTrue(any("solo product team" in message for message in messages))
 

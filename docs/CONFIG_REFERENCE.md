@@ -114,9 +114,8 @@ result in `document-intelligence.json`. Passive repo documents can stay
 non-blocking inventory context; explicit document/prose/exact-text requests make failure blocking. It
 is never an AI freehand repair prompt.
 
-AUTOREVIEW and Clawpatch commands are different. When `autoreview_command` or
-`clawpatch_command` is configured, it is a command-owned review/repair lane. The
-controller runs the configured command inside the isolated workspace, captures
+AUTOREVIEW and Clawpatch commands are required command-owned review/repair lanes
+for normal runs. The controller runs the configured command inside the isolated workspace, captures
 the result in `review/external-review-repair.json`, scope-checks any edits, and
 blocks on command failure. The AI repairer must not freehand fixes from those
 tool findings.
@@ -190,6 +189,6 @@ gitnexus_analyze_command = ["gitnexus", "analyze", "{workspace}", "--skip-agents
 gitnexus_status_command = ["gitnexus", "status"]
 gitnexus_readiness_probe_command = []
 document_analysis_command = ["python3", "scripts/document_intel.py", "{document_manifest_file}", "{document_state_dir}"]
-autoreview_command = []
-clawpatch_command = []
+autoreview_command = ["autoreview", "--mode", "local"]
+clawpatch_command = ["clawpatch", "review", "--limit", "3", "--jobs", "3", "--state-dir", "{external_state_dir}/clawpatch"]
 ```

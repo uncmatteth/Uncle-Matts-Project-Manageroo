@@ -154,6 +154,32 @@ def _integration_guidance(preferences: dict[str, bool], agent: str) -> list[dict
                 "next": "Install Obsidian from https://obsidian.md/download",
             }
         )
+    if preferences.get("autoreview"):
+        installed = shutil.which("autoreview")
+        if not installed:
+            candidates = [
+                Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
+                Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
+            ]
+            installed = next((str(item) for item in candidates if item.is_file()), None)
+        items.append(
+            {
+                "name": "autoreview",
+                "ok": bool(installed),
+                "detail": installed or "missing",
+                "next": "Install AUTOREVIEW from openclaw/agent-skills",
+            }
+        )
+    if preferences.get("clawpatch"):
+        installed = shutil.which("clawpatch")
+        items.append(
+            {
+                "name": "clawpatch",
+                "ok": bool(installed),
+                "detail": installed or "missing",
+                "next": "pnpm add -g clawpatch && clawpatch doctor",
+            }
+        )
     if preferences.get("loop_library"):
         npx = shutil.which("npx")
         candidates = [
@@ -447,6 +473,8 @@ def parser() -> argparse.ArgumentParser:
     integrations_configure.add_argument("repo", nargs="?", default=".")
     integrations_configure.add_argument("--no-gbrain", action="store_true")
     integrations_configure.add_argument("--no-gitnexus", action="store_true")
+    integrations_configure.add_argument("--no-autoreview", action="store_true")
+    integrations_configure.add_argument("--no-clawpatch", action="store_true")
     integrations_configure.add_argument("--no-apply", action="store_true")
     integrations_configure.add_argument("--force", action="store_true")
     integrations_configure.add_argument("--json", action="store_true")
@@ -628,6 +656,8 @@ def main(argv: list[str] | None = None) -> int:
                 repo,
                 gbrain=bool(answers["integrations"].get("gbrain")),
                 gitnexus=bool(answers["integrations"].get("gitnexus")),
+                autoreview=bool(answers["integrations"].get("autoreview")),
+                clawpatch=bool(answers["integrations"].get("clawpatch")),
                 apply=True,
             )
             ready_result = readiness(repo)
@@ -664,6 +694,8 @@ def main(argv: list[str] | None = None) -> int:
                 "gbrain": args.use_gbrain,
                 "gitnexus": args.use_gitnexus,
                 "obsidian": args.use_obsidian,
+                "autoreview": True,
+                "clawpatch": True,
                 "loop_library": args.use_loop_library,
             }
             answers = collect_solo_answers(
@@ -726,6 +758,8 @@ def main(argv: list[str] | None = None) -> int:
                 repo,
                 gbrain=bool(answers["integrations"].get("gbrain")),
                 gitnexus=bool(answers["integrations"].get("gitnexus")),
+                autoreview=bool(answers["integrations"].get("autoreview")),
+                clawpatch=bool(answers["integrations"].get("clawpatch")),
                 apply=True,
             )
             integration_guidance = _integration_guidance(answers["integrations"], answers["agent"])
@@ -1087,6 +1121,8 @@ def main(argv: list[str] | None = None) -> int:
                 repo,
                 gbrain=not args.no_gbrain,
                 gitnexus=not args.no_gitnexus,
+                autoreview=not args.no_autoreview,
+                clawpatch=not args.no_clawpatch,
                 apply=not args.no_apply,
                 force=args.force,
             )

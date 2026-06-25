@@ -177,12 +177,11 @@ See [`DOCUMENT_LANE.md`](DOCUMENT_LANE.md).
 
 ## AUTOREVIEW and Clawpatch
 
-Command-owned review and repair lanes. AUTOREVIEW and Clawpatch can be
-configured as external commands, but their findings are not handed to the AI
+Command-owned review and repair lanes. AUTOREVIEW and Clawpatch are required
+external command lanes for normal runs; their findings are not handed to the AI
 agent as freehand fix instructions.
 
-When `autoreview_command` or `clawpatch_command` is configured, MANAGEROO
-runs that argv exactly inside the isolated workspace, captures the output in
+MANAGEROO runs `autoreview_command` and `clawpatch_command` exactly inside the isolated workspace, captures the output in
 `review/external-review-repair.json`, scope-checks any edits, and blocks on a
 nonzero exit, timeout, `HEAD` change, or out-of-scope edit. If either command
 changes files successfully, deterministic gates run again before the internal

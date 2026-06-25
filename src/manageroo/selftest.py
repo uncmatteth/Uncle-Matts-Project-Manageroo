@@ -78,6 +78,12 @@ def run_self_test() -> dict:
         gitnexus = bin_dir / "gitnexus"
         gitnexus.write_text("#!/bin/sh\nprintf '%s\\n' 'GITNEXUS OK'\n", encoding="utf-8")
         gitnexus.chmod(0o755)
+        autoreview = bin_dir / "autoreview"
+        autoreview.write_text("#!/bin/sh\nprintf '%s\\n' 'AUTOREVIEW OK'\n", encoding="utf-8")
+        autoreview.chmod(0o755)
+        clawpatch = bin_dir / "clawpatch"
+        clawpatch.write_text("#!/bin/sh\nprintf '%s\\n' 'CLAWPATCH OK'\n", encoding="utf-8")
+        clawpatch.chmod(0o755)
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = str(bin_dir) + os.pathsep + old_path
         config_path = repo / ".manageroo" / "config.toml"

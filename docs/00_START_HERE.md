@@ -121,7 +121,7 @@ manageroo solo /absolute/path/to/new-product \
 
 Bare `solo` is the main wizard. It asks what AI you are using, which repo to
 use, what should be built or fixed, what must not break, what proof should pass,
-and how to wire the required stack and supporting local tools. It writes the
+and how to wire the required local stack. It writes the
 brief, writes `.manageroo/PROJECT-MEMORY.md`, and prints exactly one next
 command.
 

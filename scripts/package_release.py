@@ -150,7 +150,6 @@ def main() -> int:
             "scripts/smoke_release_install.py",
             "--archive",
             str(OUTPUT),
-            "--skip-install-tests",
         ],
         cwd=ROOT,
         shell=False,

@@ -3,8 +3,8 @@
 AUTOREVIEW and Clawpatch are command-owned repair lanes. They are not vague
 advice for the AI agent to reinterpret.
 
-When `autoreview_command` or `clawpatch_command` is configured in
-`.manageroo/config.toml`, MANAGEROO does this:
+For normal runs, `.manageroo/config.toml` must contain `autoreview_command` and
+`clawpatch_command`. MANAGEROO does this:
 
 1. Runs the configured AUTOREVIEW command exactly as an argv array.
 2. Runs the configured Clawpatch command exactly as an argv array.

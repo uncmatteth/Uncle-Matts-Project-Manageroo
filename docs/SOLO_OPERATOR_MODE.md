@@ -73,8 +73,8 @@ Starter choices:
 7. `solo` captures an intent lock for drift and compaction audits.
 8. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
 9. Install or refresh the required skill pack.
-10. Wire or validate the required GBrain and GitNexus command templates.
-11. Report the status of supporting tools like Obsidian and Loop Library.
+10. Wire or validate the required GBrain, GitNexus, AUTOREVIEW, and Clawpatch command templates.
+11. Report the status of Obsidian and adapted Loop Library skill support.
 12. Run readiness checks.
 13. Print exactly one next command.
 14. If `--run` is passed and readiness is green, start the build or repair run.

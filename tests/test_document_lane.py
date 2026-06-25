@@ -12,6 +12,8 @@ from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 from manageroo.util import read_json
 from tests.stack_shims import (
+    autoreview_command,
+    clawpatch_command,
     gbrain_capture_command,
     gbrain_search_command,
     gitnexus_analyze_command,
@@ -101,6 +103,14 @@ class DocumentLaneTests(unittest.TestCase):
         text = text.replace(
             'gitnexus_status_command = ["gitnexus", "status"]',
             "gitnexus_status_command = " + _toml_array(gitnexus_status_command()),
+        )
+        text = text.replace(
+            'autoreview_command = ["autoreview", "--mode", "local"]',
+            "autoreview_command = " + _toml_array(autoreview_command()),
+        )
+        text = text.replace(
+            'clawpatch_command = ["clawpatch", "review", "--limit", "3", "--jobs", "3", "--state-dir", "{external_state_dir}/clawpatch"]',
+            "clawpatch_command = " + _toml_array(clawpatch_command()),
         )
         text += (
             "\n[[verification.gates]]\n"

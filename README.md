@@ -489,7 +489,8 @@ Run bare `setup` for the lower-level wizard. It asks:
 
 - what AI you are using;
 - what repo you want to work on;
-- how to wire the required GBrain/GitNexus stack and supporting local tools.
+- how to wire the required local stack: GBrain, GitNexus, AUTOREVIEW,
+  Clawpatch, Obsidian, and adapted Loop Library skill support.
 
 Project setup writes `.manageroo/PROJECT-MEMORY.md`, the current product
 brief, a repo-local MANAGEROO skill, and managed `AGENTS.md`/`CONTEXT.md`

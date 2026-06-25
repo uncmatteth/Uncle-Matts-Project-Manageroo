@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config import (
+    AUTOREVIEW_COMMAND,
+    CLAWPATCH_COMMAND,
     DEFAULT_CONFIG,
     GBRAIN_CAPTURE_COMMAND,
     GBRAIN_SEARCH_COMMAND,
@@ -75,7 +78,25 @@ def _next_command(records: list[dict[str, Any]]) -> str:
                 return f"Install GBrain, then run `{PUBLIC_COMMAND} integrations configure`."
             if record["name"] == "gitnexus":
                 return f"Install GitNexus, then run `{PUBLIC_COMMAND} integrations configure`."
+            if record["name"] == "autoreview":
+                return f"Install AUTOREVIEW, then run `{PUBLIC_COMMAND} integrations configure`."
+            if record["name"] == "clawpatch":
+                return f"Install Clawpatch, then run `{PUBLIC_COMMAND} integrations configure`."
     return f"{PUBLIC_COMMAND} ready"
+
+
+def _find_autoreview() -> str | None:
+    path = shutil.which("autoreview")
+    if path:
+        return path
+    candidates = [
+        Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
+        Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def configure_integrations(
@@ -83,6 +104,8 @@ def configure_integrations(
     *,
     gbrain: bool = True,
     gitnexus: bool = True,
+    autoreview: bool = True,
+    clawpatch: bool = True,
     apply: bool = True,
     force: bool = False,
 ) -> dict[str, Any]:
@@ -156,6 +179,66 @@ def configure_integrations(
                     "installed": False,
                     "status": "missing",
                     "next": "Install GitNexus.",
+                }
+            )
+
+    if autoreview:
+        installed = _find_autoreview()
+        if installed:
+            command = [installed, *AUTOREVIEW_COMMAND[1:]]
+            changed = False
+            if (
+                force
+                or not values.get("autoreview_command")
+                or values.get("autoreview_command") == AUTOREVIEW_COMMAND
+            ):
+                values["autoreview_command"] = command
+                changed = True
+            records.append(
+                {
+                    "name": "autoreview",
+                    "installed": True,
+                    "path": installed,
+                    "status": "configured" if changed else "kept",
+                }
+            )
+        else:
+            records.append(
+                {
+                    "name": "autoreview",
+                    "installed": False,
+                    "status": "missing",
+                    "next": "Install AUTOREVIEW.",
+                }
+            )
+
+    if clawpatch:
+        installed = shutil.which("clawpatch")
+        if installed:
+            command = [installed, *CLAWPATCH_COMMAND[1:]]
+            changed = False
+            if (
+                force
+                or not values.get("clawpatch_command")
+                or values.get("clawpatch_command") == CLAWPATCH_COMMAND
+            ):
+                values["clawpatch_command"] = command
+                changed = True
+            records.append(
+                {
+                    "name": "clawpatch",
+                    "installed": True,
+                    "path": installed,
+                    "status": "configured" if changed else "kept",
+                }
+            )
+        else:
+            records.append(
+                {
+                    "name": "clawpatch",
+                    "installed": False,
+                    "status": "missing",
+                    "next": "Install Clawpatch.",
                 }
             )
 

@@ -6,8 +6,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.checks import add_check_gate
+from manageroo.artifacts import ArtifactStore
+from manageroo.jobs import JobStore
 from manageroo.project import initialize_project
-from manageroo.util import atomic_write_json, read_json
+from manageroo.runner import CommandRunner
+from manageroo.state import Phase
+from manageroo.util import atomic_write_json, read_json, utc_now
+from manageroo.workspace import WorkspaceMirror
 from manageroo.release_ready import format_release_ready, release_ready
 
 
@@ -28,6 +33,10 @@ def _install_stack_probe_shims(repo: Path) -> Path:
     gitnexus = tools / "gitnexus"
     gitnexus.write_text("#!/bin/sh\nprintf '%s\\n' readiness-probe-ok\n", encoding="utf-8")
     gitnexus.chmod(0o755)
+    for name in ("autoreview", "clawpatch"):
+        command = tools / name
+        command.write_text("#!/bin/sh\nprintf '%s\\n' readiness-probe-ok\n", encoding="utf-8")
+        command.chmod(0o755)
     return tools
 
 
@@ -46,7 +55,7 @@ class ReleaseReadyTests(unittest.TestCase):
         if name == "git":
             return "/usr/bin/git"
         tools = getattr(self, "_stack_probe_tools", None)
-        if name in {"gbrain", "gitnexus"} and tools is not None:
+        if name in {"gbrain", "gitnexus", "autoreview", "clawpatch"} and tools is not None:
             return str(tools / name)
         return None
 
@@ -93,10 +102,18 @@ class ReleaseReadyTests(unittest.TestCase):
     def _completed_run(self, repo: Path, *, run_id: str = "20260622T120000-complete") -> Path:
         run_root = repo / ".manageroo" / "runs" / run_id
         delivery = run_root / "delivery"
-        capture_artifacts = run_root / "artifacts" / "delivery"
         delivery.mkdir(parents=True)
-        capture_artifacts.mkdir(parents=True)
+        artifact_store = ArtifactStore(run_root / "artifacts")
+        job_store = JobStore(run_root)
+        mirror = WorkspaceMirror(repo, run_root, CommandRunner())
+        workspace = mirror.create()
+        (workspace / "README.md").write_text("fixture\nrelease change\n", encoding="utf-8")
+        mirror.checkpoint("fixture delivery")
         patch_path = delivery / "final.patch"
+        mirror.write_patch(patch_path)
+        mirror.apply_patch_to_source(patch_path)
+        subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "apply manageroo delivery"], cwd=repo, check=True)
         report_path = delivery / "FINAL-REPORT.md"
         capture_payload = {
             "summary": {
@@ -107,9 +124,43 @@ class ReleaseReadyTests(unittest.TestCase):
             },
             "records": [{"name": "gbrain-capture", "ok": True}],
         }
-        patch_path.write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
         report_path.write_text("# Final Report\n", encoding="utf-8")
-        atomic_write_json(capture_artifacts / "external-capture.json", capture_payload)
+        artifact_store.write_json("delivery/external-capture.json", capture_payload)
+        planning_artifact = artifact_store.write_json("planning/product.json", {"goal": "fixture"})
+        job = job_store.create_or_load_job(
+            "001-product-analyst",
+            role="analyst",
+            schema="product",
+            instructions="Analyze fixture.",
+            allowed_paths=["README.md"],
+        )
+        attempt = job_store.begin_attempt(job.id)
+        output_path = run_root / "agent-output" / "001-product-analyst.json"
+        output_path.parent.mkdir(parents=True)
+        atomic_write_json(output_path, {"goal": "fixture"})
+        job_store.complete_attempt(
+            job.id,
+            attempt.attempt_id,
+            output_path=output_path,
+            data={"goal": "fixture"},
+            command=["mock-agent"],
+        )
+        job_store.complete_job(
+            job.id,
+            output_artifact=planning_artifact.path,
+            data={"goal": "fixture"},
+            artifact_path=artifact_store.root / planning_artifact.path,
+        )
+        atomic_write_json(
+            run_root / "state.json",
+            {
+                "run_id": run_id,
+                "phase": Phase.COMPLETE.value,
+                "history": [{"phase": Phase.COMPLETE.value, "at": utc_now(), "reason": "fixture"}],
+                "repair_cycles": 0,
+                "plan_review_cycles": 0,
+            },
+        )
         atomic_write_json(
             delivery / "final-result.json",
             {
@@ -120,11 +171,88 @@ class ReleaseReadyTests(unittest.TestCase):
                 "evidence_paths": {
                     "patch": str(patch_path),
                     "run_root": str(run_root),
+                    "artifact_ledger": str(artifact_store.ledger_path),
+                    "state": str(run_root / "state.json"),
                 },
                 "applied_to_source": True,
             },
         )
         return run_root
+
+    def test_release_ready_blocks_without_real_run_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = self._completed_run(repo)
+            (run_root / "state.json").unlink()
+            helper_patch, gbrain_patch, which_patch, path_patch = self._release_patches(repo)
+            with helper_patch, gbrain_patch, which_patch, path_patch:
+                report = release_ready(
+                    repo,
+                    target="manual production deploy",
+                    rollback="revert the release commit and redeploy",
+                    approved_by="Operator",
+                )
+            self.assertFalse(report["ok"])
+            run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
+            self.assertFalse(run_item["ok"])
+            self.assertIn("state file is missing", run_item["detail"])
+
+    def test_release_ready_blocks_when_source_no_longer_matches_delivery_patch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = self._completed_run(repo)
+            (repo / "README.md").write_text("fixture\nrelease change\nunapproved edit\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "unapproved edit"], cwd=repo, check=True)
+            helper_patch, gbrain_patch, which_patch, path_patch = self._release_patches(repo)
+            with helper_patch, gbrain_patch, which_patch, path_patch:
+                report = release_ready(
+                    repo,
+                    target="manual production deploy",
+                    rollback="revert the release commit and redeploy",
+                    approved_by="Operator",
+                )
+            self.assertFalse(report["ok"])
+            run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
+            self.assertFalse(run_item["ok"])
+            self.assertIn("source tree no longer matches", run_item["detail"])
+
+    def test_release_ready_blocks_when_artifact_ledger_is_missing_capture_record(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = self._completed_run(repo)
+            atomic_write_json(run_root / "artifacts" / "artifact-ledger.json", {"artifacts": {}})
+            helper_patch, gbrain_patch, which_patch, path_patch = self._release_patches(repo)
+            with helper_patch, gbrain_patch, which_patch, path_patch:
+                report = release_ready(
+                    repo,
+                    target="manual production deploy",
+                    rollback="revert the release commit and redeploy",
+                    approved_by="Operator",
+                )
+            self.assertFalse(report["ok"])
+            run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
+            self.assertFalse(run_item["ok"])
+            self.assertIn("external capture artifact is not recorded in artifact ledger", run_item["detail"])
+
+    def test_release_ready_blocks_without_completed_job_records(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = self._completed_run(repo)
+            for path in (run_root / "jobs").glob("*.json"):
+                path.unlink()
+            helper_patch, gbrain_patch, which_patch, path_patch = self._release_patches(repo)
+            with helper_patch, gbrain_patch, which_patch, path_patch:
+                report = release_ready(
+                    repo,
+                    target="manual production deploy",
+                    rollback="revert the release commit and redeploy",
+                    approved_by="Operator",
+                )
+            self.assertFalse(report["ok"])
+            run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
+            self.assertFalse(run_item["ok"])
+            self.assertIn("no completed worker job records", run_item["detail"])
 
     def test_release_ready_passes_with_clean_repo_passing_gates_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -152,7 +280,7 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn("manual production deploy", handoff_text)
             self.assertIn("revert the release commit and redeploy", handoff_text)
             self.assertIn("python3 -c print('ok')", handoff_text)
-            self.assertIn("ready fixture", handoff_text)
+            self.assertIn("apply manageroo delivery", handoff_text)
             self.assertIn("Manageroo run", handoff_text)
             self.assertIn(run_root.name, handoff_text)
             self.assertIn("## Project Memory", handoff_text)

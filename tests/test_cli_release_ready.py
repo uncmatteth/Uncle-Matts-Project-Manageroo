@@ -8,10 +8,15 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from manageroo.artifacts import ArtifactStore
 from manageroo.checks import add_check_gate
 from manageroo.cli import main
+from manageroo.jobs import JobStore
 from manageroo.project import initialize_project
-from manageroo.util import atomic_write_json
+from manageroo.runner import CommandRunner
+from manageroo.state import Phase
+from manageroo.util import atomic_write_json, utc_now
+from manageroo.workspace import WorkspaceMirror
 
 
 def _install_stack_probe_shims(repo: Path) -> Path:
@@ -31,6 +36,10 @@ def _install_stack_probe_shims(repo: Path) -> Path:
     gitnexus = tools / "gitnexus"
     gitnexus.write_text("#!/bin/sh\nprintf '%s\\n' readiness-probe-ok\n", encoding="utf-8")
     gitnexus.chmod(0o755)
+    for name in ("autoreview", "clawpatch"):
+        command = tools / name
+        command.write_text("#!/bin/sh\nprintf '%s\\n' readiness-probe-ok\n", encoding="utf-8")
+        command.chmod(0o755)
     return tools
 
 
@@ -49,7 +58,7 @@ class CliReleaseReadyTests(unittest.TestCase):
         if name == "git":
             return "/usr/bin/git"
         tools = getattr(self, "_stack_probe_tools", None)
-        if name in {"gbrain", "gitnexus"} and tools is not None:
+        if name in {"gbrain", "gitnexus", "autoreview", "clawpatch"} and tools is not None:
             return str(tools / name)
         return None
 
@@ -68,12 +77,24 @@ class CliReleaseReadyTests(unittest.TestCase):
                 "# Product brief\n\nShip the thing.\n",
                 encoding="utf-8",
             )
+            add_check_gate(repo, gate_id="smoke", argv=["python3", "-c", "print('ok')"])
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "ready fixture"], cwd=repo, check=True)
+
             run_root = repo / ".manageroo" / "runs" / "20260622T120000-complete"
             delivery = run_root / "delivery"
-            capture_artifacts = run_root / "artifacts" / "delivery"
             delivery.mkdir(parents=True)
-            capture_artifacts.mkdir(parents=True)
+            artifact_store = ArtifactStore(run_root / "artifacts")
+            job_store = JobStore(run_root)
+            mirror = WorkspaceMirror(repo, run_root, CommandRunner())
+            workspace = mirror.create()
+            (workspace / "README.md").write_text("fixture\nrelease change\n", encoding="utf-8")
+            mirror.checkpoint("fixture delivery")
             patch_path = delivery / "final.patch"
+            mirror.write_patch(patch_path)
+            mirror.apply_patch_to_source(patch_path)
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "apply manageroo delivery"], cwd=repo, check=True)
             report_path = delivery / "FINAL-REPORT.md"
             capture_payload = {
                 "summary": {
@@ -84,9 +105,43 @@ class CliReleaseReadyTests(unittest.TestCase):
                 },
                 "records": [{"name": "gbrain-capture", "ok": True}],
             }
-            patch_path.write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
             report_path.write_text("# Final Report\n", encoding="utf-8")
-            atomic_write_json(capture_artifacts / "external-capture.json", capture_payload)
+            artifact_store.write_json("delivery/external-capture.json", capture_payload)
+            planning_artifact = artifact_store.write_json("planning/product.json", {"goal": "fixture"})
+            job = job_store.create_or_load_job(
+                "001-product-analyst",
+                role="analyst",
+                schema="product",
+                instructions="Analyze fixture.",
+                allowed_paths=["README.md"],
+            )
+            attempt = job_store.begin_attempt(job.id)
+            output_path = run_root / "agent-output" / "001-product-analyst.json"
+            output_path.parent.mkdir(parents=True)
+            atomic_write_json(output_path, {"goal": "fixture"})
+            job_store.complete_attempt(
+                job.id,
+                attempt.attempt_id,
+                output_path=output_path,
+                data={"goal": "fixture"},
+                command=["mock-agent"],
+            )
+            job_store.complete_job(
+                job.id,
+                output_artifact=planning_artifact.path,
+                data={"goal": "fixture"},
+                artifact_path=artifact_store.root / planning_artifact.path,
+            )
+            atomic_write_json(
+                run_root / "state.json",
+                {
+                    "run_id": run_root.name,
+                    "phase": Phase.COMPLETE.value,
+                    "history": [{"phase": Phase.COMPLETE.value, "at": utc_now(), "reason": "fixture"}],
+                    "repair_cycles": 0,
+                    "plan_review_cycles": 0,
+                },
+            )
             atomic_write_json(
                 delivery / "final-result.json",
                 {
@@ -97,13 +152,12 @@ class CliReleaseReadyTests(unittest.TestCase):
                     "evidence_paths": {
                         "patch": str(patch_path),
                         "run_root": str(run_root),
+                        "artifact_ledger": str(artifact_store.ledger_path),
+                        "state": str(run_root / "state.json"),
                     },
                     "applied_to_source": True,
                 },
             )
-            add_check_gate(repo, gate_id="smoke", argv=["python3", "-c", "print('ok')"])
-            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-q", "-m", "ready fixture"], cwd=repo, check=True)
 
             stdout = io.StringIO()
             with patch(

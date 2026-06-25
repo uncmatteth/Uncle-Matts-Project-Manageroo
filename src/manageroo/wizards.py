@@ -8,12 +8,24 @@ from .config import AGENT_PRESETS
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
 
-INTEGRATIONS = {
-    "gbrain": "Use GBrain memory/source mapping?",
-    "gitnexus": "Use GitNexus code graph context?",
-    "obsidian": "Use Obsidian notes?",
+REQUIRED_INTEGRATIONS = {
+    "gbrain": "GBrain memory/source mapping",
+    "gitnexus": "GitNexus code graph context",
+    "obsidian": "Obsidian notes",
+    "autoreview": "AUTOREVIEW command-owned review",
+    "clawpatch": "Clawpatch command-owned review/fix loop",
+}
+ADDITIONAL_INTEGRATIONS = {
     "loop_library": "Use Matthew Berman / Forward Future Loop Library?",
 }
+INTEGRATIONS = {**REQUIRED_INTEGRATIONS, **ADDITIONAL_INTEGRATIONS}
+
+
+def _default_integrations() -> dict[str, bool]:
+    return {
+        **{name: True for name in REQUIRED_INTEGRATIONS},
+        **{name: False for name in ADDITIONAL_INTEGRATIONS},
+    }
 
 
 def _say(output_fn: OutputFn | None, message: str) -> None:
@@ -87,7 +99,7 @@ def collect_setup_answers(
         return {
             "repo": Path(repo) if repo is not None else Path("."),
             "agent": agent or "codex",
-            "integrations": {name: False for name in INTEGRATIONS},
+            "integrations": _default_integrations(),
         }
 
     selected_agent = agent or _ask_choice(
@@ -107,10 +119,10 @@ def collect_setup_answers(
             output_fn=output_fn,
         )
     )
-    integrations = {
-        name: _ask_yes_no(prompt, default=False, input_fn=input_fn, output_fn=output_fn)
-        for name, prompt in INTEGRATIONS.items()
-    }
+    _say(output_fn, "Required stack lanes are enabled: " + ", ".join(REQUIRED_INTEGRATIONS.values()) + ".")
+    integrations = _default_integrations()
+    for name, prompt in ADDITIONAL_INTEGRATIONS.items():
+        integrations[name] = _ask_yes_no(prompt, default=False, input_fn=input_fn, output_fn=output_fn)
     return {"repo": selected_repo, "agent": selected_agent, "integrations": integrations}
 
 
@@ -220,11 +232,10 @@ def collect_solo_answers(
         input_fn=input_fn,
         output_fn=output_fn,
     )
-    selected_integrations = {
-        name: integrations.get(name, False)
-        for name in INTEGRATIONS
-    }
-    for name, prompt in INTEGRATIONS.items():
+    selected_integrations = _default_integrations()
+    for name in ADDITIONAL_INTEGRATIONS:
+        selected_integrations[name] = integrations.get(name, selected_integrations[name])
+    for name, prompt in ADDITIONAL_INTEGRATIONS.items():
         if selected_integrations[name]:
             continue
         selected_integrations[name] = _ask_yes_no(

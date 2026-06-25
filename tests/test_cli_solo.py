@@ -118,13 +118,18 @@ class CliSoloTests(unittest.TestCase):
             stdout = io.StringIO()
 
             def which(name):
-                return "/usr/bin/npx" if name == "npx" else None
+                if name in {"gbrain", "gitnexus", "obsidian", "autoreview", "clawpatch", "npx"}:
+                    return f"/usr/bin/{name}"
+                return None
 
             env = {
                 "MANAGEROO_TOKEN_MODE_FILE": str(Path(temp) / "token-mode.json"),
                 "MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills"),
             }
             with patch("manageroo.cli.readiness", return_value=ready), patch(
+                "manageroo.cli.configure_integrations",
+                return_value={"ok": True, "records": [], "next_command": "manageroo ready"},
+            ), patch(
                 "manageroo.cli.shutil.which",
                 side_effect=which,
             ), patch.dict(os.environ, env), redirect_stdout(stdout):
@@ -144,7 +149,8 @@ class CliSoloTests(unittest.TestCase):
 
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
-            self.assertEqual(payload["integration_guidance"][0]["name"], "loop-library")
+            guidance_by_name = {item["name"]: item for item in payload["integration_guidance"]}
+            self.assertIn("loop-library", guidance_by_name)
             self.assertIn("npx --yes skills add Forward-Future/loop-library", payload["next_command"])
 
     def test_solo_create_initializes_missing_project_before_brief(self):

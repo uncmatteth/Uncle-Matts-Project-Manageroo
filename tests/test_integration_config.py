@@ -41,12 +41,12 @@ class IntegrationConfigTests(unittest.TestCase):
         initialize_project(repo, agent="mock")
         return repo
 
-    def test_configures_installed_gbrain_and_gitnexus_templates(self):
+    def test_configures_installed_required_stack_templates(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
 
             def which(name):
-                return f"/usr/bin/{name}" if name in {"gbrain", "gitnexus"} else None
+                return f"/usr/bin/{name}" if name in {"gbrain", "gitnexus", "autoreview", "clawpatch"} else None
 
             with patch("manageroo.integration_config.shutil.which", side_effect=which):
                 result = configure_integrations(repo, apply=True)
@@ -58,6 +58,8 @@ class IntegrationConfigTests(unittest.TestCase):
             self.assertEqual(config["integrations"]["gbrain_capture_command"][0], "gbrain")
             self.assertEqual(config["integrations"]["gitnexus_analyze_command"][0], "gitnexus")
             self.assertEqual(config["integrations"]["gitnexus_status_command"][0], "gitnexus")
+            self.assertEqual(config["integrations"]["autoreview_command"][0], "/usr/bin/autoreview")
+            self.assertEqual(config["integrations"]["clawpatch_command"][0], "/usr/bin/clawpatch")
 
     def test_configure_migrates_old_manageroo_gitnexus_template(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -72,7 +74,7 @@ class IntegrationConfigTests(unittest.TestCase):
             )
 
             def which(name):
-                return f"/usr/bin/{name}" if name in {"gbrain", "gitnexus"} else None
+                return f"/usr/bin/{name}" if name in {"gbrain", "gitnexus", "autoreview", "clawpatch"} else None
 
             with patch("manageroo.integration_config.shutil.which", side_effect=which):
                 result = configure_integrations(repo, apply=True)
@@ -98,7 +100,7 @@ class IntegrationConfigTests(unittest.TestCase):
             )
 
             def which(name):
-                return f"/usr/bin/{name}" if name in {"gbrain", "gitnexus"} else None
+                return f"/usr/bin/{name}" if name in {"gbrain", "gitnexus", "autoreview", "clawpatch"} else None
 
             with patch("manageroo.integration_config.shutil.which", side_effect=which):
                 result = configure_integrations(repo, apply=True)
@@ -193,7 +195,10 @@ class IntegrationConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             original = (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")
-            with patch("manageroo.integration_config.shutil.which", return_value=None):
+            with patch("manageroo.integration_config.shutil.which", return_value=None), patch(
+                "manageroo.integration_config._find_autoreview",
+                return_value=None,
+            ):
                 result = configure_integrations(repo, apply=True)
 
             current = (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")

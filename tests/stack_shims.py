@@ -35,3 +35,11 @@ def gitnexus_analyze_command(text: str = "GITNEXUS ANALYZE OK") -> list[str]:
 
 def gitnexus_status_command(text: str = "GITNEXUS STATUS OK") -> list[str]:
     return text_command("gitnexus-status", text)
+
+
+def autoreview_command(text: str = "AUTOREVIEW OK", *, exit_code: int = 0) -> list[str]:
+    return text_command("autoreview", text, exit_code=exit_code)
+
+
+def clawpatch_command(text: str = "CLAWPATCH OK", *, exit_code: int = 0) -> list[str]:
+    return text_command("clawpatch", text, exit_code=exit_code)

@@ -30,6 +30,10 @@ def _install_stack_probe_shims(repo: Path) -> Path:
     gitnexus = tools / "gitnexus"
     gitnexus.write_text("#!/bin/sh\nprintf '%s\\n' readiness-probe-ok\n", encoding="utf-8")
     gitnexus.chmod(0o755)
+    for name in ("autoreview", "clawpatch"):
+        command = tools / name
+        command.write_text("#!/bin/sh\nprintf '%s\\n' readiness-probe-ok\n", encoding="utf-8")
+        command.chmod(0o755)
     return tools
 
 
@@ -48,7 +52,7 @@ class CliNextTests(unittest.TestCase):
         if name == "git":
             return "/usr/bin/git"
         tools = getattr(self, "_stack_probe_tools", None)
-        if name in {"gbrain", "gitnexus"} and tools is not None:
+        if name in {"gbrain", "gitnexus", "autoreview", "clawpatch"} and tools is not None:
             return str(tools / name)
         return None
 

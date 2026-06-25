@@ -12,7 +12,9 @@ from .project import git_root
 from .project_memory import ensure_project_memory
 from .readiness import readiness
 from .runner import CommandRunner
-from .util import atomic_write_json, atomic_write_text, read_json, utc_now
+from .state import Phase, RunState
+from .util import atomic_write_json, atomic_write_text, read_json, sha256_file, utc_now
+from .workspace import WorkspaceMirror
 
 
 def _item(name: str, ok: bool, detail: str, next_command: str = "") -> dict[str, Any]:
@@ -77,6 +79,172 @@ def _git_head_summary(repo: Path) -> dict[str, Any]:
     }
 
 
+def _resolve_run_path(
+    *,
+    run_root: Path,
+    value: Any,
+    default: Path,
+    label: str,
+    failures: list[str],
+) -> Path:
+    candidate = Path(str(value)) if value else default
+    if not candidate.is_absolute():
+        candidate = run_root / candidate
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(run_root.resolve())
+        return resolved
+    except Exception:
+        failures.append(f"{label} path is outside the run root: {candidate}")
+        return candidate
+
+
+def _validate_state_proof(
+    *,
+    run_root: Path,
+    run_id: str,
+    evidence_paths: dict[str, Any],
+    failures: list[str],
+) -> Path:
+    state_path = _resolve_run_path(
+        run_root=run_root,
+        value=evidence_paths.get("state"),
+        default=run_root / "state.json",
+        label="state",
+        failures=failures,
+    )
+    if not state_path.is_file():
+        failures.append("state file is missing")
+        return state_path
+    try:
+        state = RunState.load(state_path)
+    except Exception as exc:
+        failures.append(f"state file is unreadable: {exc}")
+        return state_path
+    if state.run_id != run_id:
+        failures.append(f"state run_id is {state.run_id}, expected {run_id}")
+    if state.phase != Phase.COMPLETE.value:
+        failures.append(f"state phase is {state.phase}, expected COMPLETE")
+    if not state.history:
+        failures.append("state history is empty")
+    return state_path
+
+
+def _validate_artifact_ledger(
+    *,
+    run_root: Path,
+    evidence_paths: dict[str, Any],
+    external_capture_path: Path,
+    failures: list[str],
+) -> Path:
+    ledger_path = _resolve_run_path(
+        run_root=run_root,
+        value=evidence_paths.get("artifact_ledger"),
+        default=run_root / "artifacts" / "artifact-ledger.json",
+        label="artifact ledger",
+        failures=failures,
+    )
+    if not ledger_path.is_file():
+        failures.append("artifact ledger is missing")
+        return ledger_path
+    try:
+        ledger = read_json(ledger_path)
+    except Exception as exc:
+        failures.append(f"artifact ledger is unreadable: {exc}")
+        return ledger_path
+    artifacts = ledger.get("artifacts") if isinstance(ledger, dict) else None
+    if not isinstance(artifacts, dict):
+        failures.append("artifact ledger has no artifacts map")
+        return ledger_path
+
+    capture_relative = "delivery/external-capture.json"
+    capture_record = artifacts.get(capture_relative)
+    if not isinstance(capture_record, dict):
+        failures.append("external capture artifact is not recorded in artifact ledger")
+    else:
+        recorded_sha = str(capture_record.get("sha256") or "")
+        if not recorded_sha:
+            failures.append("external capture artifact ledger record has no sha256")
+        elif external_capture_path.is_file() and sha256_file(external_capture_path) != recorded_sha:
+            failures.append("external capture artifact does not match artifact ledger sha256")
+
+    artifact_root = run_root / "artifacts"
+    for relative, record in artifacts.items():
+        if not isinstance(record, dict):
+            failures.append(f"artifact ledger record is invalid: {relative}")
+            continue
+        artifact_path = artifact_root / str(relative)
+        if not artifact_path.is_file():
+            failures.append(f"artifact ledger points to missing artifact: {relative}")
+            continue
+        recorded_sha = str(record.get("sha256") or "")
+        if not recorded_sha:
+            failures.append(f"artifact ledger record has no sha256: {relative}")
+        elif sha256_file(artifact_path) != recorded_sha:
+            failures.append(f"artifact ledger sha256 mismatch: {relative}")
+    return ledger_path
+
+
+def _validate_job_records(*, run_root: Path, failures: list[str]) -> None:
+    jobs_root = run_root / "jobs"
+    job_paths = sorted(jobs_root.glob("*.json")) if jobs_root.is_dir() else []
+    if not job_paths:
+        failures.append("no completed worker job records")
+        return
+    artifact_root = run_root / "artifacts"
+    for job_path in job_paths:
+        try:
+            job = read_json(job_path)
+        except Exception as exc:
+            failures.append(f"worker job record is unreadable: {job_path.name}: {exc}")
+            continue
+        job_id = str(job.get("id") or job_path.stem)
+        if job.get("status") != "complete":
+            failures.append(f"worker job {job_id} is {job.get('status', 'missing')}, expected complete")
+        output_artifact = str(job.get("output_artifact") or "")
+        output_sha = str(job.get("output_artifact_sha256") or "")
+        if not output_artifact:
+            failures.append(f"worker job {job_id} has no output artifact")
+        elif not output_sha:
+            failures.append(f"worker job {job_id} has no output artifact sha256")
+        else:
+            artifact_path = artifact_root / output_artifact
+            if not artifact_path.is_file():
+                failures.append(f"worker job {job_id} output artifact is missing")
+            elif sha256_file(artifact_path) != output_sha:
+                failures.append(f"worker job {job_id} output artifact sha256 mismatch")
+        if not job.get("result_sha256"):
+            failures.append(f"worker job {job_id} has no result sha256")
+        attempt_root = run_root / "worker-attempts" / job_id
+        attempts = sorted(attempt_root.glob("*.json")) if attempt_root.is_dir() else []
+        completed_attempt = False
+        for attempt_path in attempts:
+            try:
+                attempt = read_json(attempt_path)
+            except Exception as exc:
+                failures.append(f"worker attempt record is unreadable: {job_id}/{attempt_path.name}: {exc}")
+                continue
+            if attempt.get("status") == "complete" and attempt.get("result_sha256"):
+                completed_attempt = True
+        if not completed_attempt:
+            failures.append(f"worker job {job_id} has no completed attempt record")
+
+
+def _validate_applied_source(
+    *,
+    repo: Path,
+    run_root: Path,
+    patch_path: Path,
+    failures: list[str],
+) -> None:
+    try:
+        mirror = WorkspaceMirror(repo, run_root, CommandRunner())
+        mirror.load_existing()
+        mirror.assert_source_matches_snapshot_plus_patch(patch_path)
+    except Exception as exc:
+        failures.append(f"source tree no longer matches approved delivery patch: {exc}")
+
+
 def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
     results = sorted(
         (repo / PROJECT_DIR / "runs").glob("*/delivery/final-result.json"),
@@ -103,14 +271,46 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         }
     delivery = run_root / "delivery"
     report_path = delivery / "FINAL-REPORT.md"
-    patch_value = data.get("evidence_paths", {}).get("patch")
-    patch_path = Path(patch_value) if patch_value else delivery / "final.patch"
+    evidence_paths = data.get("evidence_paths", {})
+    if not isinstance(evidence_paths, dict):
+        evidence_paths = {}
+    failures: list[str] = []
+    run_root_value = evidence_paths.get("run_root")
+    if run_root_value and Path(str(run_root_value)).resolve() != run_root.resolve():
+        failures.append(f"run_root evidence points at {run_root_value}, expected {run_root}")
+    patch_path = _resolve_run_path(
+        run_root=run_root,
+        value=evidence_paths.get("patch"),
+        default=delivery / "final.patch",
+        label="final patch",
+        failures=failures,
+    )
+    report_path = _resolve_run_path(
+        run_root=run_root,
+        value=evidence_paths.get("final_report"),
+        default=report_path,
+        label="final report",
+        failures=failures,
+    )
+    _validate_state_proof(
+        run_root=run_root,
+        run_id=run_id,
+        evidence_paths=evidence_paths,
+        failures=failures,
+    )
     review_status = data.get("review", {}).get("status")
     applied = bool(data.get("applied_to_source"))
     external_capture_passed = bool(
         data.get("external_capture", {}).get("summary", {}).get("passed")
     )
     external_capture_path = run_root / "artifacts" / "delivery" / "external-capture.json"
+    ledger_path = _validate_artifact_ledger(
+        run_root=run_root,
+        evidence_paths=evidence_paths,
+        external_capture_path=external_capture_path,
+        failures=failures,
+    )
+    _validate_job_records(run_root=run_root, failures=failures)
     external_capture_artifact_passed = False
     external_capture_artifact_error = ""
     if external_capture_path.is_file():
@@ -121,7 +321,8 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
             )
         except Exception as exc:
             external_capture_artifact_error = str(exc)
-    failures: list[str] = []
+    if data.get("run_id") and data.get("run_id") != run_id:
+        failures.append(f"final-result run_id is {data.get('run_id')}, expected {run_id}")
     if data.get("status") != "COMPLETE":
         failures.append(f"status is {data.get('status', 'missing')}")
     if review_status != "approved":
@@ -141,6 +342,13 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         failures.append("final patch is missing")
     if not applied:
         failures.append("final patch is not applied to source")
+    elif patch_path.is_file():
+        _validate_applied_source(
+            repo=repo,
+            run_root=run_root,
+            patch_path=patch_path,
+            failures=failures,
+        )
     proof = {
         "ok": not failures,
         "run_id": run_id,
@@ -148,6 +356,7 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         "final_report": str(report_path),
         "final_patch": str(patch_path),
         "external_capture": str(external_capture_path),
+        "artifact_ledger": str(ledger_path),
         "review_status": review_status or "",
         "applied_to_source": applied,
         "detail": (

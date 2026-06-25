@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -9,6 +10,16 @@ from .util import atomic_write_text, safe_repo_relative
 
 
 MAX_EXTERNAL_TEXT_CHARS = 12_000
+
+
+def _resolve_autoreview_command() -> str | None:
+    for candidate in (
+        Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
+        Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
+    ):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def _terms(query: str) -> set[str]:
@@ -76,6 +87,10 @@ class ExternalCommandIntegration:
         if not self.enabled:
             return None
         argv = [item.format(**values) for item in self.argv_template]
+        if argv and argv[0] == "autoreview":
+            resolved = _resolve_autoreview_command()
+            if resolved:
+                argv[0] = resolved
         return self.runner.run(
             argv,
             cwd=cwd,

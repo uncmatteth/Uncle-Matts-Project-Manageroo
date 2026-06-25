@@ -302,6 +302,13 @@ def _selected_agent_item(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
 def _resolve_configured_executable(command: Any, repo: Path) -> str | None:
     if not isinstance(command, str) or not command:
         return None
+    if command == "autoreview":
+        for candidate in (
+            Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
+            Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
+        ):
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
     path_candidate = Path(command).expanduser()
     has_path_separator = os.sep in command or (os.altsep is not None and os.altsep in command)
     if path_candidate.is_absolute() or has_path_separator:
@@ -499,6 +506,7 @@ def _readiness_probe_values(repo: Path) -> dict[str, str]:
         "query": query,
         "gbrain_query_payload": gbrain_query_payload(query, {}),
         "document_state_dir": str(probe_dir / "document-state"),
+        "external_state_dir": str(probe_dir / "external-state"),
         "status": "READY_PROBE",
         "summary": "manageroo readiness required command probe",
         "files_changed": "",
@@ -813,6 +821,22 @@ def stack_command_lane_items(
             "gitnexus",
             ("gitnexus_analyze_command", "gitnexus_status_command"),
             probe_command_key="gitnexus_readiness_probe_command",
+        ),
+        _stack_command_item(
+            repo,
+            config,
+            "autoreview command lane",
+            "AUTOREVIEW",
+            ("autoreview_command",),
+            probe_keys=(),
+        ),
+        _stack_command_item(
+            repo,
+            config,
+            "clawpatch command lane",
+            "Clawpatch",
+            ("clawpatch_command",),
+            probe_keys=(),
         ),
     ]
 

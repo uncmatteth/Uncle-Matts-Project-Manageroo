@@ -83,7 +83,8 @@ class PackageReleaseTests(unittest.TestCase):
         smoke_text = (ROOT / "scripts" / "smoke_release_install.py").read_text(encoding="utf-8")
 
         self.assertIn("scripts/smoke_release_install.py", package_text)
-        self.assertIn("--skip-install-tests", package_text)
+        self.assertNotIn("--skip-install-tests", package_text)
+        self.assertIn("--skip-install-tests", smoke_text)
         self.assertIn("scripts/smoke_release_install.py", verifier_text)
         self.assertIn("EXPECTED_SKILL_COUNT = 50", smoke_text)
         self.assertIn('"manageroo"', smoke_text)

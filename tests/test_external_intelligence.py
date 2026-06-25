@@ -55,6 +55,14 @@ def _gitnexus_status_command(text: str = "GITNEXUS STATUS OK", *, exit_code: int
     return _text_command("gitnexus-status", text, exit_code=exit_code)
 
 
+def _autoreview_command(text: str = "AUTOREVIEW OK", *, exit_code: int = 0) -> list[str]:
+    return _text_command("autoreview", text, exit_code=exit_code)
+
+
+def _clawpatch_command(text: str = "CLAWPATCH OK", *, exit_code: int = 0) -> list[str]:
+    return _text_command("clawpatch", text, exit_code=exit_code)
+
+
 def _gitnexus_workspace_marker_commands() -> tuple[list[str], list[str]]:
     root = Path(tempfile.mkdtemp(prefix="manageroo-test-command-"))
     analyze = root / "gitnexus-analyze-marker"
@@ -185,6 +193,14 @@ class ExternalIntelligenceTests(unittest.TestCase):
         text = text.replace(
             "gitnexus_readiness_probe_command = []",
             "gitnexus_readiness_probe_command = " + _toml_array([str(gitnexus_probe)]),
+        )
+        text = text.replace(
+            'autoreview_command = ["autoreview", "--mode", "local"]',
+            "autoreview_command = " + _toml_array(_autoreview_command()),
+        )
+        text = text.replace(
+            'clawpatch_command = ["clawpatch", "review", "--limit", "3", "--jobs", "3", "--state-dir", "{external_state_dir}/clawpatch"]',
+            "clawpatch_command = " + _toml_array(_clawpatch_command()),
         )
         text += (
             "\n[[verification.gates]]\n"
