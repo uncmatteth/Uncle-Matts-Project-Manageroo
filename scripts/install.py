@@ -29,6 +29,15 @@ CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 GBRAIN_INSTALL_SOURCE = "github:garrytan/gbrain"
 GBRAIN_AGENT_INSTALL_PROTOCOL_URL = "https://raw.githubusercontent.com/garrytan/gbrain/master/INSTALL_FOR_AGENTS.md"
 GBRAIN_LOCAL_INSTALL_REFERENCE = "https://github.com/garrytan/gbrain"
+GBRAIN_LOCAL_LLM_MODEL_TARGETS = {
+    "embedding_model": "ollama:qwen3-embedding:4b",
+    "chat_model": "ollama:qwen3:8b",
+    "expansion_model": "ollama:qwen3:8b",
+    "embedding_multimodal": "true",
+    "search.graph_signals": "true",
+    "search.unified_multimodal": "true",
+}
+GBRAIN_FORBIDDEN_MODEL_WORDS = ("anthropic", "claude", "haiku", "sonnet", "opus")
 GITNEXUS_NPM_PACKAGE = "gitnexus"
 LOOP_LIBRARY_SKILL_SOURCE = "Forward-Future/loop-library"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"
@@ -259,6 +268,109 @@ def parse_gbrain_config(output: str) -> dict[str, str]:
     return config
 
 
+def gbrain_uses_forbidden_model_route(config: dict[str, str]) -> list[str]:
+    violations: list[str] = []
+    for key, value in config.items():
+        if not value:
+            continue
+        normalized = value.lower()
+        if any(word in normalized for word in GBRAIN_FORBIDDEN_MODEL_WORDS):
+            violations.append(f"{key}={value}")
+    return violations
+
+
+def gbrain_local_llm_status(
+    gbrain: str | None,
+    mode: str,
+    downloads: list[dict],
+    config_summary: dict[str, str],
+) -> dict:
+    ollama = shutil.which("ollama")
+    ollama_probe = probe_command([ollama, "list"], timeout=60) if ollama else None
+    feature_probe = probe_command([gbrain, "features", "--json"], timeout=120) if gbrain else None
+    integrations_probe = (
+        probe_command([gbrain, "integrations", "list", "--json"], timeout=120)
+        if gbrain
+        else None
+    )
+    actions: list[dict] = []
+    if gbrain and mode == "ollama-qwen":
+        for key, value in GBRAIN_LOCAL_LLM_MODEL_TARGETS.items():
+            actions.append(
+                optional_run(
+                    [gbrain, "config", "set", key, value],
+                    downloads,
+                    "gbrain",
+                    f"gbrain config set {key}",
+                    cwd=Path.home(),
+                )
+            )
+        refreshed = probe_command([gbrain, "config", "show"], cwd=Path.home())
+        if refreshed.get("ok"):
+            config_summary = parse_gbrain_config(refreshed.get("output", ""))
+
+    expected = {
+        key: config_summary.get(key) == value
+        for key, value in GBRAIN_LOCAL_LLM_MODEL_TARGETS.items()
+    }
+    local_model_keys = ("embedding_model", "chat_model", "expansion_model")
+    local_models = {
+        key: bool(config_summary.get(key, "").startswith("ollama:"))
+        for key in local_model_keys
+    }
+    forbidden_routes = gbrain_uses_forbidden_model_route(config_summary)
+    next_commands: list[str] = []
+    if not gbrain:
+        next_commands.append("Install GBrain, then rerun the installer or `manageroo gbrain-setup`.")
+    if not ollama:
+        next_commands.append("Install Ollama from https://ollama.com/download")
+    if ollama:
+        next_commands.extend(
+            [
+                "ollama pull qwen3-embedding:4b",
+                "ollama pull qwen3:8b",
+            ]
+        )
+    if mode in {"inspect", "manual"}:
+        for key, value in GBRAIN_LOCAL_LLM_MODEL_TARGETS.items():
+            if config_summary.get(key) != value:
+                next_commands.append(f"gbrain config set {key} {value}")
+    next_commands.extend(
+        [
+            "gbrain integrations list --json",
+            "gbrain integrations show retrieval-reflex",
+            "gbrain features --json",
+            "gbrain doctor --json --fast",
+        ]
+    )
+    return {
+        "mode": mode,
+        "configured": bool(
+            gbrain
+            and all(local_models.values())
+            and all(expected.values())
+            and not forbidden_routes
+        ),
+        "expected_config": GBRAIN_LOCAL_LLM_MODEL_TARGETS,
+        "expected_config_matches": expected,
+        "local_model_routes": local_models,
+        "forbidden_model_routes": forbidden_routes,
+        "ollama": {
+            "installed": bool(ollama),
+            "path": ollama,
+            "probe": safe_probe_record(ollama_probe),
+        },
+        "features_probe": safe_probe_record(feature_probe),
+        "integrations_probe": safe_probe_record(integrations_probe),
+        "actions": actions,
+        "next_commands": next_commands,
+        "rule": (
+            "Local LLM setup must use local model routes and must not leave "
+            "Claude/Anthropic/Haiku/Sonnet/Opus as an active default or fallback."
+        ),
+    }
+
+
 def summarize_gbrain_sync(output: str) -> dict:
     try:
         payload = json.loads(output)
@@ -385,7 +497,7 @@ def guidance(tool: str, reason: str, commands: list[str], url: str | None = None
     }
 
 
-def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
+def install_gbrain(downloads: list[dict], lane: str = "local", local_llm: str = "inspect") -> dict:
     cwd = Path.home()
     prepend_tool_paths()
     before = command_version("gbrain")
@@ -397,7 +509,7 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
     install_result: dict | None = None
     if not installed:
         if lane == "official":
-            return guidance(
+            result = guidance(
                 "gbrain",
                 "Official GBrain agent-supervised install lane selected. The installer will not guess API keys, search mode, source mapping, or recurring jobs.",
                 [
@@ -407,7 +519,9 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
                     "Then rerun: manageroo stack-status",
                 ],
                 GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
-            ) | {
+            )
+            result["local_llm_setup"] = gbrain_local_llm_status(None, local_llm, downloads, {})
+            return result | {
                 "lane": "official-agent-protocol",
                 "official_protocol_url": GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
                 "local_lane_command": "./install.sh --install-stack --gbrain-lane local",
@@ -502,6 +616,12 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
                 "gbrain status --json --section sync",
             ]
         )
+    local_llm_setup = gbrain_local_llm_status(gbrain, local_llm, downloads, config_summary)
+    next_commands.extend(
+        command
+        for command in local_llm_setup.get("next_commands", [])
+        if command not in next_commands
+    )
     return {
         "name": "gbrain",
         "lane": "existing-inspected" if installed_before else "local-cli",
@@ -522,10 +642,16 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
                 "engine",
                 "embedding_model",
                 "embedding_dimensions",
+                "chat_model",
+                "expansion_model",
                 "schema_pack",
+                "embedding_multimodal",
+                "search.graph_signals",
+                "search.unified_multimodal",
             )
             if config_summary.get(key)
         },
+        "local_llm_setup": local_llm_setup,
         "sync_summary": sync_summary,
         "install_result": install_result,
         "init_result": init_result,
@@ -986,6 +1112,37 @@ def choose_gbrain_lane(selection: str) -> str:
     return selected
 
 
+def choose_gbrain_local_llm_mode(selection: str) -> str:
+    if selection != "ask":
+        if selection in {"skip", "off", "none"}:
+            raise SystemExit("GBrain local LLM setup cannot be skipped; choose inspect, ollama-qwen, or manual.")
+        return selection
+    if not sys.stdin.isatty():
+        return "inspect"
+    print("GBrain local LLM setup:")
+    print("  1) inspect - read current local model/multimodal config and print exact next commands")
+    print("  2) ollama-qwen - set GBrain to local Ollama Qwen routes and local multimodal/search switches")
+    print("  3) manual - keep config unchanged, but print the checklist and commands")
+    answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
+    selected = {
+        "": "inspect",
+        "1": "inspect",
+        "inspect": "inspect",
+        "check": "inspect",
+        "2": "ollama-qwen",
+        "ollama": "ollama-qwen",
+        "ollama-qwen": "ollama-qwen",
+        "qwen": "ollama-qwen",
+        "3": "manual",
+        "manual": "manual",
+    }.get(answer)
+    if selected is None:
+        if answer in {"s", "skip", "n", "no", "off", "none"}:
+            raise SystemExit("GBrain local LLM setup cannot be skipped; choose inspect, ollama-qwen, or manual.")
+        raise SystemExit("Invalid GBrain local LLM setup mode. Choose 1, 2, or 3.")
+    return selected
+
+
 def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     if skip_flag or selection == "skip":
         raise SystemExit("The Manageroo local skill pack is required; skill-pack skipping was removed.")
@@ -1007,11 +1164,12 @@ def install_required_stack(
     obsidian_method: str,
     prefix: Path,
     gbrain_lane: str,
+    gbrain_local_llm: str,
     clawpatch_codex_login: str,
 ) -> list[dict]:
     status_line("STACK", "installing required local stack")
     return [
-        install_gbrain(downloads, gbrain_lane),
+        install_gbrain(downloads, gbrain_lane, gbrain_local_llm),
         install_gitnexus(downloads),
         install_autoreview(downloads, prefix),
         install_clawpatch(downloads, clawpatch_codex_login),
@@ -1149,6 +1307,12 @@ def main() -> int:
         help="Choose the GBrain stack lane: local CLI install or official agent-supervised protocol.",
     )
     parser.add_argument(
+        "--gbrain-local-llm",
+        choices=["ask", "inspect", "ollama-qwen", "manual"],
+        default="ask",
+        help="Choose how the GBrain installer lane handles local LLM, embedding, and multimodal setup.",
+    )
+    parser.add_argument(
         "--clawpatch-codex-login",
         choices=["ask", "run", "check"],
         default="ask",
@@ -1232,6 +1396,7 @@ def main() -> int:
         if stack_mode == "install":
             print_required_stack()
             gbrain_lane = choose_gbrain_lane(args.gbrain_lane)
+            gbrain_local_llm = choose_gbrain_local_llm_mode(args.gbrain_local_llm)
             external_tools.extend(
                 install_required_stack(
                     downloads,
@@ -1239,6 +1404,7 @@ def main() -> int:
                     args.obsidian_method,
                     prefix,
                     gbrain_lane,
+                    gbrain_local_llm,
                     args.clawpatch_codex_login,
                 )
             )

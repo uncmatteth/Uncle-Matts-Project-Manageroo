@@ -58,6 +58,9 @@ The manifest records:
     a compacted chat summary. Missing artifact hashes make the job stale.
 14. Continue reuses the original saved job when the logical worker call already
     exists, so skipped completed phases do not shift later failed jobs.
+15. Packets include a communication rule: do not introduce irrelevant or
+    already-settled tool/app details. Caveats belong only when they change the
+    current task, safety, proof, or next action.
 
 ## Intent lock and compaction audit
 

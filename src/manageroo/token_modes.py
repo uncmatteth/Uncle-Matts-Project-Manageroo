@@ -29,7 +29,8 @@ TOKEN_MODES = {
         prompt=(
             "Token mode: Caveman. Be terse. Drop filler, pleasantries, hedging, "
             "and needless connector words. Keep exact technical meaning, code, "
-            "commands, JSON keys, quoted errors, paths, and safety warnings intact."
+            "commands, JSON keys, quoted errors, paths, and safety warnings intact. "
+            "Do not introduce irrelevant or already-settled tool/app details."
         ),
     ),
     "curse": TokenMode(
@@ -43,7 +44,8 @@ TOKEN_MODES = {
             "when it fits because life is more fun with appropriately placed, "
             "well-used profanity. Curse at broken code or broken process, not the user. "
             "Never add profanity to code, shell commands, JSON keys, exact errors, "
-            "quoted source, or user-facing product copy unless explicitly asked."
+            "quoted source, or user-facing product copy unless explicitly asked. "
+            "Do not introduce irrelevant or already-settled tool/app details."
         ),
     ),
 }

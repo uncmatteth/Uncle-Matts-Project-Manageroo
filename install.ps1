@@ -12,6 +12,8 @@ param(
     [string]$Stack = "ask",
     [ValidateSet("ask", "local", "official")]
     [string]$GBrainLane = "ask",
+    [ValidateSet("ask", "inspect", "ollama-qwen", "manual")]
+    [string]$GBrainLocalLlm = "ask",
     [ValidateSet("ask", "pick", "add")]
     [string]$ProjectDiscovery = "ask",
     [ValidateSet("ask", "run")]
@@ -78,6 +80,7 @@ if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
 if ($SkillPack) { $InstallArgs += @("--skill-pack", $SkillPack) }
 if ($Stack) { $InstallArgs += @("--stack", $Stack) }
 if ($GBrainLane) { $InstallArgs += @("--gbrain-lane", $GBrainLane) }
+if ($GBrainLocalLlm) { $InstallArgs += @("--gbrain-local-llm", $GBrainLocalLlm) }
 if ($ProjectDiscovery) { $InstallArgs += @("--project-discovery", $ProjectDiscovery) }
 if ($StackDoctor) { $InstallArgs += @("--stack-doctor", $StackDoctor) }
 if ($ClawpatchCodexLogin) { $InstallArgs += @("--clawpatch-codex-login", $ClawpatchCodexLogin) }

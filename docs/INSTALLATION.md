@@ -91,6 +91,19 @@ gbrain init --pglite
 gbrain doctor --json
 ```
 
+GBrain local LLM setup is separate from the install lane:
+
+```bash
+./install.sh --gbrain-local-llm inspect
+./install.sh --gbrain-local-llm ollama-qwen
+./install.sh --gbrain-local-llm manual
+```
+
+`inspect` records current model routes, multimodal/search switches, Ollama,
+features, and integrations. `ollama-qwen` explicitly sets GBrain's known local
+model routes and multimodal/search switches to Ollama/Qwen values. `manual`
+prints the same checklist without changing config.
+
 The official upstream lane is not guessed by this installer because it includes
 API-key questions, search-mode choice, source mapping, skills, recurring jobs,
 and verification. The installer prints the exact protocol URL instead:

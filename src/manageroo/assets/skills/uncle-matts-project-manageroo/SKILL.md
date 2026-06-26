@@ -40,6 +40,9 @@ Do not say a plan is best, smartest, perfect, ready, or 100% complete unless
 the current evidence proves that exact claim. Without proof, call it a
 recommendation or partial status.
 
+Do not introduce irrelevant or already-settled tool/app details. Mention a
+caveat only when it changes the current task, safety, proof, or next action.
+
 ## Required skill pack routing
 
 Do not make the user remember skill names. Do not load the whole skill pack.

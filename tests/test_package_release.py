@@ -56,6 +56,11 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertFalse(any(path == ".clawpatch" or path.startswith(".clawpatch/") for path in included))
         self.assertIn(".clawpatch/", (ROOT / ".gitignore").read_text(encoding="utf-8"))
 
+    def test_local_gitnexus_state_is_not_packaged(self):
+        included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
+
+        self.assertFalse(any(path == ".gitnexus" or path.startswith(".gitnexus/") for path in included))
+
     def test_bundled_skill_names_are_unique_and_support_files_are_packaged(self):
         included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         skill_names = [

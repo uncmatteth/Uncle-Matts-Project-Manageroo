@@ -19,7 +19,7 @@ class ContextTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def compiler(self, max_tokens=200):
+    def compiler(self, max_tokens=500):
         return ContextCompiler(
             self.repo,
             self.root / "packets",
@@ -39,6 +39,16 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(manifest["entries"][0]["start_line"], 2)
         self.assertEqual(manifest["entries"][0]["end_line"], 3)
         self.assertTrue(manifest["entries"][0]["source_sha256"])
+
+    def test_packet_includes_communication_discipline(self):
+        packet = self.compiler().compile(
+            "communication",
+            instructions="do work",
+            requests=[],
+        )
+        prompt = (packet / "prompt.md").read_text(encoding="utf-8")
+        self.assertIn("Do not introduce irrelevant or already-settled tool/app details.", prompt)
+        self.assertIn("Mention a caveat only when it changes the current task", prompt)
 
     def test_instructions_alone_cannot_overflow(self):
         with self.assertRaises(ContextBudgetError):

@@ -108,6 +108,8 @@ class TokenModeTests(unittest.TestCase):
             self.assertEqual(read_token_mode(state)["mode"], "curse")
             self.assertIn("Uncle Matt's Caveman Curse", token_mode_prompt("curse"))
             self.assertIn("appropriately placed, well-used profanity", token_mode_prompt("curse"))
+            self.assertIn("Do not introduce irrelevant or already-settled", token_mode_prompt("caveman"))
+            self.assertIn("Do not introduce irrelevant or already-settled", token_mode_prompt("curse"))
             self.assertTrue((skills / "caveman" / "SKILL.md").exists())
             self.assertTrue((skills / "uncle-matts-caveman-curse" / "SKILL.md").exists())
 

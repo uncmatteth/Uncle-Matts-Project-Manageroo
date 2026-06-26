@@ -8,6 +8,10 @@ from .errors import ContextBudgetError, SafetyError
 from .file_inspection import content_kind_for_path, summary_for_context
 from .util import atomic_write_json, atomic_write_text, safe_repo_relative, sha256_file, sha256_text
 
+PACKET_COMMUNICATION_RULE = """# Communication discipline
+Do not introduce irrelevant or already-settled tool/app details. Mention a caveat only when it changes the current task, safety, proof, or next action.
+"""
+
 
 @dataclass(frozen=True)
 class ContextRequest:
@@ -98,6 +102,7 @@ class ContextCompiler:
     ) -> Path:
         packet = self.packet_root / packet_name
         packet.mkdir(parents=True, exist_ok=False)
+        compiled_instructions = instructions.rstrip() + "\n\n" + PACKET_COMMUNICATION_RULE.rstrip()
 
         prepared: list[tuple[ContextRequest, str, int, int, str, int, str]] = []
         omitted: list[dict] = []
@@ -126,7 +131,7 @@ class ContextCompiler:
             prepared.append((request, excerpt, start, end, source_hash, tokens, mode))
 
         prepared.sort(key=lambda item: (not item[0].required, -item[0].priority, item[0].path))
-        used = max(1, int(len(instructions) / self.chars_per_token))
+        used = max(1, int(len(compiled_instructions) / self.chars_per_token))
         if used > self.usable_tokens:
             raise ContextBudgetError(
                 "Role instructions alone exceed the usable context budget. "
@@ -147,7 +152,7 @@ class ContextCompiler:
             used += tokens
 
         entries: list[ContextEntry] = []
-        sections = [instructions.rstrip(), "\n# Compiled context\n"]
+        sections = [compiled_instructions, "\n# Compiled context\n"]
         for request, excerpt, start, end, source_hash, tokens, mode in selected:
             sections.append(
                 f"\n## FILE: {request.path} L{start}-L{end}\n"
@@ -179,6 +184,7 @@ class ContextCompiler:
             "usable_token_budget": self.usable_tokens,
             "estimated_tokens": used,
             "instructions_sha256": sha256_text(instructions),
+            "communication_rule_sha256": sha256_text(PACKET_COMMUNICATION_RULE),
             "entries": [asdict(entry) for entry in entries],
             "omitted": omitted,
             "metadata": metadata or {},

@@ -16,6 +16,29 @@ from .util import sha256_file
 
 
 _VALID_SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}[A-Za-z0-9]$|^[A-Za-z0-9]$")
+_VETTING_RED_FLAGS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("network downloader", re.compile(r"\b(?:curl|wget)\b[^\n|;&]*[|;&]\s*(?:sh|bash|python|node)\b", re.IGNORECASE)),
+    ("external data send", re.compile(r"\b(?:fetch|requests\.(?:post|put)|httpx\.(?:post|put))\s*\(", re.IGNORECASE)),
+    (
+        "credential access",
+        re.compile(
+            r"\b(?:read|print|copy|export|send|upload|persist|collect|capture|exfiltrate)\b"
+            r".{0,80}\b(?:api[_-]?key|token|secret|password|credential)s?\b",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    ),
+    (
+        "private key access",
+        re.compile(
+            r"\b(?:cat|read|copy|upload|send|collect|capture|exfiltrate)\b"
+            r".{0,80}(?:~/?\.ssh|id_rsa|id_ed25519|\.aws|browser cookies?)",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    ),
+    ("base64 decode", re.compile(r"\b(?:base64\s+-d|base64\.b64decode|atob\s*\()", re.IGNORECASE)),
+    ("dynamic execution", re.compile(r"\b(?:eval|exec)\s*\(", re.IGNORECASE)),
+    ("elevated permissions", re.compile(r"(?m)^\s*(?:sudo|doas|pkexec)\b", re.IGNORECASE)),
+)
 
 
 def _backup_path(destination: Path) -> Path:
@@ -66,12 +89,40 @@ def _copy_skill_source_tree(source_dir: Path, target_dir: Path) -> list[str]:
     return backups
 
 
+def vet_skill_source_tree(source_dir: Path) -> dict[str, Any]:
+    reviewed_files: list[str] = []
+    red_flags: list[dict[str, str]] = []
+    for source_file in sorted(source_dir.rglob("*")):
+        if not source_file.is_file() or source_file.is_symlink():
+            continue
+        relative = str(source_file.relative_to(source_dir))
+        reviewed_files.append(relative)
+        try:
+            text = source_file.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            red_flags.append({"file": relative, "rule": "unreadable file", "detail": str(exc)})
+            continue
+        for label, pattern in _VETTING_RED_FLAGS:
+            if pattern.search(text):
+                red_flags.append({"file": relative, "rule": label, "detail": "matched risk pattern"})
+    return {
+        "ok": not red_flags,
+        "files_reviewed": len(reviewed_files),
+        "reviewed_files": reviewed_files,
+        "red_flags": red_flags,
+        "risk_level": "low" if not red_flags else "high",
+        "verdict": "safe-to-import" if not red_flags else "blocked",
+        "rule": "External skills are vetted before import; blocked skills are not installed.",
+    }
+
+
 def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str]) -> dict[str, Any]:
     name = _skill_name(path).strip()
     status = "importable"
     reason = "ready to import"
     existing = target_root / name / "SKILL.md"
     digest = sha256_file(path)
+    vetting = vet_skill_source_tree(path.parent)
     if not _VALID_SKILL_NAME.fullmatch(name):
         status = "invalid"
         reason = "skill name must use letters, digits, and hyphens"
@@ -88,6 +139,9 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
         else:
             status = "conflict"
             reason = "different SKILL.md already exists; import will back it up"
+    if status in {"importable", "conflict"} and not vetting["ok"]:
+        status = "blocked"
+        reason = "skill vetting found red flags"
     if status != "invalid":
         seen.add(name)
     return {
@@ -98,6 +152,7 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
         "target": str(existing),
         "status": status,
         "reason": reason,
+        "vetting": vetting,
     }
 
 

@@ -422,6 +422,13 @@ GBrain has two installer lanes: `--gbrain-lane local` for this package's Bun +
 PGLite quick path, and `--gbrain-lane official` for Garry Tan/GBrain's upstream
 agent-supervised `INSTALL_FOR_AGENTS.md` protocol.
 
+GBrain local model setup is its own installer choice. `--gbrain-local-llm inspect`
+records the current local model, multimodal, search, Ollama, feature, and
+integration state. `--gbrain-local-llm ollama-qwen` explicitly sets GBrain's
+known local model routes and multimodal/search switches to Ollama/Qwen values.
+`--gbrain-local-llm manual` leaves config unchanged but prints the same
+checklist.
+
 Clawpatch setup checks `clawpatch doctor` and Codex login status for
 Clawpatch's codex provider. Use `--clawpatch-codex-login run` if you want the
 installer to launch `codex login` during stack setup.

@@ -35,6 +35,19 @@ def _json_command(name: str, payload: dict) -> list[str]:
     return _text_command(name, json.dumps(payload))
 
 
+def _mutating_json_command(name: str, payload: dict) -> list[str]:
+    root = Path(tempfile.mkdtemp(prefix="manageroo-test-command-"))
+    command = root / name
+    command.write_text(
+        "#!/bin/sh\n"
+        "printf '%s' 'external mutation' > source-mutated.txt\n"
+        f"printf '%s\\n' {shlex.quote(json.dumps(payload))}\n",
+        encoding="utf-8",
+    )
+    command.chmod(0o755)
+    return [str(command)]
+
+
 def _capture_echo_command() -> list[str]:
     root = Path(tempfile.mkdtemp(prefix="manageroo-test-command-"))
     command = root / "gbrain-capture"
@@ -304,6 +317,44 @@ class ExternalIntelligenceTests(unittest.TestCase):
             self.assertTrue((gitnexus_workspace / ".gitnexus-marker").is_file())
             self.assertTrue((gitnexus_workspace / ".gitnexus-status-arg").is_file())
             self.assertTrue((gitnexus_workspace / ".gitnexus-status-cwd").is_file())
+
+    def test_external_intelligence_blocks_source_checkout_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            config = repo / ".manageroo" / "config.toml"
+            text = config.read_text(encoding="utf-8")
+            text = text.replace(
+                'gbrain_search_command = ["gbrain", "call", "query", "{gbrain_query_payload}"]',
+                "gbrain_search_command = "
+                + _toml_array(
+                    _mutating_json_command(
+                        "gbrain-source-mutator",
+                        {"results": [{"source_id": "fixture", "text": "GBRAIN HIT"}]},
+                    )
+                ),
+            )
+            text = text.replace(
+                'gitnexus_analyze_command = ["gitnexus", "analyze", "{workspace}", "--skip-agents-md", "--skip-skills"]',
+                "gitnexus_analyze_command = " + _toml_array(_gitnexus_analyze_command()),
+            )
+            text = text.replace(
+                'gitnexus_status_command = ["gitnexus", "status"]',
+                "gitnexus_status_command = " + _toml_array(_gitnexus_status_command()),
+            )
+            config.write_text(text, encoding="utf-8")
+
+            orchestrator = Orchestrator(repo, adapter=MockAdapter())
+            orchestrator.workspace = orchestrator.mirror.create()
+            with patch("manageroo.orchestrator.gbrain_repo_source_item", return_value=GBRAIN_SOURCE_OK):
+                with self.assertRaisesRegex(ValidationError, "Required repo-intelligence lane failed"):
+                    orchestrator._external_intelligence("brief", {"files": []})
+
+            external = read_json(
+                orchestrator.run_root / "artifacts" / "discovery" / "external-intelligence.json"
+            )
+            self.assertIn("gbrain-search", external["summary"]["failed_required"])
+            gbrain = [item for item in external["records"] if item["name"] == "gbrain-search"][0]
+            self.assertIn("source checkout", gbrain["policy_error"])
 
     def test_gbrain_search_is_filtered_to_exact_repo_source(self):
         with tempfile.TemporaryDirectory() as temp:

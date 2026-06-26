@@ -130,6 +130,15 @@ The installer exposes both GBrain paths instead of hiding the choice:
 - `--gbrain-lane official`: the upstream GBrain agent-supervised protocol at
   `INSTALL_FOR_AGENTS.md`.
 
+The installer also exposes GBrain local model setup instead of hiding it behind
+manual aftercare:
+
+- `--gbrain-local-llm inspect`: record current embedding/chat/expansion model
+  routes, multimodal/search switches, Ollama, feature, and integration probes.
+- `--gbrain-local-llm ollama-qwen`: explicitly set GBrain's known local model
+  routes and multimodal/search switches to Ollama/Qwen values.
+- `--gbrain-local-llm manual`: leave config unchanged and print the checklist.
+
 The official lane is not compressed into a silent one-button guess because it
 asks about API keys, search mode, source mapping, skills, recurring jobs, and
 verification.

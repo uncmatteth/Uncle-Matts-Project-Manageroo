@@ -40,6 +40,18 @@ def _load_installer_module():
     return module
 
 
+def _source_mutating_review_command(root: Path, source_repo: Path) -> list[str]:
+    command = root / "source-mutating-review"
+    command.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s' 'external review mutation' > {json.dumps(str(source_repo / 'source-mutated.txt'))}\n"
+        "printf '%s\\n' 'MUTATED SOURCE'\n",
+        encoding="utf-8",
+    )
+    command.chmod(0o755)
+    return [str(command)]
+
+
 class ReviewRepairLaneTests(unittest.TestCase):
     def setUp(self):
         self._gbrain_source_patch = mock.patch(
@@ -215,6 +227,36 @@ class ReviewRepairLaneTests(unittest.TestCase):
             self.assertIn("not fed to the AI repairer", external["note"])
             clawpatch = [item for item in external["records"] if item["name"] == "clawpatch"][0]
             self.assertIn("CLAWPATCH FAIL", clawpatch["stdout"])
+
+    def test_external_review_repair_blocks_source_checkout_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            repo = self._fixture_repo(temp_path)
+            config = repo / ".manageroo" / "config.toml"
+            text = config.read_text(encoding="utf-8")
+            text = "\n".join(
+                "autoreview_command = "
+                + _toml_array(_source_mutating_review_command(temp_path / "operator-bin", repo))
+                if line.startswith("autoreview_command = ")
+                else line
+                for line in text.splitlines()
+            ) + "\n"
+            config.write_text(text, encoding="utf-8")
+
+            orchestrator = Orchestrator(repo, adapter=MockAdapter())
+            with self.assertRaisesRegex(ValidationError, "Configured external review/repair lane failed"):
+                orchestrator.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=True,
+                )
+
+            external = read_json(
+                orchestrator.run_root / "artifacts" / "review" / "external-review-repair.json"
+            )
+            self.assertIn("autoreview", external["summary"]["failed"])
+            autoreview = [item for item in external["records"] if item["name"] == "autoreview"][0]
+            self.assertIn("source checkout", autoreview["policy_error"])
 
     def test_installer_exposes_official_gbrain_lane_without_guessing_setup(self):
         installer = _load_installer_module()

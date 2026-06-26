@@ -46,6 +46,12 @@ The guided installer offers two lanes:
   is for the full setup: API-key questions, search-mode choice, source mapping,
   bundled skills, recurring jobs, and verification.
 
+Local model setup is not hidden after install. `--gbrain-local-llm inspect`
+records the current embedding/chat/expansion routes, multimodal/search switches,
+Ollama state, features, and integrations. `--gbrain-local-llm ollama-qwen`
+explicitly sets GBrain's known local routes and switches to Ollama/Qwen values.
+`--gbrain-local-llm manual` leaves config unchanged and prints the checklist.
+
 Interactive and non-interactive installs use the local lane unless a lane is
 passed explicitly.
 

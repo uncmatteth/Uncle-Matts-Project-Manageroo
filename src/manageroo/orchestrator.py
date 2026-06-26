@@ -910,6 +910,23 @@ class Orchestrator:
         records = list(document_intelligence.get("records", []))
         gitnexus_workspace: Path | None = None
         for name, argv_template in required_commands:
+            try:
+                self.mirror.assert_source_unchanged()
+            except SafetyError as exc:
+                records.append(
+                    {
+                        "name": name,
+                        "enabled": bool(argv_template),
+                        "required": True,
+                        "ok": False,
+                        "error_type": "SafetyError",
+                        "policy_error": (
+                            "Source checkout changed before external repo-intelligence lane: "
+                            + str(exc)
+                        ),
+                    }
+                )
+                continue
             command_values = values
             command_cwd = self.source_repo
             if name == "gbrain-search":
@@ -936,6 +953,14 @@ class Orchestrator:
                 cwd=command_cwd,
                 required=True,
             )
+            try:
+                self.mirror.assert_source_unchanged()
+            except SafetyError as exc:
+                record["ok"] = False
+                record["policy_error"] = (
+                    "External repo-intelligence lane changed the source checkout: "
+                    + str(exc)
+                )
             if name == "gbrain-search":
                 record = self._scope_gbrain_search_record(record, gbrain_source)
             records.append(record)
@@ -1033,6 +1058,23 @@ class Orchestrator:
         records: list[dict] = []
         failed: list[str] = []
         for name, argv_template in commands:
+            try:
+                self.mirror.assert_source_unchanged()
+            except SafetyError as exc:
+                records.append(
+                    {
+                        "name": name,
+                        "enabled": True,
+                        "ok": False,
+                        "error_type": "SafetyError",
+                        "policy_error": (
+                            "Source checkout changed before external review/repair lane: "
+                            + str(exc)
+                        ),
+                    }
+                )
+                failed.append(name)
+                continue
             before_command = self.mirror.head()
             record = self._run_optional_external_command(
                 name=name,
@@ -1052,6 +1094,13 @@ class Orchestrator:
             policy_error = ""
             if self.mirror.head() != before_command:
                 policy_error = "External review/repair lane changed Git HEAD; the controller owns checkpoints."
+            try:
+                self.mirror.assert_source_unchanged()
+            except SafetyError as exc:
+                policy_error = (
+                    "External review/repair lane changed the source checkout: "
+                    + str(exc)
+                )
             try:
                 ScopePolicy(tuple(allowed_paths)).validate_paths(changed_paths)
             except SafetyError as exc:

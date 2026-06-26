@@ -184,11 +184,76 @@ class InstallScriptTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 install.choose_gbrain_lane("ask")
 
+    def test_gbrain_local_llm_mode_is_required_and_defaults_to_inspect(self):
+        install = load_install_script()
+        with patch.object(install.sys.stdin, "isatty", return_value=False):
+            self.assertEqual(install.choose_gbrain_local_llm_mode("ask"), "inspect")
+        self.assertEqual(install.choose_gbrain_local_llm_mode("ollama-qwen"), "ollama-qwen")
+        self.assertEqual(install.choose_gbrain_local_llm_mode("manual"), "manual")
+        with self.assertRaises(SystemExit):
+            install.choose_gbrain_local_llm_mode("skip")
+        with self.assertRaises(SystemExit):
+            install.choose_gbrain_local_llm_mode("off")
+
+    def test_existing_gbrain_records_local_llm_setup_status(self):
+        install = load_install_script()
+
+        def which(name):
+            return { "gbrain": "/usr/bin/gbrain", "ollama": "/usr/bin/ollama" }.get(name)
+
+        def probe(argv, cwd=Path.home(), timeout=30):
+            command = argv[1:]
+            if argv[0] == "/usr/bin/ollama":
+                return {"ok": True, "argv": argv, "exit_code": 0, "output": "qwen3:8b"}
+            if command == ["config", "show"]:
+                return {
+                    "ok": True,
+                    "argv": argv,
+                    "exit_code": 0,
+                    "output": (
+                        "GBrain config:\n"
+                        "  embedding_model: ollama:qwen3-embedding:4b\n"
+                        "  chat_model: ollama:qwen3:8b\n"
+                        "  expansion_model: ollama:qwen3:8b\n"
+                        "  embedding_multimodal: true\n"
+                        "  search.graph_signals: true\n"
+                        "  search.unified_multimodal: true\n"
+                        "  schema_pack: gbrain-base-v2\n"
+                    ),
+                }
+            if command == ["status", "--json", "--section", "sync"]:
+                return {
+                    "ok": True,
+                    "argv": argv,
+                    "exit_code": 0,
+                    "output": '{"sync":{"sources":[{"chunks_total":1,"chunks_unembedded":0,"embedding_coverage_pct":100}]}}',
+                }
+            if command == ["doctor", "--json", "--fast"]:
+                return {"ok": True, "argv": argv, "exit_code": 0, "output": "{}"}
+            if command == ["features", "--json"]:
+                return {"ok": True, "argv": argv, "exit_code": 0, "output": '{"recommendations":[]}'}
+            if command == ["integrations", "list", "--json"]:
+                return {"ok": True, "argv": argv, "exit_code": 0, "output": '{"reflexes":[]}'}
+            return {"ok": False, "argv": argv, "exit_code": 2, "output": "unexpected"}
+
+        with (
+            patch.object(install, "command_version", return_value="gbrain 1.0"),
+            patch.object(install.shutil, "which", side_effect=which),
+            patch.object(install, "probe_command", side_effect=probe),
+        ):
+            result = install.install_gbrain([], lane="local", local_llm="inspect")
+
+        setup = result["local_llm_setup"]
+        self.assertTrue(setup["configured"])
+        self.assertEqual(setup["forbidden_model_routes"], [])
+        self.assertTrue(setup["expected_config_matches"]["embedding_multimodal"])
+
     def test_powershell_installer_exposes_important_python_flags(self):
         ps1 = (ROOT / "install.ps1").read_text(encoding="utf-8")
         py = INSTALL_SCRIPT.read_text(encoding="utf-8")
         important = [
             ("GBrainLane", "--gbrain-lane"),
+            ("GBrainLocalLlm", "--gbrain-local-llm"),
             ("ProjectDiscovery", "--project-discovery"),
             ("StackDoctor", "--stack-doctor"),
             ("ClawpatchCodexLogin", "--clawpatch-codex-login"),

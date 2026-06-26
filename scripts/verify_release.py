@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
-EXCLUDED_PARTS = {".git", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
+EXCLUDED_PARTS = {".git", ".gitnexus", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
 
 
 def stable_command_output(output: str) -> str:
