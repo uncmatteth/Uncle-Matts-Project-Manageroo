@@ -30,7 +30,6 @@ GBRAIN_INSTALL_SOURCE = "github:garrytan/gbrain"
 GBRAIN_AGENT_INSTALL_PROTOCOL_URL = "https://raw.githubusercontent.com/garrytan/gbrain/master/INSTALL_FOR_AGENTS.md"
 GBRAIN_LOCAL_INSTALL_REFERENCE = "https://github.com/garrytan/gbrain"
 GITNEXUS_NPM_PACKAGE = "gitnexus"
-LOOP_LIBRARY_SKILL_SOURCE = "Forward-Future/loop-library"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"
 OPENCLAW_AGENT_SKILLS_REPO = "https://github.com/openclaw/agent-skills.git"
 AUTOREVIEW_SKILL_SOURCE = "openclaw/agent-skills:skills/autoreview"
@@ -804,61 +803,6 @@ def install_clawpatch(downloads: list[dict], codex_login_mode: str = "ask") -> d
     }
 
 
-def install_loop_library(downloads: list[dict], agents: list[str]) -> dict:
-    npx = shutil.which("npx")
-    if not npx:
-        return guidance(
-            "loop-library",
-            "Node.js/npx is required before the Loop Library skill can be installed.",
-            [
-                "Install Node.js 18+ from https://nodejs.org/",
-                "npx --yes skills add Forward-Future/loop-library --skill loop-library -g",
-            ],
-            "https://github.com/Forward-Future/loop-library",
-        )
-    selected_agents = agents
-    if not selected_agents and sys.stdin.isatty():
-        print("Loop Library skill target:")
-        print("  1) skip")
-        print("  2) codex")
-        print("  3) cursor")
-        print("  4) claude-code")
-        answer = input("Choose target [1]: ").strip().lower()
-        selected_agents = {
-            "2": ["codex"],
-            "codex": ["codex"],
-            "3": ["cursor"],
-            "cursor": ["cursor"],
-            "4": ["claude-code"],
-            "claude": ["claude-code"],
-            "claude-code": ["claude-code"],
-        }.get(answer, [])
-    if selected_agents:
-        argv = [npx, "--yes", "skills", "add", LOOP_LIBRARY_SKILL_SOURCE, "--skill", "loop-library"]
-        for agent in selected_agents:
-            argv.extend(["--agent", agent])
-        argv.extend(["-g", "-y"])
-    else:
-        return guidance(
-            "loop-library",
-            "No Loop Library agent target was selected.",
-            [
-                "npx --yes skills add Forward-Future/loop-library --skill loop-library --agent YOUR_AGENT -g -y",
-                "npx --yes skills add Forward-Future/loop-library --skill loop-library -g",
-            ],
-            "https://github.com/Forward-Future/loop-library",
-        )
-    result = optional_run(argv, downloads, "loop-library", LOOP_LIBRARY_SKILL_SOURCE, cwd=Path.home())
-    return {
-        "name": "loop-library",
-        "installed": result["ok"],
-        "configured": result["ok"],
-        "install_result": result,
-        "agents": selected_agents or ["interactive"],
-        "reference": "https://signals.forwardfuture.ai/loop-library/",
-    }
-
-
 def install_obsidian(downloads: list[dict], method: str) -> dict:
     before = command_version("obsidian")
     status_line("OBSIDIAN", f"current: {before}")
@@ -956,7 +900,6 @@ def choose_stack_mode(selection: str, install_flag: bool, skip_flag: bool) -> st
     print("  - AUTOREVIEW review helper")
     print("  - Clawpatch review and fix loop")
     print("  - Obsidian notes")
-    print("  - Matthew Berman / Forward Future Loop Library skill")
     answer = input("Install and guide this stack now? [Y/n]: ").strip().lower()
     return "skip" if answer in {"n", "no", "skip"} else "install"
 
@@ -1010,7 +953,6 @@ def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
 
 def install_recommended_stack(
     downloads: list[dict],
-    agents: list[str],
     obsidian_method: str,
     prefix: Path,
     gbrain_lane: str,
@@ -1022,7 +964,6 @@ def install_recommended_stack(
         install_gitnexus(downloads),
         install_autoreview(downloads, prefix),
         install_clawpatch(downloads, clawpatch_codex_login),
-        install_loop_library(downloads, agents),
         install_obsidian(downloads, obsidian_method),
     ]
 
@@ -1089,7 +1030,7 @@ def choose_stack_doctor_mode(selection: str) -> str:
         return "skip"
     print("")
     print("Smart dependency check?")
-    print("This is read-only. It checks existing GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Loop Library, and Codex setup.")
+    print("This is read-only. It checks existing GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Codex setup.")
     answer = input("Run smart stack doctor now? [Y/n]: ").strip().lower()
     if answer in {"n", "no", "skip"}:
         return "skip"
@@ -1142,12 +1083,6 @@ def main() -> int:
     parser.add_argument("--stack", choices=["ask", "skip", "install"], default="ask")
     parser.add_argument("--install-stack", action="store_true")
     parser.add_argument("--skip-stack", action="store_true")
-    parser.add_argument(
-        "--loop-library-agent",
-        action="append",
-        default=[],
-        help="Agent target for the optional Loop Library skill, such as codex, cursor, claude-code, gemini, or another skills-compatible agent.",
-    )
     parser.add_argument(
         "--obsidian-method",
         choices=["auto", "guide", "flatpak", "snap", "brew", "winget"],
@@ -1265,7 +1200,6 @@ def main() -> int:
             external_tools.extend(
                 install_recommended_stack(
                     downloads,
-                    args.loop_library_agent,
                     args.obsidian_method,
                     prefix,
                     gbrain_lane,
@@ -1277,7 +1211,7 @@ def main() -> int:
                 {
                     "name": "recommended-stack",
                     "skipped": True,
-                    "reason": "Stack install was skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Loop Library.",
+                    "reason": "Stack install was skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch, and Obsidian.",
                 }
             )
 
@@ -1354,7 +1288,7 @@ def main() -> int:
                 "work, Write A Skill/Skillify/Edit Skill for improving repeat workflows, "
                 "Skillpack Check for GBrain skill health, and both Caveman modes. "
                 "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
-                "Obsidian, and Loop Library when configured."
+                "and Obsidian when configured."
             ),
         }
         (prefix / "install-lock.json").write_text(
