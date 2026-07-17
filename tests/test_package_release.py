@@ -48,6 +48,27 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertFalse(any(path == ".clawpatch" or path.startswith(".clawpatch/") for path in included))
         self.assertIn(".clawpatch/", (ROOT / ".gitignore").read_text(encoding="utf-8"))
 
+    def test_sensitive_local_state_is_never_selected_for_archives(self):
+        with tempfile.TemporaryDirectory(dir=ROOT, prefix="release-secret-fixture-") as temp:
+            fixture = Path(temp)
+            (fixture / ".env").write_text("SECRET=real\n", encoding="utf-8")
+            (fixture / ".env.local").write_text("SECRET=real\n", encoding="utf-8")
+            (fixture / ".env.example").write_text("SECRET=replace-me\n", encoding="utf-8")
+            (fixture / "credentials.json").write_text("{}\n", encoding="utf-8")
+            (fixture / "private.pem").write_text("secret\n", encoding="utf-8")
+            manageroo = fixture / ".manageroo"
+            manageroo.mkdir()
+            (manageroo / "PRODUCT-BRIEF.md").write_text("private brief\n", encoding="utf-8")
+
+            included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
+            prefix = fixture.relative_to(ROOT).as_posix()
+            self.assertNotIn(f"{prefix}/.env", included)
+            self.assertNotIn(f"{prefix}/.env.local", included)
+            self.assertNotIn(f"{prefix}/credentials.json", included)
+            self.assertNotIn(f"{prefix}/private.pem", included)
+            self.assertFalse(any(path.startswith(f"{prefix}/.manageroo/") for path in included))
+            self.assertIn(f"{prefix}/.env.example", included)
+
     def test_bundled_skill_names_are_unique_and_support_files_are_packaged(self):
         included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         skill_names = [
