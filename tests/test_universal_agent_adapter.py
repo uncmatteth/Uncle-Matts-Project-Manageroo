@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from manageroo.adapters.base import AgentRequest
+from manageroo.adapters.budget import BudgetedAdapter
 from manageroo.adapters.factory import build_adapter
 from manageroo.adapters.generic import GenericAdapter
 from manageroo.config import AGENT_PRESETS
@@ -54,7 +55,7 @@ def _request(root: Path) -> AgentRequest:
 
 
 class UniversalAgentAdapterTests(unittest.TestCase):
-    def test_file_path_transport_passes_prompt_path(self):
+    def test_file_path_transport_passes_schema_augmented_prompt_path(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             request = _request(root)
@@ -66,11 +67,16 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             )
             response = adapter.run(request)
             call = runner.calls[0]
-            self.assertEqual(call["argv"][-1], str(request.prompt_path))
+            protocol_path = Path(call["argv"][-1])
+            self.assertNotEqual(protocol_path, request.prompt_path)
+            protocol = protocol_path.read_text(encoding="utf-8")
+            self.assertIn("DO THE EXACT MANAGEROO JOB", protocol)
+            self.assertIn("Required output protocol", protocol)
+            self.assertIn('"required":["ok"]', protocol)
             self.assertIsNone(call["input_text"])
             self.assertTrue(response.data["ok"])
 
-    def test_argument_transport_passes_prompt_contents_not_filename(self):
+    def test_argument_transport_passes_prompt_and_schema_contents(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             request = _request(root)
@@ -82,11 +88,11 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             )
             adapter.run(request)
             call = runner.calls[0]
-            self.assertEqual(call["argv"][-1], "DO THE EXACT MANAGEROO JOB")
-            self.assertNotEqual(call["argv"][-1], str(request.prompt_path))
+            self.assertIn("DO THE EXACT MANAGEROO JOB", call["argv"][-1])
+            self.assertIn("Required output protocol", call["argv"][-1])
             self.assertIsNone(call["input_text"])
 
-    def test_stdin_transport_passes_prompt_contents_on_stdin(self):
+    def test_stdin_transport_passes_prompt_and_schema_on_stdin(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             request = _request(root)
@@ -98,8 +104,23 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             )
             adapter.run(request)
             call = runner.calls[0]
-            self.assertEqual(call["input_text"], "DO THE EXACT MANAGEROO JOB")
+            self.assertIn("DO THE EXACT MANAGEROO JOB", call["input_text"])
+            self.assertIn("Required output protocol", call["input_text"])
             self.assertNotIn(str(request.prompt_path), call["argv"])
+
+    def test_sandbox_mode_is_mapped_into_provider_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            request = _request(root)
+            runner = _Runner()
+            adapter = GenericAdapter(
+                ["any-agent", "--structured"],
+                runner,
+                prompt_transport="stdin",
+                sandbox_argv={"workspace-write": ["--mode", "edit"]},
+            )
+            adapter.run(request)
+            self.assertEqual(runner.calls[0]["argv"][-2:], ["--mode", "edit"])
 
     def test_transport_configuration_fails_closed_when_template_cannot_deliver_prompt(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -124,22 +145,25 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                     "adapter": "generic",
                     "argv_template": ["future-agent", "--json"],
                     "prompt_transport": "stdin",
-                }
+                },
+                "budget": {},
             },
             runner,
         )
-        self.assertIsInstance(adapter, GenericAdapter)
-        self.assertEqual(adapter.prompt_transport, "stdin")
+        self.assertIsInstance(adapter, BudgetedAdapter)
+        self.assertIsInstance(adapter.inner, GenericAdapter)
+        self.assertEqual(adapter.inner.prompt_transport, "stdin")
 
-    def test_claude_and_gemini_presets_use_stdin_through_same_protocol(self):
-        for name in ("claude-code", "gemini"):
-            with self.subTest(agent=name):
-                preset = AGENT_PRESETS[name]
-                self.assertEqual(preset["adapter"], "generic")
-                self.assertEqual(preset["prompt_transport"], "stdin")
-                self.assertNotIn("{prompt_text}", preset["argv_template"])
-                self.assertNotIn("{prompt}", preset["argv_template"])
-                self.assertIn("Return only the requested JSON object", preset["argv_template"][-1])
+    def test_claude_and_gemini_presets_use_stdin_and_provider_safety_modes(self):
+        claude = AGENT_PRESETS["claude-code"]
+        gemini = AGENT_PRESETS["gemini"]
+        for preset in (claude, gemini):
+            self.assertEqual(preset["adapter"], "generic")
+            self.assertEqual(preset["prompt_transport"], "stdin")
+            self.assertNotIn("{prompt_text}", preset["argv_template"])
+            self.assertNotIn("{prompt}", preset["argv_template"])
+        self.assertEqual(claude["sandbox_read_only_argv"], ["--permission-mode", "plan"])
+        self.assertIn("--approval-mode=plan", gemini["sandbox_read_only_argv"])
 
     def test_generic_protocol_is_not_vendor_limited(self):
         preset = {
@@ -148,9 +172,10 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             "argv_template": ["future-agent", "--structured"],
             "prompt_transport": "stdin",
         }
-        adapter = build_adapter({"agent": preset}, _Runner())
-        self.assertIsInstance(adapter, GenericAdapter)
-        self.assertEqual(adapter.argv_template[0], "future-agent")
+        adapter = build_adapter({"agent": preset, "budget": {}}, _Runner())
+        self.assertIsInstance(adapter, BudgetedAdapter)
+        self.assertIsInstance(adapter.inner, GenericAdapter)
+        self.assertEqual(adapter.inner.argv_template[0], "future-agent")
 
 
 if __name__ == "__main__":
