@@ -12,10 +12,10 @@ from ..util import atomic_write_json, utc_now
 class TransactionalAdapter(AgentAdapter):
     """Rollback failed attempts and protect controller-owned run truth.
 
-    Successful write-worker edits remain available for Manageroo's controller-owned
-    scope, gate, review, and checkpoint logic. A worker that crashes, violates the
-    output protocol, mutates a read-only repository, or tampers with critical run-state
-    files cannot poison later work.
+    Successful visible write-worker edits remain available for Manageroo's
+    controller-owned scope, gate, review, and checkpoint logic. Failed attempts,
+    read-only mutation, ignored-file state, and critical run-state tampering cannot
+    poison later work.
     """
 
     def __init__(self, inner: AgentAdapter, runner: CommandRunner):
@@ -26,6 +26,7 @@ class TransactionalAdapter(AgentAdapter):
         result = dict(self.inner.doctor(cwd))
         result["transactional_attempts"] = True
         result["read_only_mutation_enforced"] = True
+        result["ignored_worker_state_discarded"] = True
         result["critical_controller_truth_guard"] = True
         return result
 
@@ -42,17 +43,27 @@ class TransactionalAdapter(AgentAdapter):
             )
         return result.stdout.strip()
 
-    def _dirty(self, cwd: Path) -> bool:
-        result = self.runner.run(
-            ["git", "status", "--porcelain"],
-            cwd=cwd,
-            timeout_seconds=30,
-        )
+    def _dirty(self, cwd: Path, *, include_ignored: bool = False) -> bool:
+        argv = ["git", "status", "--porcelain"]
+        if include_ignored:
+            argv.append("--ignored")
+        result = self.runner.run(argv, cwd=cwd, timeout_seconds=30)
         if not result.passed:
             raise SafetyError(
                 "Manageroo could not verify worker-attempt repository state: " + result.stderr
             )
         return bool(result.stdout.strip())
+
+    def _clean_ignored(self, cwd: Path) -> None:
+        clean = self.runner.run(
+            ["git", "clean", "-fdX"],
+            cwd=cwd,
+            timeout_seconds=120,
+        )
+        if not clean.passed:
+            raise SafetyError(
+                "Worker-created ignored files could not be discarded safely: " + clean.stderr
+            )
 
     def _rollback(self, cwd: Path, head: str) -> None:
         reset = self.runner.run(
@@ -65,13 +76,13 @@ class TransactionalAdapter(AgentAdapter):
                 "Failed worker attempt could not be rolled back safely: " + reset.stderr
             )
         clean = self.runner.run(
-            ["git", "clean", "-fd"],
+            ["git", "clean", "-fdx"],
             cwd=cwd,
             timeout_seconds=120,
         )
         if not clean.passed:
             raise SafetyError(
-                "Failed worker attempt left untracked repository files that could not be removed: "
+                "Failed worker attempt left repository files that could not be removed: "
                 + clean.stderr
             )
 
@@ -177,6 +188,9 @@ class TransactionalAdapter(AgentAdapter):
         )
 
     def run(self, request: AgentRequest) -> AgentResponse:
+        # Isolated workspaces intentionally start without ignored local state. Remove
+        # any stale ignored residue before assigning another disposable worker.
+        self._clean_ignored(request.cwd)
         head = self._head(request.cwd)
         truth_snapshot = self._snapshot_controller_truth(request)
         try:
@@ -201,7 +215,7 @@ class TransactionalAdapter(AgentAdapter):
 
         if request.sandbox == "read-only":
             try:
-                dirty = self._dirty(request.cwd)
+                dirty = self._dirty(request.cwd, include_ignored=True)
             except SafetyError:
                 self._rollback_failed_attempt(request, head)
                 raise
@@ -211,5 +225,6 @@ class TransactionalAdapter(AgentAdapter):
                     f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
                 )
         elif request.sandbox == "workspace-write":
+            self._clean_ignored(request.cwd)
             self._mark_pending_write_validation(request, head)
         return response
