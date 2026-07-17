@@ -2,9 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from manageroo.adapters.base import AgentRequest
 from manageroo.adapters.factory import build_adapter
 from manageroo.adapters.generic import GenericAdapter
-from manageroo.adapters.base import AgentRequest
+from manageroo.config import AGENT_PRESETS
 from manageroo.errors import ConfigurationError
 
 
@@ -129,6 +130,26 @@ class UniversalAgentAdapterTests(unittest.TestCase):
         )
         self.assertIsInstance(adapter, GenericAdapter)
         self.assertEqual(adapter.prompt_transport, "stdin")
+
+    def test_claude_and_gemini_presets_use_prompt_contents_through_same_protocol(self):
+        for name in ("claude-code", "gemini"):
+            with self.subTest(agent=name):
+                preset = AGENT_PRESETS[name]
+                self.assertEqual(preset["adapter"], "generic")
+                self.assertEqual(preset["prompt_transport"], "argument")
+                self.assertIn("{prompt_text}", preset["argv_template"])
+                self.assertNotIn("{prompt}", preset["argv_template"])
+
+    def test_generic_protocol_is_not_vendor_limited(self):
+        preset = {
+            "adapter": "generic",
+            "executable": "future-agent",
+            "argv_template": ["future-agent", "--structured"],
+            "prompt_transport": "stdin",
+        }
+        adapter = build_adapter({"agent": preset}, _Runner())
+        self.assertIsInstance(adapter, GenericAdapter)
+        self.assertEqual(adapter.argv_template[0], "future-agent")
 
 
 if __name__ == "__main__":
