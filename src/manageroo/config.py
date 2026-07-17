@@ -20,9 +20,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_demonstration": True,
     },
     "agent": {
-        "adapter": "codex",
-        "executable": "codex",
-        "model": "",
+        "adapter": "auto",
+        "candidates": ["codex", "claude-code", "gemini"],
         "timeout_seconds": 3600,
     },
     "context": {
@@ -37,6 +36,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_worker_attempts": 2,
         "parallel_mapping": True,
         "parallel_review": True,
+    },
+    "budget": {
+        "max_total_worker_calls": 80,
+        "max_runtime_minutes": 240,
     },
     "safety": {
         "allowed_programs": [
@@ -61,6 +64,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 AGENT_PRESETS: dict[str, dict[str, Any]] = {
+    "auto": {
+        "adapter": "auto",
+        "candidates": ["codex", "claude-code", "gemini"],
+        "timeout_seconds": 3600,
+    },
     "codex": {
         "adapter": "codex",
         "executable": "codex",
@@ -100,6 +108,8 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
             "-p",
             "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object.",
         ],
+        "sandbox_read_only_argv": ["--permission-mode", "plan"],
+        "sandbox_workspace_write_argv": ["--permission-mode", "acceptEdits"],
     },
     "gemini": {
         "adapter": "generic",
@@ -112,6 +122,8 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
             "-p",
             "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object.",
         ],
+        "sandbox_read_only_argv": ["--approval-mode=plan", "--sandbox"],
+        "sandbox_workspace_write_argv": ["--approval-mode=auto_edit", "--sandbox"],
     },
 }
 
@@ -154,7 +166,17 @@ def _toml_value(value: Any) -> str:
 
 
 def _render_agent_table(agent: dict[str, Any]) -> str:
-    ordered = ["adapter", "executable", "model", "timeout_seconds", "prompt_transport", "argv_template"]
+    ordered = [
+        "adapter",
+        "executable",
+        "model",
+        "timeout_seconds",
+        "candidates",
+        "prompt_transport",
+        "argv_template",
+        "sandbox_read_only_argv",
+        "sandbox_workspace_write_argv",
+    ]
     lines = ["[agent]"]
     for key in ordered:
         if key in agent:
@@ -162,6 +184,15 @@ def _render_agent_table(agent: dict[str, Any]) -> str:
     for key in sorted(set(agent) - set(ordered)):
         lines.append(f"{key} = {_toml_value(agent[key])}")
     return "\n".join(lines)
+
+
+def _preset_executable_found(selected: dict[str, Any]) -> bool:
+    if selected.get("adapter") == "auto":
+        return any(
+            shutil.which(str(agent_preset(name).get("executable") or ""))
+            for name in selected.get("candidates", [])
+        )
+    return bool(shutil.which(str(selected.get("executable") or "")))
 
 
 def apply_agent_preset(repo: Path, name: str) -> dict[str, Any]:
@@ -186,5 +217,5 @@ def apply_agent_preset(repo: Path, name: str) -> dict[str, Any]:
         "name": name,
         "config_path": str(path),
         "agent": selected,
-        "executable_found": bool(shutil.which(selected.get("executable", ""))),
+        "executable_found": _preset_executable_found(selected),
     }
