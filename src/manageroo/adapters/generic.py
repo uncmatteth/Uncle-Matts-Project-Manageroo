@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..errors import AgentExecutionError, ConfigurationError
@@ -27,6 +27,7 @@ class GenericAdapter(AgentAdapter):
         runner: CommandRunner,
         *,
         prompt_transport: str = "file_path",
+        sandbox_argv: Mapping[str, Sequence[str]] | None = None,
     ):
         if not argv_template:
             raise ConfigurationError("Generic adapter requires a non-empty argv template.")
@@ -38,6 +39,10 @@ class GenericAdapter(AgentAdapter):
         self.argv_template = list(argv_template)
         self.runner = runner
         self.prompt_transport = prompt_transport
+        self.sandbox_argv = {
+            str(name): [str(item) for item in values]
+            for name, values in (sandbox_argv or {}).items()
+        }
 
     def _values(self, request: AgentRequest) -> dict[str, str]:
         prompt_text = request.prompt_path.read_text(encoding="utf-8", errors="replace")
@@ -56,6 +61,7 @@ class GenericAdapter(AgentAdapter):
         values = self._values(request)
         template_text = " ".join(self.argv_template)
         argv = [item.format(**values) for item in self.argv_template]
+        argv.extend(item.format(**values) for item in self.sandbox_argv.get(request.sandbox, []))
         input_text = values["prompt_text"] if self.prompt_transport == "stdin" else None
 
         if self.prompt_transport == "file_path":
@@ -81,7 +87,11 @@ class GenericAdapter(AgentAdapter):
             "adapter": "generic",
             "executable": executable,
             "prompt_transport": self.prompt_transport,
-            "warning": "Generic adapters cannot guarantee provider-level sandbox enforcement.",
+            "provider_sandbox_modes": sorted(self.sandbox_argv),
+            "warning": (
+                "Manageroo always verifies worker behavior independently. Provider-level "
+                "sandbox enforcement is used only when configured for this worker."
+            ),
         }
 
     def run(self, request: AgentRequest) -> AgentResponse:
