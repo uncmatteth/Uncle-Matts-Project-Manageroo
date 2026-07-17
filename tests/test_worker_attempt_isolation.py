@@ -17,6 +17,8 @@ class _DirtyFailure(AgentAdapter):
     def run(self, request: AgentRequest):
         (request.cwd / "tracked.txt").write_text("poisoned\n", encoding="utf-8")
         (request.cwd / "untracked.txt").write_text("poisoned\n", encoding="utf-8")
+        request.output_path.write_text("not valid worker output", encoding="utf-8")
+        request.output_path.with_suffix(".validated.json").write_text("stale", encoding="utf-8")
         raise AgentExecutionError("worker died after editing")
 
 
@@ -73,11 +75,14 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
     def test_failed_transactional_worker_cannot_poison_next_attempt(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _git_repo(Path(temp))
+            request = _request(repo)
             adapter = TransactionalAdapter(_DirtyFailure(), CommandRunner())
             with self.assertRaises(AgentExecutionError):
-                adapter.run(_request(repo))
+                adapter.run(request)
             self.assertEqual((repo / "tracked.txt").read_text(encoding="utf-8"), "clean\n")
             self.assertFalse((repo / "untracked.txt").exists())
+            self.assertFalse(request.output_path.exists())
+            self.assertFalse(request.output_path.with_suffix(".validated.json").exists())
 
     def test_read_only_worker_mutation_is_rolled_back_and_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
