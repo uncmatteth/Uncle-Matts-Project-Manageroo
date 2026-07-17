@@ -52,9 +52,11 @@ only when every required machine-checked proof lane passes, including one real d
 
 A model saying "done", a worker returning `COMPLETE`, a plausible patch, a passing subset of tests, or the mock adapter succeeding is not sufficient for full product certification.
 
+Normal project completion is also outcome-specific. Every product acceptance outcome must have one explicit binding to the configured gates that genuinely prove that exact outcome. Unrelated green checks cannot prove another promise, and observable browser, user-journey, authentication, security, deployment, or visual outcomes require bound demonstration evidence.
+
 ## Proof lanes
 
-The certification command exercises and reports these areas explicitly:
+The certification command exercises these areas directly or through its required full repository regression suite:
 
 1. Whole-project lifecycle through a deterministic fixture run.
 2. Intent preservation and compaction-defense behavior.
@@ -62,16 +64,20 @@ The certification command exercises and reports these areas explicitly:
 4. Durable worker state, artifact hashing, replay prevention, and changed-job-spec rejection.
 5. Context overflow, omission recording, and stale-packet rejection.
 6. Worker retry isolation and artifact-integrity enforcement.
-7. Interrupted-run continuation from the saved worker queue.
-8. Rejection of dishonest or insufficient acceptance evidence.
-9. Optional external-tool failure without corruption of controller truth.
-10. Intent-lock adversarial regression coverage.
-11. Policy-enforcement adversarial regression coverage.
-12. Bounded retry, review, release, and truthful-completion gates.
-13. The complete repository regression suite.
-14. One real coding-agent fixture run that must actually finish under Manageroo control.
+7. Transactional rollback of failed worker filesystem edits.
+8. Rejection and rollback of successful read-only worker mutation.
+9. Interrupted-run continuation from the saved worker queue with uncheckpointed dirt discarded.
+10. Outcome-specific acceptance evidence and rejection of unrelated proof.
+11. Automatic worker selection and provider fallback without swallowing controller safety failures.
+12. Universal schema-aware prompt transport and provider permission mapping.
+13. Optional external-tool failure without corruption of controller truth.
+14. Intent-lock adversarial regression coverage.
+15. Policy-enforcement adversarial regression coverage.
+16. Bounded retry, review, release, and truthful-completion gates.
+17. The complete repository regression suite.
+18. One real coding-agent fixture run that must actually finish under Manageroo control.
 
-The source-level lanes reuse Manageroo's regression fixtures so the certification command proves the same failure modes that protect normal development. The complete suite is run last as a broad final guard.
+The complete source regression suite is a required proof lane, so newly added controller tests automatically become part of product certification rather than relying only on this documentation list.
 
 The live-agent fixture is disposable. The selected worker must create an exact file in a temporary Git repository, pass a real unittest verification gate, survive Manageroo's normal planning and review path, and reach controller-owned `COMPLETE` status. The fixture is deleted afterward.
 
@@ -79,7 +85,11 @@ The live-agent fixture is disposable. The selected worker must create an exact f
 
 Manageroo owns the worker protocol. The coding-agent provider is replaceable labor.
 
-The universal CLI adapter supports explicit prompt transport by file path, command argument, or stdin. Regardless of the transport or provider, the worker response is normalized through the same schema-validation path and remains subject to the same Manageroo scope, verification, review, retry, and completion rules.
+The normal configuration uses an automatic worker pool. A provider execution or protocol failure may fall through to another compatible installed worker. A Manageroo safety violation remains blocking and is never converted into a provider fallback.
+
+Every configured provider attempt is transactional. A failed attempt is rolled back before another worker or retry receives the workspace. A read-only worker that mutates its repository is rejected and rolled back even if it returns otherwise valid structured output.
+
+The universal CLI adapter supports prompt transport by file path, command argument, or stdin. Generic workers receive the complete bounded assignment plus the exact JSON Schema they must satisfy. Regardless of transport or provider, the response remains subject to Manageroo's own schema validation, scope enforcement, gates, independent review, and completion rules.
 
 See `docs/AGENT_PROTOCOL.md` for the complete adapter contract.
 
@@ -94,6 +104,9 @@ See `docs/AGENT_PROTOCOL.md` for the complete adapter contract.
 - no to spoofed command paths;
 - no to stale worker truth;
 - no to replaying completed work;
+- no to poisoned retries;
+- no to read-only mutation;
+- no to unrelated evidence being counted as proof;
 - no to missing evidence;
 - no to silent context loss;
 - no to fake release readiness;
