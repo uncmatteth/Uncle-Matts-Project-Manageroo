@@ -17,8 +17,6 @@ class WorkerPoolAdapter(AgentAdapter):
 
     def __init__(self, workers: Iterable[tuple[str, AgentAdapter]]):
         self.workers = list(workers)
-        if not self.workers:
-            raise ConfigurationError("Automatic agent selection found no usable live workers.")
         self.last_successful_worker = ""
 
     def doctor(self, cwd: Path) -> dict:
@@ -34,6 +32,7 @@ class WorkerPoolAdapter(AgentAdapter):
             "adapter": "worker-pool",
             "preferred_worker": self.last_successful_worker,
             "workers": checks,
+            "error": "" if checks else "No supported live coding-agent executable was found on PATH.",
         }
 
     def _ordered_workers(self) -> list[tuple[str, AgentAdapter]]:
@@ -44,6 +43,11 @@ class WorkerPoolAdapter(AgentAdapter):
         return [*preferred, *others]
 
     def run(self, request: AgentRequest) -> AgentResponse:
+        if not self.workers:
+            raise AgentExecutionError(
+                "Manageroo has no usable live coding worker. Install or configure Codex, "
+                "Claude Code, Gemini, or another compatible agent preset."
+            )
         failures: list[str] = []
         retryable = (AgentExecutionError, ConfigurationError, ValidationError)
         for name, adapter in self._ordered_workers():
