@@ -28,6 +28,8 @@ class GenericAdapter(AgentAdapter):
         *,
         prompt_transport: str = "file_path",
         sandbox_argv: Mapping[str, Sequence[str]] | None = None,
+        doctor_argv: Sequence[str] | None = None,
+        required_help_flags: Sequence[str] | None = None,
     ):
         if not argv_template:
             raise ConfigurationError("Generic adapter requires a non-empty argv template.")
@@ -43,6 +45,8 @@ class GenericAdapter(AgentAdapter):
             str(name): [str(item) for item in values]
             for name, values in (sandbox_argv or {}).items()
         }
+        self.doctor_argv = [str(item) for item in (doctor_argv or [])]
+        self.required_help_flags = [str(item) for item in (required_help_flags or [])]
 
     def _protocol_prompt(self, request: AgentRequest) -> tuple[str, Path]:
         prompt_text = request.prompt_path.read_text(encoding="utf-8", errors="replace")
@@ -98,15 +102,45 @@ class GenericAdapter(AgentAdapter):
 
     def doctor(self, cwd: Path) -> dict:
         executable = self.argv_template[0]
+        found = shutil.which(executable)
+        if not found:
+            return {
+                "ok": False,
+                "adapter": "generic",
+                "executable": executable,
+                "error": f"{executable} executable not found on PATH.",
+                "prompt_transport": self.prompt_transport,
+                "provider_sandbox_modes": sorted(self.sandbox_argv),
+            }
+
+        missing: list[str] = []
+        help_exit_code: int | None = None
+        help_text = ""
+        if self.doctor_argv:
+            result = self.runner.run(
+                self.doctor_argv,
+                cwd=cwd,
+                timeout_seconds=30,
+            )
+            help_exit_code = result.exit_code
+            help_text = (result.stdout or "") + "\n" + (result.stderr or "")
+            missing = [flag for flag in self.required_help_flags if flag not in help_text]
+            if not result.passed:
+                missing = list(self.required_help_flags) or ["doctor command failed"]
+
         return {
-            "ok": shutil.which(executable) is not None,
+            "ok": not missing,
             "adapter": "generic",
             "executable": executable,
+            "path": found,
             "prompt_transport": self.prompt_transport,
             "provider_sandbox_modes": sorted(self.sandbox_argv),
+            "doctor_argv": self.doctor_argv,
+            "doctor_exit_code": help_exit_code,
+            "missing_required_flags": missing,
             "warning": (
                 "Manageroo always verifies worker behavior independently. Provider-level "
-                "sandbox enforcement is used only when configured for this worker."
+                "permission enforcement is used only when configured for this worker."
             ),
         }
 
