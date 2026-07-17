@@ -19,6 +19,12 @@ def _auto_live_agent() -> str | None:
     return None
 
 
+def _provider_neutral_argv(argv: list[str]) -> list[str]:
+    if argv and argv[0] == "init" and "--agent" not in argv:
+        return [*argv, "--agent", "auto"]
+    return argv
+
+
 def _prove_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo prove",
@@ -73,4 +79,4 @@ def main() -> int:
     if argv in (["--help"], ["-h"]):
         print(_root_help(), end="")
         return 0
-    return cli_main(argv)
+    return cli_main(_provider_neutral_argv(argv))
