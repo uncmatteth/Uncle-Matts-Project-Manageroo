@@ -29,6 +29,9 @@ class WorkspaceMirror:
         self.runner = runner
         self.workspace = self.run_root / "workspace"
         self.snapshot_path = self.run_root / "source-snapshot.json"
+        self.pending_validation_path = (
+            self.run_root / "controller" / "pending-workspace-validation.json"
+        )
         self.baseline_commit = ""
 
     def capture_source(self) -> list[SourceFile]:
@@ -75,37 +78,54 @@ class WorkspaceMirror:
         hook.chmod(0o755)
         return self.workspace
 
+    def _clear_pending_validation_marker(self) -> None:
+        try:
+            if self.pending_validation_path.is_file():
+                self.pending_validation_path.unlink()
+        except OSError as exc:
+            raise SafetyError(
+                "Manageroo could not clear the pending workspace-validation marker: "
+                + str(exc)
+            ) from exc
+
     def _discard_uncheckpointed_state(self) -> None:
         status = self._git(["status", "--porcelain"])
-        if not status.stdout.strip():
-            return
-        self._git(["reset", "--hard", "HEAD"])
-        self._git(["clean", "-fd"])
-        remaining = self._git(["status", "--porcelain"])
-        if remaining.stdout.strip():
+        if status.stdout.strip():
+            self._git(["reset", "--hard", "HEAD"])
+            self._git(["clean", "-fd"])
+            remaining = self._git(["status", "--porcelain"])
+            if remaining.stdout.strip():
+                raise SafetyError(
+                    "Run workspace contains unverified changes that could not be discarded safely."
+                )
+        self._clear_pending_validation_marker()
+
+    def _completed_write_job_owns_pending_state(self) -> bool:
+        if not self.pending_validation_path.is_file():
+            return False
+        try:
+            marker = json.loads(self.pending_validation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
             raise SafetyError(
-                "Run workspace contains unverified changes that could not be discarded safely."
-            )
-
-    def _completed_write_job_may_own_dirty_state(self) -> bool:
-        jobs_root = self.run_root / "jobs"
-        if not jobs_root.is_dir():
+                "Pending workspace-validation state is unreadable: "
+                f"{self.pending_validation_path}: {exc}"
+            ) from exc
+        if not isinstance(marker, dict) or marker.get("sandbox") != "workspace-write":
+            raise SafetyError("Pending workspace-validation marker is invalid.")
+        job_id = str(marker.get("job_id") or "").strip()
+        if not job_id:
+            raise SafetyError("Pending workspace-validation marker has no job id.")
+        job_path = self.run_root / "jobs" / f"{job_id}.json"
+        if not job_path.is_file():
             return False
-        jobs: list[dict] = []
-        for path in sorted(jobs_root.glob("*.json")):
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise SafetyError(f"Run job state is unreadable during resume: {path}: {exc}") from exc
-            if not isinstance(payload, dict):
-                raise SafetyError(f"Run job state is invalid during resume: {path}")
-            jobs.append(payload)
-
-        if not jobs or any(str(job.get("status")) != "complete" for job in jobs):
-            return False
-        return any(
-            str(job.get("sandbox")) == "workspace-write"
-            for job in jobs
+        try:
+            job = json.loads(job_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SafetyError(f"Run job state is unreadable during resume: {job_path}: {exc}") from exc
+        return bool(
+            isinstance(job, dict)
+            and job.get("status") == "complete"
+            and job.get("sandbox") == "workspace-write"
         )
 
     def load_existing(self) -> Path:
@@ -118,7 +138,9 @@ class WorkspaceMirror:
             raise SafetyError("Run workspace has no baseline commit.")
         self.baseline_commit = roots[0].strip()
         status = self._git(["status", "--porcelain"])
-        if status.stdout.strip() and not self._completed_write_job_may_own_dirty_state():
+        if not status.stdout.strip():
+            self._clear_pending_validation_marker()
+        elif not self._completed_write_job_owns_pending_state():
             self._discard_uncheckpointed_state()
         return self.workspace
 
@@ -145,10 +167,11 @@ class WorkspaceMirror:
     def checkpoint(self, message: str) -> str:
         self._git(["add", "-A"])
         status = self._git(["status", "--porcelain"])
-        if not status.stdout.strip():
-            return self.head()
-        self._git(["commit", "-m", message], hooks=False)
-        return self.head()
+        if status.stdout.strip():
+            self._git(["commit", "-m", message], hooks=False)
+        head = self.head()
+        self._clear_pending_validation_marker()
+        return head
 
     def write_patch(self, destination: Path) -> Path:
         result = self._git(["diff", "--binary", self.baseline_commit, "HEAD", "--"])
