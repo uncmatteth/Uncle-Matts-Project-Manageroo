@@ -75,12 +75,12 @@ class TransactionalAdapter(AgentAdapter):
         head = self._head(request.cwd)
         try:
             response = self.inner.run(request)
-            if request.sandbox == "read-only" and self._dirty(request.cwd):
-                self._rollback(request.cwd, head)
-                raise SafetyError(
-                    f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
-                )
-            return response
         except Exception:
             self._rollback(request.cwd, head)
             raise
+        if request.sandbox == "read-only" and self._dirty(request.cwd):
+            self._rollback(request.cwd, head)
+            raise SafetyError(
+                f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
+            )
+        return response
