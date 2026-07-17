@@ -32,13 +32,21 @@ class WorkerPoolAdapter(AgentAdapter):
         return {
             "ok": any(item.get("ok") for item in checks),
             "adapter": "worker-pool",
+            "preferred_worker": self.last_successful_worker,
             "workers": checks,
         }
+
+    def _ordered_workers(self) -> list[tuple[str, AgentAdapter]]:
+        if not self.last_successful_worker:
+            return list(self.workers)
+        preferred = [item for item in self.workers if item[0] == self.last_successful_worker]
+        others = [item for item in self.workers if item[0] != self.last_successful_worker]
+        return [*preferred, *others]
 
     def run(self, request: AgentRequest) -> AgentResponse:
         failures: list[str] = []
         retryable = (AgentExecutionError, ConfigurationError, ValidationError)
-        for name, adapter in self.workers:
+        for name, adapter in self._ordered_workers():
             try:
                 response = adapter.run(request)
                 self.last_successful_worker = name
