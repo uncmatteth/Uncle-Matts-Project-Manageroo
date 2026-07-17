@@ -75,11 +75,27 @@ class CommandPolicy:
     def validate(self, argv: list[str]) -> None:
         if not argv:
             raise SafetyError("Empty command.")
-        program = Path(argv[0]).name
-        allowed = {Path(item).name for item in self.allowed_programs}
-        python_family_allowed = any(item.startswith("python") for item in allowed)
-        if program not in allowed and not (python_family_allowed and program.startswith("python")):
+
+        raw_program = argv[0]
+        program_path = Path(raw_program)
+        program = program_path.name
+        allowed_raw = set(self.allowed_programs)
+        allowed_names = {Path(item).name for item in self.allowed_programs}
+        python_family_allowed = any(item.startswith("python") for item in allowed_names)
+
+        # A bare allowlist entry such as "python" must not implicitly trust an
+        # arbitrary path-qualified executable such as /tmp/python. Exact paths
+        # remain supported when the operator explicitly allowlists that path.
+        if program_path.parent != Path(".") and raw_program not in allowed_raw:
+            raise SafetyError(
+                f"Path-qualified command must be explicitly allowlisted: {raw_program}"
+            )
+
+        if program not in allowed_names and not (
+            python_family_allowed and program.startswith("python") and raw_program == program
+        ):
             raise SafetyError(f"Command program is not allowlisted: {program}")
+
         dangerous = {"sudo", "su", "rm", "shutdown", "reboot", "mkfs", "dd"}
         if program in dangerous:
             raise SafetyError(f"Dangerous command is forbidden: {program}")
