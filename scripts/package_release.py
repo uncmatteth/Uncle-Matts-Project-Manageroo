@@ -18,7 +18,27 @@ INSTALLER_ZIP = f"{ARTIFACT_BASENAME}.zip"
 SOURCE_ZIP = f"{ARTIFACT_BASENAME}-source.zip"
 OUTPUT = ROOT.parent / INSTALLER_ZIP
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
-EXCLUDED_PARTS = {".git", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
+EXCLUDED_PARTS = {
+    ".git",
+    ".manageroo",
+    ".venv",
+    ".clawpatch",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "dist",
+    "build",
+}
+SENSITIVE_FILENAMES = {
+    ".env",
+    "credentials.json",
+    "service-account.json",
+    "id_rsa",
+    "id_ed25519",
+}
+SAFE_ENV_EXAMPLES = {".env.example", ".env.sample", ".env.template"}
+SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
 DROP_CLEANUP_PREFIXES = (
     ARTIFACT_BASENAME,
@@ -35,12 +55,21 @@ END_USER_EXCLUDED = {
 }
 
 
+def release_file_allowed(path: Path) -> bool:
+    relative = path.relative_to(ROOT)
+    if any(part in EXCLUDED_PARTS for part in relative.parts):
+        return False
+    name = path.name
+    lowered = name.lower()
+    if name in SENSITIVE_FILENAMES or path.suffix.lower() in SENSITIVE_SUFFIXES:
+        return False
+    if lowered.startswith(".env") and lowered not in SAFE_ENV_EXAMPLES:
+        return False
+    return True
+
+
 def included_files() -> list[Path]:
-    return sorted(
-        path
-        for path in ROOT.rglob("*")
-        if path.is_file() and not any(part in EXCLUDED_PARTS for part in path.parts)
-    )
+    return sorted(path for path in ROOT.rglob("*") if path.is_file() and release_file_allowed(path))
 
 
 def end_user_files() -> list[Path]:
