@@ -10,17 +10,19 @@ from manageroo.prove import format_product_proof, run_product_proof
 
 
 class ProductProofTests(unittest.TestCase):
-    def test_product_proof_core_lanes_pass_but_skipped_regression_forbids_complete(self):
+    def test_product_proof_core_lanes_pass_but_missing_required_evidence_forbids_complete(self):
         report = run_product_proof(include_regression=False)
         self.assertFalse(report["ok"], report)
         self.assertEqual(report["status"], "PARTIAL")
         self.assertIn("Source-level adversarial regression evidence", report["blockers"])
+        self.assertIn("Live coding-agent integration", report["blockers"])
         by_name = {item["name"]: item for item in report["checks"]}
         self.assertTrue(by_name["Whole-project lifecycle"]["ok"])
         self.assertTrue(by_name["Intent preservation and compaction defense"]["ok"])
         self.assertTrue(by_name["Scope and command enforcement"]["ok"])
         self.assertTrue(by_name["Durable worker state and drift rejection"]["ok"])
         self.assertFalse(by_name["Source-level adversarial regression evidence"]["ok"])
+        self.assertFalse(by_name["Live coding-agent integration"]["ok"])
 
     def test_product_proof_never_formats_complete_when_a_required_lane_fails(self):
         report = {
@@ -34,7 +36,7 @@ class ProductProofTests(unittest.TestCase):
         self.assertIn("RESULT: PARTIAL", text)
         self.assertNotIn("RESULT: COMPLETE", text)
 
-    def test_manageroo_prove_json_routes_through_unified_entrypoint(self):
+    def test_manageroo_prove_json_routes_live_agent_through_unified_entrypoint(self):
         fake_report = {
             "ok": True,
             "status": "COMPLETE",
@@ -42,12 +44,16 @@ class ProductProofTests(unittest.TestCase):
             "blockers": [],
         }
         output = io.StringIO()
-        with patch.object(sys, "argv", ["manageroo", "prove", "--json", "--no-regression"]):
+        with patch.object(
+            sys,
+            "argv",
+            ["manageroo", "prove", "--json", "--no-regression", "--live-agent", "codex"],
+        ):
             with patch("manageroo.entrypoint.run_product_proof", return_value=fake_report) as run:
                 with redirect_stdout(output):
                     code = entrypoint.main()
         self.assertEqual(code, 0)
-        run.assert_called_once_with(include_regression=False)
+        run.assert_called_once_with(include_regression=False, live_agent="codex")
         self.assertEqual(json.loads(output.getvalue())["status"], "COMPLETE")
 
     def test_manageroo_prove_returns_nonzero_for_partial_proof(self):
@@ -61,6 +67,16 @@ class ProductProofTests(unittest.TestCase):
             with patch("manageroo.entrypoint.run_product_proof", return_value=fake_report):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(entrypoint.main(), 2)
+
+    def test_root_help_surfaces_product_proof_command(self):
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["manageroo", "--help"]):
+            with redirect_stdout(output):
+                self.assertEqual(entrypoint.main(), 0)
+        text = output.getvalue()
+        self.assertIn("Product certification:", text)
+        self.assertIn("prove", text)
+        self.assertIn("--live-agent", entrypoint._prove_main.__code__.co_consts)
 
 
 if __name__ == "__main__":
