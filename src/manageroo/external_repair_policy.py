@@ -15,7 +15,7 @@ def _existing_checkpoint(orchestrator: Any, name: str) -> tuple[str, list[str]] 
     assert orchestrator.workspace is not None
     message = _checkpoint_message(name)
     result = orchestrator.runner.run(
-        ["git", "log", "--fixed-strings", "--grep", f"^{message}$", "--format=%H"],
+        ["git", "log", "--format=%H%x00%s"],
         cwd=orchestrator.workspace,
         timeout_seconds=60,
     )
@@ -23,7 +23,11 @@ def _existing_checkpoint(orchestrator: Any, name: str) -> tuple[str, list[str]] 
         raise SafetyError(
             f"Could not inspect command-owned {name} repair checkpoints: {result.stderr}"
         )
-    commits = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    commits = []
+    for line in result.stdout.splitlines():
+        commit, separator, subject = line.partition("\0")
+        if separator and subject == message and commit.strip():
+            commits.append(commit.strip())
     if not commits:
         return None
     if len(commits) != 1:
