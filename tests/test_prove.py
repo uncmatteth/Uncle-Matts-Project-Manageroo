@@ -10,7 +10,7 @@ from manageroo.prove import format_product_proof, run_product_proof
 
 
 class ProductProofTests(unittest.TestCase):
-    def test_product_proof_core_lanes_pass_but_missing_required_evidence_forbids_complete(self):
+    def test_product_proof_core_lanes_pass_but_missing_evidence_forbids_complete(self):
         report = run_product_proof(include_regression=False)
         self.assertFalse(report["ok"], report)
         self.assertEqual(report["status"], "PARTIAL")
@@ -36,7 +36,7 @@ class ProductProofTests(unittest.TestCase):
         self.assertIn("RESULT: PARTIAL", text)
         self.assertNotIn("RESULT: COMPLETE", text)
 
-    def test_manageroo_prove_json_routes_live_agent_through_unified_entrypoint(self):
+    def test_manageroo_prove_json_routes_explicit_live_agent(self):
         fake_report = {
             "ok": True,
             "status": "COMPLETE",
@@ -54,19 +54,47 @@ class ProductProofTests(unittest.TestCase):
                     code = entrypoint.main()
         self.assertEqual(code, 0)
         run.assert_called_once_with(include_regression=False, live_agent="codex")
-        self.assertEqual(json.loads(output.getvalue())["status"], "COMPLETE")
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["status"], "COMPLETE")
+        self.assertEqual(payload["live_agent_selection"], "explicit")
 
-    def test_manageroo_prove_returns_nonzero_for_partial_proof(self):
+    def test_manageroo_prove_auto_selects_any_available_live_agent(self):
+        fake_report = {
+            "ok": True,
+            "status": "COMPLETE",
+            "checks": [],
+            "blockers": [],
+        }
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["manageroo", "prove", "--json"]):
+            with patch("manageroo.entrypoint._auto_live_agent", return_value="gemini"):
+                with patch(
+                    "manageroo.entrypoint.run_product_proof",
+                    return_value=fake_report,
+                ) as run:
+                    with redirect_stdout(output):
+                        code = entrypoint.main()
+        self.assertEqual(code, 0)
+        run.assert_called_once_with(include_regression=True, live_agent="gemini")
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["live_agent_selection"], "automatic")
+
+    def test_manageroo_prove_returns_nonzero_when_no_live_agent_is_available(self):
         fake_report = {
             "ok": False,
             "status": "PARTIAL",
-            "checks": [{"name": "regression", "ok": False, "detail": "failed"}],
-            "blockers": ["regression"],
+            "checks": [{"name": "Live coding-agent integration", "ok": False, "detail": "missing"}],
+            "blockers": ["Live coding-agent integration"],
         }
         with patch.object(sys, "argv", ["manageroo", "prove", "--no-regression"]):
-            with patch("manageroo.entrypoint.run_product_proof", return_value=fake_report):
-                with redirect_stdout(io.StringIO()):
-                    self.assertEqual(entrypoint.main(), 2)
+            with patch("manageroo.entrypoint._auto_live_agent", return_value=None):
+                with patch(
+                    "manageroo.entrypoint.run_product_proof",
+                    return_value=fake_report,
+                ) as run:
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(entrypoint.main(), 2)
+        run.assert_called_once_with(include_regression=False, live_agent=None)
 
     def test_root_help_surfaces_product_proof_command(self):
         output = io.StringIO()
@@ -76,14 +104,17 @@ class ProductProofTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("Product certification:", text)
         self.assertIn("prove", text)
+        self.assertIn("any available supported live coding agent", text)
 
-    def test_prove_help_surfaces_live_agent_requirement(self):
+    def test_prove_help_surfaces_optional_agent_override(self):
         output = io.StringIO()
         with self.assertRaises(SystemExit) as raised:
             with redirect_stdout(output):
                 entrypoint._prove_main(["--help"])
         self.assertEqual(raised.exception.code, 0)
-        self.assertIn("--live-agent", output.getvalue())
+        text = output.getvalue()
+        self.assertIn("--live-agent", text)
+        self.assertIn("Omit this", text)
 
 
 if __name__ == "__main__":
