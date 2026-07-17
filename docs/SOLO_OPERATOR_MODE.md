@@ -68,7 +68,7 @@ Starter choices:
 8. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
 9. Install or refresh the recommended skill pack.
 10. Optionally wire GBrain and GitNexus command templates.
-11. Report the status of selected extras like Obsidian and Loop Library.
+11. Report the status of selected extras like Obsidian.
 12. Run readiness checks.
 13. Print exactly one next command.
 14. If `--run` is passed and readiness is green, start the build or repair run.
