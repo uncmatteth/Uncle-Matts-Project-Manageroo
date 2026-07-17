@@ -6,6 +6,7 @@ from manageroo.adapters.base import AgentRequest
 from manageroo.adapters.budget import BudgetedAdapter
 from manageroo.adapters.factory import build_adapter
 from manageroo.adapters.generic import GenericAdapter
+from manageroo.adapters.transactional import TransactionalAdapter
 from manageroo.config import AGENT_PRESETS
 from manageroo.errors import ConfigurationError
 
@@ -137,7 +138,7 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                     with self.assertRaises(ConfigurationError):
                         adapter.run(request)
 
-    def test_factory_builds_same_protocol_for_any_generic_worker(self):
+    def test_factory_builds_transactional_protocol_for_any_generic_worker(self):
         runner = _Runner()
         adapter = build_adapter(
             {
@@ -151,8 +152,9 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             runner,
         )
         self.assertIsInstance(adapter, BudgetedAdapter)
-        self.assertIsInstance(adapter.inner, GenericAdapter)
-        self.assertEqual(adapter.inner.prompt_transport, "stdin")
+        self.assertIsInstance(adapter.inner, TransactionalAdapter)
+        self.assertIsInstance(adapter.inner.inner, GenericAdapter)
+        self.assertEqual(adapter.inner.inner.prompt_transport, "stdin")
 
     def test_claude_and_gemini_presets_use_stdin_and_provider_safety_modes(self):
         claude = AGENT_PRESETS["claude-code"]
@@ -174,8 +176,9 @@ class UniversalAgentAdapterTests(unittest.TestCase):
         }
         adapter = build_adapter({"agent": preset, "budget": {}}, _Runner())
         self.assertIsInstance(adapter, BudgetedAdapter)
-        self.assertIsInstance(adapter.inner, GenericAdapter)
-        self.assertEqual(adapter.inner.argv_template[0], "future-agent")
+        self.assertIsInstance(adapter.inner, TransactionalAdapter)
+        self.assertIsInstance(adapter.inner.inner, GenericAdapter)
+        self.assertEqual(adapter.inner.inner.argv_template[0], "future-agent")
 
 
 if __name__ == "__main__":
