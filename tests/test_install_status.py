@@ -51,19 +51,19 @@ class InstallStatusTests(unittest.TestCase):
                 "stack_summary": {
                     "items": [
                         {
-                            "name": "loop-library",
+                            "name": "obsidian",
                             "installed": False,
                             "needs_action": True,
-                            "reason": "No agent selected",
-                            "next_commands": ["npx --yes skills add Forward-Future/loop-library"],
+                            "reason": "No package manager available",
+                            "next_commands": ["Install Obsidian from https://obsidian.md/download"],
                         }
                     ]
                 },
             }
         )
-        self.assertIn("ACTION loop-library", text)
-        self.assertIn("No agent selected", text)
-        self.assertIn("npx --yes", text)
+        self.assertIn("ACTION obsidian", text)
+        self.assertIn("No package manager available", text)
+        self.assertIn("obsidian.md", text)
 
     def test_uninstall_plan_does_not_delete(self):
         with tempfile.TemporaryDirectory() as temp:
