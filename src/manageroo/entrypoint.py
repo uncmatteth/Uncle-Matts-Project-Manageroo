@@ -20,7 +20,7 @@ def _auto_live_agent() -> str | None:
 
 
 def _provider_neutral_argv(argv: list[str]) -> list[str]:
-    if argv and argv[0] == "init" and "--agent" not in argv:
+    if argv and argv[0] in {"init", "projects"} and "--agent" not in argv:
         return [*argv, "--agent", "auto"]
     return argv
 
