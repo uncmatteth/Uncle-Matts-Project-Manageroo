@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
-from ..errors import AgentExecutionError, SafetyError
+from ..errors import SafetyError
 from ..runner import CommandRunner
+from ..util import atomic_write_json, utc_now
 
 
 class TransactionalAdapter(AgentAdapter):
@@ -89,13 +90,33 @@ class TransactionalAdapter(AgentAdapter):
         self._rollback(request.cwd, head)
         self._discard_failed_outputs(request)
 
+    def _pending_validation_marker(self, request: AgentRequest) -> Path | None:
+        output_parent = request.output_path.parent
+        agent_output_root = output_parent.parent
+        if agent_output_root.name != "agent-output":
+            return None
+        return agent_output_root.parent / "controller" / "pending-workspace-validation.json"
+
+    def _mark_pending_write_validation(self, request: AgentRequest, head: str) -> None:
+        marker = self._pending_validation_marker(request)
+        if marker is None:
+            return
+        atomic_write_json(
+            marker,
+            {
+                "job_id": request.output_path.parent.name,
+                "role": request.role,
+                "sandbox": request.sandbox,
+                "pre_attempt_head": head,
+                "output_path": str(request.output_path),
+                "created_at": utc_now(),
+            },
+        )
+
     def run(self, request: AgentRequest) -> AgentResponse:
         head = self._head(request.cwd)
         try:
             response = self.inner.run(request)
-        except SafetyError:
-            self._rollback_failed_attempt(request, head)
-            raise
         except Exception:
             self._rollback_failed_attempt(request, head)
             raise
@@ -111,4 +132,6 @@ class TransactionalAdapter(AgentAdapter):
                 raise SafetyError(
                     f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
                 )
+        elif request.sandbox == "workspace-write":
+            self._mark_pending_write_validation(request, head)
         return response
