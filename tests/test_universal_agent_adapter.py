@@ -131,14 +131,15 @@ class UniversalAgentAdapterTests(unittest.TestCase):
         self.assertIsInstance(adapter, GenericAdapter)
         self.assertEqual(adapter.prompt_transport, "stdin")
 
-    def test_claude_and_gemini_presets_use_prompt_contents_through_same_protocol(self):
+    def test_claude_and_gemini_presets_use_stdin_through_same_protocol(self):
         for name in ("claude-code", "gemini"):
             with self.subTest(agent=name):
                 preset = AGENT_PRESETS[name]
                 self.assertEqual(preset["adapter"], "generic")
-                self.assertEqual(preset["prompt_transport"], "argument")
-                self.assertIn("{prompt_text}", preset["argv_template"])
+                self.assertEqual(preset["prompt_transport"], "stdin")
+                self.assertNotIn("{prompt_text}", preset["argv_template"])
                 self.assertNotIn("{prompt}", preset["argv_template"])
+                self.assertIn("Return only the requested JSON object", preset["argv_template"][-1])
 
     def test_generic_protocol_is_not_vendor_limited(self):
         preset = {
