@@ -6,7 +6,7 @@ import sys
 
 from .cli import main as cli_main
 from .cli import parser as cli_parser
-from .prove import format_product_proof, run_product_proof
+from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
 
 
 def _prove_main(argv: list[str]) -> int:
@@ -19,9 +19,17 @@ def _prove_main(argv: list[str]) -> int:
         action="store_true",
         help="Skip source regressions. The proof will return PARTIAL, never COMPLETE.",
     )
+    parser.add_argument(
+        "--live-agent",
+        choices=LIVE_AGENT_CHOICES,
+        help="Run the required disposable live-agent integration proof.",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    report = run_product_proof(include_regression=not args.no_regression)
+    report = run_product_proof(
+        include_regression=not args.no_regression,
+        live_agent=args.live_agent,
+    )
     if args.json:
         print(json.dumps(report, indent=2))
     else:
@@ -35,7 +43,7 @@ def _root_help() -> str:
         base
         + "\n\nProduct certification:\n"
         + "  prove                 Run adversarial end-to-end Manageroo product proof.\n"
-        + "                        COMPLETE is allowed only when every required lane passes.\n"
+        + "                        Use --live-agent for full COMPLETE certification.\n"
     )
 
 
