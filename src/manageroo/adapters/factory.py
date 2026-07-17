@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 
 from .base import AgentAdapter
+from .budget import BudgetedAdapter
 from .codex import CodexAdapter
 from .generic import GenericAdapter
 from .mock import MockAdapter
@@ -43,7 +44,7 @@ def _build_single(agent: dict, runner: CommandRunner) -> AgentAdapter:
     raise ConfigurationError(f"Unknown agent adapter: {adapter}")
 
 
-def build_adapter(config: dict, runner: CommandRunner) -> AgentAdapter:
+def _build_unbudgeted(config: dict, runner: CommandRunner) -> AgentAdapter:
     agent = config["agent"]
     if agent["adapter"] != "auto":
         return _build_single(agent, runner)
@@ -57,3 +58,13 @@ def build_adapter(config: dict, runner: CommandRunner) -> AgentAdapter:
             continue
         workers.append((str(name), _build_single(candidate, runner)))
     return WorkerPoolAdapter(workers)
+
+
+def build_adapter(config: dict, runner: CommandRunner) -> AgentAdapter:
+    inner = _build_unbudgeted(config, runner)
+    budget = config.get("budget", {})
+    return BudgetedAdapter(
+        inner,
+        max_total_worker_calls=int(budget.get("max_total_worker_calls", 0) or 0),
+        max_runtime_minutes=float(budget.get("max_runtime_minutes", 0) or 0),
+    )
