@@ -1,137 +1,77 @@
 # Local setup
 
-This is the straight path from the ZIP to a working local install.
+This is the simplest way to install and use Uncle Matt's Project Manageroo.
 
-## 1. Extract the end-user release archive
-
-The archive contains one folder named `Uncle-Matts-Project-Manageroo`.
-
-## 2. Run the installer
+## Unix-style terminals
 
 ```bash
-cd /path/to/Uncle-Matts-Project-Manageroo
 ./install.sh
 ```
 
-Same installer, same behavior. Use `./install.sh` from a normal Unix-style
-terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
-products.
+## PowerShell
 
-Token-reduction mode is optional:
-
-```bash
-./install.sh --token-mode caveman
-./install.sh --token-mode curse
+```powershell
+.\install.ps1
 ```
 
-`caveman` is clean. `curse` is Uncle Matt's Caveman Curse, the funny profane
-version.
+Both launch the same Python installer. The interactive installer keeps the
+animated colors, moving turtle, generated chiptune music, optional local stack,
+recommended skill pack, project discovery, and stack doctor.
 
-The recommended stack lane is optional:
-
-```bash
-./install.sh --install-stack --loop-library-agent codex
-```
-
-Use a different `--loop-library-agent` value when your skills-compatible agent
-is not Codex.
-
-That covers GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Matthew
-Berman / Forward Future's Loop Library skill when the needed package managers
-are available. If something is missing, the installer prints the exact next
-command instead of claiming that piece is done.
-
-When the shell cannot find `manageroo` immediately afterward:
+To install the guided local stack without prompts:
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+./install.sh --install-stack
 ```
 
-Persist that line in the shell profile used on the machine, such as `~/.zshrc` or `~/.bashrc`.
+The guided stack can install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch,
+and Obsidian. Codex is optional and installs only with `--install-codex`.
 
-The installer offers the recommended skill pack under `~/.agents/skills`. It is
-optional but strongly suggested because it lets AI IDE agents choose the right
-helper without you memorizing skill names. The default answer is yes. Skip it
-with `./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`.
+To skip the optional stack:
 
-- `uncle-matts-project-manageroo`
-  for routing agents through the controller.
-- `pimp-my-prompt` for turning a rough request into exact scope, proof, and stop rules.
-- `diagnose` for broken, flaky, confusing, or slow behavior.
-- `tdd` for one behavior test at a time.
-- `autoreview` for closeout review before handoff.
-- `plain-web-copy` and `fix-my-bad-website` for public copy and website quality.
-- `write-a-skill` for packaging repeated work as a reusable skill.
-- `edit-skill` for tightening local skills when they get duplicated, stale, or bloated.
-- `skillify` for deciding whether a painful repeated workflow deserves a real skill.
-- `caveman` for clean compressed output.
-- `uncle-matts-caveman-curse` for compressed output with the funny profane mode.
+```bash
+./install.sh --skip-stack
+```
 
-They can be reinstalled later with:
+To skip music or animation:
+
+```bash
+./install.sh --no-music --no-animation
+```
+
+The recommended local skill pack installs by default. Skip it with:
+
+```bash
+./install.sh --skill-pack skip
+```
+
+Install or repair it later with:
 
 ```bash
 manageroo skills reconcile --apply
 ```
 
-If you copied skills from another machine, reconcile them without moving files
-by hand:
+If you copied a skills folder from another computer, reconcile it instead of
+overwriting your local skills:
 
 ```bash
-manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply
+manageroo skills reconcile \
+  --source ~/Downloads/SKILLS \
+  --include-external \
+  --apply
 ```
 
-That installs the bundled pack, imports the supplied folder when requested,
-copies skill support files, backs up same-name conflicts first, and reports
-duplicate names found in scanned roots.
-
-## 3. Confirm the core installation
+## Verify the install
 
 ```bash
 manageroo --version
 manageroo self-test
 manageroo skills list
-manageroo token-mode status
 manageroo stack-status
-manageroo repair-install --no-apply
-manageroo projects --add
+manageroo stack-doctor
 ```
 
-`projects --add` scans common project folders, shows a checkbox-style list,
-lets you choose which repos to initialize, and then asks for any extra project
-paths it missed. It does not add every repo it finds.
-
-The self-test must return `"ok": true` and `"status": "COMPLETE"`.
-
-## 4. Choose how agents will use it
-
-For Codex, install/authenticate Codex and initialize with `--agent codex`:
-
-```bash
-codex
-```
-
-For another CLI that this tool should launch itself, use a preset:
-
-```bash
-manageroo agent list
-```
-
-The non-Codex presets are command templates. If your CLI needs different flags,
-edit `[agent].argv_template` in `.manageroo/config.toml`.
-
-For an AI IDE that is already running in the repo, do not make this harder than
-it is. Give it `GIVE-THIS-TO-YOUR-IDE-AGENT.md` or the repo-local skill created
-by `manageroo solo`.
-
-Switch token-reduction mode later:
-
-```bash
-manageroo token-mode set off
-manageroo token-mode set caveman
-manageroo token-mode set curse
-```
-
-## 5. Start Solo Operator Mode
+## Start with projects
 
 Use guided project setup when you do not want to remember paths:
 
@@ -139,34 +79,32 @@ Use guided project setup when you do not want to remember paths:
 manageroo projects --add
 ```
 
-It scans common folders like `~/Documents/GitHub`, lists Git repos with
-checkbox-style rows, initializes only the ones you select, and asks for extra
-paths if it missed one.
+It scans common project folders, shows a checkbox-style list, initializes only
+the repos you select, and accepts pasted paths it missed.
 
-Use the read-only picker when you only want one next command:
+For a read-only picker:
 
 ```bash
 manageroo projects --pick
 ```
 
-It scans common folders like `~/Documents/GitHub`, lists Git repos, and prints
-one command for the project you choose.
+## Prepare one project
 
-For an existing Git repository:
+Existing repository:
 
 ```bash
-manageroo solo /absolute/path/to/product
+manageroo solo /absolute/path/to/project
 ```
 
-For a brand-new missing or empty folder:
+New missing or empty folder:
 
 ```bash
-manageroo solo /absolute/path/to/new-product \
+manageroo solo /absolute/path/to/new-project \
   --create \
   --want "Describe what should be built first"
 ```
 
-If you want a useful starting shape instead of a blank repo, add a starter:
+New project with a starter:
 
 ```bash
 manageroo solo /absolute/path/to/new-site \
@@ -175,70 +113,55 @@ manageroo solo /absolute/path/to/new-site \
   --want "Build a simple product homepage"
 ```
 
-Starter choices are `blank`, `static-site`, `python-cli`, and `docs-project`.
-The non-blank starters include a no-dependency `python3 -m unittest discover`
-smoke check so readiness can find a real proof command immediately.
+Bare `solo` asks for the project, request, visible outcome, must-not rules,
+proof, stop rule, mode, and optional GBrain/GitNexus/Obsidian guidance. It
+writes the brief, project memory, intent lock, managed guidance blocks, and one
+next command.
 
-`--create` initializes Git, writes a small `README.md` and `.gitignore`, and
-creates the first scaffold commit. It refuses to absorb a non-empty non-Git
-folder or create a nested repo inside another Git repo, so it does not
-accidentally commit personal files, secrets, or a random archive.
-
-Bare `solo` asks what AI you are using, what should be built or fixed, what
-must not break, what proof should pass, and whether to check GBrain, GitNexus,
-Obsidian, or Loop Library. It initializes the repo, writes the product brief,
-writes `.manageroo/PROJECT-MEMORY.md`, runs readiness, and prints exactly
-one next command.
-
-Project memory is the small continuity file future agents should read first:
+Useful lower-level commands:
 
 ```bash
-manageroo memory show
-manageroo memory add --shipped "First useful release" --proof "Smoke test passed"
-```
-
-Use `--agent codex` only when Codex is the selected runtime. Use
-`manageroo agent preset generic` for another CLI and configure
-`[agent].argv_template`.
-
-If you want the lower-level flow instead, run:
-
-```bash
-manageroo setup
-manageroo brief --want "Describe what should be built or fixed" --force
 manageroo ready
-```
-
-Do not continue until `manageroo ready` reports `READY TO RUN`. If no
-verification command was detected, ask for repo-aware suggestions:
-
-```bash
-manageroo checks suggest
-manageroo checks list
-manageroo ready
-```
-
-If GBrain should know this repo, map only the chosen folder:
-
-```bash
-manageroo gbrain-setup --source-id my-product --path "$PWD" --apply --sync
-```
-
-## 6. Run MANAGEROO
-
-New product or feature:
-
-```bash
+manageroo next
+manageroo checks suggest --apply-first
 manageroo run --apply
 ```
 
-Repair existing code:
+For broken existing code:
 
 ```bash
 manageroo run --mode repair --apply
 ```
 
-Before a real release, run:
+## Long-running work
+
+Every run stores durable state under:
+
+```text
+.manageroo/runs/<run-id>/
+```
+
+Inspect it:
+
+```bash
+manageroo status RUN_ID
+```
+
+Continue it:
+
+```bash
+manageroo run --continue RUN_ID
+```
+
+Audit a compacted summary against the intent lock:
+
+```bash
+manageroo compact audit --summary SUMMARY.md
+```
+
+## Release handoff
+
+Before a real release:
 
 ```bash
 manageroo release-ready \
@@ -247,26 +170,16 @@ manageroo release-ready \
   --approved-by "Your name"
 ```
 
-You can also combine intake and run in one first command when you already know
-readiness is green:
+This does not deploy. It writes a production handoff and blocks when evidence is
+missing.
+
+## Uninstall planning
+
+Manageroo never silently removes third-party tools. Inspect the plan first:
 
 ```bash
-manageroo solo --want "Describe what should be built or fixed" --run --apply --force
+manageroo uninstall-plan
 ```
 
-## 7. Read the result
-
-The command returns a run ID. Use:
-
-```bash
-manageroo status RUN_ID --repo .
-manageroo report RUN_ID --repo .
-```
-
-Run artifacts and evidence are stored under `.manageroo/runs/RUN_ID/`.
-
-## Important boundary
-
-The package tests pass, but that is not the same as proving your real repo and
-your real AI tool are ready. Do the first live run on a backup, clone, branch, or
-disposable copy.
+The command prints the core Manageroo paths and notes which external tools need
+separate intentional removal.
