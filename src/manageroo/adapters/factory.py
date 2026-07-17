@@ -8,6 +8,7 @@ from .codex import CodexAdapter
 from .generic import GenericAdapter
 from .mock import MockAdapter
 from .pool import WorkerPoolAdapter
+from .transactional import TransactionalAdapter
 from ..config import agent_preset
 from ..errors import ConfigurationError
 from ..runner import CommandRunner
@@ -24,7 +25,7 @@ def _generic_sandbox_argv(agent: dict) -> dict[str, list[str]]:
     return mapping
 
 
-def _build_single(agent: dict, runner: CommandRunner) -> AgentAdapter:
+def _build_raw(agent: dict, runner: CommandRunner) -> AgentAdapter:
     adapter = agent["adapter"]
     if adapter == "codex":
         return CodexAdapter(
@@ -42,6 +43,10 @@ def _build_single(agent: dict, runner: CommandRunner) -> AgentAdapter:
             sandbox_argv=_generic_sandbox_argv(agent),
         )
     raise ConfigurationError(f"Unknown agent adapter: {adapter}")
+
+
+def _build_single(agent: dict, runner: CommandRunner) -> AgentAdapter:
+    return TransactionalAdapter(_build_raw(agent, runner), runner)
 
 
 def _build_unbudgeted(config: dict, runner: CommandRunner) -> AgentAdapter:
