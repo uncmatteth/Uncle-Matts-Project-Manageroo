@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [project.scripts]
-manageroo = "manageroo.cli:main"
+manageroo = "manageroo.entrypoint:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
