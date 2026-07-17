@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
@@ -70,19 +71,31 @@ class BudgetedAdapter(AgentAdapter):
         }
         return result
 
-    def _check_budget(self) -> None:
+    def _remaining_runtime_seconds(self) -> float | None:
+        if not self.max_runtime_seconds:
+            return None
+        return self.max_runtime_seconds - (time.monotonic() - self.started_at)
+
+    def _check_budget(self) -> float | None:
         if self.max_total_worker_calls and self.calls >= self.max_total_worker_calls:
             raise AgentExecutionError(
                 f"Manageroo worker-call budget exhausted at {self.calls} calls."
             )
-        elapsed = time.monotonic() - self.started_at
-        if self.max_runtime_seconds and elapsed >= self.max_runtime_seconds:
+        remaining = self._remaining_runtime_seconds()
+        if remaining is not None and remaining <= 0:
             raise AgentExecutionError(
                 "Manageroo runtime budget exhausted before launching another worker."
             )
+        return remaining
 
     def run(self, request: AgentRequest) -> AgentResponse:
-        self._check_budget()
+        remaining = self._check_budget()
         self.calls += 1
         self._persist()
-        return self.inner.run(request)
+        bounded_request = request
+        if remaining is not None:
+            bounded_request = replace(
+                request,
+                timeout_seconds=max(1, min(request.timeout_seconds, int(remaining))),
+            )
+        return self.inner.run(bounded_request)
