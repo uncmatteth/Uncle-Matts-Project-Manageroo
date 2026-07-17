@@ -127,6 +127,18 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
     },
 }
 
+_AGENT_KEYS = [
+    "adapter",
+    "executable",
+    "model",
+    "timeout_seconds",
+    "candidates",
+    "prompt_transport",
+    "argv_template",
+    "sandbox_read_only_argv",
+    "sandbox_workspace_write_argv",
+]
+
 
 def _merge(base: dict, override: dict) -> dict:
     merged = copy.deepcopy(base)
@@ -161,61 +173,128 @@ def _toml_value(value: Any) -> str:
     if isinstance(value, int | float):
         return str(value)
     if isinstance(value, list):
-        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+        return "[" + ", ".join(json.dumps(item) for item in value) + "]"
     return json.dumps(str(value))
 
 
-def _render_agent_table(agent: dict[str, Any]) -> str:
-    ordered = [
-        "adapter",
-        "executable",
-        "model",
-        "timeout_seconds",
-        "candidates",
-        "prompt_transport",
-        "argv_template",
-        "sandbox_read_only_argv",
-        "sandbox_workspace_write_argv",
-    ]
+def _agent_block(preset_name: str, timeout_seconds: int | None = None) -> str:
+    preset = agent_preset(preset_name)
+    if timeout_seconds is not None:
+        preset["timeout_seconds"] = timeout_seconds
     lines = ["[agent]"]
-    for key in ordered:
-        if key in agent:
-            lines.append(f"{key} = {_toml_value(agent[key])}")
-    for key in sorted(set(agent) - set(ordered)):
-        lines.append(f"{key} = {_toml_value(agent[key])}")
+    for key in _AGENT_KEYS:
+        if key in preset:
+            lines.append(f"{key} = {_toml_value(preset[key])}")
     return "\n".join(lines)
 
 
-def _preset_executable_found(selected: dict[str, Any]) -> bool:
-    if selected.get("adapter") == "auto":
-        return any(
-            shutil.which(str(agent_preset(name).get("executable") or ""))
-            for name in selected.get("candidates", [])
+def replace_agent_block(text: str, preset_name: str) -> str:
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines) if line.strip() == "[agent]"), None)
+    if start is None:
+        return _agent_block(preset_name) + "\n\n" + text.rstrip() + "\n"
+    end = start + 1
+    while end < len(lines) and not lines[end].lstrip().startswith("["):
+        end += 1
+    replacement = _agent_block(preset_name).splitlines()
+    return "\n".join([*lines[:start], *replacement, "", *lines[end:]]).rstrip() + "\n"
+
+
+def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
+    lines = [
+        f"# {FULL_ACRONYM} project configuration.",
+        "# Generated deterministically. Edit product policy only; agents must not edit this file.",
+        "",
+        "[project]",
+        "apply_on_success = true",
+        "max_repair_cycles = 2",
+        "max_plan_review_cycles = 2",
+        "require_demonstration = true",
+        "",
+        _agent_block(agent),
+        "",
+        "[context]",
+        "max_input_tokens = 60000",
+        "reserve_output_tokens = 12000",
+        "chars_per_token = 3.5",
+        "max_single_file_tokens = 18000",
+        "map_chunk_tokens = 32000",
+        "",
+        "[orchestration]",
+        "max_parallel_agent_calls = 4",
+        "max_worker_attempts = 2",
+        "parallel_mapping = true",
+        "parallel_review = true",
+        "",
+        "[budget]",
+        "max_total_worker_calls = 80",
+        "max_runtime_minutes = 240",
+        "",
+        "[safety]",
+        'allowed_programs = ["python", "python3", "node", "npm", "pnpm", "yarn", "bun", "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make"]',
+        "block_agent_commits = true",
+        "require_source_unchanged_before_apply = true",
+        "",
+        "[integrations]",
+        'obsidian_vault = ""',
+        f'obsidian_export_folder = "{FULL_ACRONYM}"',
+        "gbrain_search_command = []",
+        "gbrain_capture_command = []",
+        "gitnexus_analyze_command = []",
+        "gitnexus_query_command = []",
+        "document_analysis_command = []",
+        "autoreview_command = []",
+        "clawpatch_command = []",
+        "",
+    ]
+    for gate in gates:
+        lines.extend(
+            [
+                "[[verification.gates]]",
+                f'id = "{gate["id"]}"',
+                f'kind = "{gate["kind"]}"',
+                "required = true" if gate.get("required", True) else "required = false",
+                f"timeout_seconds = {int(gate.get('timeout_seconds', 1800))}",
+                "argv = [" + ", ".join(json.dumps(item) for item in gate["argv"]) + "]",
+                "",
+            ]
         )
-    return bool(shutil.which(str(selected.get("executable") or "")))
+    return "\n".join(lines)
 
 
-def apply_agent_preset(repo: Path, name: str) -> dict[str, Any]:
+def write_config(repo: Path, agent: str, gates: list[dict[str, Any]]) -> Path:
+    path = repo / PROJECT_DIR / "config.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        atomic_write_text(path, config_template(agent, gates))
+    return path
+
+
+def apply_agent_preset(repo: Path, preset_name: str) -> dict[str, Any]:
     path = repo / PROJECT_DIR / "config.toml"
     if not path.exists():
         raise ConfigurationError(f"Missing {path}. Run `{PUBLIC_COMMAND} init` first.")
-    config = load_config(repo)
-    selected = agent_preset(name)
-    config["agent"] = selected
-
-    text = path.read_text(encoding="utf-8")
-    start = text.find("[agent]")
-    if start == -1:
-        rendered = text.rstrip() + "\n\n" + _render_agent_table(selected) + "\n"
-    else:
-        next_table = text.find("\n[", start + 1)
-        end = len(text) if next_table == -1 else next_table + 1
-        rendered = text[:start] + _render_agent_table(selected) + "\n" + text[end:]
-    atomic_write_text(path, rendered)
+    updated = replace_agent_block(
+        path.read_text(encoding="utf-8", errors="replace"),
+        preset_name,
+    )
+    atomic_write_text(path, updated)
     return {
-        "ok": True,
-        "name": name,
-        "config_path": str(path),
-        "agent": selected,
-        "executable_found": _preset_executable_found(selected),
+        "repo": str(repo),
+        "config": str(path),
+        "preset": preset_name,
+        "agent": agent_preset(preset_name),
     }
+
+
+def executable_exists(config: dict[str, Any]) -> bool:
+    agent = config["agent"]
+    adapter = agent["adapter"]
+    if adapter == "mock":
+        return True
+    if adapter == "auto":
+        return any(
+            shutil.which(str(agent_preset(str(name)).get("executable") or ""))
+            for name in agent.get("candidates", [])
+        )
+    return shutil.which(str(agent.get("executable") or "")) is not None
