@@ -116,7 +116,10 @@ def proof_binding_findings(
 
 
 def install_plan_proof_policy(orchestrator_module: Any) -> None:
-    original = orchestrator_module.Orchestrator._plan_context_preflight
+    orchestrator_class = orchestrator_module.Orchestrator
+    if getattr(orchestrator_class, "_manageroo_plan_proof_policy_installed", False):
+        return
+    original = orchestrator_class._plan_context_preflight
 
     def strict_preflight(self: Any, plan: dict, inventory: list[dict]) -> list[dict]:
         findings = list(original(self, plan, inventory))
@@ -130,4 +133,5 @@ def install_plan_proof_policy(orchestrator_module: Any) -> None:
         )
         return findings
 
-    orchestrator_module.Orchestrator._plan_context_preflight = strict_preflight
+    orchestrator_class._plan_context_preflight = strict_preflight
+    orchestrator_class._manageroo_plan_proof_policy_installed = True
