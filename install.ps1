@@ -25,9 +25,7 @@ param(
     [ValidateSet("ask", "run", "skip")]
     [string]$ClawpatchCodexLogin = "ask",
     [ValidateSet("auto", "guide", "flatpak", "snap", "brew", "winget")]
-    [string]$ObsidianMethod = "auto",
-    [ValidateSet("codex", "cursor", "claude-code")]
-    [string[]]$LoopLibraryAgent = @()
+    [string]$ObsidianMethod = "auto"
 )
 $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
@@ -94,7 +92,6 @@ if ($ProjectDiscovery) { $InstallArgs += @("--project-discovery", $ProjectDiscov
 if ($StackDoctor) { $InstallArgs += @("--stack-doctor", $StackDoctor) }
 if ($ClawpatchCodexLogin) { $InstallArgs += @("--clawpatch-codex-login", $ClawpatchCodexLogin) }
 if ($ObsidianMethod) { $InstallArgs += @("--obsidian-method", $ObsidianMethod) }
-foreach ($Agent in $LoopLibraryAgent) { $InstallArgs += @("--loop-library-agent", $Agent) }
 if ($NoMusic) { $InstallArgs += "--no-music" }
 if ($NoAnimation) { $InstallArgs += "--no-animation" }
 
