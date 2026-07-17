@@ -54,17 +54,21 @@ class GenericAdapter(AgentAdapter):
 
     def _render(self, request: AgentRequest) -> tuple[list[str], str | None]:
         values = self._values(request)
+        template_text = " ".join(self.argv_template)
         argv = [item.format(**values) for item in self.argv_template]
         input_text = values["prompt_text"] if self.prompt_transport == "stdin" else None
 
-        rendered = "\n".join(argv)
         if self.prompt_transport == "file_path":
-            if values["prompt"] not in argv and "{prompt}" not in " ".join(self.argv_template) and "{prompt_path}" not in " ".join(self.argv_template):
+            has_prompt_placeholder = (
+                "{prompt}" in template_text or "{prompt_path}" in template_text
+            )
+            if not has_prompt_placeholder:
                 raise ConfigurationError(
-                    "file_path prompt transport requires {prompt} or {prompt_path} in argv_template."
+                    "file_path prompt transport requires {prompt} or {prompt_path} "
+                    "in argv_template."
                 )
         elif self.prompt_transport == "argument":
-            if values["prompt_text"] not in rendered and "{prompt_text}" not in " ".join(self.argv_template):
+            if "{prompt_text}" not in template_text:
                 raise ConfigurationError(
                     "argument prompt transport requires {prompt_text} in argv_template."
                 )
