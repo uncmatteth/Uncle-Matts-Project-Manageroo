@@ -241,42 +241,6 @@ def _clawpatch(which: WhichFn, runner: RunnerFn) -> dict:
     }
 
 
-def _loop_library(which: WhichFn, home: Path, agent: str) -> dict:
-    candidates = [
-        home / ".agents" / "skills" / "loop-library" / "SKILL.md",
-        home / ".codex" / "skills" / "loop-library" / "SKILL.md",
-    ]
-    existing = next((path for path in candidates if path.exists()), None)
-    if existing:
-        return {
-            "name": "loop-library",
-            "status": "ok",
-            "installed": True,
-            "configured": True,
-            "path": str(existing),
-            "detail": f"skill found at {existing}",
-            "next_commands": [],
-            "reference": "https://signals.forwardfuture.ai/loop-library/",
-        }
-    command = "npx --yes skills add Forward-Future/loop-library --skill loop-library"
-    if agent:
-        command += f" --agent {agent}"
-    command += " -g -y"
-    if not which("npx"):
-        return _missing(
-            "loop-library",
-            "Loop Library skill missing and npx is not installed.",
-            ["Install Node.js 18+", command],
-            reference="https://signals.forwardfuture.ai/loop-library/",
-        )
-    return _missing(
-        "loop-library",
-        "Loop Library skill missing for local agents.",
-        [command],
-        reference="https://signals.forwardfuture.ai/loop-library/",
-    )
-
-
 def _obsidian(which: WhichFn) -> dict:
     path = which("obsidian")
     if not path:
@@ -303,7 +267,6 @@ def stack_doctor(
     which: WhichFn = shutil.which,
     runner: RunnerFn = run_probe,
     home: Path | None = None,
-    agent: str = "codex",
 ) -> dict:
     home = (home or Path.home()).expanduser()
     items = [
@@ -311,7 +274,6 @@ def stack_doctor(
         _gitnexus(which, runner),
         _autoreview(home),
         _clawpatch(which, runner),
-        _loop_library(which, home, agent),
         _obsidian(which),
         _codex(which, runner),
     ]
@@ -324,7 +286,6 @@ def stack_doctor(
         "ok": True,
         "ready": not needs_action,
         "executes_changes": False,
-        "agent": agent,
         "counts": {
             "items": len(items),
             "configured": sum(1 for item in items if item.get("configured")),
