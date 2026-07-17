@@ -8,23 +8,35 @@ It exists to answer a harder question than "do the unit tests pass?":
 
 ## Run it
 
+A deterministic proof without a real coding agent is useful for diagnosis:
+
 ```bash
 manageroo prove
+```
+
+It intentionally remains `PARTIAL` because a real agent integration has not been proven.
+
+For full product certification, select one installed and authenticated live coding agent:
+
+```bash
+manageroo prove --live-agent codex
+manageroo prove --live-agent claude-code
+manageroo prove --live-agent gemini
 ```
 
 Machine-readable output:
 
 ```bash
-manageroo prove --json
+manageroo prove --live-agent codex --json
 ```
 
-A deliberately reduced diagnostic run is available:
+A deliberately reduced diagnostic run is also available:
 
 ```bash
 manageroo prove --no-regression
 ```
 
-That mode is useful while debugging the proof harness, but it is intentionally fail-closed. It returns `PARTIAL`, never `COMPLETE`, because source-level adversarial regression evidence was skipped.
+Skipping source regressions is fail-closed. It returns `PARTIAL`, never `COMPLETE`.
 
 ## Completion rule
 
@@ -34,15 +46,15 @@ Manageroo may print:
 RESULT: COMPLETE
 ```
 
-only when every required machine-checked proof lane passes.
+only when every required machine-checked proof lane passes, including one real disposable coding-agent run under Manageroo control.
 
-A model saying "done", a worker returning `COMPLETE`, a plausible patch, or a passing subset of tests is not sufficient.
+A model saying "done", a worker returning `COMPLETE`, a plausible patch, a passing subset of tests, or the mock adapter succeeding is not sufficient for full product certification.
 
 ## Proof lanes
 
 The certification command exercises and reports these areas explicitly:
 
-1. Whole-project lifecycle through a real deterministic fixture run.
+1. Whole-project lifecycle through a deterministic fixture run.
 2. Intent preservation and compaction-defense behavior.
 3. Scope enforcement and command allowlist enforcement.
 4. Durable worker state, artifact hashing, replay prevention, and changed-job-spec rejection.
@@ -50,16 +62,20 @@ The certification command exercises and reports these areas explicitly:
 6. Worker retry isolation and artifact-integrity enforcement.
 7. Interrupted-run continuation from the saved worker queue.
 8. Rejection of dishonest or insufficient acceptance evidence.
-9. Intent-lock adversarial regression coverage.
-10. Policy-enforcement adversarial regression coverage.
-11. Review, release, and truthful-completion gates.
-12. The complete repository regression suite.
+9. Optional external-tool failure without corruption of controller truth.
+10. Intent-lock adversarial regression coverage.
+11. Policy-enforcement adversarial regression coverage.
+12. Bounded retry, review, release, and truthful-completion gates.
+13. The complete repository regression suite.
+14. One live Codex, Claude Code, or Gemini fixture run that must actually finish under Manageroo control.
 
 The source-level lanes reuse Manageroo's regression fixtures so the certification command proves the same failure modes that protect normal development. The complete suite is run last as a broad final guard.
 
+The live-agent fixture is disposable. The selected agent must create an exact file in a temporary Git repository, pass a real unittest verification gate, survive Manageroo's normal planning and review path, and reach controller-owned `COMPLETE` status. The fixture is deleted afterward.
+
 ## Why this is separate from `self-test`
 
-`manageroo self-test` proves that a deterministic fixture can complete the normal orchestration path.
+`manageroo self-test` proves that a deterministic fixture can complete the normal orchestration path with the mock adapter.
 
 `manageroo prove` is broader. It deliberately tries to prove that the controller also says **no** correctly:
 
@@ -70,7 +86,8 @@ The source-level lanes reuse Manageroo's regression fixtures so the certificatio
 - no to replaying completed work;
 - no to missing evidence;
 - no to silent context loss;
-- no to fake release readiness.
+- no to fake release readiness;
+- no to claiming full product certification without a real coding-agent run.
 
 That distinction matters because Manageroo is not merely a code generator. It is the control, memory, verification, and evidence layer above coding agents.
 
@@ -80,6 +97,12 @@ Full `COMPLETE` certification requires a source checkout or release layout conta
 
 This is intentional. Missing proof is a blocker, not a reason to lower the standard.
 
+## Live-agent requirement
+
+The selected agent command must already be installed and authenticated. Manageroo does not fake this lane or silently substitute the mock adapter.
+
+Use the agent you actually intend to rely on in production. A release can be certified against more than one agent by running the command separately for each one.
+
 ## No GitHub Actions dependency
 
 Manageroo's official release process remains local. `manageroo prove` does not require GitHub Actions and does not add a workflow dependency. It can be run directly from the source checkout before the normal local release-verification and packaging commands.
@@ -87,7 +110,7 @@ Manageroo's official release process remains local. `manageroo prove` does not r
 Recommended final sequence:
 
 ```bash
-manageroo prove
+manageroo prove --live-agent codex
 python3 scripts/verify_release.py
 python3 scripts/package_release.py
 ```
