@@ -41,10 +41,33 @@ Use an SSH remote instead when that is how GitHub authentication is configured:
 git remote set-url origin git@github.com:uncmatteth/Uncle-Matts-Project-Manageroo.git
 ```
 
-## 3. Confirm the local release checks
+## 3. Run the fail-closed release command
 
-This repository does not use GitHub Actions. Before creating a release, run
-the local product proof, verification command, and packaging command:
+This repository does not use GitHub Actions. Before creating a release, run:
+
+```bash
+python3 scripts/release.py
+```
+
+That one command performs the required sequence:
+
+1. `manageroo prove --json` with an automatically selected installed live coding worker;
+2. the complete source regression and structural verifier;
+3. release packaging and checksum generation;
+4. clean-install end-user ZIP smoke testing;
+5. drop-folder assembly.
+
+The command refuses to package unless product proof reports `COMPLETE`.
+
+To force a particular installed live worker:
+
+```bash
+python3 scripts/release.py --live-agent codex
+python3 scripts/release.py --live-agent claude-code
+python3 scripts/release.py --live-agent gemini
+```
+
+The lower-level commands remain available for diagnosis:
 
 ```bash
 manageroo prove
@@ -52,7 +75,7 @@ python3 scripts/verify_release.py
 python3 scripts/package_release.py
 ```
 
-`manageroo prove` automatically uses an available supported live coding worker. It may report `COMPLETE` only when all required adversarial, regression, outcome-proof, and live-worker lanes pass.
+`manageroo prove` may report `COMPLETE` only when all required adversarial, regression, outcome-proof, and live-worker lanes pass.
 
 Do not publish a release ZIP that contains `.github/workflows/`.
 
