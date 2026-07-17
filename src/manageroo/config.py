@@ -122,8 +122,8 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
             "-p",
             "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object.",
         ],
-        "sandbox_read_only_argv": ["--approval-mode=plan", "--sandbox"],
-        "sandbox_workspace_write_argv": ["--approval-mode=auto_edit", "--sandbox"],
+        "sandbox_read_only_argv": ["--approval-mode=plan"],
+        "sandbox_workspace_write_argv": ["--approval-mode=auto_edit"],
     },
 }
 
