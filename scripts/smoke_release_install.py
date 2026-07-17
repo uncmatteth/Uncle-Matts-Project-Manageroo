@@ -14,7 +14,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_TAG = "v2026.6.22.1"
+VERSION_TAG = "v2026.7.17.1"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 EXPECTED_SKILL_COUNT = 49
@@ -75,6 +75,72 @@ def default_archive() -> Path:
     return candidates[0]
 
 
+def installer_command(extracted: Path, home: Path, *, skip_install_tests: bool) -> list[str]:
+    prefix = home / ".local" / "share" / "manageroo"
+    bin_dir = home / ".local" / "bin"
+    if os.name == "nt":
+        powershell = shutil.which("pwsh") or shutil.which("powershell")
+        if not powershell:
+            raise RuntimeError("PowerShell is required for the Windows release smoke test.")
+        argv = [
+            powershell,
+            "-NoProfile",
+            "-File",
+            str(extracted / "install.ps1"),
+            "-Prefix",
+            str(prefix),
+            "-BinDir",
+            str(bin_dir),
+            "-Stack",
+            "skip",
+            "-GBrainLane",
+            "skip",
+            "-ClawpatchCodexLogin",
+            "skip",
+            "-TokenMode",
+            "off",
+            "-ProjectDiscovery",
+            "skip",
+            "-StackDoctor",
+            "skip",
+            "-SkillPack",
+            "install",
+            "-NoMusic",
+            "-NoAnimation",
+        ]
+        if skip_install_tests:
+            argv.append("-SkipTests")
+        return argv
+
+    argv = [
+        "sh",
+        "install.sh",
+        "--prefix",
+        str(prefix),
+        "--bin-dir",
+        str(bin_dir),
+        "--stack",
+        "skip",
+        "--gbrain-lane",
+        "skip",
+        "--clawpatch-codex-login",
+        "skip",
+        "--token-mode",
+        "off",
+        "--project-discovery",
+        "skip",
+        "--stack-doctor",
+        "skip",
+        "--skill-pack",
+        "install",
+        "--no-music",
+        "--no-animation",
+    ]
+    if skip_install_tests:
+        argv.append("--skip-tests")
+    return argv
+
+
 def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = False) -> dict[str, Any]:
     archive = archive.expanduser().resolve()
     if not archive.is_file():
@@ -94,34 +160,11 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
 
         env = os.environ.copy()
         env["HOME"] = str(home)
+        if os.name == "nt":
+            env["USERPROFILE"] = str(home)
         env["PATH"] = f"{home / '.local' / 'bin'}{os.pathsep}{env.get('PATH', '')}"
 
-        install_args = [
-            "sh",
-            "install.sh",
-            "--prefix",
-            str(home / ".local" / "share" / "manageroo"),
-            "--bin-dir",
-            str(home / ".local" / "bin"),
-            "--stack",
-            "skip",
-            "--gbrain-lane",
-            "skip",
-            "--clawpatch-codex-login",
-            "skip",
-            "--token-mode",
-            "off",
-            "--project-discovery",
-            "skip",
-            "--stack-doctor",
-            "skip",
-            "--skill-pack",
-            "install",
-            "--no-music",
-            "--no-animation",
-        ]
-        if skip_install_tests:
-            install_args.append("--skip-tests")
+        install_args = installer_command(extracted, home, skip_install_tests=skip_install_tests)
         install = run(install_args, cwd=extracted, env=env, timeout=240)
 
         version = run(["manageroo", "--version"], cwd=extracted, env=env).stdout.strip()
@@ -216,6 +259,8 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
             "ok": True,
             "archive": str(archive),
             "version": version,
+            "platform": sys.platform,
+            "installer": Path(install_args[0]).name,
             "temp_root": str(temp_root) if keep_temp else "",
             "temp_root_retained": keep_temp,
             "install_stdout_tail": install.stdout[-2000:],
@@ -226,10 +271,6 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
             "product_run_id": run_result.get("run_id"),
             "product_status": run_result.get("status"),
         }
-    except Exception:
-        if keep_temp:
-            raise
-        raise
     finally:
         if not keep_temp:
             shutil.rmtree(temp_root, ignore_errors=True)
