@@ -6,7 +6,9 @@ from pathlib import Path
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.adapters.transactional import TransactionalAdapter
 from manageroo.errors import AgentExecutionError, SafetyError
+from manageroo.jobs import JobStore
 from manageroo.runner import CommandRunner
+from manageroo.util import atomic_write_json
 from manageroo.workspace import WorkspaceMirror
 
 
@@ -71,6 +73,37 @@ def _request(repo: Path, *, sandbox: str = "workspace-write") -> AgentRequest:
     )
 
 
+def _record_completed_write_job(run_root: Path) -> None:
+    store = JobStore(run_root)
+    job = store.create_or_load_job(
+        "001-implementer",
+        role="implementer",
+        schema="agent-result.schema.json",
+        instructions="bounded write",
+        sandbox="workspace-write",
+    )
+    attempt = store.begin_attempt(job.id)
+    output = run_root / "worker-output.json"
+    data = {"status": "implemented"}
+    atomic_write_json(output, data)
+    store.complete_attempt(
+        job.id,
+        attempt.attempt_id,
+        output_path=output,
+        data=data,
+        command=["worker"],
+    )
+    artifact = run_root / "artifacts" / "agent" / "001-implementer.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(artifact, data)
+    store.complete_job(
+        job.id,
+        output_artifact="agent/001-implementer.json",
+        data=data,
+        artifact_path=artifact,
+    )
+
+
 class WorkerAttemptIsolationTests(unittest.TestCase):
     def test_failed_transactional_worker_cannot_poison_next_attempt(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -92,7 +125,7 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
                 adapter.run(_request(repo, sandbox="read-only"))
             self.assertEqual((repo / "tracked.txt").read_text(encoding="utf-8"), "clean\n")
 
-    def test_resume_discards_only_uncheckpointed_workspace_changes(self):
+    def test_resume_discards_unowned_uncheckpointed_workspace_changes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = _git_repo(root)
@@ -111,6 +144,27 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
             self.assertTrue((workspace / "verified.txt").is_file())
             self.assertEqual((workspace / "tracked.txt").read_text(encoding="utf-8"), "clean\n")
             self.assertFalse((workspace / "junk.txt").exists())
+
+    def test_resume_preserves_completed_write_job_edits_awaiting_controller_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = _git_repo(root)
+            run_root = root / "run" / "resume-write-window"
+            run_root.mkdir(parents=True)
+            mirror = WorkspaceMirror(source, run_root, CommandRunner())
+            workspace = mirror.create()
+            _record_completed_write_job(run_root)
+
+            (workspace / "tracked.txt").write_text("worker-result-awaiting-validation\n", encoding="utf-8")
+            (workspace / "new-result.txt").write_text("worker-result\n", encoding="utf-8")
+
+            resumed = WorkspaceMirror(source, run_root, CommandRunner())
+            resumed.load_existing()
+            self.assertEqual(
+                (workspace / "tracked.txt").read_text(encoding="utf-8"),
+                "worker-result-awaiting-validation\n",
+            )
+            self.assertTrue((workspace / "new-result.txt").is_file())
 
 
 if __name__ == "__main__":
