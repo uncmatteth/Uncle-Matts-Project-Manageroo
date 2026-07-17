@@ -1,3 +1,4 @@
+import sys
 import unittest
 
 from manageroo.errors import SafetyError
@@ -28,12 +29,15 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             CommandPolicy(("python",)).validate(["/tmp/python", "-m", "unittest"])
 
+    def test_running_python_interpreter_is_a_trusted_resolved_path(self):
+        CommandPolicy(("python",)).validate([sys.executable, "-m", "unittest"])
+
     def test_explicit_path_qualified_executable_can_be_allowlisted(self):
         CommandPolicy(("/opt/manageroo-tools/python",)).validate(
             ["/opt/manageroo-tools/python", "-m", "unittest"]
         )
 
-    def test_python_family_convenience_applies_only_to_bare_commands(self):
+    def test_python_family_convenience_rejects_untrusted_path_spoof(self):
         CommandPolicy(("python",)).validate(["python3", "-m", "unittest"])
         with self.assertRaises(SafetyError):
             CommandPolicy(("python",)).validate(["/tmp/python3", "-m", "unittest"])
