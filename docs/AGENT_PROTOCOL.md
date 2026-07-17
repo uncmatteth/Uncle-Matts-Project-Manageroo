@@ -22,7 +22,7 @@ After one worker succeeds, the pool prefers that healthy worker for later roles 
 
 Every adapter must provide two operations:
 
-- `doctor`: report whether the configured worker command is available.
+- `doctor`: report whether the configured worker command is available and, when configured, whether the installed CLI exposes the required protocol and permission flags.
 - `run`: execute one complete `AgentRequest` and return one schema-valid `AgentResponse`.
 
 The response is not trusted merely because the model says it succeeded. Manageroo validates the returned data and then independently applies its controller-owned gates.
@@ -81,7 +81,9 @@ The worker output is then independently parsed and validated by Manageroo. Provi
 - `read-only` for analysis, mapping, planning, and independent review;
 - `workspace-write` for bounded implementation and verified repair.
 
-The built-in Claude Code and Gemini presets map these modes to their provider permission/sandbox controls. Manageroo still checks repository mutations, scope, commits, gates, and review evidence afterward. Provider enforcement is an additional prevention layer, not the source of truth.
+The built-in Claude Code and Gemini presets map these modes to provider-native permission or approval controls. A provider's separate operating-system sandbox is optional unless a custom preset explicitly enables it. Manageroo still checks repository mutations, scope, commits, gates, and review evidence afterward. Provider enforcement is an additional prevention layer, not the source of truth.
+
+Every configured provider attempt is also transactional at the Git workspace layer. Failed attempts are rolled back to their pre-attempt checkpoint and stale output artifacts are discarded before fallback or retry. A successful read-only worker that mutated its repository is rejected and rolled back. If rollback integrity cannot be proven, the run stops with a safety failure instead of trying another provider.
 
 ## Response normalization
 
@@ -104,6 +106,8 @@ max_total_worker_calls = 80
 max_runtime_minutes = 240
 ```
 
+The logical worker-call counter is persisted in the run controller directory before each launch, so consumed calls survive `run --continue`. The runtime budget clamps each worker timeout to the remaining process budget. Provider fallback subprocesses currently share the enclosing logical Manageroo call count, and elapsed runtime is not accumulated across a stopped process and later continuation.
+
 Exhausting a configured controller budget blocks further worker launches. Provider-specific budget controls can be layered on later but do not replace the Manageroo budget.
 
 ## Outcome-specific completion proof
@@ -118,7 +122,7 @@ An unrelated passing gate cannot prove a different outcome. A missing, ambiguous
 
 - `auto` is the normal provider-neutral worker pool.
 - Codex currently uses an optimized native adapter.
-- Claude Code and Gemini use the universal schema-aware stdin protocol with provider permission mappings.
+- Claude Code and Gemini use the universal schema-aware stdin protocol with provider permission mappings and CLI compatibility checks.
 - The generic preset is the extension point for future CLIs.
 - Mock remains a deterministic test double and cannot satisfy live product certification.
 
