@@ -109,6 +109,10 @@ class ProductProofTests(unittest.TestCase):
             entrypoint._provider_neutral_argv(["init", ".", "--agent", "gemini"]),
             ["init", ".", "--agent", "gemini"],
         )
+        self.assertEqual(
+            entrypoint._provider_neutral_argv(["init", ".", "--agent=gemini"]),
+            ["init", ".", "--agent=gemini"],
+        )
 
     def test_root_help_surfaces_product_proof_command(self):
         output = io.StringIO()
