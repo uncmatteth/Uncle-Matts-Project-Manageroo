@@ -13,12 +13,14 @@ class _Worker(AgentAdapter):
         self.response = response
         self.error = error
         self.calls = 0
+        self.last_timeout_seconds = None
 
     def doctor(self, cwd: Path):
         return {"ok": self.error is None}
 
     def run(self, request: AgentRequest) -> AgentResponse:
         self.calls += 1
+        self.last_timeout_seconds = request.timeout_seconds
         if self.error is not None:
             raise self.error
         return self.response or AgentResponse(
@@ -29,7 +31,7 @@ class _Worker(AgentAdapter):
         )
 
 
-def _request(root: Path) -> AgentRequest:
+def _request(root: Path, *, timeout_seconds: int = 60) -> AgentRequest:
     prompt = root / "prompt.md"
     schema = root / "schema.json"
     output = root / "output.json"
@@ -42,7 +44,7 @@ def _request(root: Path) -> AgentRequest:
         output_path=output,
         cwd=root,
         sandbox="workspace-write",
-        timeout_seconds=60,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -104,6 +106,16 @@ class WorkerPoolTests(unittest.TestCase):
             self.assertEqual(resumed.calls, 1)
             with self.assertRaisesRegex(AgentExecutionError, "budget exhausted"):
                 resumed.run(_request(root))
+
+    def test_runtime_budget_clamps_worker_timeout_to_remaining_time(self):
+        with tempfile.TemporaryDirectory() as temp:
+            worker = _Worker()
+            budgeted = BudgetedAdapter(worker, max_runtime_minutes=1)
+            budgeted.started_at -= 50
+            budgeted.run(_request(Path(temp), timeout_seconds=120))
+            self.assertIsNotNone(worker.last_timeout_seconds)
+            self.assertGreaterEqual(worker.last_timeout_seconds, 1)
+            self.assertLessEqual(worker.last_timeout_seconds, 10)
 
 
 if __name__ == "__main__":
