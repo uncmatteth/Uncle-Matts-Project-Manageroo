@@ -76,7 +76,14 @@ class ProductProofTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("Product certification:", text)
         self.assertIn("prove", text)
-        self.assertIn("--live-agent", entrypoint._prove_main.__code__.co_consts)
+
+    def test_prove_help_surfaces_live_agent_requirement(self):
+        output = io.StringIO()
+        with self.assertRaises(SystemExit) as raised:
+            with redirect_stdout(output):
+                entrypoint._prove_main(["--help"])
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("--live-agent", output.getvalue())
 
 
 if __name__ == "__main__":
