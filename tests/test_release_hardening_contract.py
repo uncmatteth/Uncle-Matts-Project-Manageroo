@@ -25,11 +25,14 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         required = {
             "src/manageroo/acceptance.py",
             "src/manageroo/external_repair_policy.py",
+            "src/manageroo/plan_proof_policy.py",
             "src/manageroo/adapters/budget.py",
             "src/manageroo/adapters/pool.py",
             "src/manageroo/adapters/transactional.py",
             "tests/test_acceptance_evidence.py",
             "tests/test_external_repair_resume.py",
+            "tests/test_parallel_worker_logging.py",
+            "tests/test_plan_proof_policy.py",
             "tests/test_release_hardening_contract.py",
             "tests/test_worker_attempt_isolation.py",
             "tests/test_worker_pool.py",
@@ -43,7 +46,11 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         budget = (ROOT / "src/manageroo/adapters/budget.py").read_text(encoding="utf-8")
+        pool = (ROOT / "src/manageroo/adapters/pool.py").read_text(encoding="utf-8")
         repair = (ROOT / "src/manageroo/external_repair_policy.py").read_text(
+            encoding="utf-8"
+        )
+        proof_plan = (ROOT / "src/manageroo/plan_proof_policy.py").read_text(
             encoding="utf-8"
         )
         acceptance = (ROOT / "src/manageroo/acceptance.py").read_text(encoding="utf-8")
@@ -52,7 +59,9 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("pending-workspace-validation.json", transactional)
         self.assertIn("threading.RLock", budget)
         self.assertIn("worker_calls_consumed", budget)
+        self.assertIn("threading.RLock", pool)
         self.assertIn("resumed_from_checkpoint", repair)
+        self.assertIn("PROOF-DEMONSTRATION", proof_plan)
         self.assertIn("Outcome-specific proof binding is missing", acceptance)
 
     def test_release_stays_local_and_action_free(self):
