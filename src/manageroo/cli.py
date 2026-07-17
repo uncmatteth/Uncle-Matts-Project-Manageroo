@@ -50,17 +50,6 @@ from .learning import (
     get_learning_card,
     list_learning_cards,
 )
-from .loop_library import (
-    DEFAULT_CATALOG_URL,
-    find_loop,
-    format_loop_list,
-    load_catalog,
-    loop_brief,
-    loop_control_profile,
-    loop_summary,
-    search_loops,
-    write_loop_brief,
-)
 from .next_action import format_next_action, next_action
 from .orchestrator import Orchestrator
 from .project import create_project_repo, git_root, initialize_project, starter_choices
@@ -154,31 +143,6 @@ def _integration_guidance(preferences: dict[str, bool], agent: str) -> list[dict
                 "next": "Install Obsidian from https://obsidian.md/download",
             }
         )
-    if preferences.get("loop_library"):
-        npx = shutil.which("npx")
-        candidates = [
-            Path.home() / ".agents" / "skills" / "loop-library" / "SKILL.md",
-            Path.home() / ".codex" / "skills" / "loop-library" / "SKILL.md",
-        ]
-        existing = next((path for path in candidates if path.is_file()), None)
-        command = (
-            "npx --yes skills add Forward-Future/loop-library "
-            f"--skill loop-library --agent {agent} -g -y"
-        )
-        items.append(
-            {
-                "name": "loop-library",
-                "ok": bool(existing),
-                "detail": str(existing) if existing else "missing agent skill",
-                "next": (
-                    ""
-                    if existing
-                    else command
-                    if npx
-                    else "Install Node.js/npm, then rerun setup."
-                ),
-            }
-        )
     return items
 
 
@@ -262,7 +226,6 @@ def parser() -> argparse.ArgumentParser:
     solo.add_argument("--use-gbrain", action="store_true")
     solo.add_argument("--use-gitnexus", action="store_true")
     solo.add_argument("--use-obsidian", action="store_true")
-    solo.add_argument("--use-loop-library", action="store_true")
     solo.add_argument("--run", action="store_true")
     solo.add_argument("--create", action="store_true", help="Create a missing or empty Git repository first.")
     solo.add_argument("--starter", choices=starter_choices(), default="blank")
@@ -551,7 +514,6 @@ def parser() -> argparse.ArgumentParser:
     stack.add_argument("--json", action="store_true")
 
     stack_doc = sub.add_parser("stack-doctor", help="Read-only smart doctor for existing stack dependencies.")
-    stack_doc.add_argument("--agent", choices=sorted(AGENT_PRESETS), default="codex")
     stack_doc.add_argument("--json", action="store_true")
 
     uninstall = sub.add_parser("uninstall-plan", help="Print the core uninstall plan without deleting anything.")
@@ -567,25 +529,6 @@ def parser() -> argparse.ArgumentParser:
     repair.add_argument("--bin-dir", type=Path)
     repair.add_argument("--no-apply", action="store_true")
     repair.add_argument("--json", action="store_true")
-
-    loops = sub.add_parser("loop-library", help="Use Matthew Berman / Forward Future Loop Library loops.")
-    loops.add_argument("--catalog-url", default=DEFAULT_CATALOG_URL)
-    loops.add_argument("--catalog-file", type=Path)
-    loops.add_argument("--cache-file", type=Path)
-    loops.add_argument("--refresh", action="store_true", help="Fetch the live catalog instead of falling back to cache.")
-    loops_sub = loops.add_subparsers(dest="loop_command", required=True)
-    loop_search = loops_sub.add_parser("search", help="Search the live Loop Library catalog.")
-    loop_search.add_argument("query", nargs="*", help="Search words. Omit to list the first loops.")
-    loop_search.add_argument("--limit", type=int, default=10)
-    loop_show = loops_sub.add_parser("show", help="Show one Loop Library loop as JSON.")
-    loop_show.add_argument("loop")
-    loop_profile = loops_sub.add_parser("profile", help="Show the controller profile for one loop.")
-    loop_profile.add_argument("loop")
-    loop_brief_cmd = loops_sub.add_parser("brief", help="Generate a product brief from a loop.")
-    loop_brief_cmd.add_argument("loop")
-    loop_brief_cmd.add_argument("--request", default="")
-    loop_brief_cmd.add_argument("--output", type=Path)
-    loop_brief_cmd.add_argument("--force", action="store_true")
 
     sub.add_parser("self-test", help="Run a deterministic mock end-to-end build.")
 
@@ -661,7 +604,6 @@ def main(argv: list[str] | None = None) -> int:
                 "gbrain": args.use_gbrain,
                 "gitnexus": args.use_gitnexus,
                 "obsidian": args.use_obsidian,
-                "loop_library": args.use_loop_library,
             }
             answers = collect_solo_answers(
                 repo=args.repo,
@@ -788,7 +730,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "stack-doctor":
-            result = stack_doctor(agent=args.agent)
+            result = stack_doctor()
             if args.json:
                 print(json.dumps(result, indent=2))
             else:
@@ -1256,30 +1198,6 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_repair_install(result), end="")
             return 0 if result["ok"] else 2
-
-        if args.command == "loop-library":
-            catalog = load_catalog(
-                args.catalog_url,
-                args.catalog_file,
-                cache_file=args.cache_file,
-                refresh=args.refresh,
-            )
-            if args.loop_command == "search":
-                print(format_loop_list(search_loops(catalog, " ".join(args.query), limit=args.limit)), end="")
-                return 0
-            selected = find_loop(catalog, args.loop)
-            if args.loop_command == "show":
-                print(json.dumps(loop_summary(selected), indent=2))
-                return 0
-            if args.loop_command == "profile":
-                print(json.dumps(loop_control_profile(selected), indent=2))
-                return 0
-            if args.output:
-                path = write_loop_brief(args.output, selected, request=args.request, force=args.force)
-                print(path)
-            else:
-                print(loop_brief(selected, request=args.request))
-            return 0
 
         if args.command == "self-test":
             result = run_self_test()
