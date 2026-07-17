@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 
 from .cli import main as cli_main
 from .cli import parser as cli_parser
+from .config import AGENT_PRESETS
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
+
+
+def _auto_live_agent() -> str | None:
+    for name in LIVE_AGENT_CHOICES:
+        executable = str(AGENT_PRESETS.get(name, {}).get("executable") or "")
+        if executable and shutil.which(executable):
+            return name
+    return None
 
 
 def _prove_main(argv: list[str]) -> int:
@@ -22,17 +32,26 @@ def _prove_main(argv: list[str]) -> int:
     parser.add_argument(
         "--live-agent",
         choices=LIVE_AGENT_CHOICES,
-        help="Run the required disposable live-agent integration proof.",
+        help=(
+            "Use a specific live coding-agent preset. Omit this to let Manageroo "
+            "select any installed supported worker."
+        ),
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    selected_agent = args.live_agent or _auto_live_agent()
     report = run_product_proof(
         include_regression=not args.no_regression,
-        live_agent=args.live_agent,
+        live_agent=selected_agent,
+    )
+    report["live_agent_selection"] = (
+        "explicit" if args.live_agent else "automatic" if selected_agent else "none-available"
     )
     if args.json:
         print(json.dumps(report, indent=2))
     else:
+        if selected_agent and not args.live_agent:
+            print(f"Auto-selected live agent: {selected_agent}\n")
         print(format_product_proof(report), end="")
     return 0 if report.get("ok") else 2
 
@@ -43,7 +62,7 @@ def _root_help() -> str:
         base
         + "\n\nProduct certification:\n"
         + "  prove                 Run adversarial end-to-end Manageroo product proof.\n"
-        + "                        Use --live-agent for full COMPLETE certification.\n"
+        + "                        Uses any available supported live coding agent.\n"
     )
 
 
