@@ -8,6 +8,8 @@ param(
     [switch]$SkipSkillPack,
     [switch]$NoMusic,
     [switch]$NoAnimation,
+    [string]$Prefix = "",
+    [string]$BinDir = "",
     [ValidateSet("ask", "off", "caveman", "curse")]
     [string]$TokenMode = "ask",
     [ValidateSet("ask", "install", "skip")]
@@ -82,6 +84,8 @@ if ($InstallStack) { $InstallArgs += "--install-stack" }
 if ($SkipStack) { $InstallArgs += "--skip-stack" }
 if ($SkipTests) { $InstallArgs += "--skip-tests" }
 if ($SkipSkillPack) { $InstallArgs += "--skip-skill-pack" }
+if ($Prefix) { $InstallArgs += @("--prefix", $Prefix) }
+if ($BinDir) { $InstallArgs += @("--bin-dir", $BinDir) }
 if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
 if ($SkillPack) { $InstallArgs += @("--skill-pack", $SkillPack) }
 if ($Stack) { $InstallArgs += @("--stack", $Stack) }
