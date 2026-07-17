@@ -119,6 +119,15 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertIn(f"${parameter}", ps1)
                 self.assertIn(flag, ps1)
 
+    def test_installer_has_no_external_loop_library_surface(self):
+        py = INSTALL_SCRIPT.read_text(encoding="utf-8")
+        ps1 = (ROOT / "install.ps1").read_text(encoding="utf-8")
+        for text in (py, ps1):
+            self.assertNotIn("--loop-library-agent", text)
+            self.assertNotIn("Forward-Future/loop-library", text)
+            self.assertNotIn("signals.forwardfuture", text)
+        self.assertNotIn("install_loop_library", py)
+
     def test_public_installer_and_docs_do_not_hardcode_tommy_skill_import_path(self):
         public_files = [
             ROOT / "scripts" / "install.py",
