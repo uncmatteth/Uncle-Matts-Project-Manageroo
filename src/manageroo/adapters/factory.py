@@ -67,10 +67,10 @@ def _build_unbudgeted(config: dict, runner: CommandRunner) -> AgentAdapter:
 
 
 def _budget_state_path(runner: CommandRunner) -> Path | None:
-    log_root = runner.log_root
-    if log_root is None or log_root.name != "logs":
+    log_root = getattr(runner, "log_root", None)
+    if log_root is None or Path(log_root).name != "logs":
         return None
-    return log_root.parent / "controller" / "budget.json"
+    return Path(log_root).parent / "controller" / "budget.json"
 
 
 def build_adapter(config: dict, runner: CommandRunner) -> AgentAdapter:
