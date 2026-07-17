@@ -10,6 +10,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PRODUCT_PROOF_TIMEOUT_SECONDS = 14_400
+PACKAGE_TIMEOUT_SECONDS = 7_200
 
 
 def run(argv: list[str], *, timeout: int) -> dict:
@@ -58,7 +60,7 @@ def main() -> int:
     prove_argv = [sys.executable, "-m", "manageroo", "prove", "--json"]
     if args.live_agent:
         prove_argv.extend(["--live-agent", args.live_agent])
-    proof = run(prove_argv, timeout=3600)
+    proof = run(prove_argv, timeout=PRODUCT_PROOF_TIMEOUT_SECONDS)
     proof_payload = None
     if proof["exit_code"] == 0:
         try:
@@ -77,7 +79,10 @@ def main() -> int:
         print(json.dumps(report, indent=2) if args.json else proof["output"], end="")
         return 2
 
-    package = run([sys.executable, "scripts/package_release.py"], timeout=3600)
+    package = run(
+        [sys.executable, "scripts/package_release.py"],
+        timeout=PACKAGE_TIMEOUT_SECONDS,
+    )
     report = {
         "ok": package["exit_code"] == 0,
         "stage": "complete" if package["exit_code"] == 0 else "package-release",
