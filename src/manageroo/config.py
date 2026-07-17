@@ -110,6 +110,8 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
         ],
         "sandbox_read_only_argv": ["--permission-mode", "plan"],
         "sandbox_workspace_write_argv": ["--permission-mode", "acceptEdits"],
+        "doctor_argv": ["claude", "--help"],
+        "required_help_flags": ["--permission-mode"],
     },
     "gemini": {
         "adapter": "generic",
@@ -124,6 +126,8 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
         ],
         "sandbox_read_only_argv": ["--approval-mode=plan"],
         "sandbox_workspace_write_argv": ["--approval-mode=auto_edit"],
+        "doctor_argv": ["gemini", "--help"],
+        "required_help_flags": ["--approval-mode", "--prompt"],
     },
 }
 
@@ -137,6 +141,8 @@ _AGENT_KEYS = [
     "argv_template",
     "sandbox_read_only_argv",
     "sandbox_workspace_write_argv",
+    "doctor_argv",
+    "required_help_flags",
 ]
 
 
