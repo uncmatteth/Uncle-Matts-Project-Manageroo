@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from .config import AGENT_PRESETS
-
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
 
@@ -83,20 +81,14 @@ def collect_setup_answers(
     input_fn: InputFn = input,
     output_fn: OutputFn | None = print,
 ) -> dict:
+    selected_agent = agent or "auto"
     if not interactive:
         return {
             "repo": Path(repo) if repo is not None else Path("."),
-            "agent": agent or "codex",
+            "agent": selected_agent,
             "integrations": {name: False for name in INTEGRATIONS},
         }
 
-    selected_agent = agent or _ask_choice(
-        "What AI are you using?",
-        choices=sorted(AGENT_PRESETS),
-        default="codex",
-        input_fn=input_fn,
-        output_fn=output_fn,
-    )
     selected_repo = Path(
         str(repo)
         if repo is not None
@@ -132,10 +124,11 @@ def collect_solo_answers(
     input_fn: InputFn = input,
     output_fn: OutputFn | None = print,
 ) -> dict:
+    selected_agent = agent or "auto"
     if not interactive:
         return {
             "repo": Path(repo) if repo is not None else Path("."),
-            "agent": agent or "codex",
+            "agent": selected_agent,
             "want": want,
             "audience": audience,
             "outcomes": outcomes,
@@ -148,13 +141,6 @@ def collect_solo_answers(
             "integrations": integrations,
         }
 
-    selected_agent = agent or _ask_choice(
-        "What AI are you using?",
-        choices=sorted(AGENT_PRESETS),
-        default="codex",
-        input_fn=input_fn,
-        output_fn=output_fn,
-    )
     selected_repo = Path(
         str(repo)
         if repo is not None
