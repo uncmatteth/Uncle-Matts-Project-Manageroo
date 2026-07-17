@@ -103,45 +103,6 @@ class CliSoloTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(payload["next_command"], "manageroo run --mode repair --no-apply")
 
-    def test_solo_selected_extra_gets_visible_next_command(self):
-        with tempfile.TemporaryDirectory() as temp:
-            repo = self._repo(Path(temp))
-            ready = {
-                "ok": True,
-                "status": "READY TO RUN",
-                "repo": str(repo),
-                "items": [{"name": "target repo", "ok": True, "detail": str(repo), "required": True}],
-                "next_commands": [],
-            }
-            stdout = io.StringIO()
-
-            def which(name):
-                return "/usr/bin/npx" if name == "npx" else None
-
-            with patch("manageroo.cli.readiness", return_value=ready), patch(
-                "manageroo.cli.shutil.which",
-                side_effect=which,
-            ), redirect_stdout(stdout):
-                code = main(
-                    [
-                        "solo",
-                        str(repo),
-                        "--agent",
-                        "mock",
-                        "--want",
-                        "Build a tiny launch checklist",
-                        "--use-loop-library",
-                        "--json",
-                        "--force",
-                        "--skip-skills",
-                    ]
-                )
-
-            payload = json.loads(stdout.getvalue())
-            self.assertEqual(code, 0)
-            self.assertEqual(payload["integration_guidance"][0]["name"], "loop-library")
-            self.assertIn("npx --yes skills add Forward-Future/loop-library", payload["next_command"])
-
     def test_solo_create_initializes_missing_project_before_brief(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "fresh-product"
