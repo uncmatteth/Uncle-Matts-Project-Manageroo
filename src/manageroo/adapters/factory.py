@@ -20,5 +20,9 @@ def build_adapter(config: dict, runner: CommandRunner) -> AgentAdapter:
         return MockAdapter()
     if adapter == "generic":
         template = config["agent"].get("argv_template", [])
-        return GenericAdapter(template, runner)
+        return GenericAdapter(
+            template,
+            runner,
+            prompt_transport=config["agent"].get("prompt_transport", "file_path"),
+        )
     raise ConfigurationError(f"Unknown agent adapter: {adapter}")
