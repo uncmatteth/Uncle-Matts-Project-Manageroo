@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Iterable
 
@@ -18,6 +19,7 @@ class WorkerPoolAdapter(AgentAdapter):
     def __init__(self, workers: Iterable[tuple[str, AgentAdapter]]):
         self.workers = list(workers)
         self.last_successful_worker = ""
+        self._lock = threading.RLock()
 
     def doctor(self, cwd: Path) -> dict:
         checks = []
@@ -27,19 +29,23 @@ class WorkerPoolAdapter(AgentAdapter):
             except Exception as exc:
                 result = {"ok": False, "error_type": type(exc).__name__, "error": str(exc)}
             checks.append({"name": name, **result})
+        with self._lock:
+            preferred = self.last_successful_worker
         return {
             "ok": any(item.get("ok") for item in checks),
             "adapter": "worker-pool",
-            "preferred_worker": self.last_successful_worker,
+            "preferred_worker": preferred,
             "workers": checks,
             "error": "" if checks else "No supported live coding-agent executable was found on PATH.",
         }
 
     def _ordered_workers(self) -> list[tuple[str, AgentAdapter]]:
-        if not self.last_successful_worker:
+        with self._lock:
+            preferred_name = self.last_successful_worker
+        if not preferred_name:
             return list(self.workers)
-        preferred = [item for item in self.workers if item[0] == self.last_successful_worker]
-        others = [item for item in self.workers if item[0] != self.last_successful_worker]
+        preferred = [item for item in self.workers if item[0] == preferred_name]
+        others = [item for item in self.workers if item[0] != preferred_name]
         return [*preferred, *others]
 
     def run(self, request: AgentRequest) -> AgentResponse:
@@ -53,7 +59,8 @@ class WorkerPoolAdapter(AgentAdapter):
         for name, adapter in self._ordered_workers():
             try:
                 response = adapter.run(request)
-                self.last_successful_worker = name
+                with self._lock:
+                    self.last_successful_worker = name
                 response.command = [f"worker:{name}", *response.command]
                 return response
             except retryable as exc:
