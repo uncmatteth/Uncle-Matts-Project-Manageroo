@@ -59,9 +59,8 @@ def release_file_allowed(path: Path) -> bool:
     relative = path.relative_to(ROOT)
     if any(part in EXCLUDED_PARTS for part in relative.parts):
         return False
-    name = path.name
-    lowered = name.lower()
-    if name in SENSITIVE_FILENAMES or path.suffix.lower() in SENSITIVE_SUFFIXES:
+    lowered = path.name.lower()
+    if lowered in SENSITIVE_FILENAMES or path.suffix.lower() in SENSITIVE_SUFFIXES:
         return False
     if lowered.startswith(".env") and lowered not in SAFE_ENV_EXAMPLES:
         return False
