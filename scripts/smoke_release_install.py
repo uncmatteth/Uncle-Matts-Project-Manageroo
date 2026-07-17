@@ -14,7 +14,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_TAG = "v2026.7.17.1"
+VERSION_TAG = "v2026.7.17.2"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 EXPECTED_SKILL_COUNT = 49
