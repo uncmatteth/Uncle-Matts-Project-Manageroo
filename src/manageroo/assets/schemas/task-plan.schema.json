@@ -1,17 +1,21 @@
 {
   "properties": {
     "demonstration": {
+      "description": "Product-level proof plan. Every product acceptance outcome must have exactly one product_evidence binding.",
       "properties": {
         "gate_ids": {
+          "description": "Gate IDs that run in the product demonstration lane.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "product_evidence": {
+          "description": "One exact proof binding for every product acceptance outcome. Copy each outcome text exactly and bind only gate IDs that genuinely prove that outcome.",
           "items": {
             "properties": {
               "gate_ids": {
+                "description": "Specific configured gate IDs whose passing results are evidence for this exact outcome. Observable user-journey, browser, auth, security, deploy, or visual outcomes must include at least one gate also listed in demonstration.gate_ids.",
                 "items": {
                   "type": "string"
                 },
@@ -19,6 +23,7 @@
                 "type": "array"
               },
               "outcome": {
+                "description": "Copy one product acceptance_outcomes string exactly, without paraphrasing.",
                 "minLength": 1,
                 "type": "string"
               }
