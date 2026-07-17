@@ -108,11 +108,11 @@ they look at one real slice of the product at a time, with the right files and
 some proof. MANAGEROO uses that same kind of structure for build and repair
 work, not only bug review.
 
-Credit where it is due: Matthew Berman / Forward Future's Loop Library and the
-larger loop-engineering discussion helped name the pattern clearly. Good agent
-work needs a bounded action, an independent verifier, a budget, a stop
-condition, and evidence. MANAGEROO applies that goal-style loop idea to
-local build and repair runs.
+Credit where it is due: Matthew Berman / Forward Future's public
+loop-engineering work, including Loop Library, helped clarify the pattern:
+bounded action, independent verification, a budget, a stop condition, and
+evidence. MANAGEROO implements those ideas natively and does not connect to or
+depend on Loop Library.
 
 ## Special Thanks: The MANAGEROO Super Team
 
@@ -125,7 +125,7 @@ These are the real-world powers this project remixes:
 - **Matthew Berman / Forward Future as Captain Looplight**
   - Stats: STR 10 | DEX 13 | CON 15 | INT 17 | WIS 18 | CHA 17
   - Power: makes agent loops easy to understand: bounded task, verifier, stop rule, and evidence.
-  - Credit: Loop Library and plain-language loop framing.
+  - Credit: plain-language framing of bounded action, independent verification, budgets, stop rules, and evidence. This is conceptual influence; Manageroo has no Loop Library runtime dependency.
 - **Garry Tan / GBrain as The Memory Architect**
   - Stats: STR 11 | DEX 11 | CON 18 | INT 18 | WIS 18 | CHA 14
   - Power: gives agents durable memory without dumping the whole universe into the prompt.
@@ -387,13 +387,12 @@ The installer also offers the recommended local stack:
 - AUTOREVIEW for independent command-owned review passes.
 - Clawpatch for feature-slice review and explicit command-owned fix loops.
 - Obsidian for human-readable notes.
-- Matthew Berman / Forward Future's Loop Library skill for published agent loops.
 
 Interactive installs ask before touching those third-party tools. To force the
 guided stack lane:
 
 ```bash
-./install.sh --install-stack --loop-library-agent codex
+./install.sh --install-stack
 ```
 
 If Bun, Node/npm/npx/pnpm, Flatpak, Snap, Homebrew, or Winget is missing, the
@@ -489,7 +488,7 @@ Run bare `setup` for the lower-level wizard. It asks:
 
 - what AI you are using;
 - what repo you want to work on;
-- whether you want GBrain, GitNexus, Obsidian, or Loop Library help.
+- whether you want GBrain, GitNexus, or Obsidian help.
 
 Project setup writes `.manageroo/PROJECT-MEMORY.md`, the current product
 brief, a repo-local MANAGEROO skill, and managed `AGENTS.md`/`CONTEXT.md`
@@ -613,23 +612,6 @@ manageroo repair-install --no-apply
 manageroo repair-install
 ```
 
-Use Matthew Berman / Forward Future's Loop Library directly when a published
-loop is the right shape for the job:
-
-```bash
-manageroo loop-library search docs
-manageroo loop-library show overnight-docs-sweep
-manageroo loop-library profile overnight-docs-sweep
-manageroo loop-library brief overnight-docs-sweep --output .manageroo/PRODUCT-BRIEF.md --force
-```
-
-That reads the live catalog, credits the source loop, and turns it into a
-repo-local MANAGEROO brief with a controller profile. The profile labels
-the pattern as `goal`, `loop`, or `routine`, adds budget and anti-spin stops,
-and states the verifier rule: the worker does not grade itself. The catalog is
-cached for offline fallback. It does not install Loop Library or make it a
-required dependency.
-
 Run the build:
 
 ```bash
@@ -739,8 +721,6 @@ This was built around the local agent stack you actually wanted:
   long prose, exact wording, citations, reports, and PDF export.
 - AUTOREVIEW and Clawpatch for command-owned review and repair lanes. Their
   findings are not handed to the AI for freehand repairs.
-- Matthew Berman / Forward Future's Loop Library as a reference for clear
-  agent loops, checks, and stopping conditions.
 - `pimp-my-prompt` for rough request intake.
 - `diagnose`, `tdd`, and `autoreview` for bug loops, test-first work, and
   closeout review.
