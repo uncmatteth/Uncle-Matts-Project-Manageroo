@@ -146,7 +146,7 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
             f'rm -f "{launcher}" "{launcher_cmd}"',
         ],
         "third_party_notes": [
-            "GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Loop Library, Codex, Bun, Node, pnpm, Flatpak, Snap, Homebrew, and Winget are external tools.",
+            "GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Codex, Bun, Node, pnpm, Flatpak, Snap, Homebrew, and Winget are external tools.",
             "MANAGEROO does not remove third-party tools automatically.",
             "Use stack-status first, then remove only the external tools you intentionally want gone.",
         ],
