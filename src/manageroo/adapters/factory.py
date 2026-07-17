@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from .base import AgentAdapter
 from .budget import BudgetedAdapter
@@ -65,6 +66,13 @@ def _build_unbudgeted(config: dict, runner: CommandRunner) -> AgentAdapter:
     return WorkerPoolAdapter(workers)
 
 
+def _budget_state_path(runner: CommandRunner) -> Path | None:
+    log_root = runner.log_root
+    if log_root is None or log_root.name != "logs":
+        return None
+    return log_root.parent / "controller" / "budget.json"
+
+
 def build_adapter(config: dict, runner: CommandRunner) -> AgentAdapter:
     inner = _build_unbudgeted(config, runner)
     budget = config.get("budget", {})
@@ -72,4 +80,5 @@ def build_adapter(config: dict, runner: CommandRunner) -> AgentAdapter:
         inner,
         max_total_worker_calls=int(budget.get("max_total_worker_calls", 0) or 0),
         max_runtime_minutes=float(budget.get("max_runtime_minutes", 0) or 0),
+        state_path=_budget_state_path(runner),
     )
