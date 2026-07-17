@@ -14,8 +14,8 @@ pretend those ideas appeared from nowhere.
 - **Matthew Berman / Forward Future as Captain Looplight**
   - Stats: STR 10 | DEX 13 | CON 15 | INT 17 | WIS 18 | CHA 17
   - Power: makes agent loops easy to understand: bounded task, verifier, stop rule, and evidence.
-  - Credit: Loop Library and plain-language loop framing.
-  - Link: https://signals.forwardfuture.ai/loop-library/
+  - Credit: plain-language framing of bounded action, independent verification, budgets, stop rules, and evidence. This is conceptual influence; Manageroo has no Loop Library runtime dependency.
+  - Link: https://signals.forwardfuture.com/loop-library/
 
 - **Garry Tan / GBrain as The Memory Architect**
   - Stats: STR 11 | DEX 11 | CON 18 | INT 18 | WIS 18 | CHA 14
