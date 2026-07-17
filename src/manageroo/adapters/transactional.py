@@ -32,7 +32,7 @@ class TransactionalAdapter(AgentAdapter):
             timeout_seconds=30,
         )
         if not result.passed:
-            raise AgentExecutionError(
+            raise SafetyError(
                 "Manageroo could not capture the worker-attempt Git checkpoint: "
                 + result.stderr
             )
@@ -45,7 +45,7 @@ class TransactionalAdapter(AgentAdapter):
             timeout_seconds=30,
         )
         if not result.passed:
-            raise AgentExecutionError(
+            raise SafetyError(
                 "Manageroo could not verify worker-attempt repository state: " + result.stderr
             )
         return bool(result.stdout.strip())
@@ -57,7 +57,7 @@ class TransactionalAdapter(AgentAdapter):
             timeout_seconds=120,
         )
         if not reset.passed:
-            raise AgentExecutionError(
+            raise SafetyError(
                 "Failed worker attempt could not be rolled back safely: " + reset.stderr
             )
         clean = self.runner.run(
@@ -66,7 +66,7 @@ class TransactionalAdapter(AgentAdapter):
             timeout_seconds=120,
         )
         if not clean.passed:
-            raise AgentExecutionError(
+            raise SafetyError(
                 "Failed worker attempt left untracked repository files that could not be removed: "
                 + clean.stderr
             )
@@ -81,22 +81,34 @@ class TransactionalAdapter(AgentAdapter):
                 if path.is_file():
                     path.unlink()
             except OSError as exc:
-                raise AgentExecutionError(
+                raise SafetyError(
                     f"Failed worker output could not be discarded safely: {path}: {exc}"
                 ) from exc
+
+    def _rollback_failed_attempt(self, request: AgentRequest, head: str) -> None:
+        self._rollback(request.cwd, head)
+        self._discard_failed_outputs(request)
 
     def run(self, request: AgentRequest) -> AgentResponse:
         head = self._head(request.cwd)
         try:
             response = self.inner.run(request)
-        except Exception:
-            self._rollback(request.cwd, head)
-            self._discard_failed_outputs(request)
+        except SafetyError:
+            self._rollback_failed_attempt(request, head)
             raise
-        if request.sandbox == "read-only" and self._dirty(request.cwd):
-            self._rollback(request.cwd, head)
-            self._discard_failed_outputs(request)
-            raise SafetyError(
-                f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
-            )
+        except Exception:
+            self._rollback_failed_attempt(request, head)
+            raise
+
+        if request.sandbox == "read-only":
+            try:
+                dirty = self._dirty(request.cwd)
+            except SafetyError:
+                self._rollback_failed_attempt(request, head)
+                raise
+            if dirty:
+                self._rollback_failed_attempt(request, head)
+                raise SafetyError(
+                    f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
+                )
         return response
