@@ -1,6 +1,6 @@
 """Uncle Matt's Project Manageroo."""
 
-__version__ = "2026.7.17.1"
+__version__ = "2026.7.17.2"
 
 
 def _install_completion_policy() -> None:
