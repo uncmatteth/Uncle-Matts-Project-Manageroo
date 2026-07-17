@@ -52,7 +52,7 @@ only when every required machine-checked proof lane passes, including one real d
 
 A model saying "done", a worker returning `COMPLETE`, a plausible patch, a passing subset of tests, or the mock adapter succeeding is not sufficient for full product certification.
 
-Normal project completion is also outcome-specific. Every product acceptance outcome must have one explicit binding to the configured gates that genuinely prove that exact outcome. Unrelated green checks cannot prove another promise, and observable browser, user-journey, authentication, security, deployment, or visual outcomes require bound demonstration evidence.
+Normal project completion is outcome-specific. Every product acceptance outcome must have one explicit binding to the configured gates that genuinely prove that exact outcome. Invalid, duplicate, unknown, or demonstration-inadequate proof bindings are rejected during plan review before implementation begins. Unrelated green checks cannot prove another promise, and observable browser, user-journey, authentication, security, deployment, or visual outcomes require bound demonstration evidence.
 
 ## Proof lanes
 
@@ -65,17 +65,24 @@ The certification command exercises these areas directly or through its required
 5. Context overflow, omission recording, and stale-packet rejection.
 6. Worker retry isolation and artifact-integrity enforcement.
 7. Transactional rollback of failed worker filesystem edits.
-8. Rejection and rollback of successful read-only worker mutation.
-9. Interrupted-run continuation from the saved worker queue with uncheckpointed dirt discarded.
-10. Outcome-specific acceptance evidence and rejection of unrelated proof.
-11. Automatic worker selection and provider fallback without swallowing controller safety failures.
-12. Universal schema-aware prompt transport and provider permission mapping.
-13. Optional external-tool failure without corruption of controller truth.
-14. Intent-lock adversarial regression coverage.
-15. Policy-enforcement adversarial regression coverage.
-16. Bounded retry, review, release, and truthful-completion gates.
-17. The complete repository regression suite.
-18. One real coding-agent fixture run that must actually finish under Manageroo control.
+8. Rejection and rollback of successful read-only worker mutation, including ignored files.
+9. Removal of hidden ignored worker state before validation, retry, checkpoint, and continuation.
+10. Interrupted-run continuation from the saved worker queue with uncheckpointed dirt discarded.
+11. Preservation of completed visible write edits across the post-worker/pre-checkpoint crash window.
+12. Continuation-safe command-owned AUTOREVIEW and Clawpatch checkpoints without duplicate execution.
+13. Outcome-specific acceptance evidence and rejection of unrelated proof.
+14. Fail-fast outcome-proof validation during plan review.
+15. Automatic worker selection and provider fallback without swallowing controller safety failures.
+16. Universal schema-aware prompt transport and provider permission mapping.
+17. Thread-safe controller budgets, provider preference, and unique parallel-worker logs.
+18. Critical controller-truth tamper detection and restoration during worker execution.
+19. Optional external-tool failure without corruption of controller truth.
+20. Intent-lock adversarial regression coverage.
+21. Policy-enforcement adversarial regression coverage.
+22. Bounded retry, review, release, and truthful-completion gates.
+23. Secret-safe release archive selection.
+24. The complete repository regression suite.
+25. One real coding-agent fixture run that must actually finish under Manageroo control.
 
 The complete source regression suite is a required proof lane, so newly added controller tests automatically become part of product certification rather than relying only on this documentation list.
 
@@ -87,7 +94,7 @@ Manageroo owns the worker protocol. The coding-agent provider is replaceable lab
 
 The normal configuration uses an automatic worker pool. A provider execution or protocol failure may fall through to another compatible installed worker. A Manageroo safety violation remains blocking and is never converted into a provider fallback.
 
-Every configured provider attempt is transactional. A failed attempt is rolled back before another worker or retry receives the workspace. A read-only worker that mutates its repository is rejected and rolled back even if it returns otherwise valid structured output.
+Every configured provider attempt is transactional. A failed attempt is rolled back before another worker or retry receives the workspace. A read-only worker that mutates its repository is rejected and rolled back even if it returns otherwise valid structured output. Worker-created ignored state is never accepted as part of a verified result.
 
 The universal CLI adapter supports prompt transport by file path, command argument, or stdin. Generic workers receive the complete bounded assignment plus the exact JSON Schema they must satisfy. Regardless of transport or provider, the response remains subject to Manageroo's own schema validation, scope enforcement, gates, independent review, and completion rules.
 
@@ -105,11 +112,13 @@ See `docs/AGENT_PROTOCOL.md` for the complete adapter contract.
 - no to stale worker truth;
 - no to replaying completed work;
 - no to poisoned retries;
-- no to read-only mutation;
+- no to read-only or ignored-file mutation;
+- no to controller-truth tampering;
 - no to unrelated evidence being counted as proof;
 - no to missing evidence;
 - no to silent context loss;
 - no to fake release readiness;
+- no to packaging local secrets;
 - no to claiming full product certification without a real coding-agent run.
 
 That distinction matters because Manageroo is not merely a code generator. It is the control, memory, verification, and evidence layer above coding agents.
@@ -130,9 +139,17 @@ A release can be certified against more than one worker by running the command s
 
 ## No GitHub Actions dependency
 
-Manageroo's official release process remains local. `manageroo prove` does not require GitHub Actions and does not add a workflow dependency. It can be run directly from the source checkout before the normal local release-verification and packaging commands.
+Manageroo's official release process remains local. Product proof does not require GitHub Actions and does not add a workflow dependency.
 
-Recommended final sequence:
+Recommended release command:
+
+```bash
+python3 scripts/release.py
+```
+
+The release driver runs product proof first and proceeds to verification, packaging, checksum generation, and clean-install ZIP smoke only when proof is complete. It fails closed and does not create release artifacts when certification is partial or failed.
+
+The lower-level diagnostic sequence remains available:
 
 ```bash
 manageroo prove
@@ -140,4 +157,4 @@ python3 scripts/verify_release.py
 python3 scripts/package_release.py
 ```
 
-A release should not be described as product-certified unless the first command reports `RESULT: COMPLETE` and the normal release verification also passes.
+A release should not be described as product-certified unless `scripts/release.py` exits successfully and the generated validation evidence belongs to the current source tree.
