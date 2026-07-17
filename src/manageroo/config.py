@@ -94,16 +94,24 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
         "executable": "claude",
         "model": "",
         "timeout_seconds": 3600,
-        "prompt_transport": "argument",
-        "argv_template": ["claude", "-p", "{prompt_text}"],
+        "prompt_transport": "stdin",
+        "argv_template": [
+            "claude",
+            "-p",
+            "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object.",
+        ],
     },
     "gemini": {
         "adapter": "generic",
         "executable": "gemini",
         "model": "",
         "timeout_seconds": 3600,
-        "prompt_transport": "argument",
-        "argv_template": ["gemini", "-p", "{prompt_text}"],
+        "prompt_transport": "stdin",
+        "argv_template": [
+            "gemini",
+            "-p",
+            "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object.",
+        ],
     },
 }
 
