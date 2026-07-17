@@ -24,6 +24,20 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             CommandPolicy(("python",)).validate(["bash", "-c", "true"])
 
+    def test_bare_allowlist_does_not_trust_arbitrary_path_qualified_executable(self):
+        with self.assertRaises(SafetyError):
+            CommandPolicy(("python",)).validate(["/tmp/python", "-m", "unittest"])
+
+    def test_explicit_path_qualified_executable_can_be_allowlisted(self):
+        CommandPolicy(("/opt/manageroo-tools/python",)).validate(
+            ["/opt/manageroo-tools/python", "-m", "unittest"]
+        )
+
+    def test_python_family_convenience_applies_only_to_bare_commands(self):
+        CommandPolicy(("python",)).validate(["python3", "-m", "unittest"])
+        with self.assertRaises(SafetyError):
+            CommandPolicy(("python",)).validate(["/tmp/python3", "-m", "unittest"])
+
     def test_broad_allowed_scope_patterns_are_rejected(self):
         for pattern in ("**", "*", "src/**", "**/*", "*.py", "src/*.py", "", "/", "."):
             with self.subTest(pattern=pattern):
