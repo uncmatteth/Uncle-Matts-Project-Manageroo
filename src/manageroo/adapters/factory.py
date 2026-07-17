@@ -42,6 +42,8 @@ def _build_raw(agent: dict, runner: CommandRunner) -> AgentAdapter:
             runner,
             prompt_transport=agent.get("prompt_transport", "file_path"),
             sandbox_argv=_generic_sandbox_argv(agent),
+            doctor_argv=list(agent.get("doctor_argv", []) or []),
+            required_help_flags=list(agent.get("required_help_flags", []) or []),
         )
     raise ConfigurationError(f"Unknown agent adapter: {adapter}")
 
