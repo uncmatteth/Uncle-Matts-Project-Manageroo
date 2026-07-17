@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-VERSION_TAG = "v2026.7.17.1"
+VERSION_TAG = "v2026.7.17.2"
 ARTIFACT_BASENAME = f"uncle-matts-project-manageroo-{VERSION_TAG}"
 DROP_ROOT = ARTIFACT_BASENAME
 DEFAULT_DROP_DIR = ROOT.parent / DROP_ROOT
