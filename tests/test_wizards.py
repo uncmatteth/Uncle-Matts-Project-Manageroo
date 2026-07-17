@@ -16,7 +16,7 @@ class WizardTests(unittest.TestCase):
             repo=None,
             agent=None,
             interactive=True,
-            input_fn=input_from(["/tmp/product", "y", "n", "y", "n"]),
+            input_fn=input_from(["/tmp/product", "y", "n", "y"]),
             output_fn=messages.append,
         )
         self.assertEqual(answers["agent"], "auto")
@@ -27,7 +27,6 @@ class WizardTests(unittest.TestCase):
                 "gbrain": True,
                 "gitnexus": False,
                 "obsidian": True,
-                "loop_library": False,
             },
         )
         self.assertFalse(any("What AI" in message for message in messages))
@@ -60,7 +59,7 @@ class WizardTests(unittest.TestCase):
             later=[],
             mode="build",
             run=None,
-            integrations={"gbrain": False, "gitnexus": False, "obsidian": False, "loop_library": False},
+            integrations={"gbrain": False, "gitnexus": False, "obsidian": False},
             interactive=True,
             input_fn=input_from(
                 [
@@ -73,7 +72,6 @@ class WizardTests(unittest.TestCase):
                     "Stop after one failed payment sandbox",
                     "repair",
                     "y",
-                    "n",
                     "n",
                     "n",
                     "y",
