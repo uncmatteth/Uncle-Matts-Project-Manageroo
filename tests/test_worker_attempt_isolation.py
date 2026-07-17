@@ -73,6 +73,26 @@ def _request(repo: Path, *, sandbox: str = "workspace-write") -> AgentRequest:
     )
 
 
+def _run_request(run_root: Path, workspace: Path) -> AgentRequest:
+    packet = run_root / "packets" / "001-implementer" / "001"
+    packet.mkdir(parents=True, exist_ok=True)
+    prompt = packet / "prompt.md"
+    schema = packet / "schema.json"
+    output = run_root / "agent-output" / "001-implementer" / "001.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text("job", encoding="utf-8")
+    schema.write_text('{"type":"object"}', encoding="utf-8")
+    return AgentRequest(
+        role="implementer",
+        prompt_path=prompt,
+        schema_path=schema,
+        output_path=output,
+        cwd=workspace,
+        sandbox="workspace-write",
+        timeout_seconds=60,
+    )
+
+
 def _record_completed_write_job(run_root: Path) -> None:
     store = JobStore(run_root)
     job = store.create_or_load_job(
@@ -102,6 +122,14 @@ def _record_completed_write_job(run_root: Path) -> None:
         data=data,
         artifact_path=artifact,
     )
+    atomic_write_json(
+        run_root / "controller" / "pending-workspace-validation.json",
+        {
+            "job_id": job.id,
+            "role": "implementer",
+            "sandbox": "workspace-write",
+        },
+    )
 
 
 class WorkerAttemptIsolationTests(unittest.TestCase):
@@ -124,6 +152,24 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
             with self.assertRaises(SafetyError):
                 adapter.run(_request(repo, sandbox="read-only"))
             self.assertEqual((repo / "tracked.txt").read_text(encoding="utf-8"), "clean\n")
+
+    def test_successful_write_attempt_marks_pending_controller_validation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = _git_repo(root)
+            run_root = root / "run" / "marker-test"
+            run_root.mkdir(parents=True)
+            mirror = WorkspaceMirror(source, run_root, CommandRunner())
+            workspace = mirror.create()
+            request = _run_request(run_root, workspace)
+
+            TransactionalAdapter(_DirtySuccess(), CommandRunner()).run(request)
+
+            marker = run_root / "controller" / "pending-workspace-validation.json"
+            self.assertTrue(marker.is_file())
+            payload = __import__("json").loads(marker.read_text(encoding="utf-8"))
+            self.assertEqual(payload["job_id"], "001-implementer")
+            self.assertEqual(payload["sandbox"], "workspace-write")
 
     def test_resume_discards_unowned_uncheckpointed_workspace_changes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -165,6 +211,24 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
                 "worker-result-awaiting-validation\n",
             )
             self.assertTrue((workspace / "new-result.txt").is_file())
+
+    def test_checkpoint_clears_pending_validation_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = _git_repo(root)
+            run_root = root / "run" / "marker-clear"
+            run_root.mkdir(parents=True)
+            mirror = WorkspaceMirror(source, run_root, CommandRunner())
+            workspace = mirror.create()
+            marker = run_root / "controller" / "pending-workspace-validation.json"
+            atomic_write_json(
+                marker,
+                {"job_id": "001-implementer", "sandbox": "workspace-write"},
+            )
+            (workspace / "tracked.txt").write_text("validated\n", encoding="utf-8")
+
+            mirror.checkpoint("validated controller checkpoint")
+            self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":
