@@ -106,6 +106,8 @@ class InstallScriptTests(unittest.TestCase):
         ps1 = (ROOT / "install.ps1").read_text(encoding="utf-8")
         py = INSTALL_SCRIPT.read_text(encoding="utf-8")
         important = [
+            ("Prefix", "--prefix"),
+            ("BinDir", "--bin-dir"),
             ("GBrainLane", "--gbrain-lane"),
             ("ProjectDiscovery", "--project-discovery"),
             ("StackDoctor", "--stack-doctor"),
