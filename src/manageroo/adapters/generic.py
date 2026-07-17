@@ -44,11 +44,27 @@ class GenericAdapter(AgentAdapter):
             for name, values in (sandbox_argv or {}).items()
         }
 
-    def _values(self, request: AgentRequest) -> dict[str, str]:
+    def _protocol_prompt(self, request: AgentRequest) -> tuple[str, Path]:
         prompt_text = request.prompt_path.read_text(encoding="utf-8", errors="replace")
+        schema_text = request.schema_path.read_text(encoding="utf-8", errors="replace")
+        combined = (
+            prompt_text.rstrip()
+            + "\n\n# Required output protocol\n\n"
+            + "Return exactly one JSON value that validates against this JSON Schema. "
+            + "Do not wrap it in commentary.\n\n```json\n"
+            + schema_text.rstrip()
+            + "\n```\n"
+        )
+        protocol_path = request.prompt_path.parent / "protocol-prompt.md"
+        protocol_path.write_text(combined, encoding="utf-8", newline="\n")
+        return combined, protocol_path
+
+    def _values(self, request: AgentRequest) -> dict[str, str]:
+        prompt_text, protocol_path = self._protocol_prompt(request)
         return {
-            "prompt": str(request.prompt_path),
-            "prompt_path": str(request.prompt_path),
+            "prompt": str(protocol_path),
+            "prompt_path": str(protocol_path),
+            "source_prompt": str(request.prompt_path),
             "prompt_text": prompt_text,
             "schema": str(request.schema_path),
             "output": str(request.output_path),
