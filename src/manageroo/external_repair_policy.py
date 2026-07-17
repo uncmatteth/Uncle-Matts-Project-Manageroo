@@ -111,7 +111,6 @@ def run_external_review_repair_lanes(
     )
     (self.artifacts.root / "review" / "external-state").mkdir(parents=True, exist_ok=True)
 
-    before_all = self.mirror.head()
     records: list[dict] = []
     failed: list[str] = []
     for name, argv_template in commands:
@@ -167,7 +166,13 @@ def run_external_review_repair_lanes(
             failed.append(name)
         records.append(record)
 
-    changed_total = self.mirror.changed_paths(before_all)
+    changed_total = sorted(
+        {
+            path
+            for record in records
+            for path in list(record.get("changed_paths", []) or [])
+        }
+    )
     payload = {
         "summary": {
             "enabled": [name for name, _ in commands],
