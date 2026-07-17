@@ -10,7 +10,6 @@ INTEGRATIONS = {
     "gbrain": "Use GBrain memory/source mapping?",
     "gitnexus": "Use GitNexus code graph context?",
     "obsidian": "Use Obsidian notes?",
-    "loop_library": "Use Matthew Berman / Forward Future Loop Library?",
 }
 
 
