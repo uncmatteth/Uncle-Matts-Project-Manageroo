@@ -88,12 +88,16 @@ class WorkspaceMirror:
                 + str(exc)
             ) from exc
 
+    def _discard_ignored_state(self) -> None:
+        self._git(["clean", "-fdX"])
+
     def _discard_uncheckpointed_state(self) -> None:
+        self._discard_ignored_state()
         status = self._git(["status", "--porcelain"])
         if status.stdout.strip():
             self._git(["reset", "--hard", "HEAD"])
-            self._git(["clean", "-fd"])
-            remaining = self._git(["status", "--porcelain"])
+            self._git(["clean", "-fdx"])
+            remaining = self._git(["status", "--porcelain", "--ignored"])
             if remaining.stdout.strip():
                 raise SafetyError(
                     "Run workspace contains unverified changes that could not be discarded safely."
@@ -137,6 +141,7 @@ class WorkspaceMirror:
         if not roots:
             raise SafetyError("Run workspace has no baseline commit.")
         self.baseline_commit = roots[0].strip()
+        self._discard_ignored_state()
         status = self._git(["status", "--porcelain"])
         if not status.stdout.strip():
             self._clear_pending_validation_marker()
@@ -165,6 +170,7 @@ class WorkspaceMirror:
         return sorted(changed)
 
     def checkpoint(self, message: str) -> str:
+        self._discard_ignored_state()
         self._git(["add", "-A"])
         status = self._git(["status", "--porcelain"])
         if status.stdout.strip():
