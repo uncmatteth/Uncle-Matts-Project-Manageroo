@@ -28,7 +28,7 @@ def _run_case(name: str, case: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     try:
         result = case()
         return _proof(name, bool(result.get("ok")), str(result.get("detail") or ""), result)
-    except Exception as exc:  # proof must report failures rather than hide them
+    except Exception as exc:
         return _proof(
             name,
             False,
@@ -61,7 +61,7 @@ def _full_lifecycle_case() -> dict[str, Any]:
     result = run_self_test()
     return {
         "ok": bool(result.get("ok") and result.get("status") == "COMPLETE"),
-        "detail": "controller completed a real fixture run and applied the verified result",
+        "detail": "controller completed a fixture run and applied the verified result",
         "run": result,
     }
 
@@ -192,31 +192,54 @@ def _source_root() -> Path | None:
     return None
 
 
-def _regression_suite_case() -> dict[str, Any]:
+def _run_regression_patterns(patterns: tuple[str, ...]) -> dict[str, Any]:
     root = _source_root()
     if root is None:
         return {
             "ok": False,
-            "detail": "source regression suite is unavailable from this installation",
+            "detail": "source regression evidence is unavailable from this installation",
             "available": False,
+            "patterns": list(patterns),
         }
-    completed = subprocess.run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
-        cwd=root,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        shell=False,
-        timeout=600,
-    )
-    output = completed.stdout or ""
+
+    runs: list[dict[str, Any]] = []
+    for pattern in patterns:
+        completed = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", pattern, "-v"],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            shell=False,
+            timeout=600,
+        )
+        output = completed.stdout or ""
+        runs.append(
+            {
+                "pattern": pattern,
+                "exit_code": completed.returncode,
+                "output_tail": output[-8000:],
+            }
+        )
+        if completed.returncode != 0:
+            return {
+                "ok": False,
+                "detail": f"adversarial regression failed: {pattern}",
+                "available": True,
+                "patterns": list(patterns),
+                "runs": runs,
+            }
     return {
-        "ok": completed.returncode == 0,
-        "detail": "full source regression suite passed" if completed.returncode == 0 else "full source regression suite failed",
+        "ok": True,
+        "detail": "all mapped adversarial regressions passed",
         "available": True,
-        "exit_code": completed.returncode,
-        "output_tail": output[-12000:],
+        "patterns": list(patterns),
+        "runs": runs,
     }
+
+
+def _regression_case(patterns: tuple[str, ...]) -> Callable[[], dict[str, Any]]:
+    return lambda: _run_regression_patterns(patterns)
 
 
 def run_product_proof(*, include_regression: bool = True) -> dict[str, Any]:
@@ -226,8 +249,33 @@ def run_product_proof(*, include_regression: bool = True) -> dict[str, Any]:
         _run_case("Scope and command enforcement", _scope_and_command_case),
         _run_case("Durable worker state and drift rejection", _durable_state_case),
     ]
+
+    regression_lanes = [
+        ("Context overflow, omission, and stale-packet defense", ("test_context.py",)),
+        ("Worker retry isolation and artifact integrity", ("test_job_runner.py", "test_jobs.py")),
+        ("Interrupted-run continuation and saved-queue replay", ("test_orchestrator_jobs.py",)),
+        ("Dishonest or insufficient acceptance evidence rejection", ("test_acceptance_evidence.py",)),
+        ("Intent-lock adversarial regression", ("test_intent_lock.py",)),
+        ("Policy enforcement adversarial regression", ("test_policy.py",)),
+        (
+            "Review, release, and truthful completion gates",
+            ("test_release_ready.py", "test_cli_release_ready.py", "test_truth_contract.py"),
+        ),
+    ]
+
     if include_regression:
-        checks.append(_run_case("Adversarial regression suite", _regression_suite_case))
+        for name, patterns in regression_lanes:
+            checks.append(_run_case(name, _regression_case(patterns)))
+        checks.append(_run_case("Full repository regression suite", _regression_case(("test_*.py",))))
+    else:
+        checks.append(
+            _proof(
+                "Source-level adversarial regression evidence",
+                False,
+                "skipped by operator; COMPLETE certification is therefore forbidden",
+                {"skipped": True},
+            )
+        )
 
     ok = all(item["ok"] for item in checks)
     status = "COMPLETE" if ok else "PARTIAL"
