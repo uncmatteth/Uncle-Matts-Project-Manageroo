@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from dataclasses import asdict, dataclass
@@ -86,6 +87,27 @@ class WorkspaceMirror:
                 "Run workspace contains unverified changes that could not be discarded safely."
             )
 
+    def _completed_write_job_may_own_dirty_state(self) -> bool:
+        jobs_root = self.run_root / "jobs"
+        if not jobs_root.is_dir():
+            return False
+        jobs: list[dict] = []
+        for path in sorted(jobs_root.glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise SafetyError(f"Run job state is unreadable during resume: {path}: {exc}") from exc
+            if not isinstance(payload, dict):
+                raise SafetyError(f"Run job state is invalid during resume: {path}")
+            jobs.append(payload)
+
+        if not jobs or any(str(job.get("status")) != "complete" for job in jobs):
+            return False
+        return any(
+            str(job.get("sandbox")) == "workspace-write"
+            for job in jobs
+        )
+
     def load_existing(self) -> Path:
         if not self.workspace.is_dir() or not (self.workspace / ".git").is_dir():
             raise SafetyError(f"Run workspace is missing or not a Git repository: {self.workspace}")
@@ -95,7 +117,9 @@ class WorkspaceMirror:
         if not roots:
             raise SafetyError("Run workspace has no baseline commit.")
         self.baseline_commit = roots[0].strip()
-        self._discard_uncheckpointed_state()
+        status = self._git(["status", "--porcelain"])
+        if status.stdout.strip() and not self._completed_write_job_may_own_dirty_state():
+            self._discard_uncheckpointed_state()
         return self.workspace
 
     def _git(self, args: list[str], *, hooks: bool = True):
@@ -133,8 +157,6 @@ class WorkspaceMirror:
         return destination
 
     def assert_source_unchanged(self) -> None:
-        import json
-
         snapshot = json.loads(self.snapshot_path.read_text(encoding="utf-8"))
         expected = {item["path"]: item for item in snapshot["files"]}
         current_paths = set(git_visible_files(self.source_repo, self.runner))
