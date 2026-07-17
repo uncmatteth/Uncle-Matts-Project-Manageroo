@@ -37,6 +37,12 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config["agent"]["executable"], "gemini")
             self.assertEqual(config["agent"]["prompt_transport"], "stdin")
             self.assertIn("--approval-mode=plan", config["agent"]["sandbox_read_only_argv"])
+            self.assertNotIn("--sandbox", config["agent"]["sandbox_read_only_argv"])
+            self.assertEqual(config["agent"]["doctor_argv"], ["gemini", "--help"])
+            self.assertEqual(
+                config["agent"]["required_help_flags"],
+                ["--approval-mode", "--prompt"],
+            )
             self.assertEqual(config["project"]["max_repair_cycles"], 2)
             self.assertGreater(config["budget"]["max_total_worker_calls"], 0)
 
