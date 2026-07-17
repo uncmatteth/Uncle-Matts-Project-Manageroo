@@ -10,9 +10,14 @@ from typing import Any, Callable
 from .errors import SafetyError
 from .intent_lock import audit_compaction_text, capture_intent_lock
 from .jobs import JobStatus, JobStore
+from .orchestrator import Orchestrator
 from .policy import CommandPolicy, ScopePolicy
+from .project import initialize_project
 from .runner import CommandRunner
 from .selftest import run_self_test
+
+
+LIVE_AGENT_CHOICES = ("codex", "claude-code", "gemini")
 
 
 def _proof(name: str, ok: bool, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -57,6 +62,47 @@ def _git_fixture(root: Path) -> Path:
     return repo
 
 
+def _configure_proof_project(repo: Path, *, agent: str) -> Path:
+    initialize_project(repo, agent=agent)
+    config_path = repo / ".manageroo" / "config.toml"
+    text = config_path.read_text(encoding="utf-8")
+    if "[[verification.gates]]" not in text:
+        text += (
+            "\n[[verification.gates]]\n"
+            'id = "product-proof-check"\n'
+            'kind = "test"\n'
+            "required = true\n"
+            "timeout_seconds = 60\n"
+            "argv = ["
+            + json.dumps(sys.executable)
+            + ', "-m", "unittest", "discover"]\n'
+        )
+    config_path.write_text(text, encoding="utf-8")
+
+    (repo / "test_product_proof.py").write_text(
+        "import unittest\n"
+        "from pathlib import Path\n\n"
+        "class ProductProofFixture(unittest.TestCase):\n"
+        "    def test_expected_result(self):\n"
+        "        self.assertEqual(\n"
+        "            Path('manageroo_live_agent_proof.txt').read_text(encoding='utf-8'),\n"
+        "            'MANAGEROO live agent proof completed\\n',\n"
+        "        )\n\n"
+        "if __name__ == '__main__': unittest.main()\n",
+        encoding="utf-8",
+    )
+    brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+    brief.write_text(
+        "# Product request\n\n"
+        "Create exactly one file named `manageroo_live_agent_proof.txt`.\n"
+        "Its exact contents must be `MANAGEROO live agent proof completed` followed by one newline.\n"
+        "Do not modify the existing test file.\n"
+        "The work is complete only when the configured unittest gate passes and independent review approves it.\n",
+        encoding="utf-8",
+    )
+    return brief
+
+
 def _full_lifecycle_case() -> dict[str, Any]:
     result = run_self_test()
     return {
@@ -64,6 +110,35 @@ def _full_lifecycle_case() -> dict[str, Any]:
         "detail": "controller completed a fixture run and applied the verified result",
         "run": result,
     }
+
+
+def _live_agent_case(agent: str) -> dict[str, Any]:
+    if agent not in LIVE_AGENT_CHOICES:
+        return {
+            "ok": False,
+            "detail": f"unsupported live-agent proof choice: {agent}",
+            "agent": agent,
+        }
+    with tempfile.TemporaryDirectory(prefix=f"manageroo-prove-{agent}-") as temp:
+        repo = _git_fixture(Path(temp))
+        brief = _configure_proof_project(repo, agent=agent)
+        result = Orchestrator(repo).run(
+            brief_path=brief,
+            mode="build",
+            apply_on_success=True,
+        )
+        target = repo / "manageroo_live_agent_proof.txt"
+        expected = "MANAGEROO live agent proof completed\n"
+        actual = target.read_text(encoding="utf-8") if target.is_file() else None
+        return {
+            "ok": result.get("status") == "COMPLETE" and actual == expected,
+            "detail": f"{agent} completed a disposable project under Manageroo control",
+            "agent": agent,
+            "run_id": result.get("run_id"),
+            "status": result.get("status"),
+            "target_exists": target.is_file(),
+            "target_exact": actual == expected,
+        }
 
 
 def _intent_preservation_case() -> dict[str, Any]:
@@ -242,7 +317,11 @@ def _regression_case(patterns: tuple[str, ...]) -> Callable[[], dict[str, Any]]:
     return lambda: _run_regression_patterns(patterns)
 
 
-def run_product_proof(*, include_regression: bool = True) -> dict[str, Any]:
+def run_product_proof(
+    *,
+    include_regression: bool = True,
+    live_agent: str | None = None,
+) -> dict[str, Any]:
     checks = [
         _run_case("Whole-project lifecycle", _full_lifecycle_case),
         _run_case("Intent preservation and compaction defense", _intent_preservation_case),
@@ -255,11 +334,18 @@ def run_product_proof(*, include_regression: bool = True) -> dict[str, Any]:
         ("Worker retry isolation and artifact integrity", ("test_job_runner.py", "test_jobs.py")),
         ("Interrupted-run continuation and saved-queue replay", ("test_orchestrator_jobs.py",)),
         ("Dishonest or insufficient acceptance evidence rejection", ("test_acceptance_evidence.py",)),
+        ("Optional-tool failure degrades without corrupting controller truth", ("test_external_intelligence.py",)),
         ("Intent-lock adversarial regression", ("test_intent_lock.py",)),
         ("Policy enforcement adversarial regression", ("test_policy.py",)),
         (
-            "Review, release, and truthful completion gates",
-            ("test_release_ready.py", "test_cli_release_ready.py", "test_truth_contract.py"),
+            "Bounded retry, review, release, and truthful completion gates",
+            (
+                "test_job_runner.py",
+                "test_orchestrator_jobs.py",
+                "test_release_ready.py",
+                "test_cli_release_ready.py",
+                "test_truth_contract.py",
+            ),
         ),
     ]
 
@@ -277,6 +363,18 @@ def run_product_proof(*, include_regression: bool = True) -> dict[str, Any]:
             )
         )
 
+    if live_agent:
+        checks.append(_run_case(f"Live coding-agent integration ({live_agent})", lambda: _live_agent_case(live_agent)))
+    else:
+        checks.append(
+            _proof(
+                "Live coding-agent integration",
+                False,
+                "no live agent selected; run `manageroo prove --live-agent codex` (or claude-code/gemini)",
+                {"skipped": True, "choices": list(LIVE_AGENT_CHOICES)},
+            )
+        )
+
     ok = all(item["ok"] for item in checks)
     status = "COMPLETE" if ok else "PARTIAL"
     blockers = [item["name"] for item in checks if not item["ok"]]
@@ -284,9 +382,10 @@ def run_product_proof(*, include_regression: bool = True) -> dict[str, Any]:
         "ok": ok,
         "status": status,
         "proof_version": 1,
+        "live_agent": live_agent or "",
         "checks": checks,
         "blockers": blockers,
-        "completion_rule": "COMPLETE is emitted only when every required machine-checked proof lane passes.",
+        "completion_rule": "COMPLETE is emitted only when every required machine-checked proof lane passes, including one live coding-agent run.",
     }
 
 
