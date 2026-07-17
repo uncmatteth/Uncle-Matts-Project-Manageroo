@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -30,6 +31,7 @@ class BudgetedAdapter(AgentAdapter):
         self.max_runtime_seconds = max(0.0, float(max_runtime_minutes) * 60.0)
         self.started_at = time.monotonic()
         self.state_path = state_path
+        self._lock = threading.RLock()
         self.calls = self._load_calls()
 
     def _load_calls(self) -> int:
@@ -58,11 +60,13 @@ class BudgetedAdapter(AgentAdapter):
 
     def doctor(self, cwd: Path) -> dict:
         result = dict(self.inner.doctor(cwd))
+        with self._lock:
+            calls = self.calls
         result["budget"] = {
             "max_total_worker_calls": self.max_total_worker_calls,
-            "worker_calls_consumed": self.calls,
+            "worker_calls_consumed": calls,
             "worker_calls_remaining": (
-                max(0, self.max_total_worker_calls - self.calls)
+                max(0, self.max_total_worker_calls - calls)
                 if self.max_total_worker_calls
                 else None
             ),
@@ -76,22 +80,23 @@ class BudgetedAdapter(AgentAdapter):
             return None
         return self.max_runtime_seconds - (time.monotonic() - self.started_at)
 
-    def _check_budget(self) -> float | None:
-        if self.max_total_worker_calls and self.calls >= self.max_total_worker_calls:
-            raise AgentExecutionError(
-                f"Manageroo worker-call budget exhausted at {self.calls} calls."
-            )
-        remaining = self._remaining_runtime_seconds()
-        if remaining is not None and remaining <= 0:
-            raise AgentExecutionError(
-                "Manageroo runtime budget exhausted before launching another worker."
-            )
-        return remaining
+    def _reserve_call(self) -> float | None:
+        with self._lock:
+            if self.max_total_worker_calls and self.calls >= self.max_total_worker_calls:
+                raise AgentExecutionError(
+                    f"Manageroo worker-call budget exhausted at {self.calls} calls."
+                )
+            remaining = self._remaining_runtime_seconds()
+            if remaining is not None and remaining <= 0:
+                raise AgentExecutionError(
+                    "Manageroo runtime budget exhausted before launching another worker."
+                )
+            self.calls += 1
+            self._persist()
+            return remaining
 
     def run(self, request: AgentRequest) -> AgentResponse:
-        remaining = self._check_budget()
-        self.calls += 1
-        self._persist()
+        remaining = self._reserve_call()
         bounded_request = request
         if remaining is not None:
             bounded_request = replace(
