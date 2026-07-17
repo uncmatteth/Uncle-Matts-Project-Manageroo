@@ -71,15 +71,31 @@ class TransactionalAdapter(AgentAdapter):
                 + clean.stderr
             )
 
+    def _discard_failed_outputs(self, request: AgentRequest) -> None:
+        candidates = [
+            request.output_path,
+            request.output_path.with_suffix(".validated.json"),
+        ]
+        for path in candidates:
+            try:
+                if path.is_file():
+                    path.unlink()
+            except OSError as exc:
+                raise AgentExecutionError(
+                    f"Failed worker output could not be discarded safely: {path}: {exc}"
+                ) from exc
+
     def run(self, request: AgentRequest) -> AgentResponse:
         head = self._head(request.cwd)
         try:
             response = self.inner.run(request)
         except Exception:
             self._rollback(request.cwd, head)
+            self._discard_failed_outputs(request)
             raise
         if request.sandbox == "read-only" and self._dirty(request.cwd):
             self._rollback(request.cwd, head)
+            self._discard_failed_outputs(request)
             raise SafetyError(
                 f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
             )
