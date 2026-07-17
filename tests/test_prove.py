@@ -10,16 +10,17 @@ from manageroo.prove import format_product_proof, run_product_proof
 
 
 class ProductProofTests(unittest.TestCase):
-    def test_product_proof_core_lanes_pass_without_source_regression_rerun(self):
+    def test_product_proof_core_lanes_pass_but_skipped_regression_forbids_complete(self):
         report = run_product_proof(include_regression=False)
-        self.assertTrue(report["ok"], report)
-        self.assertEqual(report["status"], "COMPLETE")
-        self.assertEqual(report["blockers"], [])
-        names = {item["name"] for item in report["checks"]}
-        self.assertIn("Whole-project lifecycle", names)
-        self.assertIn("Intent preservation and compaction defense", names)
-        self.assertIn("Scope and command enforcement", names)
-        self.assertIn("Durable worker state and drift rejection", names)
+        self.assertFalse(report["ok"], report)
+        self.assertEqual(report["status"], "PARTIAL")
+        self.assertIn("Source-level adversarial regression evidence", report["blockers"])
+        by_name = {item["name"]: item for item in report["checks"]}
+        self.assertTrue(by_name["Whole-project lifecycle"]["ok"])
+        self.assertTrue(by_name["Intent preservation and compaction defense"]["ok"])
+        self.assertTrue(by_name["Scope and command enforcement"]["ok"])
+        self.assertTrue(by_name["Durable worker state and drift rejection"]["ok"])
+        self.assertFalse(by_name["Source-level adversarial regression evidence"]["ok"])
 
     def test_product_proof_never_formats_complete_when_a_required_lane_fails(self):
         report = {
