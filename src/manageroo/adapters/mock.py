@@ -21,8 +21,17 @@ class MockAdapter(AgentAdapter):
                 "product_name": "Fixture Product",
                 "goal": "Satisfy the supplied product brief.",
                 "personas": [{"name": "operator", "need": "a working product"}],
-                "capabilities": [{"id": "CAP-001", "name": "Requested capability", "description": "Implement the requested behavior."}],
-                "user_journeys": [{"id": "J-001", "name": "Primary journey", "steps": ["perform request"], "success": "observable success"}],
+                "capabilities": [{
+                    "id": "CAP-001",
+                    "name": "Requested capability",
+                    "description": "Implement the requested behavior.",
+                }],
+                "user_journeys": [{
+                    "id": "J-001",
+                    "name": "Primary journey",
+                    "steps": ["perform request"],
+                    "success": "observable success",
+                }],
                 "non_goals": [],
                 "constraints": ["Preserve existing behavior outside the task."],
                 "acceptance_outcomes": ["Configured verification gates pass."],
@@ -44,7 +53,11 @@ class MockAdapter(AgentAdapter):
         elif role == "repository-mapper":
             data = {
                 "chunk_id": metadata.get("chunk_id", "chunk-1"),
-                "modules": [{"name": "fixture", "paths": metadata.get("paths", []), "responsibility": "fixture code"}],
+                "modules": [{
+                    "name": "fixture",
+                    "paths": metadata.get("paths", []),
+                    "responsibility": "fixture code",
+                }],
                 "interfaces": [],
                 "data_flows": [],
                 "trust_boundaries": [],
@@ -52,7 +65,11 @@ class MockAdapter(AgentAdapter):
             }
         elif role == "map-reducer":
             data = {
-                "modules": [{"name": "fixture", "paths": metadata.get("all_paths", []), "responsibility": "fixture code"}],
+                "modules": [{
+                    "name": "fixture",
+                    "paths": metadata.get("all_paths", []),
+                    "responsibility": "fixture code",
+                }],
                 "interfaces": [],
                 "data_flows": [],
                 "trust_boundaries": [],
@@ -61,6 +78,7 @@ class MockAdapter(AgentAdapter):
             }
         elif role == "plan-compiler":
             target = metadata.get("fixture_target", "manageroo_fixture.txt")
+            gate_ids = metadata.get("gate_ids", ["fixture-check"])
             data = {
                 "summary": "Implement the brief as one bounded task.",
                 "tasks": [{
@@ -71,13 +89,16 @@ class MockAdapter(AgentAdapter):
                     "allowed_paths": [target],
                     "context_paths": [],
                     "acceptance": ["required gates pass"],
-                    "gate_ids": metadata.get("gate_ids", ["fixture-check"]),
+                    "gate_ids": gate_ids,
                     "risk": "low",
                 }],
                 "demonstration": {
                     "required": False,
-                    "gate_ids": metadata.get("gate_ids", ["fixture-check"]),
-                    "product_evidence": ["verification output"],
+                    "gate_ids": gate_ids,
+                    "product_evidence": [{
+                        "outcome": "Configured verification gates pass.",
+                        "gate_ids": gate_ids,
+                    }],
                 },
                 "global_invariants": ["Do not edit outside task scope."],
             }
