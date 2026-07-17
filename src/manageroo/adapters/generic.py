@@ -115,17 +115,19 @@ class GenericAdapter(AgentAdapter):
 
         missing: list[str] = []
         help_exit_code: int | None = None
-        help_text = ""
         if self.doctor_argv:
             result = self.runner.run(
                 self.doctor_argv,
                 cwd=cwd,
                 timeout_seconds=30,
             )
-            help_exit_code = result.exit_code
-            help_text = (result.stdout or "") + "\n" + (result.stderr or "")
+            passed = bool(getattr(result, "passed", False))
+            help_exit_code = int(getattr(result, "exit_code", 0 if passed else 1))
+            help_text = (getattr(result, "stdout", "") or "") + "\n" + (
+                getattr(result, "stderr", "") or ""
+            )
             missing = [flag for flag in self.required_help_flags if flag not in help_text]
-            if not result.passed:
+            if not passed:
                 missing = list(self.required_help_flags) or ["doctor command failed"]
 
         return {
