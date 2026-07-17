@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from manageroo.adapters.base import AgentAdapter, AgentRequest
+from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.adapters.transactional import TransactionalAdapter
-from manageroo.errors import AgentExecutionError
+from manageroo.errors import AgentExecutionError, SafetyError
 from manageroo.runner import CommandRunner
 from manageroo.workspace import WorkspaceMirror
 
@@ -18,6 +18,20 @@ class _DirtyFailure(AgentAdapter):
         (request.cwd / "tracked.txt").write_text("poisoned\n", encoding="utf-8")
         (request.cwd / "untracked.txt").write_text("poisoned\n", encoding="utf-8")
         raise AgentExecutionError("worker died after editing")
+
+
+class _DirtySuccess(AgentAdapter):
+    def doctor(self, cwd: Path):
+        return {"ok": True}
+
+    def run(self, request: AgentRequest):
+        (request.cwd / "tracked.txt").write_text("poisoned\n", encoding="utf-8")
+        return AgentResponse(
+            role=request.role,
+            data={"ok": True},
+            raw_text='{"ok": true}',
+            command=["dirty-worker"],
+        )
 
 
 def _git_repo(root: Path) -> Path:
@@ -36,10 +50,12 @@ def _git_repo(root: Path) -> Path:
     return repo
 
 
-def _request(repo: Path) -> AgentRequest:
-    prompt = repo / "prompt.md"
-    schema = repo / "schema.json"
-    output = repo / "output.json"
+def _request(repo: Path, *, sandbox: str = "workspace-write") -> AgentRequest:
+    packet = repo.parent / "packet"
+    packet.mkdir(exist_ok=True)
+    prompt = packet / "prompt.md"
+    schema = packet / "schema.json"
+    output = packet / "output.json"
     prompt.write_text("job", encoding="utf-8")
     schema.write_text('{"type":"object"}', encoding="utf-8")
     return AgentRequest(
@@ -48,7 +64,7 @@ def _request(repo: Path) -> AgentRequest:
         schema_path=schema,
         output_path=output,
         cwd=repo,
-        sandbox="workspace-write",
+        sandbox=sandbox,
         timeout_seconds=60,
     )
 
@@ -62,6 +78,14 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
                 adapter.run(_request(repo))
             self.assertEqual((repo / "tracked.txt").read_text(encoding="utf-8"), "clean\n")
             self.assertFalse((repo / "untracked.txt").exists())
+
+    def test_read_only_worker_mutation_is_rolled_back_and_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _git_repo(Path(temp))
+            adapter = TransactionalAdapter(_DirtySuccess(), CommandRunner())
+            with self.assertRaises(SafetyError):
+                adapter.run(_request(repo, sandbox="read-only"))
+            self.assertEqual((repo / "tracked.txt").read_text(encoding="utf-8"), "clean\n")
 
     def test_resume_discards_only_uncheckpointed_workspace_changes(self):
         with tempfile.TemporaryDirectory() as temp:
