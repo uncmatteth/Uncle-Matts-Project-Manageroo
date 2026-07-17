@@ -21,8 +21,12 @@ SUPER_TEAM = [
             "Makes agent loops easy to understand: bounded task, verifier, "
             "stop rule, and evidence."
         ),
-        "credit": "Loop Library and plain-language loop framing.",
-        "url": "https://signals.forwardfuture.ai/loop-library/",
+        "credit": (
+            "Plain-language framing of bounded action, independent verification, "
+            "budgets, stop rules, and evidence. This is conceptual influence; "
+            "Manageroo has no Loop Library runtime dependency."
+        ),
+        "url": "https://signals.forwardfuture.com/loop-library/",
     },
     {
         "name": "Garry Tan / GBrain",
