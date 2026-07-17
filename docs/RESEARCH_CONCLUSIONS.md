@@ -9,9 +9,11 @@ The ecosystem already contains strong individual components:
 - GitNexus: code graph and impact analysis.
 - GBrain: durable agent memory and retrieval.
 - Clawpatch and AUTOREVIEW: review and repair workflows.
-- Matthew Berman / Forward Future's Loop Library and the loop-engineering
-  discussion: clear language for goals, loops, routines, independent
+- Matthew Berman / Forward Future's public loop-engineering work, including Loop
+  Library: conceptual framing for goals, bounded actions, independent
   verification, budgets, anti-spin stops, completion contracts, and evidence.
+  MANAGEROO implements those ideas natively and has no catalog or runtime
+  dependency on Loop Library.
 - Peter Yang's public skill-writing advice: long-running threads work better
   when reusable skills have clear triggers and get periodically edited down
   instead of growing duplicate, stale, or vague instructions.
