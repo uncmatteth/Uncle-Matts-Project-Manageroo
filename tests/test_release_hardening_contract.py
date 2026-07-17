@@ -31,7 +31,6 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "tests/test_acceptance_evidence.py",
             "tests/test_external_repair_resume.py",
             "tests/test_release_hardening_contract.py",
-            "tests/test_universal_adapter.py",
             "tests/test_worker_attempt_isolation.py",
             "tests/test_worker_pool.py",
         }
