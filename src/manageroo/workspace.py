@@ -74,6 +74,18 @@ class WorkspaceMirror:
         hook.chmod(0o755)
         return self.workspace
 
+    def _discard_uncheckpointed_state(self) -> None:
+        status = self._git(["status", "--porcelain"])
+        if not status.stdout.strip():
+            return
+        self._git(["reset", "--hard", "HEAD"])
+        self._git(["clean", "-fd"])
+        remaining = self._git(["status", "--porcelain"])
+        if remaining.stdout.strip():
+            raise SafetyError(
+                "Run workspace contains unverified changes that could not be discarded safely."
+            )
+
     def load_existing(self) -> Path:
         if not self.workspace.is_dir() or not (self.workspace / ".git").is_dir():
             raise SafetyError(f"Run workspace is missing or not a Git repository: {self.workspace}")
@@ -83,6 +95,7 @@ class WorkspaceMirror:
         if not roots:
             raise SafetyError("Run workspace has no baseline commit.")
         self.baseline_commit = roots[0].strip()
+        self._discard_uncheckpointed_state()
         return self.workspace
 
     def _git(self, args: list[str], *, hooks: bool = True):
