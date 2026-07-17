@@ -14,6 +14,16 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("{prompt}", config["agent"]["argv_template"])
         self.assertEqual(config["integrations"]["document_analysis_command"], [])
 
+    def test_auto_config_is_vendor_neutral_and_budgeted(self):
+        config = tomllib.loads(config_template("auto", []))
+        self.assertEqual(config["agent"]["adapter"], "auto")
+        self.assertEqual(
+            config["agent"]["candidates"],
+            ["codex", "claude-code", "gemini"],
+        )
+        self.assertGreater(config["budget"]["max_total_worker_calls"], 0)
+        self.assertGreater(config["budget"]["max_runtime_minutes"], 0)
+
     def test_apply_agent_preset_replaces_only_agent_block(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -25,7 +35,10 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(result["preset"], "gemini")
             self.assertEqual(config["agent"]["adapter"], "generic")
             self.assertEqual(config["agent"]["executable"], "gemini")
+            self.assertEqual(config["agent"]["prompt_transport"], "stdin")
+            self.assertIn("--approval-mode=plan", config["agent"]["sandbox_read_only_argv"])
             self.assertEqual(config["project"]["max_repair_cycles"], 2)
+            self.assertGreater(config["budget"]["max_total_worker_calls"], 0)
 
 
 if __name__ == "__main__":
