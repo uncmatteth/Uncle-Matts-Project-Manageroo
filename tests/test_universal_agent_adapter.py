@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.adapters.base import AgentRequest
 from manageroo.adapters.budget import BudgetedAdapter
@@ -12,15 +13,17 @@ from manageroo.errors import ConfigurationError
 
 
 class _Result:
-    def __init__(self, stdout='{"ok": true}', stderr="", passed=True):
+    def __init__(self, stdout='{"ok": true}', stderr="", passed=True, exit_code=None):
         self.stdout = stdout
         self.stderr = stderr
         self.passed = passed
+        self.exit_code = (0 if passed else 1) if exit_code is None else exit_code
 
 
 class _Runner:
-    def __init__(self):
+    def __init__(self, *, result=None):
         self.calls = []
+        self.result = result or _Result()
 
     def run(self, argv, *, cwd, timeout_seconds, input_text=None, log_name=None, **kwargs):
         self.calls.append(
@@ -32,7 +35,7 @@ class _Runner:
                 "log_name": log_name,
             }
         )
-        return _Result()
+        return self.result
 
 
 def _request(root: Path) -> AgentRequest:
@@ -138,6 +141,36 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                     with self.assertRaises(ConfigurationError):
                         adapter.run(request)
 
+    def test_generic_doctor_rejects_incompatible_provider_cli(self):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.adapters.generic.shutil.which", return_value="/usr/bin/provider"
+        ):
+            adapter = GenericAdapter(
+                ["provider", "-p", "job"],
+                _Runner(result=_Result(stdout="--prompt only")),
+                prompt_transport="stdin",
+                doctor_argv=["provider", "--help"],
+                required_help_flags=["--prompt", "--approval-mode"],
+            )
+            doctor = adapter.doctor(Path(temp))
+            self.assertFalse(doctor["ok"])
+            self.assertEqual(doctor["missing_required_flags"], ["--approval-mode"])
+
+    def test_generic_doctor_accepts_compatible_provider_cli(self):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.adapters.generic.shutil.which", return_value="/usr/bin/provider"
+        ):
+            adapter = GenericAdapter(
+                ["provider", "-p", "job"],
+                _Runner(result=_Result(stdout="--prompt --approval-mode")),
+                prompt_transport="stdin",
+                doctor_argv=["provider", "--help"],
+                required_help_flags=["--prompt", "--approval-mode"],
+            )
+            doctor = adapter.doctor(Path(temp))
+            self.assertTrue(doctor["ok"])
+            self.assertEqual(doctor["missing_required_flags"], [])
+
     def test_factory_builds_transactional_protocol_for_any_generic_worker(self):
         runner = _Runner()
         adapter = build_adapter(
@@ -164,8 +197,11 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             self.assertEqual(preset["prompt_transport"], "stdin")
             self.assertNotIn("{prompt_text}", preset["argv_template"])
             self.assertNotIn("{prompt}", preset["argv_template"])
+            self.assertTrue(preset["doctor_argv"])
+            self.assertTrue(preset["required_help_flags"])
         self.assertEqual(claude["sandbox_read_only_argv"], ["--permission-mode", "plan"])
-        self.assertIn("--approval-mode=plan", gemini["sandbox_read_only_argv"])
+        self.assertEqual(gemini["sandbox_read_only_argv"], ["--approval-mode=plan"])
+        self.assertNotIn("--sandbox", gemini["sandbox_read_only_argv"])
 
     def test_generic_protocol_is_not_vendor_limited(self):
         preset = {
