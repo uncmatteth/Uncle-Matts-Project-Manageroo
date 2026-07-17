@@ -15,7 +15,6 @@
 - Obsidian
 - AUTOREVIEW
 - Clawpatch
-- Loop Library catalog
 
 These are the intended surrounding tools. Interactive installs ask before
 installing or guiding them. Non-interactive installs skip them unless
@@ -98,14 +97,6 @@ Copied skill folders can be curated locally with
 --apply`. This imports skill entrypoints plus their support files, backs up
 same-name conflicts, reports duplicate names across scanned roots, and does not
 fetch anything from the network.
-
-## Loop Library
-
-MANAGEROO can read Matthew Berman / Forward Future's live Loop Library
-catalog, cache it locally for offline fallback, print a controller profile, and
-generate a local product brief from a selected loop. That is a network read of
-public catalog data, not a package dependency. Installing the Loop Library skill
-itself remains optional and must be requested separately.
 
 ## AUTOREVIEW and Clawpatch
 
