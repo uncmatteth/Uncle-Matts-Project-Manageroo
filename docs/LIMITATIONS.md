@@ -3,7 +3,7 @@
 1. No coding system can guarantee that a natural-language product idea is complete or internally consistent.
 2. “One shot” can remove operator-managed engineering iteration; it cannot safely infer every irreversible product decision.
 3. Model-generated architecture and code remain probabilistic.
-4. Passing tests only proves what the tests and runtime demonstrations actually cover. Manageroo now requires each product acceptance outcome to bind to specific proof gates; a green unrelated test cannot prove a different promise.
+4. Passing tests only proves what the tests and runtime demonstrations cover. Manageroo requires each product acceptance outcome to bind to specific proof gates; a green unrelated test cannot prove a different promise.
 5. The built-in context token estimator is conservative character-based estimation, not a provider tokenizer.
 6. At least one selected or automatically discovered live coding-agent adapter must be installed, authenticated when needed, and able to satisfy the Manageroo worker protocol.
 7. The automatic worker pool can fall back across compatible installed providers for execution or protocol failures. It does not treat Manageroo safety violations as provider failures and does not bypass a blocking safety decision by switching models.
@@ -12,7 +12,7 @@
 10. The isolated mirror excludes Git-ignored files. Applications that require ignored generated assets, dependency trees, local secrets, or machine-specific state must provide them through a controlled reproducible environment. Manageroo intentionally does not copy ignored secrets or arbitrary local state into the isolated workspace.
 11. Symlinks are excluded from the mirror in the current implementation to prevent path escape.
 12. Independent map and review chunks can run in parallel. Implementation tasks remain dependency ordered for correctness.
-13. Media support is bounded support. MANAGEROO records images, PDFs, and design/media assets in inventory and can use configured document/media evidence lanes, but it does not pretend metadata alone is real visual understanding.
+13. Media support is bounded support. MANAGEROO records images, PDFs, and design/media assets in inventory and can use configured document/media evidence lanes, but it does not perform real vision interpretation or design understanding. It does not pretend metadata alone is real visual understanding.
 14. Long prose support includes line counts, summaries, document manifests, optional `document_analysis_command` output, explicit summary context, and task decomposition. Exact edits still require bounded line ranges or an external document-specific command that owns the evidence.
 15. GBrain, GitNexus, Clawpatch, AUTOREVIEW, and Obsidian integrations require local configuration and are not silently installed.
 16. Configured AUTOREVIEW and Clawpatch commands are deterministic command-owned lanes. MANAGEROO captures their output and can accept their scoped edits, but it does not ask the AI repairer to freehand fixes from their findings.
