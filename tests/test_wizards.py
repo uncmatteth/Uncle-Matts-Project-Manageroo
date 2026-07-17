@@ -10,16 +10,16 @@ def input_from(values):
 
 
 class WizardTests(unittest.TestCase):
-    def test_setup_answers_prompt_for_agent_repo_and_stack_choices(self):
+    def test_setup_answers_default_to_auto_worker_without_provider_question(self):
         messages: list[str] = []
         answers = collect_setup_answers(
             repo=None,
             agent=None,
             interactive=True,
-            input_fn=input_from(["gemini", "/tmp/product", "y", "n", "y", "n"]),
+            input_fn=input_from(["/tmp/product", "y", "n", "y", "n"]),
             output_fn=messages.append,
         )
-        self.assertEqual(answers["agent"], "gemini")
+        self.assertEqual(answers["agent"], "auto")
         self.assertEqual(answers["repo"], Path("/tmp/product"))
         self.assertEqual(
             answers["integrations"],
@@ -30,15 +30,23 @@ class WizardTests(unittest.TestCase):
                 "loop_library": False,
             },
         )
-        self.assertTrue(any("What AI" in message for message in messages))
+        self.assertFalse(any("What AI" in message for message in messages))
+
+    def test_setup_answers_respect_explicit_agent_override(self):
+        answers = collect_setup_answers(
+            repo="/tmp/product",
+            agent="gemini",
+            interactive=False,
+        )
+        self.assertEqual(answers["agent"], "gemini")
 
     def test_setup_answers_noninteractive_defaults_are_safe(self):
         answers = collect_setup_answers(repo=None, agent=None, interactive=False)
-        self.assertEqual(answers["agent"], "codex")
+        self.assertEqual(answers["agent"], "auto")
         self.assertEqual(answers["repo"], Path("."))
         self.assertFalse(any(answers["integrations"].values()))
 
-    def test_solo_answers_collect_human_build_request(self):
+    def test_solo_answers_collect_human_build_request_without_provider_question(self):
         messages: list[str] = []
         answers = collect_solo_answers(
             repo=None,
@@ -56,7 +64,6 @@ class WizardTests(unittest.TestCase):
             interactive=True,
             input_fn=input_from(
                 [
-                    "mock",
                     "/tmp/product",
                     "Make checkout sane",
                     "Solo shop owner",
@@ -74,7 +81,7 @@ class WizardTests(unittest.TestCase):
             ),
             output_fn=messages.append,
         )
-        self.assertEqual(answers["agent"], "mock")
+        self.assertEqual(answers["agent"], "auto")
         self.assertEqual(answers["repo"], Path("/tmp/product"))
         self.assertEqual(answers["want"], "Make checkout sane")
         self.assertEqual(answers["outcomes"], ["One clear payment path"])
@@ -84,6 +91,7 @@ class WizardTests(unittest.TestCase):
         self.assertTrue(answers["integrations"]["gbrain"])
         self.assertTrue(answers["run"])
         self.assertTrue(any("solo product team" in message for message in messages))
+        self.assertFalse(any("What AI" in message for message in messages))
 
     def test_gbrain_answers_prompt_for_selected_source_only(self):
         answers = collect_gbrain_answers(
