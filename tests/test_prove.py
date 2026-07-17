@@ -96,6 +96,16 @@ class ProductProofTests(unittest.TestCase):
                         self.assertEqual(entrypoint.main(), 2)
         run.assert_called_once_with(include_regression=False, live_agent=None)
 
+    def test_bare_init_routes_to_automatic_worker_pool(self):
+        self.assertEqual(
+            entrypoint._provider_neutral_argv(["init", "."]),
+            ["init", ".", "--agent", "auto"],
+        )
+        self.assertEqual(
+            entrypoint._provider_neutral_argv(["init", ".", "--agent", "gemini"]),
+            ["init", ".", "--agent", "gemini"],
+        )
+
     def test_root_help_surfaces_product_proof_command(self):
         output = io.StringIO()
         with patch.object(sys, "argv", ["manageroo", "--help"]):
