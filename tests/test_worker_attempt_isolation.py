@@ -67,7 +67,7 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = _git_repo(root)
-            run_root = source / ".manageroo" / "runs" / "resume-test"
+            run_root = root / "run" / "resume-test"
             run_root.mkdir(parents=True)
             mirror = WorkspaceMirror(source, run_root, CommandRunner())
             workspace = mirror.create()
