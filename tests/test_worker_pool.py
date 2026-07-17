@@ -84,6 +84,27 @@ class WorkerPoolTests(unittest.TestCase):
             with self.assertRaisesRegex(AgentExecutionError, "budget exhausted"):
                 budgeted.run(request)
 
+    def test_worker_call_budget_survives_adapter_reconstruction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ledger = root / "controller" / "budget.json"
+            first = BudgetedAdapter(
+                _Worker(),
+                max_total_worker_calls=1,
+                state_path=ledger,
+            )
+            first.run(_request(root))
+            self.assertTrue(ledger.is_file())
+
+            resumed = BudgetedAdapter(
+                _Worker(),
+                max_total_worker_calls=1,
+                state_path=ledger,
+            )
+            self.assertEqual(resumed.calls, 1)
+            with self.assertRaisesRegex(AgentExecutionError, "budget exhausted"):
+                resumed.run(_request(root))
+
 
 if __name__ == "__main__":
     unittest.main()
