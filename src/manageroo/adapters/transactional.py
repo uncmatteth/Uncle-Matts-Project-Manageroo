@@ -3,16 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
-from ..errors import AgentExecutionError
+from ..errors import AgentExecutionError, SafetyError
 from ..runner import CommandRunner
 
 
 class TransactionalAdapter(AgentAdapter):
-    """Rollback unverified repository edits when a worker attempt fails.
+    """Rollback failed attempts and forbid successful read-only mutation.
 
-    Successful worker edits remain available for Manageroo's controller-owned scope,
-    gate, review, and checkpoint logic. A worker that crashes or violates the output
-    protocol cannot poison the next provider or retry with leftover filesystem state.
+    Successful write-worker edits remain available for Manageroo's controller-owned
+    scope, gate, review, and checkpoint logic. A worker that crashes, violates the
+    output protocol, or mutates a read-only repository cannot poison later work.
     """
 
     def __init__(self, inner: AgentAdapter, runner: CommandRunner):
@@ -22,6 +22,7 @@ class TransactionalAdapter(AgentAdapter):
     def doctor(self, cwd: Path) -> dict:
         result = dict(self.inner.doctor(cwd))
         result["transactional_attempts"] = True
+        result["read_only_mutation_enforced"] = True
         return result
 
     def _head(self, cwd: Path) -> str:
@@ -36,6 +37,18 @@ class TransactionalAdapter(AgentAdapter):
                 + result.stderr
             )
         return result.stdout.strip()
+
+    def _dirty(self, cwd: Path) -> bool:
+        result = self.runner.run(
+            ["git", "status", "--porcelain"],
+            cwd=cwd,
+            timeout_seconds=30,
+        )
+        if not result.passed:
+            raise AgentExecutionError(
+                "Manageroo could not verify worker-attempt repository state: " + result.stderr
+            )
+        return bool(result.stdout.strip())
 
     def _rollback(self, cwd: Path, head: str) -> None:
         reset = self.runner.run(
@@ -61,7 +74,13 @@ class TransactionalAdapter(AgentAdapter):
     def run(self, request: AgentRequest) -> AgentResponse:
         head = self._head(request.cwd)
         try:
-            return self.inner.run(request)
+            response = self.inner.run(request)
+            if request.sandbox == "read-only" and self._dirty(request.cwd):
+                self._rollback(request.cwd, head)
+                raise SafetyError(
+                    f"Read-only worker {request.role!r} mutated its repository; edits were discarded."
+                )
+            return response
         except Exception:
             self._rollback(request.cwd, head)
             raise
