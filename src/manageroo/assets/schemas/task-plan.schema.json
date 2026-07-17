@@ -10,8 +10,26 @@
         },
         "product_evidence": {
           "items": {
-            "type": "string"
+            "properties": {
+              "gate_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "outcome": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "outcome",
+              "gate_ids"
+            ],
+            "type": "object"
           },
+          "minItems": 1,
           "type": "array"
         },
         "required": {
