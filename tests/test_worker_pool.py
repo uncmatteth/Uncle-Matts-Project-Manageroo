@@ -66,6 +66,15 @@ class WorkerPoolTests(unittest.TestCase):
                 pool.run(_request(Path(temp)))
             self.assertEqual(second.calls, 0)
 
+    def test_empty_pool_reports_not_ready_and_fails_cleanly_on_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            pool = WorkerPoolAdapter([])
+            doctor = pool.doctor(Path(temp))
+            self.assertFalse(doctor["ok"])
+            self.assertIn("No supported live coding-agent", doctor["error"])
+            with self.assertRaisesRegex(AgentExecutionError, "no usable live coding worker"):
+                pool.run(_request(Path(temp)))
+
     def test_worker_call_budget_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             worker = _Worker()
