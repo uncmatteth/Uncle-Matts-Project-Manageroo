@@ -31,6 +31,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "src/manageroo/adapters/pool.py",
             "src/manageroo/adapters/transactional.py",
             "tests/test_acceptance_evidence.py",
+            "tests/test_external_loop_library_removed.py",
             "tests/test_external_repair_resume.py",
             "tests/test_parallel_worker_logging.py",
             "tests/test_plan_proof_policy.py",
