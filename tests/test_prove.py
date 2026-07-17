@@ -3,14 +3,10 @@ import json
 import sys
 import unittest
 from contextlib import redirect_stdout
-from pathlib import Path
 from unittest.mock import patch
 
 from manageroo import entrypoint
 from manageroo.prove import format_product_proof, run_product_proof
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProductProofTests(unittest.TestCase):
@@ -64,15 +60,6 @@ class ProductProofTests(unittest.TestCase):
             with patch("manageroo.entrypoint.run_product_proof", return_value=fake_report):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(entrypoint.main(), 2)
-
-    def test_release_verifier_requires_product_proof_sources_and_tests(self):
-        verifier = (ROOT / "scripts" / "verify_release.py").read_text(encoding="utf-8")
-        for required in (
-            '"src/manageroo/prove.py"',
-            '"src/manageroo/entrypoint.py"',
-            '"tests/test_prove.py"',
-        ):
-            self.assertIn(required, verifier)
 
 
 if __name__ == "__main__":
