@@ -1,5 +1,9 @@
+import io
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+
+from manageroo.cli import parser
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -9,6 +13,13 @@ class ExternalLoopLibraryRemovalTests(unittest.TestCase):
     def test_catalog_runtime_and_tests_are_absent(self):
         self.assertFalse((ROOT / "src" / "manageroo" / "loop_library.py").exists())
         self.assertFalse((ROOT / "tests" / "test_loop_library.py").exists())
+
+    def test_removed_cli_command_and_solo_flag_are_rejected(self):
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser().parse_args(["loop-library", "search", "docs"])
+            with self.assertRaises(SystemExit):
+                parser().parse_args(["solo", "--use-loop-library"])
 
     def test_runtime_and_installer_surfaces_do_not_expose_external_integration(self):
         surfaces = [
