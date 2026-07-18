@@ -99,3 +99,7 @@ if ($NoAnimation) { $InstallArgs += "--no-animation" }
 if ($LASTEXITCODE -ne 0) {
     throw "MANAGEROO installer failed with exit code $LASTEXITCODE"
 }
+
+Write-Host ""
+Write-Host "System capacity: run 'manageroo capacity' to inspect CPU, RAM, GPU/VRAM, free disk, and conservative worker concurrency."
+Write-Host "Manageroo uses that profile as development context; it does not treat this machine as the product minimum requirement."
