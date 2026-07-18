@@ -73,7 +73,11 @@ def render_blocking_questions(run_root: Path) -> Path | None:
     return markdown_path
 
 
-def apply_resolved_decisions(run_root: Path) -> bool:
+def apply_resolved_decisions(
+    run_root: Path,
+    *,
+    artifact_store: Any | None = None,
+) -> bool:
     _, resolved_path, product_path, markdown_path = _decision_paths(run_root)
     if not resolved_path.is_file():
         return False
@@ -116,10 +120,15 @@ def apply_resolved_decisions(run_root: Path) -> bool:
         )
 
     atomic_write_json(product_path, product)
-    atomic_write_json(
-        _resolution_path(run_root),
-        {"applied_at": utc_now(), "answers": applied},
-    )
+    resolution = {"applied_at": utc_now(), "answers": applied}
+    if artifact_store is None:
+        atomic_write_json(_resolution_path(run_root), resolution)
+    else:
+        artifact_store.write_json(
+            "planning/decision-resolution.json",
+            resolution,
+            lock=True,
+        )
     if markdown_path.exists():
         markdown_path.unlink()
     resolved_path.unlink()
@@ -207,7 +216,10 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
 
     def discovery_run(self, *args, **kwargs):
         if self.continuing:
-            apply_resolved_decisions(self.run_root)
+            apply_resolved_decisions(
+                self.run_root,
+                artifact_store=self.artifacts,
+            )
         try:
             return original_run(self, *args, **kwargs)
         except BlockingDecisionError:
