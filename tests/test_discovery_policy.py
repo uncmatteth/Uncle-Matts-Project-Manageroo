@@ -33,6 +33,9 @@ class DiscoveryPolicyTests(unittest.TestCase):
             def _max_parallel_agent_calls(self):
                 return configured_parallel
 
+            def _blocking_decisions_path(self):
+                return self.run_root / "artifacts" / "planning" / "blocking-decisions.json"
+
             def _call(self, *args, **kwargs):
                 self.calls.append(kwargs)
                 return {"ok": True}
@@ -71,7 +74,10 @@ class DiscoveryPolicyTests(unittest.TestCase):
                 },
                 "warnings": [],
             }
-            with patch("manageroo.discovery_policy.host_capacity", return_value=capacity):
+            with patch(
+                "manageroo.discovery_policy.host_capacity",
+                return_value=capacity,
+            ):
                 instance = self._module(root, configured_parallel=4).Orchestrator()
                 instance._call(
                     role="product-analyst",
