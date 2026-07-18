@@ -138,11 +138,16 @@ def apply_resolved_decisions(
             "Not all blocking decisions have answers: " + ", ".join(unresolved)
         )
 
-    atomic_write_json(product_path, product)
     resolution = {"applied_at": utc_now(), "answers": applied}
     if artifact_store is None:
+        atomic_write_json(product_path, product)
         atomic_write_json(_resolution_path(run_root), resolution)
     else:
+        artifact_store.write_json(
+            "planning/product-model.json",
+            product,
+            lock=True,
+        )
         artifact_store.write_json(
             "planning/decision-resolution.json",
             resolution,
