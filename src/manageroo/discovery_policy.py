@@ -222,9 +222,12 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
             )
         try:
             return original_run(self, *args, **kwargs)
-        except BlockingDecisionError:
+        except BlockingDecisionError as exc:
             render_blocking_questions(self.run_root)
-            raise
+            raise BlockingDecisionError(
+                f"{exc} Answer with: manageroo decisions answer {self.run_id} "
+                f"--repo {self.source_repo}. Then continue the same run."
+            ) from exc
 
     cls._max_parallel_agent_calls = capacity_bounded_parallel
     cls._blocking_decisions_path = resolved_aware_blocking_path
