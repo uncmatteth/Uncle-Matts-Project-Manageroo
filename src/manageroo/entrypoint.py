@@ -10,7 +10,7 @@ from .branding import PROJECT_DIR
 from .cli import main as cli_main
 from .cli import parser as cli_parser
 from .config import AGENT_PRESETS
-from .discovery_policy import render_blocking_questions
+from .discovery_policy import decisions_fully_resolved, render_blocking_questions
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
 from .system_capacity import format_capacity, host_capacity
 from .util import atomic_write_json, read_json, utc_now
@@ -96,6 +96,8 @@ def _run_root(repo: Path, run_id: str) -> Path:
 
 
 def _blocking_decisions(run_root: Path) -> list[dict]:
+    if decisions_fully_resolved(run_root):
+        return []
     path = run_root / "artifacts" / "planning" / "blocking-decisions.json"
     if not path.is_file():
         return []
