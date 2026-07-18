@@ -14,7 +14,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_TAG = "v2026.7.17.2"
+VERSION_TAG = "v2026.7.18.1"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 EXPECTED_SKILL_COUNT = 49
@@ -141,7 +141,12 @@ def installer_command(extracted: Path, home: Path, *, skip_install_tests: bool) 
     return argv
 
 
-def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = False) -> dict[str, Any]:
+def smoke(
+    archive: Path,
+    *,
+    keep_temp: bool = False,
+    skip_install_tests: bool = False,
+) -> dict[str, Any]:
     archive = archive.expanduser().resolve()
     if not archive.is_file():
         raise FileNotFoundError(f"Release ZIP does not exist: {archive}")
@@ -164,7 +169,11 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
             env["USERPROFILE"] = str(home)
         env["PATH"] = f"{home / '.local' / 'bin'}{os.pathsep}{env.get('PATH', '')}"
 
-        install_args = installer_command(extracted, home, skip_install_tests=skip_install_tests)
+        install_args = installer_command(
+            extracted,
+            home,
+            skip_install_tests=skip_install_tests,
+        )
         install = run(install_args, cwd=extracted, env=env, timeout=240)
 
         version = run(["manageroo", "--version"], cwd=extracted, env=env).stdout.strip()
@@ -232,7 +241,11 @@ def smoke(archive: Path, *, keep_temp: bool = False, skip_install_tests: bool = 
         if solo.get("ok") is not True:
             raise RuntimeError(f"Solo first-run setup failed: {solo}")
 
-        ready = parse_json_command(["manageroo", "ready", str(product), "--json"], cwd=extracted, env=env)
+        ready = parse_json_command(
+            ["manageroo", "ready", str(product), "--json"],
+            cwd=extracted,
+            env=env,
+        )
         if ready.get("ok") is not True:
             raise RuntimeError(f"Initialized project is not ready: {ready}")
 
