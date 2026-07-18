@@ -33,6 +33,7 @@ def _total_memory_bytes() -> int | None:
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return None
     if os.name == "nt":
+
         class MEMORYSTATUSEX(ctypes.Structure):
             _fields_ = [
                 ("dwLength", ctypes.c_ulong),
@@ -115,18 +116,30 @@ def host_capacity(repo: Path | None = None) -> dict[str, Any]:
     ram_gib = round(memory_bytes / (1024**3), 1) if memory_bytes else None
     gpus = _nvidia_gpus()
     max_vram_gib = max(
-        (float(item["vram_gib"]) for item in gpus if item.get("vram_gib") is not None),
+        (
+            float(item["vram_gib"])
+            for item in gpus
+            if item.get("vram_gib") is not None
+        ),
         default=None,
     )
     cpu_count = os.cpu_count() or 1
-    ram_parallel = max(1, int((ram_gib or 8) // 8))
-    recommended_parallel = max(1, min(8, max(1, cpu_count // 2), ram_parallel))
+    ram_parallel = max(1, int(ram_gib // 8)) if ram_gib is not None else 4
+    recommended_parallel = max(
+        1,
+        min(8, max(1, cpu_count // 2), ram_parallel),
+    )
     warnings: list[str] = []
     free_disk_gib = round(disk.free / (1024**3), 1)
     if free_disk_gib < 10:
-        warnings.append("Less than 10 GiB of free disk space is available for isolated workspaces and builds.")
+        warnings.append(
+            "Less than 10 GiB of free disk space is available for isolated workspaces and builds."
+        )
     if ram_gib is not None and ram_gib < 8:
-        warnings.append("Less than 8 GiB of system RAM was detected; large builds or parallel workers may be unreliable.")
+        warnings.append(
+            "Less than 8 GiB of system RAM was detected; large builds or parallel workers "
+            "may be unreliable."
+        )
 
     return {
         "platform": {
@@ -158,11 +171,15 @@ def host_capacity(repo: Path | None = None) -> dict[str, Any]:
             "free_gib": free_disk_gib,
         },
         "recommendations": {
-            "capacity_class": _capacity_class(ram_gib=ram_gib, max_vram_gib=max_vram_gib),
+            "capacity_class": _capacity_class(
+                ram_gib=ram_gib,
+                max_vram_gib=max_vram_gib,
+            ),
             "max_parallel_agent_calls": recommended_parallel,
             "reason": (
-                "Conservative recommendation based on logical CPU count and roughly one 8 GiB RAM "
-                "slice per concurrent worker. Repository-specific build processes may require less concurrency."
+                "Conservative recommendation based on logical CPU count and roughly one "
+                "8 GiB RAM slice per concurrent worker when RAM is detectable. "
+                "Repository-specific build processes may require less concurrency."
             ),
         },
         "warnings": warnings,
@@ -172,16 +189,21 @@ def host_capacity(repo: Path | None = None) -> dict[str, Any]:
 def format_capacity(profile: dict[str, Any]) -> str:
     memory = profile["memory"].get("total_gib")
     gpu = profile["gpu"]
+    platform_text = (
+        f"{profile['platform']['system']} {profile['platform']['release']} "
+        f"({profile['platform']['machine']})"
+    )
     lines = [
         "SYSTEM CAPACITY",
-        f"Platform: {profile['platform']['system']} {profile['platform']['release']} ({profile['platform']['machine']})",
+        f"Platform: {platform_text}",
         f"CPU: {profile['cpu']['logical_cores']} logical cores",
         f"RAM: {memory if memory is not None else 'unknown'} GiB",
         f"Disk free: {profile['disk']['free_gib']} GiB",
     ]
     if gpu.get("devices"):
         for device in gpu["devices"]:
-            lines.append(f"GPU: {device['name']} ({device.get('vram_gib') or 'unknown'} GiB VRAM)")
+            vram = device.get("vram_gib") or "unknown"
+            lines.append(f"GPU: {device['name']} ({vram} GiB VRAM)")
     else:
         lines.append("GPU: no NVIDIA GPU detected automatically")
     lines.append(f"Capacity class: {profile['recommendations']['capacity_class']}")
