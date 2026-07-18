@@ -14,6 +14,10 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 - If you are starting from nothing, `solo --create` can make a missing or empty Git repo first.
 - `solo --create --starter static-site` can start a tiny homepage with a smoke test instead of a blank folder.
 - You write the brief. The tool maps the repo, splits the job up, runs checks, sends bad work back for repair, and saves the report.
+- Before implementation, Manageroo runs an unknown-unknowns preflight so the product analyst reviews failure/recovery, proof strength, scope, and relevant signals such as auth, payments, data migrations, deployment, hardware, external services, accessibility, and user-facing states.
+- Manageroo answers questions from repo evidence when it can, adopts reversible conventional defaults when safe, and surfaces only genuinely high-impact unresolved choices as blocking decisions with a recommended option.
+- `manageroo decisions show RUN_ID` displays those questions; `manageroo decisions answer RUN_ID` records the operator's answers and allows the same durable run to continue.
+- `manageroo capacity` reports the development machine's CPU, RAM, detectable NVIDIA GPU/VRAM, free disk, capacity class, and conservative worker-concurrency recommendation. The detected workstation is context, not the product's minimum hardware requirement.
 - It includes `pimp-my-prompt`, so rough, long, frustrated, or half-formed requests can become clear scope, proof, and stop rules.
 - It includes memory and document helpers, so GBrain lookup, source ingest, screenshots, PDFs, transcripts, long prose, exact wording, citations, reports, and PDF export have obvious lanes.
 - It includes `diagnose`, `tdd`, and `autoreview`, so bugs get a feedback loop, behavior gets proof, and finished work gets a review lane.
