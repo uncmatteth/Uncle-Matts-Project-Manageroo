@@ -122,12 +122,30 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
 
     original_call = cls._call
     original_run = cls.run
+    original_parallel = cls._max_parallel_agent_calls
+
+    def current_capacity(self) -> dict:
+        cached = getattr(self, "_manageroo_host_capacity", None)
+        if cached is None:
+            cached = host_capacity(self.source_repo)
+            self._manageroo_host_capacity = cached
+        return cached
+
+    def capacity_bounded_parallel(self) -> int:
+        configured = max(1, int(original_parallel(self)))
+        recommended = int(
+            current_capacity(self)
+            .get("recommendations", {})
+            .get("max_parallel_agent_calls", configured)
+            or configured
+        )
+        return max(1, min(configured, recommended))
 
     def discovery_call(self, *args, **kwargs):
         role = kwargs.get("role")
         if role == "product-analyst":
             instructions = str(kwargs.get("instructions") or "")
-            capacity = host_capacity(self.source_repo)
+            capacity = current_capacity(self)
             brief_marker = "Product brief:\n"
             brief = (
                 instructions.split(brief_marker, 1)[1]
@@ -178,6 +196,7 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
             render_blocking_questions(self.run_root)
             raise
 
+    cls._max_parallel_agent_calls = capacity_bounded_parallel
     cls._call = discovery_call
     cls.run = discovery_run
     cls._manageroo_discovery_policy_installed = True
