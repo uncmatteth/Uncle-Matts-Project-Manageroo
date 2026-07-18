@@ -2,7 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from manageroo.discovery_policy import apply_resolved_decisions, render_blocking_questions
+from manageroo.discovery_policy import (
+    apply_resolved_decisions,
+    decisions_fully_resolved,
+    render_blocking_questions,
+)
 from manageroo.util import atomic_write_json, read_json
 
 
@@ -57,7 +61,7 @@ class DecisionWorkflowTests(unittest.TestCase):
             self.assertIn("Recommended: Additive migration", text)
             self.assertIn("manageroo decisions answer", text)
 
-    def test_resolved_decisions_update_product_model_and_unblock_continue(self):
+    def test_resolved_decisions_preserve_original_evidence_and_unblock_continue(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = self._run_root(Path(temp))
             planning = run_root / "artifacts" / "planning"
@@ -70,9 +74,12 @@ class DecisionWorkflowTests(unittest.TestCase):
             decision = product["blocking_decisions"][0]
             self.assertEqual(decision["chosen"], "Additive migration")
             self.assertIn("operator answer", decision["resolution_source"])
-            self.assertFalse((planning / "blocking-decisions.json").exists())
+            self.assertTrue((planning / "blocking-decisions.json").exists())
+            self.assertFalse((planning / "resolved-decisions.json").exists())
             resolution = read_json(planning / "decision-resolution.json")
             self.assertEqual(resolution["answers"][0]["id"], "DATA-1")
+            self.assertTrue(decisions_fully_resolved(run_root))
+            self.assertIsNone(render_blocking_questions(run_root))
 
     def test_invalid_answer_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -85,6 +92,7 @@ class DecisionWorkflowTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "not one of the allowed options"):
                 apply_resolved_decisions(run_root)
             self.assertTrue((planning / "blocking-decisions.json").exists())
+            self.assertFalse(decisions_fully_resolved(run_root))
 
 
 if __name__ == "__main__":
