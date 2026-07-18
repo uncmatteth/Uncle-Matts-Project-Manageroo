@@ -40,6 +40,9 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertNotIn("docs/FILE_MANIFEST.md", end_user)
         self.assertIn("scripts/verify_release.py", end_user)
         self.assertIn("tests/test_inventory.py", end_user)
+        self.assertIn("tests/test_external_loop_library_removed.py", source)
+        self.assertNotIn("src/manageroo/loop_library.py", source)
+        self.assertNotIn("tests/test_loop_library.py", source)
         self.assertNotEqual(source, end_user)
 
     def test_local_clawpatch_state_is_not_packaged(self):
