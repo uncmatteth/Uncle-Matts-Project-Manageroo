@@ -36,6 +36,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "tests/test_acceptance_evidence.py",
             "tests/test_decision_workflow.py",
             "tests/test_discovery_cli.py",
+            "tests/test_discovery_policy.py",
             "tests/test_discovery_preflight.py",
             "tests/test_external_loop_library_removed.py",
             "tests/test_external_repair_resume.py",
@@ -81,6 +82,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("PROOF-DEMONSTRATION", proof_plan)
         self.assertIn("Outcome-specific proof binding is missing", acceptance)
         self.assertIn("unknown-unknowns preflight", discovery)
+        self.assertIn("capacity_bounded_parallel", discovery)
         self.assertIn("ask_only_when", preflight)
         self.assertIn("max_parallel_agent_calls", capacity)
         self.assertIn('"release_created": False', release_driver)
