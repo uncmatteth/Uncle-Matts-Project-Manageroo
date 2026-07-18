@@ -25,18 +25,24 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         required = {
             "scripts/release.py",
             "src/manageroo/acceptance.py",
+            "src/manageroo/discovery_policy.py",
+            "src/manageroo/discovery_preflight.py",
+            "src/manageroo/system_capacity.py",
             "src/manageroo/external_repair_policy.py",
             "src/manageroo/plan_proof_policy.py",
             "src/manageroo/adapters/budget.py",
             "src/manageroo/adapters/pool.py",
             "src/manageroo/adapters/transactional.py",
             "tests/test_acceptance_evidence.py",
+            "tests/test_decision_workflow.py",
+            "tests/test_discovery_preflight.py",
             "tests/test_external_loop_library_removed.py",
             "tests/test_external_repair_resume.py",
             "tests/test_parallel_worker_logging.py",
             "tests/test_plan_proof_policy.py",
             "tests/test_release_driver.py",
             "tests/test_release_hardening_contract.py",
+            "tests/test_system_capacity.py",
             "tests/test_worker_attempt_isolation.py",
             "tests/test_worker_pool.py",
         }
@@ -59,6 +65,9 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         acceptance = (ROOT / "src/manageroo/acceptance.py").read_text(encoding="utf-8")
+        discovery = (ROOT / "src/manageroo/discovery_policy.py").read_text(encoding="utf-8")
+        preflight = (ROOT / "src/manageroo/discovery_preflight.py").read_text(encoding="utf-8")
+        capacity = (ROOT / "src/manageroo/system_capacity.py").read_text(encoding="utf-8")
         release_driver = (ROOT / "scripts/release.py").read_text(encoding="utf-8")
 
         self.assertIn("critical_controller_truth_guard", transactional)
@@ -70,6 +79,9 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("resumed_from_checkpoint", repair)
         self.assertIn("PROOF-DEMONSTRATION", proof_plan)
         self.assertIn("Outcome-specific proof binding is missing", acceptance)
+        self.assertIn("unknown-unknowns preflight", discovery)
+        self.assertIn("ask_only_when", preflight)
+        self.assertIn("max_parallel_agent_calls", capacity)
         self.assertIn('"release_created": False', release_driver)
         self.assertIn('"manageroo", "prove", "--json"', release_driver)
 
