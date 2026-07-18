@@ -30,8 +30,6 @@ products.
 ./install.sh --gbrain-lane local
 ./install.sh --gbrain-lane official
 ./install.sh --clawpatch-codex-login run
-./install.sh --loop-library-agent codex
-./install.sh --loop-library-agent YOUR_AGENT
 ./install.sh --skill-pack install
 ./install.sh --skill-pack skip
 ./install.sh --project-discovery add
@@ -63,7 +61,6 @@ thing useful:
   `pnpm` with npm when needed, runs `clawpatch doctor`, checks Codex login for
   Clawpatch's codex provider, and can run `codex login` when
   `--clawpatch-codex-login run` is selected.
-- Loop Library: installed with `npx --yes skills add Forward-Future/loop-library --skill loop-library ...` for the selected agent.
 - Obsidian: installed through a detected package manager when possible, otherwise the installer prints the official install path.
 
 Interactive installs ask whether to run this lane. Non-interactive installs skip
@@ -292,7 +289,7 @@ Bare `solo` is the normal first-run path. It asks:
 - what result must be true;
 - what must not break;
 - what proof should verify the work;
-- whether to check GBrain, GitNexus, Obsidian, or Loop Library.
+- whether to check GBrain, GitNexus, or Obsidian.
 
 With `--create`, it initializes Git, writes a minimal `README.md` and
 `.gitignore`, and makes the first scaffold commit before continuing. It refuses
@@ -448,25 +445,6 @@ rollback plan, and next action. On a ready release, it appends the shipped
 target, Manageroo run ID, and passing proof to `.manageroo/PROJECT-MEMORY.md`;
 commit that memory update if you want it tracked.
 
-## Use a Loop Library loop
-
-Matthew Berman / Forward Future's Loop Library can be used as the source of a
-job pattern:
-
-```bash
-manageroo loop-library search docs
-manageroo loop-library show overnight-docs-sweep
-manageroo loop-library profile overnight-docs-sweep
-manageroo loop-library brief overnight-docs-sweep --output .manageroo/PRODUCT-BRIEF.md --force
-```
-
-MANAGEROO reads the catalog and turns the selected loop into a repo-local
-brief. It also caches the catalog for offline fallback and can print a structured
-controller profile for a loop. That profile calls out whether the pattern is a
-`goal`, `loop`, or `routine`, then adds budget/caps, verifier, anti-spin, and
-completion-contract fields. Loop Library itself is not installed unless the
-operator separately asks for that exact tool.
-
 ## Uninstall
 
 Print the plan first:
@@ -489,7 +467,6 @@ If the launcher or recommended skill pack gets damaged, run:
 manageroo repair-install --no-apply
 manageroo repair-install
 ```
-
 
 ## Source checkout versus release archive
 
