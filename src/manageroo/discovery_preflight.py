@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -7,70 +8,194 @@ from typing import Any
 SIGNALS: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
     (
         "identity-and-access",
-        ("auth", "login", "oauth", "session", "permission", "role", "rbac", "jwt"),
-        "What identity, authentication, authorization, and account-recovery boundaries must be preserved or added?",
-        "Inspect existing auth first; default to preserving current identity boundaries and require explicit approval before weakening them.",
+        ("auth", "authentication", "authorization", "login", "oauth", "session", "rbac", "jwt"),
+        (
+            "What identity, authentication, authorization, and account-recovery boundaries "
+            "must be preserved or added?"
+        ),
+        (
+            "Inspect existing auth first; default to preserving current identity boundaries "
+            "and require explicit approval before weakening them."
+        ),
     ),
     (
         "money-and-billing",
         ("stripe", "payment", "billing", "checkout", "subscription", "invoice", "wallet"),
-        "What money movement, billing, refund, idempotency, and reconciliation behavior must be proven before release?",
-        "Treat financial side effects as high impact; require deterministic tests plus a realistic non-production demonstration path.",
+        (
+            "What money movement, billing, refund, idempotency, and reconciliation behavior "
+            "must be proven before release?"
+        ),
+        (
+            "Treat financial side effects as high impact; require deterministic tests plus a "
+            "realistic non-production demonstration path."
+        ),
     ),
     (
         "data-and-migrations",
-        ("migration", "migrations", "prisma", "alembic", "sequelize", "database", ".sql", "schema"),
-        "What data must be preserved, migrated, backed up, rolled back, or deleted, and how will that be proven?",
-        "Prefer additive and reversible migrations, require backup/rollback notes, and block destructive changes without an explicit decision.",
+        ("migration", "migrations", "prisma", "alembic", "sequelize", "database", ".sql"),
+        (
+            "What data must be preserved, migrated, backed up, rolled back, or deleted, and "
+            "how will that be proven?"
+        ),
+        (
+            "Prefer additive and reversible migrations, require backup/rollback notes, and "
+            "block destructive changes without an explicit decision."
+        ),
     ),
     (
         "deployment-and-runtime",
-        ("vercel", "docker", "kubernetes", "k8s", "terraform", "deploy", "production"),
-        "What runtime environments, deployment path, rollback path, secrets, and environment-specific differences matter?",
-        "Preserve the current deployment model unless the task requires changing it; require a named rollback path before production release.",
+        (
+            "vercel",
+            "docker",
+            "kubernetes",
+            "k8s",
+            "terraform",
+            "deploy",
+            "deployment",
+            "production deploy",
+        ),
+        (
+            "What runtime environments, deployment path, rollback path, secrets, and "
+            "environment-specific differences matter?"
+        ),
+        (
+            "Preserve the current deployment model unless the task requires changing it; "
+            "require a named rollback path before production release."
+        ),
     ),
     (
         "hardware-and-local-ai",
-        ("cuda", "torch", "tensorflow", "onnx", "comfy", "gpu", "vram", "model", "ollama"),
-        "What CPU, RAM, GPU, VRAM, disk, model-size, and concurrency assumptions must the product respect?",
-        "Use the detected host profile as a development baseline, but document minimum and recommended capacity separately from one developer machine.",
+        (
+            "cuda",
+            "torch",
+            "tensorflow",
+            "onnx",
+            "comfyui",
+            "gpu",
+            "vram",
+            "ollama",
+            "local model",
+            "local llm",
+        ),
+        (
+            "What CPU, RAM, GPU, VRAM, disk, model-size, and concurrency assumptions must "
+            "the product respect?"
+        ),
+        (
+            "Use the detected host profile as a development baseline, but document minimum "
+            "and recommended capacity separately from one developer machine."
+        ),
     ),
     (
         "external-services",
-        ("api_key", "api key", "webhook", "third-party", "external api", "rate limit", "redis", "s3"),
-        "Which external services can fail, rate-limit, change price, or become unavailable, and what is the fallback behavior?",
-        "Treat remote services as failure-prone dependencies; define timeouts, retries, cost boundaries, and degraded behavior where relevant.",
+        (
+            "api_key",
+            "api key",
+            "webhook",
+            "third-party",
+            "external api",
+            "rate limit",
+            "redis",
+            "s3",
+        ),
+        (
+            "Which external services can fail, rate-limit, change price, or become unavailable, "
+            "and what is the fallback behavior?"
+        ),
+        (
+            "Treat remote services as failure-prone dependencies; define timeouts, retries, "
+            "cost boundaries, and degraded behavior where relevant."
+        ),
     ),
     (
         "user-facing-quality",
-        ("react", "next", "vite", "frontend", "website", "browser", "ui", "ux"),
-        "What accessibility, responsive-layout, browser, loading, empty-state, error-state, and keyboard behavior should be part of acceptance?",
-        "Require rendered browser evidence for meaningful user-facing changes and preserve accessibility rather than treating it as cosmetic cleanup.",
+        (
+            "react",
+            "next.js",
+            "nextjs",
+            '"next"',
+            "vite",
+            "frontend",
+            "website",
+            "browser",
+            "user interface",
+        ),
+        (
+            "What accessibility, responsive-layout, browser, loading, empty-state, error-state, "
+            "and keyboard behavior should be part of acceptance?"
+        ),
+        (
+            "Require rendered browser evidence for meaningful user-facing changes and preserve "
+            "accessibility rather than treating it as cosmetic cleanup."
+        ),
     ),
 )
 
 ALWAYS_REVIEW = [
     {
         "category": "failure-and-recovery",
-        "question": "What happens when the primary operation fails halfway through, is retried, or the process is interrupted?",
-        "recommended": "Prefer idempotent operations, durable checkpoints, bounded retries, and an explicit recovery or rollback path.",
+        "question": (
+            "What happens when the primary operation fails halfway through, is retried, "
+            "or the process is interrupted?"
+        ),
+        "recommended": (
+            "Prefer idempotent operations, durable checkpoints, bounded retries, and an "
+            "explicit recovery or rollback path."
+        ),
     },
     {
         "category": "observability-and-support",
-        "question": "How will an operator know this failed in production and have enough evidence to diagnose it?",
-        "recommended": "Preserve useful logs and errors, avoid swallowing failures, and identify the minimum production signal needed for high-impact paths.",
+        "question": (
+            "How will an operator know this failed in production and have enough evidence "
+            "to diagnose it?"
+        ),
+        "recommended": (
+            "Preserve useful logs and errors, avoid swallowing failures, and identify the "
+            "minimum production signal needed for high-impact paths."
+        ),
     },
     {
         "category": "verification-strength",
-        "question": "What evidence would actually prove the requested outcome rather than merely prove that the code compiles?",
-        "recommended": "Bind every requested outcome to a specific deterministic gate or realistic demonstration and leave unproven outcomes unknown.",
+        "question": (
+            "What evidence would actually prove the requested outcome rather than merely "
+            "prove that the code compiles?"
+        ),
+        "recommended": (
+            "Bind every requested outcome to a specific deterministic gate or realistic "
+            "demonstration and leave unproven outcomes unknown."
+        ),
     },
     {
         "category": "scope-and-non-goals",
         "question": "What adjacent improvements are tempting but explicitly outside this run?",
-        "recommended": "Keep unrelated cleanup out of the locked plan and record attractive future ideas separately.",
+        "recommended": (
+            "Keep unrelated cleanup out of the locked plan and record attractive future ideas "
+            "separately."
+        ),
     },
 ]
+
+TEXT_SUFFIXES = {
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".json",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".md",
+    ".txt",
+    ".sql",
+}
+SKIP_PARTS = {".git", ".manageroo", "node_modules", ".venv", "dist", "build"}
+
+
+def _signal_present(corpus: str, term: str) -> bool:
+    if any(char in term for char in " ._-\""):
+        return term in corpus
+    return re.search(rf"\b{re.escape(term)}\b", corpus) is not None
 
 
 def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) -> str:
@@ -102,9 +227,9 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
             relative = path.relative_to(repo)
         except ValueError:
             continue
-        if any(part in {".git", ".manageroo", "node_modules", ".venv", "dist", "build"} for part in relative.parts):
+        if any(part in SKIP_PARTS for part in relative.parts):
             continue
-        if path.suffix.lower() not in {".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".toml", ".yaml", ".yml", ".md", ".txt", ".sql"} and path.name not in preferred:
+        if path.suffix.lower() not in TEXT_SUFFIXES and path.name not in preferred:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")[:20_000]
@@ -117,12 +242,16 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
     return "\n".join(chunks).lower()
 
 
-def build_discovery_preflight(repo: Path, brief: str, capacity: dict[str, Any]) -> dict[str, Any]:
+def build_discovery_preflight(
+    repo: Path,
+    brief: str,
+    capacity: dict[str, Any],
+) -> dict[str, Any]:
     repo = repo.resolve()
     corpus = (brief + "\n" + _repo_text(repo)).lower()
     triggered: list[dict[str, str]] = []
     for category, terms, question, recommended in SIGNALS:
-        matched = [term for term in terms if term in corpus]
+        matched = [term for term in terms if _signal_present(corpus, term)]
         if not matched:
             continue
         triggered.append(
@@ -144,14 +273,20 @@ def build_discovery_preflight(repo: Path, brief: str, capacity: dict[str, Any]) 
     )
     capacity_notes.append(
         "Conservative detected-host parallel-worker recommendation: "
-        + str(capacity.get("recommendations", {}).get("max_parallel_agent_calls", "unknown"))
+        + str(
+            capacity.get("recommendations", {}).get(
+                "max_parallel_agent_calls",
+                "unknown",
+            )
+        )
     )
 
     return {
         "purpose": (
             "Deterministic preflight for questions the operator may not know to ask. "
-            "The product analyst must inspect these categories, answer anything discoverable from current repo evidence, "
-            "infer reversible conventional details, and create blocking decisions only for unresolved high-impact choices."
+            "The product analyst must inspect these categories, answer anything discoverable "
+            "from current repo evidence, infer reversible conventional details, and create "
+            "blocking decisions only for unresolved high-impact choices."
         ),
         "always_review": ALWAYS_REVIEW,
         "repo_signals": triggered,
@@ -163,7 +298,10 @@ def build_discovery_preflight(repo: Path, brief: str, capacity: dict[str, Any]) 
                 "meaningful recurring or irreversible cost depends on the choice",
                 "legal or regulated behavior depends on the choice",
                 "the available options would create materially different products",
-                "hardware/runtime requirements cannot be inferred safely and affect whether the product can work",
+                (
+                    "hardware/runtime requirements cannot be inferred safely and affect whether "
+                    "the product can work"
+                ),
             ],
             "do_not_block_for": [
                 "cosmetic preferences with conventional defaults",
