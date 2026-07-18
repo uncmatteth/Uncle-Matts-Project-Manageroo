@@ -74,13 +74,20 @@ def _prove_main(argv: list[str]) -> int:
 def _capacity_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo capacity",
-        description="Inspect the current machine and print Manageroo's conservative capacity profile.",
+        description=(
+            "Inspect the current machine and print Manageroo's conservative capacity profile."
+        ),
     )
     parser.add_argument("repo", nargs="?", default=".")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     profile = host_capacity(Path(args.repo))
-    print(json.dumps(profile, indent=2, sort_keys=True) if args.json else format_capacity(profile), end="\n" if args.json else "")
+    rendered = (
+        json.dumps(profile, indent=2, sort_keys=True)
+        if args.json
+        else format_capacity(profile)
+    )
+    print(rendered, end="\n" if args.json else "")
     return 0
 
 
@@ -99,7 +106,9 @@ def _blocking_decisions(run_root: Path) -> list[dict]:
 def _decisions_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo decisions",
-        description="Show or answer high-impact product decisions that Manageroo could not safely infer.",
+        description=(
+            "Show or answer high-impact product decisions that Manageroo could not safely infer."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("show", "answer"):
@@ -120,7 +129,12 @@ def _decisions_main(argv: list[str]) -> int:
             print(json.dumps({"run_id": args.run_id, "decisions": decisions}, indent=2))
         else:
             markdown = render_blocking_questions(run_root)
-            print(markdown.read_text(encoding="utf-8") if markdown else "No blocking questions found.", end="")
+            text = (
+                markdown.read_text(encoding="utf-8")
+                if markdown
+                else "No blocking questions found."
+            )
+            print(text, end="")
         return 0
 
     answers: list[dict[str, str]] = []
@@ -160,8 +174,12 @@ def _decisions_main(argv: list[str]) -> int:
             "answers": answers,
         },
     )
+    repo = Path(args.repo).expanduser().resolve()
     print(f"\nSaved {len(answers)} decision answer(s).")
-    print(f"Next: manageroo run --continue {args.run_id} --repo {Path(args.repo).expanduser().resolve()} --apply")
+    print(
+        f"Next: manageroo run --continue {args.run_id} "
+        f"--repo {repo} --apply"
+    )
     return 0
 
 
@@ -173,7 +191,7 @@ def _root_help() -> str:
         + "  prove                 Run adversarial end-to-end Manageroo product proof.\n"
         + "                        Uses any available supported live coding agent.\n"
         + "\nDiscovery and capacity:\n"
-        + "  capacity              Inspect CPU, RAM, GPU/VRAM, disk, and safe worker concurrency.\n"
+        + "  capacity              Inspect CPU, RAM, GPU/VRAM, disk, and worker concurrency.\n"
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
     )
 
