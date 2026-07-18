@@ -2,11 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from manageroo.artifacts import ArtifactStore
 from manageroo.discovery_policy import (
     apply_resolved_decisions,
     decisions_fully_resolved,
     render_blocking_questions,
 )
+from manageroo.errors import SafetyError
 from manageroo.util import atomic_write_json, read_json
 
 
@@ -80,6 +82,32 @@ class DecisionWorkflowTests(unittest.TestCase):
             self.assertEqual(resolution["answers"][0]["id"], "DATA-1")
             self.assertTrue(decisions_fully_resolved(run_root))
             self.assertIsNone(render_blocking_questions(run_root))
+
+    def test_real_artifact_store_locks_resolved_product_and_decision_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = self._run_root(Path(temp))
+            planning = run_root / "artifacts" / "planning"
+            store = ArtifactStore(run_root / "artifacts")
+            store.write_json(
+                "planning/product-model.json",
+                read_json(planning / "product-model.json"),
+                lock=False,
+            )
+            atomic_write_json(
+                planning / "resolved-decisions.json",
+                {"answers": [{"id": "DATA-1", "chosen": "Additive migration"}]},
+            )
+            self.assertTrue(
+                apply_resolved_decisions(
+                    run_root,
+                    artifact_store=store,
+                )
+            )
+            store.verify_locked()
+            resolution_path = planning / "decision-resolution.json"
+            resolution_path.write_text("{}\n", encoding="utf-8")
+            with self.assertRaises(SafetyError):
+                store.verify_locked()
 
     def test_invalid_answer_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
