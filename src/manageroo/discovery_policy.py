@@ -29,8 +29,14 @@ def render_blocking_questions(run_root: Path) -> Path | None:
     lines = [
         "# Manageroo blocking questions",
         "",
-        "These are the decisions Manageroo could not safely infer from the repository or adopt as a reversible default.",
-        "Answer them with `manageroo decisions answer <run-id> --repo /path/to/repo`, then continue the same run.",
+        (
+            "These are the decisions Manageroo could not safely infer from the repository "
+            "or adopt as a reversible default."
+        ),
+        (
+            "Answer them with `manageroo decisions answer <run-id> --repo /path/to/repo`, "
+            "then continue the same run."
+        ),
         "",
     ]
     for index, item in enumerate(decisions, 1):
@@ -84,7 +90,8 @@ def apply_resolved_decisions(run_root: Path) -> bool:
         options = [str(item) for item in decision.get("options", [])]
         if chosen not in options:
             raise ValidationError(
-                f"Resolved decision {decision_id!r} chose {chosen!r}, which is not one of the allowed options: {options}"
+                f"Resolved decision {decision_id!r} chose {chosen!r}, which is not one of "
+                f"the allowed options: {options}"
             )
         decision["chosen"] = chosen
         decision["resolution_source"] = "operator answer via manageroo decisions"
@@ -104,6 +111,7 @@ def apply_resolved_decisions(run_root: Path) -> bool:
         blocking_path.unlink()
     if markdown_path.exists():
         markdown_path.unlink()
+    resolved_path.unlink()
     return True
 
 
@@ -121,23 +129,39 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
             instructions = str(kwargs.get("instructions") or "")
             capacity = host_capacity(self.source_repo)
             brief_marker = "Product brief:\n"
-            brief = instructions.split(brief_marker, 1)[1] if brief_marker in instructions else instructions
+            brief = (
+                instructions.split(brief_marker, 1)[1]
+                if brief_marker in instructions
+                else instructions
+            )
             preflight = build_discovery_preflight(self.source_repo, brief, capacity)
-            try:
-                self.artifacts.write_json("discovery/system-capacity.json", capacity, lock=True)
-                self.artifacts.write_json("discovery/unknown-unknowns-preflight.json", preflight, lock=True)
-            except Exception:
-                # Artifact reuse/locking is owned by the normal controller. The prompt still
-                # receives the current deterministic preflight even when a continuation already
-                # persisted these files.
-                pass
+            capacity_path = self.artifacts.root / "discovery" / "system-capacity.json"
+            preflight_path = (
+                self.artifacts.root / "discovery" / "unknown-unknowns-preflight.json"
+            )
+            if not capacity_path.is_file():
+                self.artifacts.write_json(
+                    "discovery/system-capacity.json",
+                    capacity,
+                    lock=True,
+                )
+            if not preflight_path.is_file():
+                self.artifacts.write_json(
+                    "discovery/unknown-unknowns-preflight.json",
+                    preflight,
+                    lock=True,
+                )
             kwargs["instructions"] = (
                 instructions
                 + "\n\n# Manageroo unknown-unknowns preflight\n\n"
-                + "Use the following deterministic preflight as a checklist, not as invented product truth. "
-                + "Answer questions from repository evidence whenever possible. Add relevant findings to constraints, "
-                + "assumptions, journeys, acceptance outcomes, or blocking_decisions. Ask the operator only for genuinely "
-                + "high-impact unresolved choices, and include a recommended option for every blocking decision.\n\n"
+                + (
+                    "Use the following deterministic preflight as a checklist, not as invented "
+                    "product truth. Answer questions from repository evidence whenever possible. "
+                    "Add relevant findings to constraints, assumptions, journeys, acceptance "
+                    "outcomes, or blocking_decisions. Ask the operator only for genuinely "
+                    "high-impact unresolved choices, and include a recommended option for every "
+                    "blocking decision.\n\n"
+                )
                 + "Detected host capacity:\n"
                 + json.dumps(capacity, indent=2, sort_keys=True)
                 + "\n\nUnknown-unknowns checklist:\n"
