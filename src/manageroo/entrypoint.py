@@ -12,6 +12,7 @@ from .cli import parser as cli_parser
 from .config import AGENT_PRESETS
 from .discovery_policy import decisions_fully_resolved, render_blocking_questions
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
+from .stack_update import apply_stack_updates, format_stack_update, stack_update_plan
 from .system_capacity import format_capacity, host_capacity
 from .util import atomic_write_json, read_json, utc_now
 
@@ -89,6 +90,24 @@ def _capacity_main(argv: list[str]) -> int:
     )
     print(rendered, end="\n" if args.json else "")
     return 0
+
+
+def _stack_update_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="manageroo stack-update",
+        description=(
+            "Plan or explicitly apply upstream-supported updates for Manageroo's optional local stack."
+        ),
+    )
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    report = apply_stack_updates() if args.apply else stack_update_plan()
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(format_stack_update(report), end="")
+    return 0 if report.get("ok") else 2
 
 
 def _run_root(repo: Path, run_id: str) -> Path:
@@ -195,6 +214,8 @@ def _root_help() -> str:
         + "\nDiscovery and capacity:\n"
         + "  capacity              Inspect CPU, RAM, GPU/VRAM, disk, and worker concurrency.\n"
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
+        + "\nOptional stack maintenance:\n"
+        + "  stack-update          Dry-run current upstream update commands; pass --apply explicitly.\n"
     )
 
 
@@ -206,6 +227,8 @@ def main() -> int:
         return _capacity_main(argv[1:])
     if argv and argv[0] == "decisions":
         return _decisions_main(argv[1:])
+    if argv and argv[0] == "stack-update":
+        return _stack_update_main(argv[1:])
     if argv in (["--help"], ["-h"]):
         print(_root_help(), end="")
         return 0
