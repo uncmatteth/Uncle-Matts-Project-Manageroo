@@ -73,6 +73,13 @@ def render_blocking_questions(run_root: Path) -> Path | None:
     return markdown_path
 
 
+def _consume_resolved_input(resolved_path: Path, markdown_path: Path) -> None:
+    if markdown_path.exists():
+        markdown_path.unlink()
+    if resolved_path.exists():
+        resolved_path.unlink()
+
+
 def apply_resolved_decisions(
     run_root: Path,
     *,
@@ -81,8 +88,12 @@ def apply_resolved_decisions(
     _, resolved_path, product_path, markdown_path = _decision_paths(run_root)
     if not resolved_path.is_file():
         return False
+    if decisions_fully_resolved(run_root):
+        _consume_resolved_input(resolved_path, markdown_path)
+        return True
     if not product_path.is_file():
         raise ValidationError("Resolved decisions exist but the saved product model is missing.")
+
     resolved = read_json(resolved_path)
     answers = {
         str(item.get("id")): str(item.get("chosen"))
@@ -97,10 +108,18 @@ def apply_resolved_decisions(
     unresolved: list[str] = []
     applied: list[dict[str, str]] = []
     for decision in decisions:
-        if decision.get("chosen"):
-            continue
         decision_id = str(decision.get("id") or "")
+        existing = str(decision.get("chosen") or "")
         chosen = answers.get(decision_id)
+        if existing:
+            if chosen and chosen != existing:
+                raise ValidationError(
+                    f"Resolved decision {decision_id!r} conflicts with the already-applied "
+                    f"choice {existing!r}."
+                )
+            if chosen:
+                applied.append({"id": decision_id, "chosen": existing})
+            continue
         if not chosen:
             unresolved.append(decision_id or str(decision.get("question") or "unknown"))
             continue
@@ -129,9 +148,7 @@ def apply_resolved_decisions(
             resolution,
             lock=True,
         )
-    if markdown_path.exists():
-        markdown_path.unlink()
-    resolved_path.unlink()
+    _consume_resolved_input(resolved_path, markdown_path)
     return True
 
 
