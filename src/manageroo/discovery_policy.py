@@ -20,9 +20,22 @@ def _decision_paths(run_root: Path) -> tuple[Path, Path, Path, Path]:
     )
 
 
+def _resolution_path(run_root: Path) -> Path:
+    return run_root / "artifacts" / "planning" / "decision-resolution.json"
+
+
+def decisions_fully_resolved(run_root: Path) -> bool:
+    _, _, product_path, _ = _decision_paths(run_root)
+    if not _resolution_path(run_root).is_file() or not product_path.is_file():
+        return False
+    product = read_json(product_path)
+    decisions = list(product.get("blocking_decisions", []) or [])
+    return bool(decisions) and all(bool(item.get("chosen")) for item in decisions)
+
+
 def render_blocking_questions(run_root: Path) -> Path | None:
     blocking_path, _, _, markdown_path = _decision_paths(run_root)
-    if not blocking_path.is_file():
+    if not blocking_path.is_file() or decisions_fully_resolved(run_root):
         return None
     payload = read_json(blocking_path)
     decisions = list(payload.get("decisions", []) or [])
@@ -61,7 +74,7 @@ def render_blocking_questions(run_root: Path) -> Path | None:
 
 
 def apply_resolved_decisions(run_root: Path) -> bool:
-    blocking_path, resolved_path, product_path, markdown_path = _decision_paths(run_root)
+    _, resolved_path, product_path, markdown_path = _decision_paths(run_root)
     if not resolved_path.is_file():
         return False
     if not product_path.is_file():
@@ -104,11 +117,9 @@ def apply_resolved_decisions(run_root: Path) -> bool:
 
     atomic_write_json(product_path, product)
     atomic_write_json(
-        run_root / "artifacts" / "planning" / "decision-resolution.json",
+        _resolution_path(run_root),
         {"applied_at": utc_now(), "answers": applied},
     )
-    if blocking_path.exists():
-        blocking_path.unlink()
     if markdown_path.exists():
         markdown_path.unlink()
     resolved_path.unlink()
@@ -123,6 +134,7 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
     original_call = cls._call
     original_run = cls.run
     original_parallel = cls._max_parallel_agent_calls
+    original_blocking_path = cls._blocking_decisions_path
 
     def current_capacity(self) -> dict:
         cached = getattr(self, "_manageroo_host_capacity", None)
@@ -140,6 +152,12 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
             or configured
         )
         return max(1, min(configured, recommended))
+
+    def resolved_aware_blocking_path(self) -> Path:
+        original = original_blocking_path(self)
+        if decisions_fully_resolved(self.run_root):
+            return original.with_name("blocking-decisions.resolved")
+        return original
 
     def discovery_call(self, *args, **kwargs):
         role = kwargs.get("role")
@@ -197,6 +215,7 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
             raise
 
     cls._max_parallel_agent_calls = capacity_bounded_parallel
+    cls._blocking_decisions_path = resolved_aware_blocking_path
     cls._call = discovery_call
     cls.run = discovery_run
     cls._manageroo_discovery_policy_installed = True
