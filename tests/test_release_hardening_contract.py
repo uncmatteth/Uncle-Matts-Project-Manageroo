@@ -29,6 +29,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "src/manageroo/discovery_policy.py",
             "src/manageroo/discovery_preflight.py",
             "src/manageroo/system_capacity.py",
+            "src/manageroo/stack_update.py",
             "src/manageroo/external_repair_policy.py",
             "src/manageroo/plan_proof_policy.py",
             "src/manageroo/adapters/budget.py",
@@ -46,6 +47,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "tests/test_plan_proof_policy.py",
             "tests/test_release_driver.py",
             "tests/test_release_hardening_contract.py",
+            "tests/test_stack_update.py",
             "tests/test_system_capacity.py",
             "tests/test_worker_attempt_isolation.py",
             "tests/test_worker_pool.py",
@@ -76,6 +78,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         discovery = (ROOT / "src/manageroo/discovery_policy.py").read_text(encoding="utf-8")
         preflight = (ROOT / "src/manageroo/discovery_preflight.py").read_text(encoding="utf-8")
         capacity = (ROOT / "src/manageroo/system_capacity.py").read_text(encoding="utf-8")
+        stack_update = (ROOT / "src/manageroo/stack_update.py").read_text(encoding="utf-8")
         release_driver = (ROOT / "scripts/release.py").read_text(encoding="utf-8")
 
         self.assertIn("critical_controller_truth_guard", transactional)
@@ -92,6 +95,10 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("decisions_fully_resolved", discovery)
         self.assertIn("ask_only_when", preflight)
         self.assertIn("max_parallel_agent_calls", capacity)
+        self.assertIn("gbrain", stack_update)
+        self.assertIn("gitnexus@latest", stack_update)
+        self.assertIn("clawpatch@latest", stack_update)
+        self.assertIn("AUTOREVIEW_REPO", stack_update)
         self.assertIn('"release_created": False', release_driver)
         self.assertIn('"manageroo", "prove", "--json"', release_driver)
 
