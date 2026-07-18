@@ -59,18 +59,9 @@ DOCUMENT_REQUEST_TERMS = (
     "don't paraphrase",
     "preserve exact",
 )
-MEMORY_REQUEST_TERMS = (
+EXPLICIT_EXTERNAL_MEMORY_TERMS = (
     "gbrain",
     "brain page",
-    "project memory",
-    "use memory",
-    "from memory",
-    "existing memory",
-    "past context",
-    "prior decision",
-    "prior decisions",
-    "previous decision",
-    "previous decisions",
     "obsidian",
     "knowledge base",
 )
@@ -113,7 +104,12 @@ def _mentions(text: str, terms: tuple[str, ...]) -> list[str]:
     return [term for term in terms if term in lowered]
 
 
-def _repo_document_examples(repo: Path, *, limit: int = 5, scan_limit: int = 2000) -> list[str]:
+def _repo_document_examples(
+    repo: Path,
+    *,
+    limit: int = 5,
+    scan_limit: int = 2000,
+) -> list[str]:
     examples: list[str] = []
     scanned = 0
     for path in repo.rglob("*"):
@@ -142,7 +138,11 @@ def _repo_document_examples(repo: Path, *, limit: int = 5, scan_limit: int = 200
     return examples
 
 
-def _document_lane_items(repo: Path, config: dict[str, Any], brief_text: str) -> list[dict[str, Any]]:
+def _document_lane_items(
+    repo: Path,
+    config: dict[str, Any],
+    brief_text: str,
+) -> list[dict[str, Any]]:
     requested_terms = _mentions(brief_text, DOCUMENT_REQUEST_TERMS)
     repo_examples = _repo_document_examples(repo)
     command = config.get("integrations", {}).get("document_analysis_command", [])
@@ -158,7 +158,10 @@ def _document_lane_items(repo: Path, config: dict[str, Any], brief_text: str) ->
                 _item(
                     "document/prose lane",
                     True,
-                    "brief asks for document/prose/media/exact-text handling and document_analysis_command is configured",
+                    (
+                        "brief asks for document/prose/media/exact-text handling and "
+                        "document_analysis_command is configured"
+                    ),
                 )
             ]
         return [
@@ -167,7 +170,8 @@ def _document_lane_items(repo: Path, config: dict[str, Any], brief_text: str) ->
                 False,
                 (
                     "brief asks for document/prose/media/exact-text handling "
-                    f"({', '.join(requested_terms[:4])}), but document_analysis_command is empty"
+                    f"({', '.join(requested_terms[:4])}), but document_analysis_command "
+                    "is empty"
                 ),
                 next_command,
                 required=True,
@@ -324,7 +328,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                 "project config",
                 config_path.is_file(),
                 str(config_path) if config_path.exists() else "missing",
-                f"manageroo init --agent codex {repo}",
+                f"manageroo init --agent auto {repo}",
             )
         )
         if config_path.exists():
@@ -338,9 +342,11 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             _item(
                 "product brief",
                 brief_path.is_file() and not brief_is_template(brief_path),
-                "ready"
-                if brief_path.exists() and not brief_is_template(brief_path)
-                else "missing or still template",
+                (
+                    "ready"
+                    if brief_path.exists() and not brief_is_template(brief_path)
+                    else "missing or still template"
+                ),
                 "manageroo brief --want \"Describe the result\" --force",
             )
         )
@@ -354,7 +360,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             )
         )
 
-    if config:
+    if config and repo:
         items.append(_selected_agent_item(repo, config))
         gates = gates_from_config(config)
         items.append(
@@ -375,9 +381,13 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
         items.extend(_document_lane_items(repo, config, brief_text))
 
     gbrain = gbrain_setup_status()
-    gbrain_ok = bool(gbrain.get("ok") and gbrain.get("status", {}).get("source_count", 0) > 0)
-    memory_requested = bool(_mentions(brief_text, MEMORY_REQUEST_TERMS))
-    gbrain_required = require_gbrain or memory_requested
+    gbrain_ok = bool(
+        gbrain.get("ok") and gbrain.get("status", {}).get("source_count", 0) > 0
+    )
+    external_memory_requested = bool(
+        _mentions(brief_text, EXPLICIT_EXTERNAL_MEMORY_TERMS)
+    )
+    gbrain_required = require_gbrain or external_memory_requested
     gbrain_next = (
         "manageroo gbrain-setup --source-id my-project "
         "--path /absolute/path/to/repo --apply --sync"
@@ -389,12 +399,16 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             "gbrain",
             gbrain_ok,
             (
-                "brief asks for memory/GBrain and sources are mapped"
-                if memory_requested and gbrain_ok
+                "brief explicitly asks for external GBrain/knowledge-base context and sources "
+                "are mapped"
+                if external_memory_requested and gbrain_ok
                 else "sources mapped"
                 if gbrain_ok
-                else "brief asks for memory/GBrain, but GBrain is not installed, unhealthy, or has no mapped sources"
-                if memory_requested
+                else (
+                    "brief explicitly asks for external GBrain/knowledge-base context, but "
+                    "GBrain is not installed, unhealthy, or has no mapped sources"
+                )
+                if external_memory_requested
                 else "not installed, unhealthy, or no mapped sources"
             ),
             gbrain_next,
@@ -404,7 +418,11 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
 
     required_items = [item for item in items if item.get("required", True)]
     ok = all(item["ok"] for item in required_items)
-    next_commands = [item["next"] for item in items if not item["ok"] and item.get("next")]
+    next_commands = [
+        item["next"]
+        for item in items
+        if not item["ok"] and item.get("next")
+    ]
     return {
         "ok": ok,
         "status": "READY TO RUN" if ok else "NOT READY",
