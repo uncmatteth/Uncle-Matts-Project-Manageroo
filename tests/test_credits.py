@@ -10,6 +10,8 @@ class CreditsTests(unittest.TestCase):
             self.assertIn(name, text)
         self.assertIn("Stats:", text)
         self.assertIn("local-agent super team", text)
+        self.assertIn("conceptual influence", text)
+        self.assertIn("no Loop Library runtime dependency", text)
         self.assertGreaterEqual(len(SUPER_TEAM), 6)
 
 
