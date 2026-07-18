@@ -25,4 +25,7 @@ command -v git >/dev/null 2>&1 || {
   exit 2
 }
 
-exec "$PYTHON" "$SCRIPT_DIR/scripts/install.py" "$@"
+"$PYTHON" "$SCRIPT_DIR/scripts/install.py" "$@"
+printf '%s\n' ''
+printf '%s\n' 'System capacity: run `manageroo capacity` to inspect CPU, RAM, GPU/VRAM, free disk, and conservative worker concurrency.'
+printf '%s\n' 'Manageroo uses that profile as development context; it does not treat this machine as the product minimum requirement.'
