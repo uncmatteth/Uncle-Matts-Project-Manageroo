@@ -23,6 +23,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         source = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}
         required = {
+            "docs/DISCOVERY_AND_CAPACITY.md",
             "scripts/release.py",
             "src/manageroo/acceptance.py",
             "src/manageroo/discovery_policy.py",
@@ -34,6 +35,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "src/manageroo/adapters/pool.py",
             "src/manageroo/adapters/transactional.py",
             "tests/test_acceptance_evidence.py",
+            "tests/test_capacity_public_surface.py",
             "tests/test_decision_workflow.py",
             "tests/test_discovery_cli.py",
             "tests/test_discovery_policy.py",
@@ -50,7 +52,11 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= source, sorted(required - source))
         end_user_required = {
-            item for item in required if item.startswith("src/") or item == "scripts/release.py"
+            item
+            for item in required
+            if item.startswith("src/")
+            or item.startswith("docs/")
+            or item == "scripts/release.py"
         }
         self.assertTrue(end_user_required <= end_user, sorted(end_user_required - end_user))
 
@@ -83,6 +89,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("Outcome-specific proof binding is missing", acceptance)
         self.assertIn("unknown-unknowns preflight", discovery)
         self.assertIn("capacity_bounded_parallel", discovery)
+        self.assertIn("decisions_fully_resolved", discovery)
         self.assertIn("ask_only_when", preflight)
         self.assertIn("max_parallel_agent_calls", capacity)
         self.assertIn('"release_created": False', release_driver)
