@@ -107,6 +107,7 @@ def apply_resolved_decisions(
     decisions = list(product.get("blocking_decisions", []) or [])
     unresolved: list[str] = []
     applied: list[dict[str, str]] = []
+    product_changed = False
     for decision in decisions:
         decision_id = str(decision.get("id") or "")
         existing = str(decision.get("chosen") or "")
@@ -131,6 +132,7 @@ def apply_resolved_decisions(
             )
         decision["chosen"] = chosen
         decision["resolution_source"] = "operator answer via manageroo decisions"
+        product_changed = True
         applied.append({"id": decision_id, "chosen": chosen})
 
     if unresolved:
@@ -140,14 +142,16 @@ def apply_resolved_decisions(
 
     resolution = {"applied_at": utc_now(), "answers": applied}
     if artifact_store is None:
-        atomic_write_json(product_path, product)
+        if product_changed:
+            atomic_write_json(product_path, product)
         atomic_write_json(_resolution_path(run_root), resolution)
     else:
-        artifact_store.write_json(
-            "planning/product-model.json",
-            product,
-            lock=True,
-        )
+        if product_changed:
+            artifact_store.write_json(
+                "planning/product-model.json",
+                product,
+                lock=True,
+            )
         artifact_store.write_json(
             "planning/decision-resolution.json",
             resolution,
