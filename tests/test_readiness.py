@@ -132,11 +132,33 @@ class ReadinessTests(unittest.TestCase):
             self.assertIn("repo contains", lane["detail"])
             self.assertIn("WARN document/prose lane", format_readiness(report))
 
-    def test_memory_request_requires_gbrain_sources(self):
+    def test_native_project_memory_request_does_not_require_gbrain(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._ready_repo(
                 Path(temp),
-                "# Product brief\n\nUse GBrain memory and prior decisions before changing this.\n",
+                (
+                    "# Product brief\n\nUse the project memory and prior decisions before "
+                    "changing this.\n"
+                ),
+            )
+            with patch(
+                "manageroo.readiness.helper_skill_items",
+                return_value=[],
+            ), patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ):
+                report = readiness(repo)
+            self.assertTrue(report["ok"])
+            gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
+            self.assertFalse(gbrain["ok"])
+            self.assertFalse(gbrain["required"])
+
+    def test_explicit_gbrain_request_requires_gbrain_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._ready_repo(
+                Path(temp),
+                "# Product brief\n\nUse GBrain memory before changing this.\n",
             )
             with patch(
                 "manageroo.readiness.helper_skill_items",
@@ -150,7 +172,7 @@ class ReadinessTests(unittest.TestCase):
             gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
             self.assertFalse(gbrain["ok"])
             self.assertTrue(gbrain["required"])
-            self.assertIn("brief asks for memory", gbrain["detail"])
+            self.assertIn("explicitly asks", gbrain["detail"])
 
     def test_selected_agent_uses_adapter_doctor_not_only_executable_presence(self):
         with tempfile.TemporaryDirectory() as temp:
