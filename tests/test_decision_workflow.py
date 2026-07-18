@@ -109,6 +109,34 @@ class DecisionWorkflowTests(unittest.TestCase):
             with self.assertRaises(SafetyError):
                 store.verify_locked()
 
+    def test_replay_after_product_model_lock_finishes_resolution_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = self._run_root(Path(temp))
+            planning = run_root / "artifacts" / "planning"
+            store = ArtifactStore(run_root / "artifacts")
+            product = read_json(planning / "product-model.json")
+            decision = product["blocking_decisions"][0]
+            decision["chosen"] = "Additive migration"
+            decision["resolution_source"] = "operator answer via manageroo decisions"
+            store.write_json(
+                "planning/product-model.json",
+                product,
+                lock=True,
+            )
+            atomic_write_json(
+                planning / "resolved-decisions.json",
+                {"answers": [{"id": "DATA-1", "chosen": "Additive migration"}]},
+            )
+            self.assertTrue(
+                apply_resolved_decisions(
+                    run_root,
+                    artifact_store=store,
+                )
+            )
+            self.assertTrue((planning / "decision-resolution.json").is_file())
+            self.assertFalse((planning / "resolved-decisions.json").exists())
+            store.verify_locked()
+
     def test_invalid_answer_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = self._run_root(Path(temp))
