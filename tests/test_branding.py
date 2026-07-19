@@ -46,10 +46,40 @@ class BrandingTests(unittest.TestCase):
         self.assertNotIn("ACRONYM: MANAGEROO", rendered)
         self.assertNotIn("ONE BRIEF IN. CHECKED PATCH OUT.", rendered)
         self.assertNotIn(
-            _fixture([83, 117, 112, 101, 114, 32, 77, 101, 103, 97, 32, 70, 111, 114, 119, 97, 114, 100, 32, 66, 117, 105, 108, 100]),
+            _fixture(
+                [
+                    83,
+                    117,
+                    112,
+                    101,
+                    114,
+                    32,
+                    77,
+                    101,
+                    103,
+                    97,
+                    32,
+                    70,
+                    111,
+                    114,
+                    119,
+                    97,
+                    114,
+                    100,
+                    32,
+                    66,
+                    117,
+                    105,
+                    108,
+                    100,
+                ]
+            ),
             rendered,
         )
-        self.assertNotIn(_fixture([85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69]), rendered)
+        self.assertNotIn(
+            _fixture([85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69]),
+            rendered,
+        )
         self.assertNotIn("\033[", rendered)
 
     def test_banner_box_edges_are_aligned(self):
@@ -96,18 +126,46 @@ class BrandingTests(unittest.TestCase):
         self.assertIn(BTTLABS_LABEL, stripped)
         self.assertGreater(rendered.count("\r"), 3)
 
-    def test_installer_banner_can_keep_effect_rows_moving(self):
+    def test_installer_banner_animates_once_without_background_cursor_painting(self):
         stream = _TtyStringIO()
         with (
             mock.patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False),
-            mock.patch("manageroo.branding._current_terminal_row", return_value=20),
+            mock.patch("manageroo.branding._terminal_columns", return_value=100),
         ):
             os.environ.pop("NO_COLOR", None)
             ticker = print_banner(stream, animation=True, delay=0, persistent_rainbow=True)
-        self.assertIsNotNone(ticker)
-        assert ticker is not None
-        self.assertGreaterEqual(len(ticker.rows), 5)
-        ticker.stop()
+        rendered = stream.getvalue()
+        self.assertIsNone(ticker)
+        self.assertNotIn("\033[s", rendered)
+        self.assertNotRegex(rendered, r"\033\[\d+;1H")
+        self.assertGreater(rendered.count("\r"), 3)
+
+    def test_full_banner_leaves_terminal_wrap_margin(self):
+        stream = _TtyStringIO()
+        with (
+            mock.patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False),
+            mock.patch("manageroo.branding._terminal_columns", return_value=80),
+        ):
+            os.environ.pop("NO_COLOR", None)
+            print_banner(stream, animation=False)
+        rendered = _ANSI_RE.sub("", stream.getvalue())
+        box = [line for line in rendered.splitlines() if line.startswith(("╔", "║", "╚"))]
+        self.assertEqual(len(box), 7)
+        self.assertTrue(all(len(line) <= 78 for line in box))
+        self.assertEqual(len({len(line) for line in box}), 1)
+
+    def test_narrow_terminal_uses_compact_non_wrapping_banner(self):
+        stream = _TtyStringIO()
+        with (
+            mock.patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=False),
+            mock.patch("manageroo.branding._terminal_columns", return_value=52),
+        ):
+            os.environ.pop("NO_COLOR", None)
+            print_banner(stream, animation=True, delay=0, persistent_rainbow=True)
+        rendered = _ANSI_RE.sub("", stream.getvalue())
+        self.assertIn(FULL_NAME, rendered)
+        self.assertNotIn("╔", rendered)
+        self.assertTrue(all(len(line) <= 52 for line in rendered.splitlines()))
 
 
 if __name__ == "__main__":
