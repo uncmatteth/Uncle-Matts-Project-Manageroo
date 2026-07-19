@@ -77,7 +77,7 @@ def _capacity_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo capacity",
         description=(
-            "Inspect the current machine and print Manageroo's conservative capacity profile."
+            "Inspect this machine's hardware as informational development-host context."
         ),
     )
     parser.add_argument("repo", nargs="?", default=".")
@@ -230,8 +230,8 @@ def _root_help() -> str:
         + "\n\nProduct certification:\n"
         + "  prove                 Run adversarial end-to-end Manageroo product proof.\n"
         + "                        Uses any available supported live coding agent.\n"
-        + "\nDiscovery and capacity:\n"
-        + "  capacity              Inspect CPU, RAM, GPU/VRAM, disk, and worker concurrency.\n"
+        + "\nDiscovery and host context:\n"
+        + "  capacity              Inspect host CPU, RAM, GPU/VRAM, and disk as context only.\n"
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
         + "  host-skills           Inspect host/tOS skills without modifying or owning them.\n"
         + "\nOptional stack maintenance:\n"
