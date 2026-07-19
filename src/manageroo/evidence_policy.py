@@ -25,6 +25,8 @@ PLANNING_EVIDENCE_ROLES = {
     "plan-compiler",
     "plan-reviewer",
 }
+PLANNING_EVIDENCE_LIMIT = 8
+PLANNING_EVIDENCE_CONTENT_CHARS = 4_000
 
 
 def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) -> EvidenceBundle:
@@ -71,6 +73,17 @@ def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) ->
     )
 
 
+def _planning_items(evidence_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for raw in list(evidence_payload.get("items", []) or [])[:PLANNING_EVIDENCE_LIMIT]:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        item["content"] = str(item.get("content") or "")[:PLANNING_EVIDENCE_CONTENT_CHARS]
+        selected.append(item)
+    return selected
+
+
 def install_evidence_policy(orchestrator_module) -> None:
     original_external = orchestrator_module.Orchestrator._external_intelligence
     original_call = orchestrator_module.Orchestrator._call
@@ -93,7 +106,7 @@ def install_evidence_policy(orchestrator_module) -> None:
             self.artifacts.write_json("discovery/evidence.json", evidence_payload, lock=True)
         else:
             evidence_payload = existing
-        self._planning_evidence_items = list(evidence_payload.get("items", []))
+        self._planning_evidence_items = _planning_items(evidence_payload)
         return {
             **payload,
             "evidence_bundle": evidence_payload,
