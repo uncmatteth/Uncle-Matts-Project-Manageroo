@@ -8,7 +8,6 @@ from pathlib import Path
 from .runner import CommandRunner
 from .util import sha256_file
 
-
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".avif"}
 PDF_SUFFIXES = {".pdf"}
 AUDIO_SUFFIXES = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aac"}
@@ -20,7 +19,8 @@ MAX_EXTRACTED_TEXT_CHARS = 6000
 
 def looks_binary(path: Path) -> bool:
     try:
-        data = path.read_bytes()[:8192]
+        with path.open("rb") as handle:
+            data = handle.read(8192)
     except OSError:
         return True
     return b"\0" in data
@@ -73,21 +73,7 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
         length = int.from_bytes(data[index : index + 2], "big")
         if length < 2 or index + length > len(data):
             return None
-        if marker in {
-            0xC0,
-            0xC1,
-            0xC2,
-            0xC3,
-            0xC5,
-            0xC6,
-            0xC7,
-            0xC9,
-            0xCA,
-            0xCB,
-            0xCD,
-            0xCE,
-            0xCF,
-        }:
+        if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
             height = int.from_bytes(data[index + 3 : index + 5], "big")
             width = int.from_bytes(data[index + 5 : index + 7], "big")
             return width, height
@@ -139,16 +125,14 @@ def prose_chunks(text: str, *, max_chars: int = 1600, max_chunks: int = 8) -> li
             current = []
             start = end_line + 1
             return
-        chunks.append(
-            {
-                "index": len(chunks) + 1,
-                "title": title[:120],
-                "start_line": start,
-                "end_line": end_line,
-                "chars": len(body),
-                "excerpt": " ".join(body.split())[:360],
-            }
-        )
+        chunks.append({
+            "index": len(chunks) + 1,
+            "title": title[:120],
+            "start_line": start,
+            "end_line": end_line,
+            "chars": len(body),
+            "excerpt": " ".join(body.split())[:360],
+        })
         current = []
         start = end_line + 1
 
@@ -188,18 +172,20 @@ def _extract_with_tool(
 
 
 def pdf_text_extract(path: Path, runner: CommandRunner | None = None) -> str:
+    resolved = path.expanduser().resolve()
     return _extract_with_tool(
         runner,
-        ["pdftotext", "-layout", str(path), "-"],
-        cwd=path.parent,
+        ["pdftotext", "-layout", str(resolved), "-"],
+        cwd=resolved.parent,
     )
 
 
 def image_ocr_extract(path: Path, runner: CommandRunner | None = None) -> str:
+    resolved = path.expanduser().resolve()
     return _extract_with_tool(
         runner,
-        ["tesseract", str(path), "stdout", "--psm", "6"],
-        cwd=path.parent,
+        ["tesseract", str(resolved), "stdout", "--psm", "6"],
+        cwd=resolved.parent,
     )
 
 
@@ -279,17 +265,13 @@ def media_summary(path: Path, relative: str = "", runner: CommandRunner | None =
         f"SHA-256: {sha256_file(path)}",
     ]
     if extracted_text:
-        lines.extend(
-            [
-                "Extracted text:",
-                extracted_text,
-                "Note: extracted text came from local OCR/PDF tooling and may be incomplete.",
-            ]
-        )
+        lines.extend([
+            "Extracted text:",
+            extracted_text,
+            "Note: extracted text came from local OCR/PDF tooling and may be incomplete.",
+        ])
     else:
-        lines.append(
-            "Note: no local OCR/PDF text extractor was available or extraction returned no text."
-        )
+        lines.append("Note: no local OCR/PDF text extractor was available or extraction returned no text.")
     return ("\n".join(lines), max(1, extracted_text.count("\n") + 1 if extracted_text else 1))
 
 
