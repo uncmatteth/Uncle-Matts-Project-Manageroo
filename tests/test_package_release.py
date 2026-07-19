@@ -83,6 +83,7 @@ class PackageReleaseTests(unittest.TestCase):
 
         self.assertGreaterEqual(len(skill_names), 40)
         self.assertEqual([name for name, count in counts.items() if count > 1], [])
+        self.assertIn("skill-vetter", skill_names)
         self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
         self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
 
@@ -95,7 +96,7 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("--skip-install-tests", package_text)
         self.assertIn("scripts/smoke_release_install.py", verifier_text)
         self.assertIn('VERSION_TAG = "v2026.7.19.1"', smoke_text)
-        self.assertIn("EXPECTED_SKILL_COUNT = 17", smoke_text)
+        self.assertIn("EXPECTED_SKILL_COUNT = 18", smoke_text)
         self.assertIn('str(extracted / "install.ps1")', smoke_text)
         self.assertIn('"install.sh"', smoke_text)
         self.assertIn('"manageroo"', smoke_text)
