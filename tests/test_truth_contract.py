@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import re
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -29,6 +30,28 @@ def _load_installer_module():
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
+
+
+def _claim_is_explicitly_denied(sentence: str, phrase: str) -> bool:
+    before = sentence.lower().split(phrase.lower(), 1)[0]
+    denial_patterns = (
+        r"\bdoes\s+not\b",
+        r"\bcannot\b",
+        r"\bnever\b",
+        r"\bmust\s+not\b",
+        r"\bnot\b",
+        r"\bwithout\b",
+        r"\binstead\s+of\b",
+    )
+    return any(re.search(pattern, before) for pattern in denial_patterns)
+
+
+def _sentences(text: str) -> list[str]:
+    return [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text)
+        if sentence.strip()
+    ]
 
 
 class TruthContractTests(unittest.TestCase):
@@ -190,27 +213,32 @@ class TruthContractTests(unittest.TestCase):
             "ai can fix clawpatch findings",
             "silently self-improves",
         ]
-        boundary_words = (
-            "not ",
-            "does not",
-            "cannot",
-            "never",
-            "must not",
-            "without",
-            "instead of",
-        )
         for surface in public_files:
-            lines = _read(surface).lower().splitlines()
+            sentences = _sentences(_read(surface).lower())
             for phrase in banned_phrases:
                 with self.subTest(surface=surface, phrase=phrase):
-                    offenders = []
-                    for index, line in enumerate(lines):
-                        if phrase not in line:
-                            continue
-                        context = ((lines[index - 1] if index else "") + " " + line).strip()
-                        if not any(word in context for word in boundary_words):
-                            offenders.append(context)
+                    offenders = [
+                        sentence
+                        for sentence in sentences
+                        if phrase in sentence and not _claim_is_explicitly_denied(sentence, phrase)
+                    ]
                     self.assertEqual(offenders, [])
+
+    def test_overclaim_guard_rejects_unrelated_nearby_negation(self):
+        text = "This is not experimental. Manageroo has full vision support."
+        offenders = [
+            sentence
+            for sentence in _sentences(text)
+            if "full vision support" in sentence.lower()
+            and not _claim_is_explicitly_denied(sentence, "full vision support")
+        ]
+        self.assertEqual(offenders, ["Manageroo has full vision support."])
+        self.assertTrue(
+            _claim_is_explicitly_denied(
+                "Manageroo does not provide full vision support.",
+                "full vision support",
+            )
+        )
 
     def test_project_manageroo_rename_has_no_old_public_brand_surface(self):
         old_title = _fixture([
