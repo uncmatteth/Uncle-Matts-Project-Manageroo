@@ -25,7 +25,23 @@ command -v git >/dev/null 2>&1 || {
   exit 2
 }
 
+PREFIX_VALUE="$HOME/.local/share/manageroo"
+EXPECT_PREFIX=0
+for ARG in "$@"; do
+  if [ "$EXPECT_PREFIX" -eq 1 ]; then
+    PREFIX_VALUE=$ARG
+    EXPECT_PREFIX=0
+    continue
+  fi
+  case "$ARG" in
+    --prefix) EXPECT_PREFIX=1 ;;
+    --prefix=*) PREFIX_VALUE=${ARG#--prefix=} ;;
+  esac
+done
+
 "$PYTHON" "$SCRIPT_DIR/scripts/install.py" "$@"
+"$PYTHON" "$SCRIPT_DIR/scripts/finalize_gitnexus.py" --prefix "$PREFIX_VALUE"
+
 printf '%s\n' ''
 printf '%s\n' 'Host profile: run `manageroo capacity` to inspect this machine'''s CPU, RAM, GPU/VRAM, and free disk.'
 printf '%s\n' 'Manageroo itself is hardware-agnostic: the profile is context only and never auto-tunes worker concurrency.'
