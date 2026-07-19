@@ -16,6 +16,27 @@ PNG_1X1 = base64.b64decode(
 )
 
 
+class _CountingReader:
+    def __init__(self, handle, counter):
+        self._handle = handle
+        self._counter = counter
+
+    def read(self, size=-1):
+        data = self._handle.read(size)
+        self._counter["bytes"] += len(data)
+        return data
+
+    def __enter__(self):
+        self._handle.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return self._handle.__exit__(exc_type, exc, tb)
+
+    def __getattr__(self, name):
+        return getattr(self._handle, name)
+
+
 class InventoryTests(unittest.TestCase):
     def test_media_and_large_prose_are_visible(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -44,12 +65,26 @@ class InventoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             image = root / "hero.png"
-            image.write_bytes(PNG_1X1 + (b"x" * 1024))
+            image.write_bytes(PNG_1X1 + (b"x" * (2 * 1024 * 1024)))
             pdf = root / "book.pdf"
-            pdf.write_bytes(b"%PDF-1.7\n/Type /Page\n" + (b"x" * 1024))
-            with patch("pathlib.Path.read_bytes", side_effect=AssertionError("full read")):
+            pdf.write_bytes(b"%PDF-1.7\n/Type /Page\n" + (b"x" * (10 * 1024 * 1024)))
+            counters = {image: {"bytes": 0}, pdf: {"bytes": 0}}
+            original_open = Path.open
+
+            def counted_open(path, *args, **kwargs):
+                handle = original_open(path, *args, **kwargs)
+                resolved = path.resolve()
+                counter = next((value for key, value in counters.items() if key.resolve() == resolved), None)
+                return _CountingReader(handle, counter) if counter is not None else handle
+
+            with patch("pathlib.Path.open", new=counted_open):
                 self.assertEqual(image_dimensions(image), (1, 1))
                 self.assertEqual(pdf_page_count(pdf), 1)
+
+            self.assertLessEqual(counters[image]["bytes"], 512 * 1024)
+            self.assertLessEqual(counters[pdf]["bytes"], 8 * 1024 * 1024)
+            self.assertLess(counters[image]["bytes"], image.stat().st_size)
+            self.assertLess(counters[pdf]["bytes"], pdf.stat().st_size)
 
     def test_prose_chunks_preserve_line_ranges(self):
         text = "# Start\n\n" + ("alpha " * 120) + "\n\n## Next\n\n" + ("beta " * 120)
