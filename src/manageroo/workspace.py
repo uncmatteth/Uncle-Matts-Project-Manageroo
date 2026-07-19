@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -40,21 +39,25 @@ class WorkspaceMirror:
             path = self.source_repo / relative
             if not path.is_file() or path.is_symlink():
                 continue
+            stat = path.stat()
             records.append(
                 SourceFile(
                     path=relative,
                     sha256=sha256_file(path),
-                    bytes=path.stat().st_size,
-                    mode=path.stat().st_mode & 0o777,
+                    bytes=stat.st_size,
+                    mode=stat.st_mode & 0o777,
                 )
             )
         atomic_write_json(self.snapshot_path, {"files": [asdict(item) for item in records]})
         return records
 
     def create(self) -> Path:
+        if self.workspace.exists() or self.snapshot_path.exists():
+            raise SafetyError(
+                "Run workspace or source snapshot already exists; creation is immutable for an existing run."
+            )
+        self.run_root.mkdir(parents=True, exist_ok=True)
         records = self.capture_source()
-        if self.workspace.exists():
-            raise SafetyError(f"Workspace already exists: {self.workspace}")
         self.workspace.mkdir(parents=True)
         for record in records:
             source = self.source_repo / record.path
@@ -196,7 +199,12 @@ class WorkspaceMirror:
         changed: list[str] = []
         for relative, record in expected.items():
             path = self.source_repo / relative
-            if not path.is_file() or sha256_file(path) != record["sha256"]:
+            if not path.is_file() or path.is_symlink():
+                changed.append(relative)
+                continue
+            stat = path.stat()
+            current_mode = stat.st_mode & 0o777
+            if sha256_file(path) != record["sha256"] or current_mode != int(record.get("mode", current_mode)):
                 changed.append(relative)
         if changed:
             raise SafetyError("Source tree changed during run: " + ", ".join(changed))
@@ -231,8 +239,18 @@ class WorkspaceMirror:
         return reverse_check.passed
 
     def clone_for_review(self, destination: Path) -> Path:
+        destination = destination.expanduser().resolve()
+        try:
+            relative = destination.relative_to(self.run_root)
+        except ValueError as exc:
+            raise SafetyError("Reviewer clone destination must stay inside the run root.") from exc
+        if not relative.parts or destination in {self.run_root, self.workspace, self.source_repo}:
+            raise SafetyError("Reviewer clone destination is not an approved scratch path.")
         if destination.exists():
-            shutil.rmtree(destination)
+            raise SafetyError(
+                f"Reviewer clone destination already exists; refusing destructive replacement: {destination}"
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
         result = self.runner.run(
             ["git", "clone", "--no-hardlinks", "--quiet", str(self.workspace), str(destination)],
             cwd=self.run_root,
