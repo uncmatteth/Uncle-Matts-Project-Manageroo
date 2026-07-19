@@ -40,6 +40,47 @@ Do not say a plan is best, smartest, perfect, ready, or 100% complete unless
 the current evidence proves that exact claim. Without proof, call it a
 recommendation or partial status.
 
+## First-install request policy
+
+Manageroo's first installation is intentionally human-first because the installer presents meaningful choices about the local setup.
+
+When a user asks an AI or IDE agent to install Manageroo, do not silently guess those choices and run an unattended end-to-end installation by default.
+
+First explain, in plain language:
+
+- Manageroo recommends that the user run the installer themselves in a terminal the first time;
+- this lets them see what is happening and choose optional components intentionally;
+- the agent can provide the exact command, explain every choice, and troubleshoot problems;
+- if the user still wants the agent to perform or guide the installation, the agent should gather the user's selections before choosing on their behalf.
+
+Recommended starting commands:
+
+```bash
+./install.sh
+```
+
+or on Windows PowerShell:
+
+```powershell
+.\install.ps1
+```
+
+Before performing an agent-assisted install, surface the relevant choices that the current installer exposes, including when applicable:
+
+- whether to install or skip the optional surrounding tool stack;
+- GBrain setup lane;
+- optional skill-pack installation;
+- token-reduction mode;
+- project discovery behavior;
+- stack doctor or repair checks;
+- Clawpatch/Codex login assistance;
+- music and animation preferences;
+- any other installer option that materially changes the user's machine or setup.
+
+Do not invent selections. Do not treat optional integrations as mandatory. Do not bypass a user's explicit choices.
+
+If the user explicitly says they understand the choices and want the agent to proceed with specified options, the agent may assist or perform the installation using those selections.
+
 ## Recommended skill pack routing
 
 Do not make the user remember skill names. Do not load the whole skill pack.
