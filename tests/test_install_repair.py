@@ -15,6 +15,16 @@ class InstallRepairTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertIn("./install.sh", result["next_commands"][0])
 
+    def test_malformed_lock_reports_actionable_reinstall_instead_of_crashing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            prefix.mkdir()
+            (prefix / "install-lock.json").write_text("{", encoding="utf-8")
+            result = repair_install(prefix=prefix, apply=False)
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["next_commands"])
+            self.assertIn("install", " ".join(result["next_commands"]).lower())
+
     def test_apply_recreates_missing_launcher_from_lock(self):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
@@ -30,6 +40,9 @@ class InstallRepairTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(launcher.exists())
             self.assertIn("PYTHONPATH", launcher.read_text(encoding="utf-8"))
+            if os.name != "nt":
+                self.assertTrue(os.access(launcher, os.X_OK))
+                self.assertNotEqual(launcher.stat().st_mode & 0o111, 0)
             self.assertTrue(any(action["name"] == "launcher" for action in result["actions"]))
 
     def test_no_apply_does_not_install_helper_skills(self):
