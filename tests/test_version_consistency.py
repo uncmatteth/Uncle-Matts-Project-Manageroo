@@ -8,6 +8,7 @@ from manageroo import __version__
 
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION_TAG_PATTERN = re.compile(r"(?<![A-Za-z0-9])v\d+(?:\.\d+){2,3}(?:[-+][0-9A-Za-z.-]+)?(?![A-Za-z0-9.-])")
 
 
 def _load_module(name: str, relative_path: str):
@@ -33,11 +34,19 @@ class VersionConsistencyTests(unittest.TestCase):
         self.assertIn(expected_tag, package_release.INSTALLER_ZIP)
         self.assertIn(expected_tag, package_release.SOURCE_ZIP)
 
-    def test_publish_guide_uses_current_release_version(self):
+    def test_publish_guide_uses_only_current_release_version(self):
         publish = (ROOT / "PUBLISH_TO_GITHUB.md").read_text(encoding="utf-8")
         current_tag = f"v{__version__}"
-        release_tags = set(re.findall(r"v\d{4}\.\d+\.\d+\.\d+", publish))
+        release_tags = set(VERSION_TAG_PATTERN.findall(publish))
         self.assertEqual(release_tags, {current_tag})
+
+    def test_version_pattern_rejects_stale_semver_and_suffixed_tags(self):
+        current_tag = f"v{__version__}"
+        fixture = f"Release {current_tag}. Do not also publish v1.2.3 or {current_tag}-rc1."
+        self.assertEqual(
+            set(VERSION_TAG_PATTERN.findall(fixture)),
+            {current_tag, "v1.2.3", f"{current_tag}-rc1"},
+        )
 
 
 if __name__ == "__main__":
