@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -112,9 +113,7 @@ def gbrain_setup_status(
         return {
             "ok": False,
             "installed": False,
-            "next_commands": [
-                "Install GBrain first, then rerun `manageroo gbrain-setup`.",
-            ],
+            "next_commands": ["Install GBrain first, then rerun `manageroo gbrain-setup`."],
         }
 
     actions: list[dict[str, Any]] = []
@@ -126,25 +125,30 @@ def gbrain_setup_status(
         add_argv = [gbrain, "sources", "add", source_id, "--path", str(source_path)]
         sync_argv = [gbrain, "sync", "--source", source_id, "--json", "--yes"]
         if apply:
-            actions.append(run_probe(add_argv))
-            if sync:
+            add_result = run_probe(add_argv)
+            actions.append(add_result)
+            if sync and add_result.get("ok"):
                 actions.append(run_probe(sync_argv, timeout_seconds=300))
+            elif sync:
+                next_commands.append(
+                    "Source add failed, so sync was not attempted. Fix the add failure and rerun the setup command."
+                )
         else:
-            next_commands.append(" ".join(add_argv))
+            next_commands.append(shlex.join(add_argv))
             if sync:
-                next_commands.append(" ".join(sync_argv))
+                next_commands.append(shlex.join(sync_argv))
 
     config_probe = run_probe([gbrain, "config", "show"])
-    config_summary = (
-        summarize_gbrain_config(config_probe.get("output", ""))
-        if config_probe.get("ok")
-        else {}
-    )
+    config_summary = summarize_gbrain_config(config_probe.get("output", "")) if config_probe.get("ok") else {}
     status_probe = run_probe([gbrain, "status", "--json", "--section", "sync"])
-    summary = summarize_sync_status(status_probe.get("output", "")) if status_probe.get("ok") else {
-        "ok": False,
-        "error": status_probe.get("error") or status_probe.get("output") or "gbrain status failed",
-    }
+    summary = (
+        summarize_sync_status(status_probe.get("output", ""))
+        if status_probe.get("ok")
+        else {
+            "ok": False,
+            "error": status_probe.get("error") or status_probe.get("output") or "gbrain status failed",
+        }
+    )
     if summary.get("ok") and summary.get("source_count") == 0:
         next_commands.append("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder")
         next_commands.append("gbrain sync --source YOUR_SOURCE_ID --json --yes")
@@ -167,8 +171,7 @@ def format_gbrain_setup(report: dict[str, Any]) -> str:
     if not report.get("installed"):
         return "GBRAIN: NOT INSTALLED\nNext: " + report["next_commands"][0] + "\n"
     status = report.get("status", {})
-    has_sources = bool(status.get("source_count", 0) > 0)
-    lines = [f"GBRAIN: {'OK' if status.get('ok') and has_sources else 'ACTION'}"]
+    lines = [f"GBRAIN: {'OK' if report.get('ok') else 'ACTION'}"]
     if status.get("ok"):
         config = report.get("config", {})
         for key in ("engine", "embedding_model", "embedding_dimensions", "schema_pack"):
@@ -187,7 +190,7 @@ def format_gbrain_setup(report: dict[str, Any]) -> str:
         lines.append(f"Problem: {status.get('error', 'status unavailable')}")
     for action in report.get("actions", []):
         label = "OK" if action.get("ok") else "FAILED"
-        lines.append(f"{label}: {' '.join(action.get('argv', []))}")
+        lines.append(f"{label}: {shlex.join(action.get('argv', []))}")
         if not action.get("ok") and action.get("output"):
             lines.append(action["output"])
     for command in report.get("next_commands", []):
