@@ -168,7 +168,6 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
 
     original_call = cls._call
     original_run = cls.run
-    original_parallel = cls._max_parallel_agent_calls
     original_blocking_path = cls._blocking_decisions_path
 
     def current_capacity(self) -> dict:
@@ -177,16 +176,6 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
             cached = host_capacity(self.source_repo)
             self._manageroo_host_capacity = cached
         return cached
-
-    def capacity_bounded_parallel(self) -> int:
-        configured = max(1, int(original_parallel(self)))
-        recommended = int(
-            current_capacity(self)
-            .get("recommendations", {})
-            .get("max_parallel_agent_calls", configured)
-            or configured
-        )
-        return max(1, min(configured, recommended))
 
     def resolved_aware_blocking_path(self) -> Path:
         original = original_blocking_path(self)
@@ -233,7 +222,12 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
                     "high-impact unresolved choices, and include a recommended option for every "
                     "blocking decision.\n\n"
                 )
-                + "Detected host capacity:\n"
+                + (
+                    "Development-host hardware profile (context only). This is NOT a Manageroo "
+                    "minimum requirement and MUST NOT be used to auto-tune Manageroo worker "
+                    "concurrency. Use it only when the target project itself has hardware or local "
+                    "runtime requirements:\n"
+                )
                 + json.dumps(capacity, indent=2, sort_keys=True)
                 + "\n\nUnknown-unknowns checklist:\n"
                 + json.dumps(preflight, indent=2, sort_keys=True)
@@ -255,7 +249,6 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
                 f"--repo {self.source_repo}. Then continue the same run."
             ) from exc
 
-    cls._max_parallel_agent_calls = capacity_bounded_parallel
     cls._blocking_decisions_path = resolved_aware_blocking_path
     cls._call = discovery_call
     cls.run = discovery_run
