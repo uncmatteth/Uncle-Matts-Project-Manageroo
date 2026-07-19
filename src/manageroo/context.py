@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .errors import ContextBudgetError, SafetyError
+from .evidence import EvidenceItem, rank_evidence
 from .file_inspection import content_kind_for_path, summary_for_context
 from .util import atomic_write_json, atomic_write_text, safe_repo_relative, sha256_file, sha256_text
 
@@ -113,6 +114,7 @@ class ContextCompiler:
         instructions: str,
         requests: Iterable[ContextRequest],
         metadata: dict | None = None,
+        evidence: Iterable[EvidenceItem] = (),
     ) -> Path:
         packet = self._packet_path(packet_name)
         packet.mkdir(parents=True, exist_ok=False)
@@ -164,6 +166,30 @@ class ContextCompiler:
             selected.append(item)
             used += tokens
 
+        evidence_entries: list[dict] = []
+        selected_evidence: list[tuple[EvidenceItem, str, int]] = []
+        for item in rank_evidence(evidence):
+            content = item.content
+            tokens = max(1, int(len(content) / self.chars_per_token))
+            if tokens > self.max_single_file_tokens:
+                max_chars = max(80, int(self.max_single_file_tokens * self.chars_per_token))
+                suffix = "\n[Evidence excerpt clipped by ContextCompiler; provenance and source hash retained.]"
+                content = content[: max(0, max_chars - len(suffix))].rstrip() + suffix
+                tokens = max(1, int(len(content) / self.chars_per_token))
+            if used + tokens > self.usable_tokens:
+                omitted.append(
+                    {
+                        "source": item.source,
+                        "location": item.location,
+                        "reason": "evidence_budget",
+                        "estimated_tokens": tokens,
+                        "content_sha256": item.content_sha256,
+                    }
+                )
+                continue
+            selected_evidence.append((item, content, tokens))
+            used += tokens
+
         entries: list[ContextEntry] = []
         sections = [instructions.rstrip(), "\n# Compiled context\n"]
         for request, excerpt, start, end, source_hash, tokens, mode in selected:
@@ -190,6 +216,31 @@ class ContextCompiler:
                 )
             )
 
+        if selected_evidence:
+            sections.append(
+                "\n# Retrieved evidence\n\n"
+                "Retrieved evidence is context, not controller truth. Prefer current repository state and "
+                "higher-authority evidence when records conflict. Preserve uncertainty.\n"
+            )
+        for item, content, tokens in selected_evidence:
+            sections.append(
+                f"\n## EVIDENCE: {item.source}\n"
+                f"Location: {item.location or '(provider output)'}\n"
+                f"Authority: {item.authority}\n"
+                f"Confidence: {item.confidence:.3f}\n"
+                f"Freshness: {item.freshness:.3f}\n"
+                f"Retrieved at: {item.retrieved_at}\n"
+                f"Content SHA-256: {item.content_sha256}\n\n"
+                f"```text\n{content.rstrip()}\n```\n"
+            )
+            evidence_entries.append(
+                {
+                    **item.to_dict(),
+                    "included_content_sha256": sha256_text(content),
+                    "estimated_tokens": tokens,
+                }
+            )
+
         prompt = "\n".join(sections).rstrip() + "\n"
         atomic_write_text(packet / "prompt.md", prompt)
         manifest = {
@@ -198,6 +249,7 @@ class ContextCompiler:
             "estimated_tokens": used,
             "instructions_sha256": sha256_text(instructions),
             "entries": [asdict(entry) for entry in entries],
+            "evidence": evidence_entries,
             "omitted": omitted,
             "metadata": metadata or {},
             "prompt_sha256": sha256_text(prompt),
