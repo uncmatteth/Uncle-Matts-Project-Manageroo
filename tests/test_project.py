@@ -23,8 +23,8 @@ class ProjectInitializationTests(unittest.TestCase):
             agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
             context_text = (repo / "CONTEXT.md").read_text(encoding="utf-8")
             self.assertIn(".manageroo/PROJECT-MEMORY.md", agents_text)
-            self.assertIn("brain-ops", agents_text)
-            self.assertIn("exact-text-replacement", agents_text)
+            self.assertIn("host-owned", agents_text)
+            self.assertIn("portable core", agents_text)
             self.assertIn(".manageroo/PROJECT-MEMORY.md", context_text)
             self.assertIn("document/prose lane", context_text)
             self.assertTrue(
@@ -78,6 +78,34 @@ class ProjectInitializationTests(unittest.TestCase):
             initialized = initialize_project(repo, agent="mock")
             gate_ids = {gate["id"] for gate in initialized["detected_gates"]}
             self.assertIn("unittest", gate_ids)
+
+    def test_existing_empty_git_repo_can_receive_requested_starter_non_destructively(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "existing-empty"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            result = create_project_repo(
+                repo,
+                title="Existing Empty",
+                description="Scaffold this empty repository.",
+                starter="static-site",
+            )
+            self.assertEqual(result["status"], "scaffolded-existing-git")
+            self.assertIn("index.html", result["created_files"])
+            self.assertTrue((repo / "index.html").is_file())
+            self.assertTrue((repo / "styles.css").is_file())
+
+    def test_initialization_refuses_to_rewrite_non_utf8_instruction_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            agents = repo / "AGENTS.md"
+            original = b"prefix\xffsuffix"
+            agents.write_bytes(original)
+            with self.assertRaises(ValueError):
+                initialize_project(repo, agent="mock")
+            self.assertEqual(agents.read_bytes(), original)
 
     def test_create_project_repo_refuses_non_empty_non_git_folder(self):
         with tempfile.TemporaryDirectory() as temp:
