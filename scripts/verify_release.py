@@ -103,7 +103,7 @@ def structural_checks() -> list[dict]:
         "src/manageroo/next_action.py", "src/manageroo/project_memory.py", "src/manageroo/solo.py",
         "src/manageroo/token_modes.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
         "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md", "tests/test_evidence.py",
-        "tests/test_jobs.py", "tests/test_learning.py", "tests/test_truth_contract.py",
+        "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py", "tests/test_truth_contract.py",
         "tests/test_release_hardening_contract.py",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
