@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_TAG = "v2026.7.19.1"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-EXPECTED_SKILL_COUNT = 17
+EXPECTED_SKILL_COUNT = 18
 
 
 def run(
