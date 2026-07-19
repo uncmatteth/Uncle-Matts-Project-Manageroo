@@ -18,7 +18,7 @@ The controller, not the worker, decides whether the job is complete.
 
 Manageroo core is hardware-agnostic.
 
-It does not require Tommy's workstation specs, a GPU, a VRAM tier, or a particular RAM/CPU class.
+It does not require a GPU, a VRAM tier, or a particular RAM/CPU class.
 
 ```bash
 manageroo capacity
@@ -29,6 +29,8 @@ That command reports the current development host as context only. It does not a
 A target project or explicitly selected local AI tool may still have its own hardware requirements.
 
 ## Install
+
+The recommended first install is human-first so the operator can see what is happening and choose optional components intentionally.
 
 Unix-like systems:
 
@@ -51,14 +53,16 @@ manageroo skills list
 manageroo host-skills
 manageroo token-mode status
 manageroo stack-status
+manageroo stack-doctor
 ```
 
 ## Portable core skills
 
-Manageroo installs 17 core skills by default:
+Manageroo installs 18 core skills by default:
 
 - `uncle-matts-project-manageroo`
 - `use-installed-skills-first`
+- `skill-vetter`
 - `pimp-my-prompt`
 - `to-prd`
 - `to-issues`
@@ -75,7 +79,7 @@ Manageroo installs 17 core skills by default:
 - `caveman`
 - `uncle-matts-caveman-curse`
 
-Extra tOS/host skills remain host-owned and optional.
+Additional host skills remain host-owned and optional.
 
 Inspect them without changing anything:
 
@@ -84,9 +88,19 @@ manageroo host-skills
 manageroo host-skills --json
 ```
 
-## Optional stack
+## Recommended surrounding stack
 
-GBrain, GitNexus, Obsidian, AUTOREVIEW, and Clawpatch are optional surrounding tools.
+Manageroo's full recommended setup can include:
+
+- GitNexus for repository/code-graph intelligence;
+- GBrain for external durable knowledge when explicitly relevant;
+- AUTOREVIEW for external review;
+- Clawpatch for external review and repair;
+- Obsidian for human-readable knowledge.
+
+GitNexus is a first-class recommended integration. When selected during installation, Manageroo installs it and completes `gitnexus setup`.
+
+These tools add capabilities without replacing Manageroo's controller authority.
 
 ```bash
 manageroo stack-status
@@ -94,7 +108,12 @@ manageroo stack-doctor
 manageroo stack-update
 ```
 
-`stack-update` is a dry run unless `--apply` is explicit.
+`stack-update` is a dry run unless `--apply` is explicit. You can also target specific installed tools, for example:
+
+```bash
+manageroo stack-update gitnexus
+manageroo stack-update gitnexus --apply
+```
 
 ## Start a project
 
@@ -189,7 +208,7 @@ manageroo intent show
 manageroo compact audit --summary SUMMARY.md
 ```
 
-Manageroo stores durable truth on disk instead of trusting a long chat transcript.
+Manageroo stores durable project truth on disk instead of trusting a long chat transcript. External memory systems are optional unless a task explicitly needs them.
 
 ## Release gate for a managed project
 
@@ -214,13 +233,16 @@ That fail-closed command must pass product proof, regressions, packaging, checks
 
 ```text
 Manageroo core
-    portable controller + 17 core skills
+    portable controller + 18 core skills
 
-Host / tOS
-    optional extra skills and tools
+Recommended surrounding stack
+    GitNexus + GBrain + AUTOREVIEW + Clawpatch + Obsidian when selected
+
+Host environment
+    independently owned additional skills and tools
 
 Target repo
     its own runtime, build, deployment, and possible hardware requirements
 ```
 
-Keep those three layers separate.
+Keep those layers separate.
