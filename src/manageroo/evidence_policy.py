@@ -31,16 +31,26 @@ PLANNING_EVIDENCE_CONTENT_CHARS = 4_000
 
 def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) -> EvidenceBundle:
     items = []
+    provider_errors: list[dict[str, str]] = []
     items.extend(ProjectMemoryEvidenceProvider(orchestrator.source_repo).retrieve(brief, limit=4))
     items.extend(RunArtifactEvidenceProvider(orchestrator.run_root).retrieve(brief, limit=8))
 
     for record in payload.get("records", []):
-        if not isinstance(record, dict) or not record.get("ok"):
+        if not isinstance(record, dict) or not record.get("enabled"):
+            continue
+        name = str(record.get("name") or "external-evidence")
+        if not record.get("ok"):
+            provider_errors.append(
+                {
+                    "provider": name,
+                    "error_type": str(record.get("error_type") or "CommandFailure"),
+                    "error": str(record.get("error") or record.get("stderr") or "provider command failed")[:2000],
+                }
+            )
             continue
         stdout = str(record.get("stdout") or "").strip()
         if not stdout:
             continue
-        name = str(record.get("name") or "external-evidence")
         if name.startswith("gitnexus"):
             authority = "current_repo"
             confidence = 0.92
@@ -69,7 +79,7 @@ def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) ->
         query=brief,
         items=ranked,
         contradictions=detect_contradictions(items),
-        provider_errors=[],
+        provider_errors=provider_errors,
     )
 
 
@@ -89,10 +99,14 @@ def _evidence_summary(orchestrator, evidence_payload: dict[str, Any]) -> dict[st
     contradictions = [
         item for item in evidence_payload.get("contradictions", []) if isinstance(item, dict)
     ]
+    provider_errors = [
+        item for item in evidence_payload.get("provider_errors", []) if isinstance(item, dict)
+    ]
     return {
         "artifact": str(orchestrator.artifacts.root / "discovery" / "evidence.json"),
         "item_count": len(items),
         "contradiction_count": len(contradictions),
+        "provider_error_count": len(provider_errors),
         "top_sources": list(dict.fromkeys(str(item.get("source") or "unknown") for item in items))[:8],
         "controller_authority": True,
         "context_only": True,
