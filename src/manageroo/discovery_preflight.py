@@ -84,6 +84,11 @@ def _signal_present(corpus: str, term: str) -> bool:
 
 
 def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) -> str:
+    """Collect a bounded repository text corpus without descending into ignored trees.
+
+    The traversal reads eligible files as they are encountered and stops as soon as either
+    budget is exhausted. It does not first materialize or sort the whole repository tree.
+    """
     repo = repo.resolve()
     chunks: list[str] = []
     consumed = 0
@@ -92,41 +97,36 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
         "pyproject.toml", "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
         "requirements.txt", "Dockerfile", "docker-compose.yml", "vercel.json", ".env.example", "README.md", "ARCHITECTURE.md",
     }
-    preferred_paths: list[Path] = []
-    normal_paths: list[Path] = []
+
     for current, dirs, files in os.walk(repo, topdown=True, followlinks=False):
-        dirs[:] = sorted(directory for directory in dirs if directory not in SKIP_PARTS)
+        dirs[:] = sorted(
+            directory
+            for directory in dirs
+            if directory not in SKIP_PARTS and not (Path(current) / directory).is_symlink()
+        )
         current_path = Path(current)
-        for name in sorted(files):
+        ordered_files = sorted(files, key=lambda name: (name not in preferred, name))
+        for name in ordered_files:
+            if scanned >= max_files or consumed >= max_chars:
+                return "\n".join(chunks).lower()
             path = current_path / name
             if path.is_symlink():
                 continue
-            try:
-                relative = path.relative_to(repo)
-            except ValueError:
-                continue
             if path.suffix.lower() not in TEXT_SUFFIXES and name not in preferred:
                 continue
-            (preferred_paths if name in preferred else normal_paths).append(path)
-            if len(preferred_paths) + len(normal_paths) >= max_files * 4:
-                break
-        if len(preferred_paths) + len(normal_paths) >= max_files * 4:
-            break
-
-    candidates = [*sorted(preferred_paths, key=lambda p: (len(p.parts), p.as_posix())), *normal_paths]
-    for path in candidates:
-        if scanned >= max_files or consumed >= max_chars:
-            break
-        try:
-            relative = path.relative_to(repo)
-            with path.open("r", encoding="utf-8", errors="ignore") as handle:
-                text = handle.read(min(20_000, max_chars - consumed))
-        except OSError:
-            continue
-        scanned += 1
-        consumed += len(text)
-        chunks.append(relative.as_posix())
-        chunks.append(text)
+            try:
+                relative = path.relative_to(repo)
+                remaining = max_chars - consumed
+                with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    text = handle.read(min(20_000, remaining))
+            except OSError:
+                continue
+            scanned += 1
+            consumed += len(text)
+            chunks.append(relative.as_posix())
+            chunks.append(text)
+            if consumed >= max_chars:
+                return "\n".join(chunks).lower()
     return "\n".join(chunks).lower()
 
 
