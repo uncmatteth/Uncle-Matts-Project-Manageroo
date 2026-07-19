@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 import re
+import shlex
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .branding import PUBLIC_COMMAND
-from .token_modes import (
-    CORE_HELPER_SKILLS,
-    install_core_helper_skills,
-    token_mode_skills_dir,
-)
+from .token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, token_mode_skills_dir
 from .util import sha256_file
-
 
 _VALID_SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}[A-Za-z0-9]$|^[A-Za-z0-9]$")
 
@@ -23,9 +19,7 @@ def _backup_path(destination: Path) -> Path:
     candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}")
     index = 2
     while candidate.exists():
-        candidate = destination.with_name(
-            f"{destination.name}.manageroo-backup-{stamp}-{index}"
-        )
+        candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}-{index}")
         index += 1
     return candidate
 
@@ -38,25 +32,50 @@ def _frontmatter_name(text: str) -> str:
         return ""
     for line in text[4:end].splitlines():
         if line.strip().startswith("name:"):
-            raw = line.split(":", 1)[1].strip().strip("'\"")
-            return raw
+            return line.split(":", 1)[1].strip().strip("'\"")
     return ""
 
 
 def _skill_name(path: Path) -> str:
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = path.read_text(encoding="utf-8")
     return _frontmatter_name(text) or path.parent.name
 
 
-def _copy_skill_source_tree(source_dir: Path, target_dir: Path) -> list[str]:
+def _safe_target_root(skills_dir: Path | None, *, create: bool = False) -> Path:
+    unresolved = (skills_dir or token_mode_skills_dir()).expanduser()
+    if unresolved.is_symlink():
+        raise ValueError(f"Refusing to use symlinked skills directory: {unresolved}")
+    if create:
+        unresolved.mkdir(parents=True, exist_ok=True)
+    if unresolved.exists() and not unresolved.is_dir():
+        raise ValueError(f"Skills target must be a directory: {unresolved}")
+    resolved = unresolved.resolve()
+    if unresolved.is_symlink():
+        raise ValueError(f"Refusing to use symlinked skills directory: {unresolved}")
+    return resolved
+
+
+def _copy_skill_source_tree(source_dir: Path, target_dir: Path, target_root: Path) -> list[str]:
+    if source_dir.is_symlink():
+        raise ValueError(f"Refusing to import from symlinked skill source directory: {source_dir}")
+    try:
+        target_dir.resolve().relative_to(target_root)
+    except ValueError as exc:
+        raise ValueError(f"Skill target escapes approved skills root: {target_dir}") from exc
     backups: list[str] = []
     for source_file in source_dir.rglob("*"):
-        if not source_file.is_file() or source_file.is_symlink():
+        if source_file.is_symlink():
+            raise ValueError(f"Refusing to copy symlinked skill content: {source_file}")
+        if not source_file.is_file():
             continue
         relative = source_file.relative_to(source_dir)
         target_file = target_dir / relative
         if target_file.is_symlink():
             raise ValueError(f"Refusing to overwrite symlinked skill file: {target_file}")
+        try:
+            target_file.resolve(strict=False).relative_to(target_root)
+        except ValueError as exc:
+            raise ValueError(f"Skill file target escapes approved skills root: {target_file}") from exc
         target_file.parent.mkdir(parents=True, exist_ok=True)
         if target_file.exists() and sha256_file(target_file) != sha256_file(source_file):
             backup_path = _backup_path(target_file)
@@ -102,14 +121,15 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
 
 
 def scan_skill_folder(source: Path, *, skills_dir: Path | None = None) -> dict[str, Any]:
-    source_root = source.expanduser().resolve()
+    unresolved_source = source.expanduser()
+    if unresolved_source.is_symlink():
+        raise ValueError(f"Refusing to scan symlinked skill source folder: {unresolved_source}")
+    source_root = unresolved_source.resolve()
     if not source_root.exists():
         raise ValueError(f"Skill source folder does not exist: {source_root}")
     if not source_root.is_dir():
         raise ValueError(f"Skill source must be a folder: {source_root}")
-    target_root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
-    if target_root.exists() and target_root.is_symlink():
-        raise ValueError(f"Refusing to use symlinked skills directory: {target_root}")
+    target_root = _safe_target_root(skills_dir)
 
     seen: set[str] = set()
     candidates = [
@@ -120,9 +140,7 @@ def scan_skill_folder(source: Path, *, skills_dir: Path | None = None) -> dict[s
     counts: dict[str, int] = {}
     for item in candidates:
         counts[item["status"]] = counts.get(item["status"], 0) + 1
-    importable_count = sum(
-        1 for item in candidates if item["status"] in {"importable", "conflict"}
-    )
+    importable_count = sum(1 for item in candidates if item["status"] in {"importable", "conflict"})
     return {
         "ok": True,
         "source": str(source_root),
@@ -131,24 +149,19 @@ def scan_skill_folder(source: Path, *, skills_dir: Path | None = None) -> dict[s
         "importable_count": importable_count,
         "counts": counts,
         "candidates": candidates,
-        "next_command": (
-            f"{PUBLIC_COMMAND} skills import {source_root} --apply"
-            if importable_count
-            else ""
-        ),
+        "next_command": shlex.join([PUBLIC_COMMAND, "skills", "import", str(source_root), "--apply"]) if importable_count else "",
     }
 
 
 def default_skill_roots() -> list[Path]:
-    roots = [
-        Path.home() / ".agents" / "skills",
-        Path.home() / ".codex" / "skills",
-        Path.home() / "Downloads" / "SKILLS",
-    ]
+    roots = [Path.home() / ".agents" / "skills", Path.home() / ".codex" / "skills", Path.home() / "Downloads" / "SKILLS"]
     result: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
-        expanded = root.expanduser().resolve()
+        unresolved = root.expanduser()
+        if unresolved.is_symlink():
+            continue
+        expanded = unresolved.resolve()
         if expanded in seen or not expanded.exists():
             continue
         seen.add(expanded)
@@ -180,10 +193,13 @@ def reconcile_skill_pack(
     include_external: bool = False,
     scan_default_roots: bool = True,
 ) -> dict[str, Any]:
-    target_root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
+    target_root = _safe_target_root(skills_dir, create=apply)
     source_roots = default_skill_roots() if scan_default_roots else []
     for source in sources or []:
-        expanded = source.expanduser().resolve()
+        unresolved = source.expanduser()
+        if unresolved.is_symlink():
+            raise ValueError(f"Refusing symlinked skill source root: {unresolved}")
+        expanded = unresolved.resolve()
         if expanded not in source_roots:
             source_roots.append(expanded)
 
@@ -203,15 +219,10 @@ def reconcile_skill_pack(
     for item in candidates:
         by_name.setdefault(item["name"], []).append(item)
     duplicate_names = {
-        name: items
-        for name, items in sorted(by_name.items())
+        name: items for name, items in sorted(by_name.items())
         if len({item["sha256"] for item in items}) > 1 or len(items) > 1
     }
-    missing_bundled = [
-        name
-        for name in sorted(CORE_HELPER_SKILLS)
-        if not (target_root / name / "SKILL.md").exists()
-    ]
+    missing_bundled = [name for name in sorted(CORE_HELPER_SKILLS) if not (target_root / name / "SKILL.md").exists()]
     return {
         "ok": not missing_bundled if apply else True,
         "applied": apply,
@@ -223,25 +234,15 @@ def reconcile_skill_pack(
         "duplicate_count": len(duplicate_names),
         "duplicates": duplicate_names,
         "external_imports": import_reports,
-        "next_command": (
-            ""
-            if apply
-            else f"{PUBLIC_COMMAND} skills reconcile --apply"
-        ),
+        "next_command": "" if apply else shlex.join([PUBLIC_COMMAND, "skills", "reconcile", "--apply"]),
         "note": (
-            "Reconcile installs one active Manageroo-managed copy of each bundled "
-            "skill under the target skills directory. It reports duplicate names "
-            "in other agent skill roots instead of deleting outside directories."
+            "Reconcile installs one active Manageroo-managed copy of each bundled skill under the target skills directory. "
+            "It reports duplicate names in other agent skill roots instead of deleting outside directories."
         ),
     }
 
 
-def import_skill_folder(
-    source: Path,
-    *,
-    skills_dir: Path | None = None,
-    apply: bool = False,
-) -> dict[str, Any]:
+def import_skill_folder(source: Path, *, skills_dir: Path | None = None, apply: bool = False) -> dict[str, Any]:
     scan = scan_skill_folder(source, skills_dir=skills_dir)
     if not apply:
         return {
@@ -249,11 +250,10 @@ def import_skill_folder(
             "applied": False,
             "imported": [],
             "backups": [],
-            "next_command": f"{PUBLIC_COMMAND} skills import {scan['source']} --apply",
+            "next_command": shlex.join([PUBLIC_COMMAND, "skills", "import", scan["source"], "--apply"]),
         }
 
-    target_root = Path(scan["skills_dir"])
-    target_root.mkdir(parents=True, exist_ok=True)
+    target_root = _safe_target_root(Path(scan["skills_dir"]), create=True)
     imported: list[dict[str, Any]] = []
     backups: list[str] = []
     for item in scan["candidates"]:
@@ -266,27 +266,23 @@ def import_skill_folder(
         if skill_dir.exists() and not skill_dir.is_dir():
             raise ValueError(f"Refusing to import over non-directory skill path: {skill_dir}")
         skill_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            skill_dir.resolve().relative_to(target_root)
+        except ValueError as exc:
+            raise ValueError(f"Skill directory escapes approved target root: {skill_dir}") from exc
         target_file = skill_dir / "SKILL.md"
         if target_file.is_symlink():
             raise ValueError(f"Refusing to overwrite symlinked skill file: {target_file}")
-        skill_backups = _copy_skill_source_tree(source_file.parent, skill_dir)
+        skill_backups = _copy_skill_source_tree(source_file.parent, skill_dir, target_root)
         backups.extend(skill_backups)
-        imported.append(
-            {
-                "name": item["name"],
-                "source": str(source_file),
-                "target": str(target_file),
-                "backup": skill_backups[0] if skill_backups else "",
-                "backups": skill_backups,
-            }
-        )
-    return {
-        **scan,
-        "applied": True,
-        "imported": imported,
-        "backups": backups,
-        "next_command": "",
-    }
+        imported.append({
+            "name": item["name"],
+            "source": str(source_file),
+            "target": str(target_file),
+            "backup": skill_backups[0] if skill_backups else "",
+            "backups": skill_backups,
+        })
+    return {**scan, "applied": True, "imported": imported, "backups": backups, "next_command": ""}
 
 
 def format_skill_scan(report: dict[str, Any], *, limit: int = 80) -> str:
@@ -294,10 +290,7 @@ def format_skill_scan(report: dict[str, Any], *, limit: int = 80) -> str:
         "SKILL FOLDER SCAN",
         f"Source: {report['source']}",
         f"Target: {report['skills_dir']}",
-        (
-            f"Found: {report['candidate_count']} SKILL.md file(s), "
-            f"{report['importable_count']} importable or replaceable"
-        ),
+        f"Found: {report['candidate_count']} SKILL.md file(s), {report['importable_count']} importable or replaceable",
     ]
     if not report["candidates"]:
         lines.append("ACTION no SKILL.md files found")
@@ -308,8 +301,7 @@ def format_skill_scan(report: dict[str, Any], *, limit: int = 80) -> str:
             label = "SKIP"
         lines.append(f"{label} {item['name']}: {item['status']} - {item['reason']}")
     if limit > 0 and len(report["candidates"]) > limit:
-        remaining = len(report["candidates"]) - limit
-        lines.append(f"... {remaining} more. Use --limit 0 or --json for the full scan.")
+        lines.append(f"... {len(report['candidates']) - limit} more. Use --limit 0 or --json for the full scan.")
     if report.get("next_command"):
         lines.append(f"Next: {report['next_command']}")
     return "\n".join(lines) + "\n"
@@ -318,11 +310,7 @@ def format_skill_scan(report: dict[str, Any], *, limit: int = 80) -> str:
 def format_skill_import(report: dict[str, Any], *, limit: int = 80) -> str:
     if not report.get("applied"):
         return format_skill_scan(report, limit=limit)
-    lines = [
-        "SKILL IMPORT COMPLETE",
-        f"Source: {report['source']}",
-        f"Target: {report['skills_dir']}",
-    ]
+    lines = ["SKILL IMPORT COMPLETE", f"Source: {report['source']}", f"Target: {report['skills_dir']}"]
     if not report["imported"]:
         lines.append("OK nothing new to import")
     for item in report["imported"]:
@@ -339,10 +327,7 @@ def format_skill_reconcile(report: dict[str, Any], *, limit: int = 80) -> str:
         f"Applied: {str(report['applied']).lower()}",
     ]
     if report.get("missing_bundled"):
-        lines.append(
-            "ACTION missing bundled skills: "
-            + ", ".join(report["missing_bundled"][:limit])
-        )
+        lines.append("ACTION missing bundled skills: " + ", ".join(report["missing_bundled"][:limit]))
     else:
         lines.append("OK bundled skills have one active target copy")
     duplicates = report.get("duplicates", {})
