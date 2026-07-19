@@ -1,6 +1,6 @@
 """Uncle Matt's Project Manageroo."""
 
-__version__ = "2026.7.18.1"
+__version__ = "2026.7.18.2"
 
 
 def _install_controller_policies() -> None:
