@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
-
-from .branding import FULL_NAME
 from typing import Any
 
+from .branding import FULL_NAME
 from .util import atomic_write_text
 
 
@@ -51,17 +51,7 @@ def build_report(data: dict[str, Any]) -> str:
     ]
     if data.get("error"):
         lines.append(f"- Error: {data.get('error_type', 'Error')}: {data['error']}")
-    lines.extend(
-        [
-            "",
-            "## Product outcome",
-            "",
-            data.get("product_summary", "No product summary was produced."),
-            "",
-            "## Observable acceptance",
-            "",
-        ]
-    )
+    lines.extend(["", "## Product outcome", "", data.get("product_summary", "No product summary was produced."), "", "## Observable acceptance", ""])
     outcomes = data.get("acceptance", [])
     if outcomes:
         for item in outcomes:
@@ -80,10 +70,7 @@ def build_report(data: dict[str, Any]) -> str:
     reuse = data.get("reuse", [])
     if reuse:
         for item in reuse:
-            lines.append(
-                f"- **{item.get('need', 'unknown')}** → {item.get('decision', 'unknown')}: "
-                f"{item.get('candidate', 'n/a')}"
-            )
+            lines.append(f"- **{item.get('need', 'unknown')}** → {item.get('decision', 'unknown')}: {item.get('candidate', 'n/a')}")
     else:
         lines.append("- None recorded.")
     lines.extend(["", "## Verification", ""])
@@ -92,11 +79,8 @@ def build_report(data: dict[str, Any]) -> str:
     for gate in gates:
         result = gate.get("result", {})
         exit_code = result.get("exit_code", "unknown")
-        lines.append(
-            f"- {'✓' if result.get('exit_code') == 0 else '✗'} "
-            f"`{' '.join(result.get('argv', gate.get('gate', {}).get('argv', [])))}` "
-            f"(exit {exit_code})"
-        )
+        command = shlex.join([str(part) for part in result.get("argv", gate.get("gate", {}).get("argv", []))])
+        lines.append(f"- {'✓' if result.get('exit_code') == 0 else '✗'} `{command}` (exit {exit_code})")
     lines.extend(["", "## Independent review", ""])
     lines.append(f"- Status: **{review.get('status', 'not-run')}**")
     lines.append(f"- Blocking findings: {_blocking_count(review)}")
@@ -121,8 +105,8 @@ def build_report(data: dict[str, Any]) -> str:
     lines.extend(["", "## Next inspection commands", ""])
     run_root = evidence.get("run_root")
     if run_root:
-        lines.append(f"- `ls {run_root}`")
-        lines.append(f"- `cat {run_root}/delivery/final-result.json`")
+        lines.append(f"- `{shlex.join(['ls', str(run_root)])}`")
+        lines.append(f"- `{shlex.join(['cat', str(Path(str(run_root)) / 'delivery' / 'final-result.json')])}`")
     else:
         lines.append("- No run root recorded.")
     lines.append("")
