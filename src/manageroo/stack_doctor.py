@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from .gbrain_setup import summarize_gbrain_config, summarize_sync_status
+from .util import redact_text
 
 WhichFn = Callable[[str], str | None]
 RunnerFn = Callable[[list[str], int], dict]
@@ -41,10 +42,10 @@ def _safe_probe_record(probe: dict | None) -> dict | None:
     record = {
         "ok": bool(probe.get("ok")),
         "exit_code": probe.get("exit_code"),
-        "argv": probe.get("argv", []),
+        "argv": [redact_text(str(item)) for item in probe.get("argv", [])],
     }
     if not probe.get("ok"):
-        record["output"] = str(probe.get("output", ""))[:2000]
+        record["output"] = redact_text(str(probe.get("output", "")))[:2000]
     return record
 
 
@@ -70,34 +71,33 @@ def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
                 "Install Bun from https://bun.sh/",
                 "bun install -g github:garrytan/gbrain",
                 "gbrain init --pglite",
-                "gbrain doctor --json --fast",
+                "gbrain doctor --json",
             ],
             reference="https://github.com/garrytan/gbrain",
         )
 
     config_probe = runner([path, "config", "show"], 30)
     sync_probe = runner([path, "status", "--json", "--section", "sync"], 60)
-    doctor_probe = runner([path, "doctor", "--json", "--fast"], 60)
+    doctor_probe = runner([path, "doctor", "--json"], 60)
     config = summarize_gbrain_config(config_probe.get("output", "")) if config_probe.get("ok") else {}
-    sync = summarize_sync_status(sync_probe.get("output", "")) if sync_probe.get("ok") else {
-        "ok": False,
-        "error": sync_probe.get("output") or "gbrain status failed",
-    }
+    sync = (
+        summarize_sync_status(sync_probe.get("output", ""))
+        if sync_probe.get("ok")
+        else {"ok": False, "error": redact_text(str(sync_probe.get("output") or "gbrain status failed"))}
+    )
     next_commands: list[str] = []
     if not config:
         next_commands.append("gbrain config show")
     if not doctor_probe.get("ok"):
-        next_commands.append("gbrain doctor --json --fast")
+        next_commands.append("gbrain doctor --json")
     if not sync.get("ok"):
         next_commands.append("gbrain status --json --section sync")
     if sync.get("ok") and sync.get("source_count", 0) == 0:
-        next_commands.extend(
-            [
-                "gbrain sources list",
-                "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
-                "gbrain sync --source YOUR_SOURCE_ID --json --yes",
-            ]
-        )
+        next_commands.extend([
+            "gbrain sources list",
+            "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
+            "gbrain sync --source YOUR_SOURCE_ID --json --yes",
+        ])
     configured = bool(config and doctor_probe.get("ok") and sync.get("ok") and sync.get("source_count", 0) > 0)
     detail_bits = []
     if config.get("engine"):
@@ -134,7 +134,7 @@ def _gitnexus(which: WhichFn, runner: RunnerFn) -> dict:
             "gitnexus",
             "GitNexus command not found.",
             ["Install Node.js 18+", "npm install -g gitnexus", "gitnexus setup"],
-            reference="https://github.com/abhigyanpatwari/GitNexus",
+            reference="https://github.com/nxpatterns/gitnexus",
         )
     version_probe = runner([path, "--version"], 30)
     configured = bool(version_probe.get("ok"))
@@ -151,7 +151,7 @@ def _gitnexus(which: WhichFn, runner: RunnerFn) -> dict:
         ),
         "next_commands": ["gitnexus setup"] if not configured else [],
         "probes": {"version": _safe_probe_record(version_probe)},
-        "reference": "https://github.com/abhigyanpatwari/GitNexus",
+        "reference": "https://github.com/nxpatterns/gitnexus",
     }
 
 
@@ -311,11 +311,5 @@ def format_stack_doctor(report: dict) -> str:
         lines.append(f"- {label} {item['name']}{optional}: {item.get('detail', '')}")
         for command in item.get("next_commands", []):
             lines.append(f"  next: {command}")
-    lines.extend(
-        [
-            "",
-            "To let the installer guide missing pieces later:",
-            "  ./install.sh --install-stack",
-        ]
-    )
+    lines.extend(["", "To let the installer guide missing pieces later:", "  ./install.sh --install-stack"])
     return "\n".join(lines) + "\n"
