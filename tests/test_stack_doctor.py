@@ -6,7 +6,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from manageroo.cli import main
-from manageroo.stack_doctor import format_stack_doctor, stack_doctor
+from manageroo.stack_doctor import _safe_probe_record, format_stack_doctor, stack_doctor
 
 
 class StackDoctorTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class StackDoctorTests(unittest.TestCase):
                 "exit_code": 0,
                 "output": json.dumps({"sync": {"sources": []}}),
             },
-            ("gbrain", "doctor", "--json", "--fast"): {"ok": True, "exit_code": 0, "output": "{}"},
+            ("gbrain", "doctor", "--json"): {"ok": True, "exit_code": 0, "output": "{}"},
         }
 
         def which(name: str) -> str | None:
@@ -42,6 +42,20 @@ class StackDoctorTests(unittest.TestCase):
         self.assertIn("ollama:nomic-embed-text", gbrain["detail"])
         self.assertIn("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder", gbrain["next_commands"])
         self.assertFalse(report["ready"])
+
+    def test_failed_probe_output_and_argv_are_redacted(self):
+        record = _safe_probe_record(
+            {
+                "ok": False,
+                "exit_code": 1,
+                "argv": ["tool", "--token=abc123", "api_key=supersecret"],
+                "output": "password=hunter2 Bearer deadbeef api_key=abc123",
+            }
+        )
+        rendered = json.dumps(record)
+        for secret in ("hunter2", "deadbeef", "abc123", "supersecret"):
+            self.assertNotIn(secret, rendered)
+        self.assertIn("<REDACTED>", rendered)
 
     def test_cli_stack_doctor_json_reports_missing_tools_without_mutation(self):
         stdout = io.StringIO()
