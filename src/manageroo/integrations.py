@@ -49,7 +49,9 @@ class ObsidianIntegration:
     def export(self, filename: str, markdown: str) -> Path | None:
         if not self.vault or not self.vault.is_dir():
             return None
-        destination = self.vault / safe_repo_relative(self.export_folder) / filename
+        export_root = (self.vault / safe_repo_relative(self.export_folder)).resolve()
+        destination = (export_root / safe_repo_relative(filename)).resolve()
+        destination.relative_to(export_root)
         atomic_write_text(destination, markdown)
         return destination
 
@@ -98,8 +100,5 @@ def command_record(name: str, result) -> dict:
         "argv": result.argv,
         "stdout": stdout[:MAX_EXTERNAL_TEXT_CHARS],
         "stderr": stderr[:MAX_EXTERNAL_TEXT_CHARS],
-        "truncated": (
-            len(stdout) > MAX_EXTERNAL_TEXT_CHARS
-            or len(stderr) > MAX_EXTERNAL_TEXT_CHARS
-        ),
+        "truncated": len(stdout) > MAX_EXTERNAL_TEXT_CHARS or len(stderr) > MAX_EXTERNAL_TEXT_CHARS,
     }
