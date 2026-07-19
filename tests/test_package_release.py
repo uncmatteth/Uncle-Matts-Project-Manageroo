@@ -19,10 +19,10 @@ def _fixture(codes: list[int]) -> str:
 class PackageReleaseTests(unittest.TestCase):
     def test_release_names_use_project_manageroo_brand(self):
         self.assertEqual(package_release.ARCHIVE_ROOT, "Uncle-Matts-Project-Manageroo")
-        self.assertEqual(package_release.DROP_ROOT, "uncle-matts-project-manageroo-v2026.7.18.2")
+        self.assertEqual(package_release.DROP_ROOT, "uncle-matts-project-manageroo-v2026.7.19.1")
         self.assertNotEqual(package_release.DROP_ROOT, package_release.ARCHIVE_ROOT)
-        self.assertEqual(package_release.INSTALLER_ZIP, "uncle-matts-project-manageroo-v2026.7.18.2.zip")
-        self.assertEqual(package_release.SOURCE_ZIP, "uncle-matts-project-manageroo-v2026.7.18.2-source.zip")
+        self.assertEqual(package_release.INSTALLER_ZIP, "uncle-matts-project-manageroo-v2026.7.19.1.zip")
+        self.assertEqual(package_release.SOURCE_ZIP, "uncle-matts-project-manageroo-v2026.7.19.1-source.zip")
 
     def test_end_user_and_source_archives_use_different_file_sets(self):
         source = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
@@ -94,12 +94,14 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("scripts/smoke_release_install.py", package_text)
         self.assertIn("--skip-install-tests", package_text)
         self.assertIn("scripts/smoke_release_install.py", verifier_text)
-        self.assertIn('VERSION_TAG = "v2026.7.18.2"', smoke_text)
+        self.assertIn('VERSION_TAG = "v2026.7.19.1"', smoke_text)
         self.assertIn("EXPECTED_SKILL_COUNT = 17", smoke_text)
         self.assertIn('str(extracted / "install.ps1")', smoke_text)
         self.assertIn('"install.sh"', smoke_text)
         self.assertIn('"manageroo"', smoke_text)
         self.assertIn('"host-skills"', smoke_text)
+        self.assertIn('"capacity"', smoke_text)
+        self.assertIn("hardware_agnostic", smoke_text)
         self.assertIn('"solo"', smoke_text)
         self.assertIn('"run"', smoke_text)
 
