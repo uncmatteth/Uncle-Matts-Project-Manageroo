@@ -1,4 +1,6 @@
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,8 +8,8 @@ from unittest.mock import patch
 
 from manageroo.checks import add_check_gate
 from manageroo.project import initialize_project
-from manageroo.util import atomic_write_json
 from manageroo.release_ready import format_release_ready, release_ready
+from manageroo.util import atomic_write_json
 
 
 class ReleaseReadyTests(unittest.TestCase):
@@ -21,7 +23,7 @@ class ReleaseReadyTests(unittest.TestCase):
         initialize_project(repo, agent="mock")
         brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
         brief.write_text("# Product brief\n\nShip the thing.\n", encoding="utf-8")
-        add_check_gate(repo, gate_id="smoke", argv=["python3", "-c", "print('ok')"])
+        add_check_gate(repo, gate_id="smoke", argv=[sys.executable, "-c", "print('ok')"])
         subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "ready fixture"], cwd=repo, check=True)
         return repo
@@ -91,26 +93,25 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn("READY FOR OPERATOR RELEASE", handoff_text)
             self.assertIn("manual production deploy", handoff_text)
             self.assertIn("revert the release commit and redeploy", handoff_text)
-            self.assertIn("python3 -c print('ok')", handoff_text)
+            self.assertIn(shlex.join([sys.executable, "-c", "print('ok')"]), handoff_text)
             self.assertIn("ready fixture", handoff_text)
             self.assertIn("Manageroo run", handoff_text)
             self.assertIn(run_root.name, handoff_text)
             self.assertIn("## Project Memory", handoff_text)
-            memory_update = report["project_memory_update"]
-            self.assertTrue(memory_update["ok"])
-            self.assertIn(memory_update["path"], handoff_text)
-            self.assertIn("What Has Shipped", memory_update["updated_sections"])
-            self.assertIn("Current Proof", memory_update["updated_sections"])
-            memory_text = (repo / ".manageroo" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
-            self.assertIn("Release-ready approved for manual production deploy", memory_text)
-            self.assertIn("commit", memory_text)
-            self.assertIn("release-ready passed smoke", memory_text)
-            self.assertIn(run_root.name, memory_text)
-            self.assertIn("Production handoff", memory_text)
+            self.assertIsNone(report["project_memory_update"])
+            self.assertIn("Not mutated by `release-ready`", handoff_text)
+
+            status = subprocess.run(
+                ["git", "status", "--porcelain", "--untracked-files=all"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            )
+            self.assertEqual(status.stdout.strip(), "")
 
             formatted = format_release_ready(report)
             self.assertIn("Production handoff:", formatted)
-            self.assertIn("Project memory updated:", formatted)
             self.assertIn(str(handoff), formatted)
 
     def test_release_ready_fails_without_completed_manageroo_run(self):
@@ -127,7 +128,8 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertFalse(report["ok"])
             names = {item["name"]: item for item in report["items"]}
             self.assertFalse(names["completed Manageroo run"]["ok"])
-            self.assertIn("manageroo run --apply", names["completed Manageroo run"]["next"])
+            self.assertIn("manageroo run", names["completed Manageroo run"]["next"])
+            self.assertIn("--repo", names["completed Manageroo run"]["next"])
             self.assertEqual(report["project_memory_update"], None)
 
     def test_release_ready_blocks_without_release_metadata(self):
