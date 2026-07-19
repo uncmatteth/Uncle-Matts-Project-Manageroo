@@ -18,14 +18,20 @@ class DiscoveryCliTests(unittest.TestCase):
             "memory": {"total_gib": 32.0},
             "gpu": {"devices": []},
             "disk": {"free_gib": 50.0},
-            "recommendations": {"max_parallel_agent_calls": 4},
-            "warnings": [],
+            "manageroo_core": {
+                "hardware_agnostic": True,
+                "gpu_required": False,
+                "auto_tunes_worker_concurrency_from_hardware": False,
+            },
+            "notes": [],
         }
         output = io.StringIO()
         with patch("manageroo.entrypoint.host_capacity", return_value=fake):
             with redirect_stdout(output):
                 self.assertEqual(entrypoint._capacity_main([".", "--json"]), 0)
-        self.assertEqual(json.loads(output.getvalue())["memory"]["total_gib"], 32.0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["memory"]["total_gib"], 32.0)
+        self.assertTrue(payload["manageroo_core"]["hardware_agnostic"])
 
     def test_decision_answer_uses_recommendation_on_empty_input(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -65,6 +71,7 @@ class DiscoveryCliTests(unittest.TestCase):
         text = entrypoint._root_help()
         self.assertIn("capacity", text)
         self.assertIn("decisions", text)
+        self.assertIn("context only", text)
 
 
 if __name__ == "__main__":
