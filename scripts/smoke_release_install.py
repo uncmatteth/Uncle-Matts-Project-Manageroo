@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_TAG = "v2026.7.18.1"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-EXPECTED_SKILL_COUNT = 49
+EXPECTED_SKILL_COUNT = 17
 
 
 def run(
@@ -184,14 +184,21 @@ def smoke(
         skills = parse_json_command(["manageroo", "skills", "list"], cwd=extracted, env=env)
         bundled = skills.get("bundled_skills", [])
         if len(bundled) != EXPECTED_SKILL_COUNT or len(bundled) != len(set(bundled)):
-            raise RuntimeError(f"Unexpected bundled skill list: {bundled}")
+            raise RuntimeError(f"Unexpected core skill list: {bundled}")
         support_files = [
-            home / ".agents" / "skills" / "playwright" / "references" / "cli.md",
             home / ".agents" / "skills" / "grill-with-docs" / "ADR-FORMAT.md",
         ]
         missing_support = [str(path) for path in support_files if not path.is_file()]
         if missing_support:
-            raise RuntimeError(f"Missing installed skill support files: {missing_support}")
+            raise RuntimeError(f"Missing installed core skill support files: {missing_support}")
+
+        host_skills = parse_json_command(
+            ["manageroo", "host-skills", "--json"],
+            cwd=extracted,
+            env=env,
+        )
+        if host_skills.get("manageroo_core_missing"):
+            raise RuntimeError(f"Installed core not visible to host inventory: {host_skills}")
 
         reconcile_target = temp_root / "reconciled-skills"
         reconcile = parse_json_command(
