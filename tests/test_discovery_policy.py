@@ -47,32 +47,30 @@ class DiscoveryPolicyTests(unittest.TestCase):
         install_discovery_policy(module)
         return module
 
-    def test_capacity_recommendation_caps_but_never_increases_configured_parallelism(self):
+    def test_host_hardware_never_changes_configured_parallelism(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with patch(
                 "manageroo.discovery_policy.host_capacity",
-                return_value={"recommendations": {"max_parallel_agent_calls": 2}},
+                return_value={
+                    "manageroo_core": {
+                        "hardware_agnostic": True,
+                        "auto_tunes_worker_concurrency_from_hardware": False,
+                    }
+                },
             ):
-                constrained = self._module(root, configured_parallel=8).Orchestrator()
-                self.assertEqual(constrained._max_parallel_agent_calls(), 2)
+                instance = self._module(root, configured_parallel=8).Orchestrator()
+                self.assertEqual(instance._max_parallel_agent_calls(), 8)
 
-            with patch(
-                "manageroo.discovery_policy.host_capacity",
-                return_value={"recommendations": {"max_parallel_agent_calls": 8}},
-            ):
-                configured = self._module(root, configured_parallel=1).Orchestrator()
-                self.assertEqual(configured._max_parallel_agent_calls(), 1)
-
-    def test_product_analyst_receives_capacity_and_unknown_unknowns_preflight(self):
+    def test_product_analyst_receives_hardware_context_without_autotune_instruction(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             capacity = {
-                "recommendations": {
-                    "capacity_class": "strong-general-purpose",
-                    "max_parallel_agent_calls": 4,
+                "manageroo_core": {
+                    "hardware_agnostic": True,
+                    "auto_tunes_worker_concurrency_from_hardware": False,
                 },
-                "warnings": [],
+                "notes": [],
             }
             with patch(
                 "manageroo.discovery_policy.host_capacity",
@@ -85,7 +83,8 @@ class DiscoveryPolicyTests(unittest.TestCase):
                 )
             packet = instance.calls[0]["instructions"]
             self.assertIn("Manageroo unknown-unknowns preflight", packet)
-            self.assertIn("Detected host capacity", packet)
+            self.assertIn("Development-host hardware profile", packet)
+            self.assertIn("MUST NOT be used to auto-tune Manageroo worker concurrency", packet)
             self.assertIn("identity-and-access", packet)
             self.assertIn("discovery/system-capacity.json", instance.artifacts.writes)
             self.assertIn(
