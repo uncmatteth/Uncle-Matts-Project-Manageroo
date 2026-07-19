@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from .branding import PUBLIC_COMMAND
@@ -27,13 +28,7 @@ def default_project_roots(*, home: Path | None = None, cwd: Path | None = None) 
     candidates = []
     if cwd.resolve() != home.resolve():
         candidates.append(cwd)
-    candidates.extend(
-        [
-            home / "Documents" / "GitHub",
-            home / "Projects",
-            home / "Developer",
-        ]
-    )
+    candidates.extend([home / "Documents" / "GitHub", home / "Projects", home / "Developer"])
     roots: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
@@ -49,7 +44,6 @@ def _iter_project_dirs(root: Path, *, max_depth: int) -> list[Path]:
     root = root.expanduser().resolve()
     if not root.exists() or not root.is_dir():
         return []
-
     found: list[Path] = []
     stack = [(root, 0)]
     seen: set[Path] = set()
@@ -84,15 +78,15 @@ def _iter_project_dirs(root: Path, *, max_depth: int) -> list[Path]:
 
 def _project_record(path: Path, *, agent: str | None) -> dict:
     initialized = (path / ".manageroo").is_dir()
-    command = f"{PUBLIC_COMMAND} {'next' if initialized else 'solo'} {path}"
+    argv = [PUBLIC_COMMAND, "next" if initialized else "solo", str(path)]
     if agent and not initialized:
-        command += f" --agent {agent}"
+        argv.extend(["--agent", str(agent)])
     return {
         "name": path.name,
         "path": str(path),
         "status": "initialized" if initialized else "git repo",
         "initialized": initialized,
-        "next_command": command,
+        "next_command": shlex.join(argv),
     }
 
 
@@ -120,7 +114,7 @@ def discover_projects(
         "roots": [str(root.expanduser().resolve()) for root in selected_roots],
         "count": len(projects),
         "projects": projects,
-        "new_project_command": f"{PUBLIC_COMMAND} solo /path/to/new-project --create",
+        "new_project_command": shlex.join([PUBLIC_COMMAND, "solo", "/path/to/new-project", "--create"]),
     }
 
 
@@ -137,25 +131,21 @@ def format_project_discovery(report: dict) -> str:
     projects = report.get("projects", [])
     lines.extend(["", f"Found {len(projects)} project folder(s)."])
     for index, project in enumerate(projects, start=1):
-        lines.extend(
-            [
-                "",
-                f"{index}. {project['name']}",
-                f"   Path: {project['path']}",
-                f"   Status: {project['status']}",
-                f"   Next: {project['next_command']}",
-            ]
-        )
-    lines.extend(
-        [
+        lines.extend([
             "",
-            "New project:",
-            f"  {report.get('new_project_command', f'{PUBLIC_COMMAND} solo /path/to/new-project --create')}",
-            "",
-            "Guided picker:",
-            f"  {PUBLIC_COMMAND} projects --pick",
-        ]
-    )
+            f"{index}. {project['name']}",
+            f"   Path: {project['path']}",
+            f"   Status: {project['status']}",
+            f"   Next: {project['next_command']}",
+        ])
+    lines.extend([
+        "",
+        "New project:",
+        f"  {report.get('new_project_command', shlex.join([PUBLIC_COMMAND, 'solo', '/path/to/new-project', '--create']))}",
+        "",
+        "Guided picker:",
+        f"  {shlex.join([PUBLIC_COMMAND, 'projects', '--pick'])}",
+    ])
     return "\n".join(lines) + "\n"
 
 
@@ -173,24 +163,15 @@ def format_project_add_checklist(report: dict) -> str:
     projects = report.get("projects", [])
     lines.extend(["", f"Found {len(projects)} project folder(s)."])
     for index, project in enumerate(projects, start=1):
-        lines.extend(
-            [
-                "",
-                f"[ ] {index}. {project['name']}",
-                f"    Path: {project['path']}",
-                f"    Status: {project['status']}",
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            "Not listed?",
-            "  Paste another existing Git project path, or a missing/empty folder for a new project, when asked.",
-            "",
-            "Run later:",
-            f"  {PUBLIC_COMMAND} projects --add",
-        ]
-    )
+        lines.extend(["", f"[ ] {index}. {project['name']}", f"    Path: {project['path']}", f"    Status: {project['status']}"])
+    lines.extend([
+        "",
+        "Not listed?",
+        "  Paste another existing Git project path, or a missing/empty folder for a new project, when asked.",
+        "",
+        "Run later:",
+        f"  {shlex.join([PUBLIC_COMMAND, 'projects', '--add'])}",
+    ])
     return "\n".join(lines) + "\n"
 
 
@@ -201,7 +182,6 @@ def selected_project_paths(report: dict, answer: str) -> list[Path]:
     projects = report.get("projects", [])
     if answer in {"all", "*"}:
         return [Path(project["path"]).expanduser().resolve() for project in projects]
-
     indexes: list[int] = []
     for token in answer.replace(",", " ").split():
         if "-" in token:
@@ -217,7 +197,6 @@ def selected_project_paths(report: dict, answer: str) -> list[Path]:
         if not token.isdigit():
             raise ValueError(f"Invalid project selection: {token}")
         indexes.append(int(token))
-
     selected: list[Path] = []
     seen: set[Path] = set()
     for index in indexes:
@@ -242,4 +221,4 @@ def selected_project_command(report: dict, answer: str) -> str | None:
     path = Path(answer).expanduser().resolve()
     if (path / ".git").exists():
         return _project_record(path, agent=None)["next_command"]
-    return f"{PUBLIC_COMMAND} solo {path} --create"
+    return shlex.join([PUBLIC_COMMAND, "solo", str(path), "--create"])
