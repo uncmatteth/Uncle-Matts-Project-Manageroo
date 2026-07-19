@@ -89,7 +89,14 @@ def _planning_items(evidence_payload: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(raw, dict):
             continue
         item = dict(raw)
-        item["content"] = str(item.get("content") or "")[:PLANNING_EVIDENCE_CONTENT_CHARS]
+        original_content = str(item.get("content") or "")
+        item["content"] = original_content[:PLANNING_EVIDENCE_CONTENT_CHARS]
+        if item["content"] != original_content:
+            item.pop("content_sha256", None)
+            item["metadata"] = {
+                **(dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {}),
+                "planning_excerpt": True,
+            }
         selected.append(item)
     return selected
 
