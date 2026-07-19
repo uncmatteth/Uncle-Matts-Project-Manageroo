@@ -40,6 +40,7 @@ SENSITIVE_FILENAMES = {
 SAFE_ENV_EXAMPLES = {".env.example", ".env.sample", ".env.template"}
 SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
+EXPLICIT_GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
 DROP_CLEANUP_PREFIXES = (
     ARTIFACT_BASENAME,
     "Manageroo-",
@@ -56,7 +57,12 @@ END_USER_EXCLUDED = {
 
 
 def release_file_allowed(path: Path) -> bool:
-    relative = path.relative_to(ROOT)
+    try:
+        relative = path.relative_to(ROOT)
+    except ValueError:
+        return False
+    if path.is_symlink():
+        return False
     if any(part in EXCLUDED_PARTS for part in relative.parts):
         return False
     lowered = path.name.lower()
@@ -64,11 +70,37 @@ def release_file_allowed(path: Path) -> bool:
         return False
     if lowered.startswith(".env") and lowered not in SAFE_ENV_EXAMPLES:
         return False
-    return True
+    return path.is_file()
+
+
+def _tracked_relative_paths() -> set[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--cached"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        shell=False,
+    )
+    if result.returncode:
+        raise RuntimeError("Unable to enumerate tracked release files: " + result.stderr.strip())
+    return {item for item in result.stdout.split("\0") if item}
 
 
 def included_files() -> list[Path]:
-    return sorted(path for path in ROOT.rglob("*") if path.is_file() and release_file_allowed(path))
+    relative_paths = _tracked_relative_paths()
+    relative_paths.update(relative for relative in EXPLICIT_GENERATED if (ROOT / relative).is_file())
+    files: list[Path] = []
+    for relative in sorted(relative_paths):
+        path = ROOT / relative
+        if release_file_allowed(path):
+            files.append(path)
+    required = {"README.md", "pyproject.toml", "install.sh", "install.ps1", "src/manageroo/__init__.py"}
+    present = {path.relative_to(ROOT).as_posix() for path in files}
+    missing = sorted(required - present)
+    if missing:
+        raise RuntimeError("Release file selection is incomplete; required files missing: " + ", ".join(missing))
+    return files
 
 
 def end_user_files() -> list[Path]:
@@ -121,6 +153,8 @@ def write_archive(output: Path, files: list[Path]) -> None:
         output.unlink()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for path in files:
+            if path.is_symlink() or not release_file_allowed(path):
+                raise RuntimeError(f"Refusing unsafe release file: {path}")
             archive.write(
                 path,
                 arcname=f"{ARCHIVE_ROOT}/{path.relative_to(ROOT).as_posix()}",
@@ -143,6 +177,8 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
         "GITHUB-DESCRIPTION.md": ROOT / "GITHUB_DESCRIPTION.md",
     }
     for name, source in copies.items():
+        if not source.is_file() or source.is_symlink():
+            raise RuntimeError(f"Required release-drop file is missing or unsafe: {source}")
         shutil.copy2(source, drop_dir / name)
     checksum_lines = []
     for name in copies:
