@@ -24,12 +24,15 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}
         required = {
             "docs/DISCOVERY_AND_CAPACITY.md",
+            "docs/EVIDENCE_RETRIEVAL.md",
             "docs/HOST_INTEGRATION.md",
             "scripts/finalize_gitnexus.py",
             "scripts/release.py",
             "src/manageroo/acceptance.py",
             "src/manageroo/discovery_policy.py",
             "src/manageroo/discovery_preflight.py",
+            "src/manageroo/evidence.py",
+            "src/manageroo/evidence_policy.py",
             "src/manageroo/host_skills.py",
             "src/manageroo/system_capacity.py",
             "src/manageroo/stack_update.py",
@@ -44,6 +47,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "tests/test_discovery_cli.py",
             "tests/test_discovery_policy.py",
             "tests/test_discovery_preflight.py",
+            "tests/test_evidence.py",
             "tests/test_external_loop_library_removed.py",
             "tests/test_external_repair_resume.py",
             "tests/test_host_skills.py",
@@ -71,6 +75,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "tests/test_acceptance_evidence.py",
             "tests/test_decision_workflow.py",
             "tests/test_discovery_preflight.py",
+            "tests/test_evidence.py",
             "tests/test_external_repair_resume.py",
             "tests/test_parallel_worker_logging.py",
             "tests/test_plan_proof_policy.py",
@@ -97,6 +102,8 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertNotIn("Host / tOS", combined)
         self.assertIn("skill-vetter", combined)
         self.assertIn("GitNexus", combined)
+        self.assertIn("Evidence Retrieval Architecture", combined)
+        self.assertIn("retrieves evidence", combined)
 
     def test_release_stays_local_and_action_free(self):
         workflows = ROOT / ".github" / "workflows"
