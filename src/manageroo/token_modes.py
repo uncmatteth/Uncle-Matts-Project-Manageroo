@@ -21,13 +21,7 @@ class TokenMode:
 
 
 TOKEN_MODES = {
-    "off": TokenMode(
-        id="off",
-        label="Off",
-        skill_name=None,
-        asset=None,
-        prompt="",
-    ),
+    "off": TokenMode(id="off", label="Off", skill_name=None, asset=None, prompt=""),
     "caveman": TokenMode(
         id="caveman",
         label="Token Reduction: Caveman",
@@ -55,9 +49,6 @@ TOKEN_MODES = {
     ),
 }
 
-# Everything shipped in the source distribution. These assets remain available for
-# explicit installation/import, but Manageroo does not claim ownership of equivalent
-# skills already present in a user's host environment.
 BUNDLED_SKILL_LIBRARY = {
     "uncle-matts-project-manageroo": "skills/uncle-matts-project-manageroo/SKILL.md",
     "use-installed-skills-first": "skills/use-installed-skills-first/SKILL.md",
@@ -111,9 +102,6 @@ BUNDLED_SKILL_LIBRARY = {
     "uncle-matts-caveman-curse": "skills/uncle-matts-caveman-curse/SKILL.md",
 }
 
-# Portable public default. These skills define Manageroo's own operating contract.
-# Host-specific research, design, memory, marketplace, and competing-orchestrator
-# skills are deliberately not installed by default.
 CORE_SKILL_NAMES = (
     "uncle-matts-project-manageroo",
     "use-installed-skills-first",
@@ -136,13 +124,8 @@ CORE_SKILL_NAMES = (
 )
 CORE_SKILL_PACK = {name: BUNDLED_SKILL_LIBRARY[name] for name in CORE_SKILL_NAMES}
 OPTIONAL_SKILL_PACK = {
-    name: asset
-    for name, asset in BUNDLED_SKILL_LIBRARY.items()
-    if name not in CORE_SKILL_PACK
+    name: asset for name, asset in BUNDLED_SKILL_LIBRARY.items() if name not in CORE_SKILL_PACK
 }
-
-# Backward-compatible names used by installer/reconcile code. "Recommended" now
-# means the small portable core, not every asset shipped in the repository.
 RECOMMENDED_SKILL_PACK = CORE_SKILL_PACK
 CORE_HELPER_SKILLS = CORE_SKILL_PACK
 
@@ -150,4 +133,147 @@ ALIASES = {
     "none": "off",
     "normal": "off",
     "clean": "caveman",
+    "uncle": "curse",
+    "uncle-matts-caveman-curse": "curse",
+    "caveman-curse": "curse",
 }
+
+
+def normalize_mode(mode: str) -> str:
+    normalized = ALIASES.get(mode.strip().lower(), mode.strip().lower())
+    if normalized not in TOKEN_MODES:
+        allowed = ", ".join(sorted(TOKEN_MODES))
+        raise ValueError(f"Unknown token mode {mode!r}. Use one of: {allowed}.")
+    return normalized
+
+
+def token_mode_state_path() -> Path:
+    explicit = os.environ.get("MANAGEROO_TOKEN_MODE_FILE")
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path.home() / ".config" / "manageroo" / "token-mode.json"
+
+
+def token_mode_skills_dir() -> Path:
+    explicit = os.environ.get("MANAGEROO_SKILLS_DIR")
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path.home() / ".agents" / "skills"
+
+
+def _backup_path(destination: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}")
+    index = 2
+    while candidate.exists():
+        candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}-{index}")
+        index += 1
+    return candidate
+
+
+def _copy_skill_tree(source_dir: Path, destination_dir: Path) -> None:
+    for source_path in source_dir.rglob("*"):
+        if source_path.is_symlink():
+            raise ValueError(f"Refusing to copy symlinked bundled skill content: {source_path}")
+        if not source_path.is_file():
+            continue
+        relative = source_path.relative_to(source_dir)
+        destination = destination_dir / relative
+        if destination.is_symlink():
+            raise ValueError(f"Refusing to overwrite symlinked skill file: {destination}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() and destination.read_bytes() != source_path.read_bytes():
+            shutil.copy2(destination, _backup_path(destination))
+        shutil.copy2(source_path, destination)
+
+
+def _install_bundled_skill(root: Path, skill_name: str, asset: str) -> str:
+    unresolved_root = root.expanduser()
+    if unresolved_root.is_symlink():
+        raise ValueError(f"Refusing to install through symlinked skills root: {unresolved_root}")
+    unresolved_root.mkdir(parents=True, exist_ok=True)
+    root_real = unresolved_root.resolve()
+    skill_dir = unresolved_root / skill_name
+    if skill_dir.is_symlink():
+        raise ValueError(f"Refusing to install through symlinked skill directory: {skill_dir}")
+    if skill_dir.exists() and not skill_dir.is_dir():
+        raise ValueError(f"Refusing to install over non-directory skill path: {skill_dir}")
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    if not skill_dir.resolve().is_relative_to(root_real):
+        raise ValueError(f"Refusing to install skill outside skills root: {skill_dir}")
+    destination = skill_dir / "SKILL.md"
+    if destination.is_symlink():
+        raise ValueError(f"Refusing to overwrite symlinked skill file: {destination}")
+    source = asset_path(asset)
+    _copy_skill_tree(source.parent, skill_dir)
+    return str(destination)
+
+
+def install_core_helper_skills(skills_dir: Path | None = None) -> dict[str, str]:
+    root = skills_dir or token_mode_skills_dir()
+    return {
+        skill_name: _install_bundled_skill(root, skill_name, asset)
+        for skill_name, asset in CORE_SKILL_PACK.items()
+    }
+
+
+def install_token_skills(skills_dir: Path | None = None) -> dict[str, str]:
+    root = skills_dir or token_mode_skills_dir()
+    installed: dict[str, str] = {}
+    for mode in TOKEN_MODES.values():
+        if not mode.skill_name or not mode.asset:
+            continue
+        installed[mode.id] = _install_bundled_skill(root, mode.skill_name, mode.asset)
+    return installed
+
+
+def read_token_mode(state_path: Path | None = None) -> dict[str, Any]:
+    path = (state_path or token_mode_state_path()).expanduser()
+    if not path.exists():
+        return {
+            "mode": "off",
+            "label": TOKEN_MODES["off"].label,
+            "state_path": str(path),
+            "skills_dir": str(token_mode_skills_dir()),
+            "installed_skills": {},
+        }
+    data = json.loads(path.read_text(encoding="utf-8"))
+    mode = normalize_mode(str(data.get("mode", "off")))
+    data["mode"] = mode
+    data["label"] = TOKEN_MODES[mode].label
+    data.setdefault("state_path", str(path))
+    data.setdefault("skills_dir", str(token_mode_skills_dir()))
+    data.setdefault("installed_skills", {})
+    return data
+
+
+def set_token_mode(
+    mode: str,
+    *,
+    state_path: Path | None = None,
+    skills_dir: Path | None = None,
+    install_skills: bool = True,
+) -> dict[str, Any]:
+    normalized = normalize_mode(mode)
+    installed = install_token_skills(skills_dir) if install_skills and normalized != "off" else {}
+    path = (state_path or token_mode_state_path()).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "mode": normalized,
+        "label": TOKEN_MODES[normalized].label,
+        "selected_skill": TOKEN_MODES[normalized].skill_name,
+        "state_path": str(path),
+        "skills_dir": str((skills_dir or token_mode_skills_dir()).expanduser().resolve()),
+        "installed_skills": installed,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return data
+
+
+def token_mode_prompt(mode: str | None = None) -> str:
+    selected = normalize_mode(mode) if mode is not None else read_token_mode()["mode"]
+    prompt = TOKEN_MODES[selected].prompt
+    if not prompt:
+        return ""
+    return "# Token reduction mode\n\n" + prompt
