@@ -27,5 +27,5 @@ command -v git >/dev/null 2>&1 || {
 
 "$PYTHON" "$SCRIPT_DIR/scripts/install.py" "$@"
 printf '%s\n' ''
-printf '%s\n' 'System capacity: run `manageroo capacity` to inspect CPU, RAM, GPU/VRAM, free disk, and conservative worker concurrency.'
-printf '%s\n' 'Manageroo uses that profile as development context; it does not treat this machine as the product minimum requirement.'
+printf '%s\n' 'Host profile: run `manageroo capacity` to inspect this machine'''s CPU, RAM, GPU/VRAM, and free disk.'
+printf '%s\n' 'Manageroo itself is hardware-agnostic: the profile is context only and never auto-tunes worker concurrency.'
