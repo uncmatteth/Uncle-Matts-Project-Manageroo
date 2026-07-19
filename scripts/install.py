@@ -7,11 +7,11 @@ import hashlib
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
 import venv
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,14 +25,12 @@ from manageroo.credits import format_special_thanks  # noqa: E402
 from manageroo.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
 from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
 
-CODEX_INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 GBRAIN_INSTALL_SOURCE = "github:garrytan/gbrain"
 GBRAIN_AGENT_INSTALL_PROTOCOL_URL = "https://raw.githubusercontent.com/garrytan/gbrain/master/INSTALL_FOR_AGENTS.md"
 GBRAIN_LOCAL_INSTALL_REFERENCE = "https://github.com/garrytan/gbrain"
 GITNEXUS_NPM_PACKAGE = "gitnexus"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"
 OPENCLAW_AGENT_SKILLS_REPO = "https://github.com/openclaw/agent-skills.git"
-AUTOREVIEW_SKILL_SOURCE = "openclaw/agent-skills:skills/autoreview"
 CLAWPATCH_PACKAGE = "clawpatch"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 
@@ -44,7 +42,7 @@ def run(
     *,
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    status_line("RUN", " ".join(argv))
+    status_line("RUN", shlex.join([str(item) for item in argv]))
     process_env = os.environ.copy()
     if env:
         process_env.update(env)
@@ -65,15 +63,18 @@ def run(
 
 
 def tree_hash(root: Path) -> str:
+    root = root.resolve()
     digest = hashlib.sha256()
     excluded = {".git", ".venv", "__pycache__", "dist", "build"}
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        if any(part in excluded for part in path.parts):
+    for path in sorted(item for item in root.rglob("*") if item.is_file() and not item.is_symlink()):
+        relative = path.relative_to(root)
+        if any(part in excluded for part in relative.parts):
             continue
-        relative = path.relative_to(root).as_posix().encode()
-        digest.update(relative)
+        digest.update(relative.as_posix().encode())
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -96,110 +97,87 @@ def command_version(executable: str) -> str:
         return f"unavailable: {exc}"
 
 
+def _safe_cmd_value(path: Path) -> str:
+    text = str(path)
+    if any(character in text for character in ('"', "\r", "\n")):
+        raise SystemExit(f"Installer path contains characters unsafe for a Windows command launcher: {text!r}")
+    return text
+
+
 def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         launcher = bin_dir / "manageroo.cmd"
         launcher.write_text(
-            f'@set "PYTHONPATH={app_root}"\r\n'
-            f'@set "MANAGEROO_PREFIX={prefix}"\r\n'
-            f'@"{python}" -m manageroo %*\r\n',
+            f'@set "PYTHONPATH={_safe_cmd_value(app_root)}"\r\n'
+            f'@set "MANAGEROO_PREFIX={_safe_cmd_value(prefix)}"\r\n'
+            f'@"{_safe_cmd_value(python)}" -m manageroo %*\r\n',
             encoding="utf-8",
         )
     else:
         launcher = bin_dir / "manageroo"
+        app_value = shlex.quote(str(app_root))
+        prefix_value = shlex.quote(str(prefix))
+        python_value = shlex.quote(str(python))
         launcher.write_text(
             "#!/bin/sh\n"
-            f'export PYTHONPATH="{app_root}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
-            f'export MANAGEROO_PREFIX="{prefix}"\n'
-            f'exec "{python}" -m manageroo "$@"\n',
+            f"export PYTHONPATH={app_value}${{PYTHONPATH:+:$PYTHONPATH}}\n"
+            f"export MANAGEROO_PREFIX={prefix_value}\n"
+            f"exec {python_value} -m manageroo \"$@\"\n",
             encoding="utf-8",
         )
         launcher.chmod(0o755)
     return launcher
 
 
+def prepend_tool_paths() -> None:
+    candidates = [
+        Path.home() / ".local" / "bin",
+        Path.home() / ".local" / "share" / "pnpm",
+        Path.home() / ".pnpm-global" / "bin",
+        Path.home() / ".bun" / "bin",
+        Path.home() / "bin",
+    ]
+    if os.name == "nt":
+        if os.environ.get("APPDATA"):
+            candidates.insert(0, Path(os.environ["APPDATA"]) / "npm")
+        if os.environ.get("LOCALAPPDATA"):
+            candidates.insert(0, Path(os.environ["LOCALAPPDATA"]) / "pnpm")
+    os.environ["PATH"] = os.pathsep.join([*(str(item) for item in candidates if item.exists()), os.environ.get("PATH", "")])
+
+
+def _ensure_node_npm() -> str | None:
+    npm = shutil.which("npm")
+    if npm:
+        return npm
+    if os.name == "nt" and shutil.which("winget"):
+        run([
+            shutil.which("winget") or "winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e",
+            "--accept-package-agreements", "--accept-source-agreements",
+        ], capture=False)
+        prepend_tool_paths()
+        common_npm = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs" / "npm.cmd"
+        return shutil.which("npm") or (str(common_npm) if common_npm.exists() else None)
+    return None
+
+
 def install_codex_latest(downloads: list[dict]) -> dict:
     before = command_version("codex")
     status_line("CODEX", f"current: {before}")
-
-    if os.name == "nt":
-        npm = shutil.which("npm")
-        if not npm:
-            winget = shutil.which("winget")
-            if not winget:
-                raise SystemExit(
-                    "Codex is not installed and neither npm nor winget is available. "
-                    "Install Node.js LTS, then rerun."
-                )
-            run(
-                [
-                    winget,
-                    "install",
-                    "--id",
-                    "OpenJS.NodeJS.LTS",
-                    "-e",
-                    "--accept-package-agreements",
-                    "--accept-source-agreements",
-                ],
-                capture=False,
-            )
-            common_npm = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs" / "npm.cmd"
-            npm = shutil.which("npm") or (str(common_npm) if common_npm.exists() else None)
-        if not npm:
-            raise SystemExit("Node.js installation completed, but npm could not be located.")
-        run([npm, "install", "-g", "@openai/codex@latest"], capture=False)
-        downloads.append(
-            {
-                "tool": "codex",
-                "method": "npm",
-                "source": "@openai/codex@latest",
-                "previous_version": before,
-            }
+    npm = _ensure_node_npm()
+    if not npm:
+        raise SystemExit(
+            "Codex installation requires Node.js/npm. Manageroo will not download and execute an unverified shell installer. "
+            "Install Node.js LTS, then rerun with --install-codex."
         )
-    else:
-        with tempfile.TemporaryDirectory(prefix="manageroo-codex-") as temp:
-            installer = Path(temp) / "codex-install.sh"
-            request = urllib.request.Request(
-                CODEX_INSTALL_URL,
-                headers={"User-Agent": f"{FULL_NAME} installer"},
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=60) as response:
-                    payload = response.read()
-            except Exception as exc:
-                raise SystemExit(f"Unable to download the official Codex installer: {exc}") from exc
-            if not payload.startswith(b"#!"):
-                raise SystemExit("The Codex installer response was not a shell script; refusing to execute it.")
-            installer.write_bytes(payload)
-            installer.chmod(0o700)
-            digest = hashlib.sha256(payload).hexdigest()
-            status_line("CODEX", f"official installer sha256={digest[:16]}…")
-            run(
-                ["sh", str(installer)],
-                env={"CODEX_NON_INTERACTIVE": "1"},
-                capture=False,
-            )
-            downloads.append(
-                {
-                    "tool": "codex",
-                    "method": "official-standalone-installer",
-                    "source": CODEX_INSTALL_URL,
-                    "sha256": digest,
-                    "previous_version": before,
-                }
-            )
-
-    candidate_dirs = [
-        Path.home() / ".local" / "bin",
-        Path.home() / ".codex" / "bin",
-        Path.home() / "bin",
-    ]
-    if os.name == "nt" and os.environ.get("APPDATA"):
-        candidate_dirs.insert(0, Path(os.environ["APPDATA"]) / "npm")
-    os.environ["PATH"] = os.pathsep.join(
-        [*(str(item) for item in candidate_dirs), os.environ.get("PATH", "")]
-    )
+    run([npm, "install", "-g", "@openai/codex@latest"], cwd=Path.home(), capture=False)
+    downloads.append({
+        "tool": "codex",
+        "method": "npm",
+        "source": "@openai/codex@latest",
+        "previous_version": before,
+    })
+    prepend_tool_paths()
     after = command_version("codex")
     status_line("CODEX", after, ok=after != "not installed")
     return {"path": shutil.which("codex"), "version": after}
@@ -216,13 +194,7 @@ def optional_run(
     try:
         run(argv, cwd=cwd, env=env, capture=False)
     except SystemExit as exc:
-        return {
-            "ok": False,
-            "argv": argv,
-            "source": source,
-            "cwd": str(cwd),
-            "error": f"exit {exc.code}",
-        }
+        return {"ok": False, "argv": argv, "source": source, "cwd": str(cwd), "error": f"exit {exc.code}"}
     downloads.append({"tool": tool, "method": argv[0], "source": source, "argv": argv, "cwd": str(cwd)})
     return {"ok": True, "argv": argv, "source": source}
 
@@ -238,14 +210,38 @@ def probe_command(argv: list[str], cwd: Path = Path.home(), timeout: int = 30) -
             shell=False,
             timeout=timeout,
         )
-        return {
-            "ok": result.returncode == 0,
-            "exit_code": result.returncode,
-            "argv": argv,
-            "output": (result.stdout or "").strip(),
-        }
+        return {"ok": result.returncode == 0, "exit_code": result.returncode, "argv": argv, "output": (result.stdout or "").strip()}
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"ok": False, "argv": argv, "error": str(exc), "output": ""}
+
+
+def run_interactive_action(argv: list[str], *, cwd: Path = Path.home()) -> dict:
+    status_line("RUN", shlex.join(argv))
+    try:
+        result = subprocess.run(argv, cwd=str(cwd), shell=False)
+    except OSError as exc:
+        return {"ok": False, "argv": argv, "error": str(exc)}
+    return {"ok": result.returncode == 0, "argv": argv, "exit_code": result.returncode}
+
+
+def guidance(tool: str, reason: str, commands: list[str], url: str | None = None) -> dict:
+    status_line(tool.upper(), reason)
+    if commands:
+        print("  Next commands:")
+        for command in commands:
+            print(f"    {command}")
+    if url:
+        print(f"  Reference: {url}")
+    return {
+        "name": tool, "installed": False, "configured": False, "guidance": reason,
+        "next_commands": commands, "reference": url,
+    }
+
+
+def safe_probe_record(probe: dict | None) -> dict | None:
+    if probe is None:
+        return None
+    return {key: probe[key] for key in ("ok", "exit_code", "argv", "error") if key in probe}
 
 
 def parse_gbrain_config(output: str) -> dict[str, str]:
@@ -263,92 +259,99 @@ def summarize_gbrain_sync(output: str) -> dict:
         payload = json.loads(output)
     except json.JSONDecodeError:
         return {"parse_error": "status output was not JSON"}
-    if not isinstance(payload, dict):
-        return {"parse_error": "status output was not a JSON object"}
-    sync = payload.get("sync")
-    if not isinstance(sync, dict):
-        return {
-            "parse_error": "status output did not include a sync section",
-            "warning_count": len(payload.get("warnings", [])) if isinstance(payload.get("warnings"), list) else 0,
-        }
-    sources = sync.get("sources")
-    if not isinstance(sources, list):
-        return {
-            "parse_error": "status sync section did not include a sources list",
-            "warning_count": len(payload.get("warnings", [])) if isinstance(payload.get("warnings"), list) else 0,
-        }
-    coverages = [
-        float(source["embedding_coverage_pct"])
-        for source in sources
-        if isinstance(source, dict) and source.get("embedding_coverage_pct") is not None
-    ]
+    sync = payload.get("sync") if isinstance(payload, dict) else None
+    if not isinstance(sync, dict) or not isinstance(sync.get("sources"), list):
+        return {"parse_error": "status output did not include sync sources"}
+    sources = sync["sources"]
+    coverages = [float(source["embedding_coverage_pct"]) for source in sources if isinstance(source, dict) and source.get("embedding_coverage_pct") is not None]
     return {
         "sources": len(sources),
         "chunks_total": sum(int(source.get("chunks_total") or 0) for source in sources if isinstance(source, dict)),
-        "chunks_unembedded": sum(
-            int(source.get("chunks_unembedded") or 0) for source in sources if isinstance(source, dict)
-        ),
+        "chunks_unembedded": sum(int(source.get("chunks_unembedded") or 0) for source in sources if isinstance(source, dict)),
         "embedding_coverage_min_pct": min(coverages) if coverages else None,
-        "unacknowledged_failures": sync.get("unacknowledged_failures") if isinstance(sync, dict) else None,
+        "unacknowledged_failures": sync.get("unacknowledged_failures"),
     }
 
 
-def safe_probe_record(probe: dict | None) -> dict | None:
-    if probe is None:
-        return None
+def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
+    cwd = Path.home()
+    prepend_tool_paths()
+    before = command_version("gbrain")
+    if lane == "skip":
+        return {"name": "gbrain", "installed": before != "not installed", "configured": False, "skipped": True, "reason": "GBrain stack lane skipped by installer option.", "version": before, "path": shutil.which("gbrain"), "lane": "skip", "reference": GBRAIN_LOCAL_INSTALL_REFERENCE}
+    installed_before = before != "not installed"
+    install_result = None
+    if not installed_before:
+        if lane == "official":
+            return guidance(
+                "gbrain",
+                "Official GBrain agent-supervised install lane selected. Manageroo will not guess credentials, models, source mapping, or recurring jobs.",
+                [f"Open the official guide: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}", "Afterward run: gbrain doctor --json", "Then rerun: manageroo stack-status"],
+                GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
+            ) | {"lane": "official-agent-protocol", "official_protocol_url": GBRAIN_AGENT_INSTALL_PROTOCOL_URL}
+        bun = shutil.which("bun")
+        if not bun:
+            return guidance("gbrain", "Bun is required before GBrain can be installed by this installer.", ["Install Bun from https://bun.sh/", f"bun install -g {GBRAIN_INSTALL_SOURCE}", "gbrain init --pglite", "gbrain doctor --json"], GBRAIN_LOCAL_INSTALL_REFERENCE)
+        install_result = optional_run([bun, "install", "-g", GBRAIN_INSTALL_SOURCE], downloads, "gbrain", GBRAIN_INSTALL_SOURCE, cwd=cwd)
+        prepend_tool_paths()
+    gbrain = shutil.which("gbrain")
+    init_result = None
+    doctor_result = None
+    config_probe = None
+    sync_probe = None
+    config_summary: dict[str, str] = {}
+    sync_summary: dict = {}
+    if gbrain:
+        if not installed_before:
+            init_result = optional_run([gbrain, "init", "--pglite"], downloads, "gbrain", "gbrain init --pglite", cwd=cwd)
+            optional_run([gbrain, "skillpack", "scaffold", "--all"], downloads, "gbrain", "gbrain skillpack scaffold --all", cwd=cwd)
+        doctor_result = probe_command([gbrain, "doctor", "--json"], cwd=cwd, timeout=60)
+        config_probe = probe_command([gbrain, "config", "show"], cwd=cwd)
+        sync_probe = probe_command([gbrain, "status", "--json", "--section", "sync"], cwd=cwd)
+        config_summary = parse_gbrain_config(config_probe.get("output", "")) if config_probe.get("ok") else {}
+        sync_summary = summarize_gbrain_sync(sync_probe.get("output", "")) if sync_probe.get("ok") else {}
+    after = command_version("gbrain")
+    config_ok = bool(config_probe and config_probe.get("ok") and config_summary)
+    sync_ok = bool(sync_probe and sync_probe.get("ok") and "parse_error" not in sync_summary)
+    doctor_ok = bool(doctor_result and doctor_result.get("ok"))
+    next_commands: list[str] = []
+    if after != "not installed" and not doctor_ok:
+        next_commands.append("gbrain doctor --json")
+    if after != "not installed" and not sync_ok:
+        next_commands.append("gbrain status --json --section sync")
+    if sync_ok and sync_summary.get("sources", 0) == 0:
+        next_commands.extend(["gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder", "gbrain sync --source YOUR_SOURCE_ID --json --yes"])
     return {
-        key: probe[key]
-        for key in ("ok", "exit_code", "argv", "error")
-        if key in probe
+        "name": "gbrain", "lane": "existing-inspected" if installed_before else "local-cli",
+        "installed": after != "not installed",
+        "configured": bool(after != "not installed" and doctor_ok and ((installed_before and config_ok and sync_ok) or (not installed_before and init_result and init_result.get("ok")))),
+        "version": after, "path": shutil.which("gbrain"), "install_result": install_result, "init_result": init_result,
+        "doctor_result": safe_probe_record(doctor_result), "config_probe": safe_probe_record(config_probe), "sync_probe": safe_probe_record(sync_probe),
+        "config_summary": config_summary, "sync_summary": sync_summary, "next_commands": next_commands,
+        "guidance_commands": ["Connect `gbrain serve` to the selected agent when external memory is needed."],
+        "reference": GBRAIN_LOCAL_INSTALL_REFERENCE,
     }
 
 
-def gbrain_probe_suggests_missing_init(probe: dict | None) -> bool:
-    output = str((probe or {}).get("output") or "").strip().lower()
-    if not output:
-        return False
-    return any(
-        marker in output
-        for marker in (
-            "not initialized",
-            "not been initialized",
-            "run gbrain init",
-            "could not find config",
-            "config was not found",
-            "no config",
-            "missing config",
-        )
-    )
+def install_gitnexus(downloads: list[dict]) -> dict:
+    before = command_version("gitnexus")
+    npm = _ensure_node_npm()
+    if before == "not installed" and not npm:
+        return guidance("gitnexus", "Node.js/npm is required before GitNexus can be installed.", ["Install Node.js LTS", "npm install -g gitnexus", "gitnexus setup"], "https://github.com/nxpatterns/gitnexus")
+    install_result = None
+    if before == "not installed" and npm:
+        install_result = optional_run([npm, "install", "-g", GITNEXUS_NPM_PACKAGE], downloads, "gitnexus", GITNEXUS_NPM_PACKAGE, cwd=Path.home())
+        prepend_tool_paths()
+    after = command_version("gitnexus")
+    return {
+        "name": "gitnexus", "installed": after != "not installed", "configured": False,
+        "version": after, "path": shutil.which("gitnexus"), "install_result": install_result,
+        "next_commands": ["gitnexus setup"] if after != "not installed" else ["npm install -g gitnexus"],
+        "reference": "https://github.com/nxpatterns/gitnexus",
+    }
 
 
-def run_interactive_action(argv: list[str], *, cwd: Path = Path.home()) -> dict:
-    status_line("RUN", " ".join(argv))
-    try:
-        result = subprocess.run(argv, cwd=str(cwd), shell=False)
-    except OSError as exc:
-        return {"ok": False, "argv": argv, "error": str(exc)}
-    return {"ok": result.returncode == 0, "argv": argv, "exit_code": result.returncode}
-
-
-def prepend_tool_paths() -> None:
-    candidates = [
-        Path.home() / ".local" / "bin",
-        Path.home() / ".local" / "share" / "pnpm",
-        Path.home() / ".pnpm-global" / "bin",
-        Path.home() / ".bun" / "bin",
-        Path.home() / "bin",
-    ]
-    if os.name == "nt":
-        if os.environ.get("APPDATA"):
-            candidates.insert(0, Path(os.environ["APPDATA"]) / "npm")
-        if os.environ.get("LOCALAPPDATA"):
-            candidates.insert(0, Path(os.environ["LOCALAPPDATA"]) / "pnpm")
-    os.environ["PATH"] = os.pathsep.join(
-        [*(str(item) for item in candidates if item.exists()), os.environ.get("PATH", "")]
-    )
-
-
-def backup_path(path: Path) -> Path:
+def _backup_path(path: Path) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     candidate = path.with_name(f"{path.name}.manageroo-backup-{stamp}")
     index = 2
@@ -358,607 +361,98 @@ def backup_path(path: Path) -> Path:
     return candidate
 
 
-def symlink_violations(root: Path) -> list[str]:
-    return [
-        str(path.relative_to(root))
-        for path in root.rglob("*")
-        if path.is_symlink()
-    ]
-
-
-def guidance(tool: str, reason: str, commands: list[str], url: str | None = None) -> dict:
-    status_line(tool.upper(), reason)
-    if commands:
-        print("  Next commands:")
-        for command in commands:
-            print(f"    {command}")
-    if url:
-        print(f"  Reference: {url}")
-    return {
-        "name": tool,
-        "installed": False,
-        "configured": False,
-        "guidance": reason,
-        "next_commands": commands,
-        "reference": url,
-    }
-
-
-def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
-    cwd = Path.home()
-    prepend_tool_paths()
-    before = command_version("gbrain")
-    status_line("GBRAIN", f"current: {before}")
-    if lane == "skip":
-        return {
-            "name": "gbrain",
-            "installed": before != "not installed",
-            "configured": False,
-            "skipped": True,
-            "reason": "GBrain stack lane skipped by installer option.",
-            "version": before,
-            "path": shutil.which("gbrain"),
-            "lane": "skip",
-            "reference": GBRAIN_LOCAL_INSTALL_REFERENCE,
-        }
-    installed_before = before != "not installed"
-    installed = installed_before
-    install_result: dict | None = None
-    if not installed:
-        if lane == "official":
-            return guidance(
-                "gbrain",
-                "Official GBrain agent-supervised install lane selected. The installer will not guess API keys, search mode, source mapping, or recurring jobs.",
-                [
-                    f"Open the official GBrain agent install guide: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}",
-                    "Follow it with your chosen AI agent so keys, search mode, source mapping, and recurring jobs stay intentional.",
-                    "Afterward run: gbrain doctor --json",
-                    "Then rerun: manageroo stack-status",
-                ],
-                GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
-            ) | {
-                "lane": "official-agent-protocol",
-                "official_protocol_url": GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
-                "local_lane_command": "./install.sh --install-stack --gbrain-lane local",
-            }
-        bun = shutil.which("bun")
-        if not bun:
-            return guidance(
-                "gbrain",
-                "Bun is required before GBrain can be installed by this installer.",
-                [
-                    "Install Bun from https://bun.sh/",
-                    f"bun install -g {GBRAIN_INSTALL_SOURCE}",
-                    "gbrain init --pglite",
-                    "gbrain doctor",
-                    f"Or use the official agent-supervised lane: {GBRAIN_AGENT_INSTALL_PROTOCOL_URL}",
-                ],
-                GBRAIN_LOCAL_INSTALL_REFERENCE,
-            )
-        install_result = optional_run(
-            [bun, "install", "-g", GBRAIN_INSTALL_SOURCE],
-            downloads,
-            "gbrain",
-            GBRAIN_INSTALL_SOURCE,
-            cwd=cwd,
-        )
-        installed = install_result["ok"]
-        prepend_tool_paths()
-    gbrain = shutil.which("gbrain")
-    init_result = None
-    scaffold_result = None
-    doctor_result = None
-    config_probe = None
-    sync_probe = None
-    config_summary: dict[str, str] = {}
-    sync_summary: dict = {}
-    if gbrain:
-        if installed_before:
-            status_line("GBRAIN", "existing install detected; inspecting config without reinitializing", ok=True)
-            config_probe = probe_command([gbrain, "config", "show"], cwd=cwd)
-            sync_probe = probe_command([gbrain, "status", "--json", "--section", "sync"], cwd=cwd)
-            doctor_result = probe_command([gbrain, "doctor", "--json", "--fast"], cwd=cwd, timeout=60)
-            config_summary = parse_gbrain_config(config_probe.get("output", "")) if config_probe else {}
-            sync_summary = summarize_gbrain_sync(sync_probe.get("output", "")) if sync_probe else {}
-        else:
-            init_result = optional_run(
-                [gbrain, "init", "--pglite"], downloads, "gbrain", "gbrain init --pglite", cwd=cwd
-            )
-            scaffold_result = optional_run(
-                [gbrain, "skillpack", "scaffold", "--all"],
-                downloads,
-                "gbrain",
-                "gbrain skillpack scaffold --all",
-                cwd=cwd,
-            )
-            doctor_result = optional_run([gbrain, "doctor"], downloads, "gbrain", "gbrain doctor", cwd=cwd)
-            config_probe = probe_command([gbrain, "config", "show"], cwd=cwd)
-            sync_probe = probe_command([gbrain, "status", "--json", "--section", "sync"], cwd=cwd)
-            config_summary = parse_gbrain_config(config_probe.get("output", "")) if config_probe else {}
-            sync_summary = summarize_gbrain_sync(sync_probe.get("output", "")) if sync_probe else {}
-    after = command_version("gbrain")
-    status_line("GBRAIN", after, ok=after != "not installed")
-    config_ok = bool(config_probe and config_probe.get("ok") and config_summary)
-    sync_ok = bool(
-        sync_probe
-        and sync_probe.get("ok")
-        and "parse_error" not in sync_summary
-        and sync_summary.get("sources") is not None
-    )
-    doctor_ok = bool(doctor_result and doctor_result.get("ok"))
-    next_commands: list[str] = []
-    if after == "not installed":
-        next_commands.extend(
-            [
-                "Install Bun from https://bun.sh/",
-                f"bun install -g {GBRAIN_INSTALL_SOURCE}",
-                "gbrain init --pglite",
-            ]
-        )
-    elif not config_ok:
-        if installed_before and gbrain_probe_suggests_missing_init(config_probe):
-            next_commands.append("gbrain init --pglite")
-        next_commands.append("gbrain config show")
-    if after != "not installed" and not doctor_ok:
-        next_commands.append("gbrain doctor --json --fast")
-    if after != "not installed" and not sync_ok:
-        next_commands.append("gbrain status --json --section sync")
-    if sync_ok and sync_summary.get("sources", 0) == 0:
-        next_commands.extend(
-            [
-                "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
-                "gbrain sync --source YOUR_SOURCE_ID --json --yes",
-                "gbrain status --json --section sync",
-            ]
-        )
-    return {
-        "name": "gbrain",
-        "lane": "existing-inspected" if installed_before else "local-cli",
-        "installed": after != "not installed",
-        "configured": bool(
-            after != "not installed"
-            and (
-                (installed_before and config_ok and sync_ok and doctor_ok)
-                or ((not installed_before) and init_result and init_result["ok"] and doctor_ok)
-            )
-        ),
-        "version": after,
-        "path": shutil.which("gbrain"),
-        "existing_install_detected": installed_before,
-        "config_summary": {
-            key: config_summary.get(key)
-            for key in (
-                "engine",
-                "embedding_model",
-                "embedding_dimensions",
-                "schema_pack",
-            )
-            if config_summary.get(key)
-        },
-        "sync_summary": sync_summary,
-        "install_result": install_result,
-        "init_result": init_result,
-        "scaffold_result": scaffold_result,
-        "doctor_result": safe_probe_record(doctor_result) if installed_before else doctor_result,
-        "config_probe": safe_probe_record(config_probe),
-        "sync_probe": safe_probe_record(sync_probe),
-        "mapping_commands": [
-            "gbrain sources list",
-            "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
-            "gbrain sync --source YOUR_SOURCE_ID --json --yes",
-            "gbrain status --json --section sync",
-        ],
-        "guidance_commands": [
-            "Connect `gbrain serve` to the MCP settings for the AI IDE or CLI agent you selected.",
-        ],
-        "next_commands": next_commands,
-        "reference": GBRAIN_LOCAL_INSTALL_REFERENCE,
-        "official_protocol_url": GBRAIN_AGENT_INSTALL_PROTOCOL_URL,
-    }
-
-
-def install_gitnexus(downloads: list[dict]) -> dict:
-    cwd = Path.home()
-    before = command_version("gitnexus")
-    status_line("GITNEXUS", f"current: {before}")
-    install_result: dict | None = None
-    if before == "not installed":
-        npm = shutil.which("npm")
-        if not npm:
-            return guidance(
-                "gitnexus",
-                "Node.js/npm is required before GitNexus can be installed.",
-                [
-                    "Install Node.js 18+ from https://nodejs.org/",
-                    f"npm install -g {GITNEXUS_NPM_PACKAGE}",
-                    "gitnexus setup",
-                ],
-                "https://github.com/abhigyanpatwari/GitNexus",
-            )
-        install_result = optional_run(
-            [npm, "install", "-g", GITNEXUS_NPM_PACKAGE],
-            downloads,
-            "gitnexus",
-            GITNEXUS_NPM_PACKAGE,
-            cwd=cwd,
-        )
-        prepend_tool_paths()
-    after = command_version("gitnexus")
-    status_line("GITNEXUS", after, ok=after != "not installed")
-    return {
-        "name": "gitnexus",
-        "installed": after != "not installed",
-        "configured": False,
-        "version": after,
-        "path": shutil.which("gitnexus"),
-        "install_result": install_result,
-        "next_commands": ["gitnexus setup"],
-        "reference": "https://github.com/abhigyanpatwari/GitNexus",
-    }
-
-
 def install_autoreview(downloads: list[dict], prefix: Path) -> dict:
-    destination = Path.home() / ".agents" / "skills" / "autoreview"
-    candidates = [
-        destination / "scripts" / "autoreview",
-        Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
-    ]
-    existing_script = next((path for path in candidates if path.exists()), None)
-    if existing_script:
-        status_line("AUTOREVIEW", str(existing_script), ok=True)
-        return {
-            "name": "autoreview",
-            "installed": True,
-            "configured": True,
-            "path": str(existing_script),
-            "detected_locations": [str(path) for path in candidates if path.exists()],
-            "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
-        }
-
+    candidates = [Path.home() / ".agents" / "skills" / "autoreview", Path.home() / ".codex" / "skills" / "autoreview"]
+    existing = next((path for path in candidates if (path / "scripts" / "autoreview").exists()), None)
+    if existing:
+        return {"name": "autoreview", "installed": True, "configured": True, "path": str(existing / "scripts" / "autoreview"), "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview"}
     git = shutil.which("git")
     if not git:
-        return guidance(
-            "autoreview",
-            "Git is required to install the OpenClaw AUTOREVIEW skill.",
-            [
-                "git clone https://github.com/openclaw/agent-skills.git",
-                "mkdir -p ~/.agents/skills",
-                "cp -R agent-skills/skills/autoreview ~/.agents/skills/autoreview",
-            ],
-            "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
-        )
-
-    vendor = prefix / "vendors" / "openclaw-agent-skills"
-    if vendor.exists():
-        shutil.rmtree(vendor)
-    vendor.parent.mkdir(parents=True, exist_ok=True)
-    clone_result = optional_run(
-        [git, "clone", "--depth", "1", OPENCLAW_AGENT_SKILLS_REPO, str(vendor)],
-        downloads,
-        "autoreview",
-        OPENCLAW_AGENT_SKILLS_REPO,
-        cwd=vendor.parent,
-    )
-    source = vendor / "skills" / "autoreview"
-    if not clone_result["ok"] or not source.exists():
-        return {
-            "name": "autoreview",
-            "installed": False,
-            "configured": False,
-            "install_result": clone_result,
-            "next_commands": [
-                "git clone https://github.com/openclaw/agent-skills.git",
-                "mkdir -p ~/.agents/skills",
-                "cp -R agent-skills/skills/autoreview ~/.agents/skills/autoreview",
-            ],
-            "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
-        }
-    links = symlink_violations(source)
-    if links:
-        return {
-            "name": "autoreview",
-            "installed": False,
-            "configured": False,
-            "install_result": clone_result,
-            "error": "Downloaded AUTOREVIEW skill contains symlinks; refusing to copy it.",
-            "symlinks": links,
-            "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
-        }
-    backup = None
-    if destination.exists():
-        backup = backup_path(destination)
-        shutil.move(str(destination), str(backup))
-    shutil.copytree(source, destination)
+        return guidance("autoreview", "Git is required to install AUTOREVIEW.", ["Install Git, then rerun the Manageroo installer."], "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview")
+    destination = candidates[0]
+    with tempfile.TemporaryDirectory(prefix="manageroo-autoreview-install-") as temp:
+        checkout = Path(temp) / "agent-skills"
+        clone = optional_run([git, "clone", "--depth", "1", OPENCLAW_AGENT_SKILLS_REPO, str(checkout)], downloads, "autoreview", OPENCLAW_AGENT_SKILLS_REPO, cwd=Path(temp))
+        source = checkout / "skills" / "autoreview"
+        if not clone.get("ok") or not (source / "SKILL.md").is_file() or source.is_symlink() or any(path.is_symlink() for path in source.rglob("*")):
+            return {"name": "autoreview", "installed": False, "configured": False, "error": "Canonical AUTOREVIEW source could not be validated.", "install_result": clone, "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview"}
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            destination.rename(_backup_path(destination))
+        shutil.copytree(source, destination)
     script = destination / "scripts" / "autoreview"
-    status_line("AUTOREVIEW", str(script), ok=script.exists())
-    return {
-        "name": "autoreview",
-        "installed": script.exists(),
-        "configured": script.exists(),
-        "path": str(script),
-        "backup": str(backup) if backup else None,
-        "install_result": clone_result,
-        "next_commands": [f'export AUTOREVIEW="{script}"', '"$AUTOREVIEW" --mode local'],
-        "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
-    }
+    return {"name": "autoreview", "installed": script.exists(), "configured": script.exists(), "path": str(script), "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview"}
 
 
 def ensure_pnpm(downloads: list[dict]) -> str | None:
     pnpm = shutil.which("pnpm")
-    npm = shutil.which("npm")
-    if not pnpm and not npm:
-        return None
+    npm = _ensure_node_npm()
     if not pnpm and npm:
         result = optional_run([npm, "install", "-g", "pnpm"], downloads, "pnpm", "pnpm", cwd=Path.home())
-        if not result["ok"]:
+        if not result.get("ok"):
             return None
         prepend_tool_paths()
         pnpm = shutil.which("pnpm")
-    if not pnpm:
-        return None
-    pnpm_home = Path(os.environ.get("PNPM_HOME") or (Path.home() / ".local" / "share" / "pnpm"))
-    pnpm_home.mkdir(parents=True, exist_ok=True)
-    os.environ["PNPM_HOME"] = str(pnpm_home)
-    prepend_tool_paths()
-    setup_result = optional_run(
-        [pnpm, "config", "set", "global-bin-dir", str(pnpm_home)],
-        downloads,
-        "pnpm",
-        "pnpm global-bin-dir",
-        cwd=Path.home(),
-    )
-    return pnpm if setup_result["ok"] else None
+    return pnpm
 
 
 def check_clawpatch_codex_provider(login_mode: str) -> dict:
     codex = shutil.which("codex")
     if not codex:
-        return {
-            "name": "codex-provider",
-            "ok": False,
-            "path": None,
-            "status_probe": None,
-            "next_commands": [
-                "Install Codex if you want Clawpatch's default codex provider.",
-                "codex login",
-                "clawpatch doctor",
-            ],
-            "reason": "Clawpatch supports multiple providers, but its codex provider needs the local Codex CLI.",
-        }
+        return {"name": "codex-provider", "ok": False, "next_commands": ["Install Codex if Clawpatch should use its codex provider.", "codex login", "clawpatch doctor"], "reason": "Codex CLI is unavailable."}
     status_probe = probe_command([codex, "login", "status"], cwd=Path.home(), timeout=30)
     login_result = None
     if not status_probe.get("ok") and login_mode != "skip":
         should_run = login_mode == "run"
         if login_mode == "ask" and sys.stdin.isatty():
-            answer = input("Clawpatch's codex provider needs Codex login. Run `codex login` now? [Y/n]: ").strip().lower()
-            should_run = answer not in {"n", "no", "skip"}
+            should_run = input("Clawpatch's codex provider needs Codex login. Run `codex login` now? [Y/n]: ").strip().lower() not in {"n", "no", "skip"}
         if should_run:
-            login_result = run_interactive_action([codex, "login"], cwd=Path.home())
+            login_result = run_interactive_action([codex, "login"])
             status_probe = probe_command([codex, "login", "status"], cwd=Path.home(), timeout=30)
-    next_commands = [] if status_probe.get("ok") else ["codex login", "clawpatch doctor"]
-    return {
-        "name": "codex-provider",
-        "ok": bool(status_probe.get("ok")),
-        "path": codex,
-        "status_probe": safe_probe_record(status_probe),
-        "login_result": login_result,
-        "next_commands": next_commands,
-        "reason": "" if status_probe.get("ok") else "Codex login is not ready for Clawpatch's codex provider.",
-    }
+    return {"name": "codex-provider", "ok": bool(status_probe.get("ok")), "path": codex, "status_probe": safe_probe_record(status_probe), "login_result": login_result, "next_commands": [] if status_probe.get("ok") else ["codex login", "clawpatch doctor"]}
 
 
 def install_clawpatch(downloads: list[dict], codex_login_mode: str = "ask") -> dict:
     before = command_version("clawpatch")
-    status_line("CLAWPATCH", f"current: {before}")
     install_result = None
     if before == "not installed":
         pnpm = ensure_pnpm(downloads)
         if not pnpm:
-            return guidance(
-                "clawpatch",
-                "pnpm is required before Clawpatch can be installed.",
-                [
-                    "npm install -g pnpm",
-                    "pnpm setup",
-                    "pnpm add -g clawpatch",
-                    "codex login",
-                    "clawpatch doctor",
-                ],
-                CLAWPATCH_REFERENCE,
-            )
-        install_result = optional_run(
-            [pnpm, "add", "-g", CLAWPATCH_PACKAGE],
-            downloads,
-            "clawpatch",
-            CLAWPATCH_PACKAGE,
-            cwd=Path.home(),
-        )
+            return guidance("clawpatch", "pnpm is required before Clawpatch can be installed.", ["npm install -g pnpm", "pnpm add -g clawpatch", "clawpatch doctor"], CLAWPATCH_REFERENCE)
+        install_result = optional_run([pnpm, "add", "-g", CLAWPATCH_PACKAGE], downloads, "clawpatch", CLAWPATCH_PACKAGE, cwd=Path.home())
         prepend_tool_paths()
-    after = command_version("clawpatch")
-    doctor_result = None
     clawpatch = shutil.which("clawpatch")
-    if clawpatch:
-        doctor_result = optional_run(
-            [clawpatch, "doctor"], downloads, "clawpatch", "clawpatch doctor", cwd=Path.home()
-        )
+    doctor_result = optional_run([clawpatch, "doctor"], downloads, "clawpatch", "clawpatch doctor", cwd=Path.home()) if clawpatch else None
     codex_provider = check_clawpatch_codex_provider(codex_login_mode)
-    status_line("CLAWPATCH", after, ok=after != "not installed")
-    next_commands = []
-    next_commands.extend(codex_provider.get("next_commands", []))
-    if after != "not installed" and not (doctor_result and doctor_result["ok"]):
-        if "clawpatch doctor" not in next_commands:
-            next_commands.append("clawpatch doctor")
-    return {
-        "name": "clawpatch",
-        "installed": after != "not installed",
-        "configured": bool(doctor_result and doctor_result["ok"] and codex_provider["ok"]),
-        "version": after,
-        "path": shutil.which("clawpatch"),
-        "install_result": install_result,
-        "doctor_result": doctor_result,
-        "codex_provider": codex_provider,
-        "next_commands": next_commands,
-        "project_commands": ["clawpatch init", "clawpatch map", "clawpatch review --limit 3 --jobs 3"],
-        "reference": CLAWPATCH_REFERENCE,
-    }
+    after = command_version("clawpatch")
+    next_commands = list(codex_provider.get("next_commands", []))
+    if after != "not installed" and not (doctor_result and doctor_result.get("ok")) and "clawpatch doctor" not in next_commands:
+        next_commands.append("clawpatch doctor")
+    return {"name": "clawpatch", "installed": after != "not installed", "configured": bool(doctor_result and doctor_result.get("ok") and codex_provider.get("ok")), "version": after, "path": clawpatch, "install_result": install_result, "doctor_result": doctor_result, "codex_provider": codex_provider, "next_commands": next_commands, "reference": CLAWPATCH_REFERENCE}
 
 
 def install_obsidian(downloads: list[dict], method: str) -> dict:
     before = command_version("obsidian")
-    status_line("OBSIDIAN", f"current: {before}")
     if before != "not installed":
-        return {
-            "name": "obsidian",
-            "installed": True,
-            "configured": True,
-            "version": before,
-            "path": shutil.which("obsidian"),
-            "reference": OBSIDIAN_HELP_URL,
-        }
-
+        return {"name": "obsidian", "installed": True, "configured": True, "version": before, "path": shutil.which("obsidian"), "reference": OBSIDIAN_HELP_URL}
     system = platform.system().lower()
-    candidates: list[tuple[str, list[str]]] = []
+    candidates: list[list[str]] = []
     if method in {"auto", "winget"} and system == "windows" and shutil.which("winget"):
-        candidates.append(
-            (
-                "winget",
-                [
-                    shutil.which("winget") or "winget",
-                    "install",
-                    "--id",
-                    "Obsidian.Obsidian",
-                    "-e",
-                    "--accept-package-agreements",
-                    "--accept-source-agreements",
-                ],
-            )
-        )
-    if method in {"auto", "brew"} and system == "darwin" and shutil.which("brew"):
-        candidates.append(("brew", [shutil.which("brew") or "brew", "install", "--cask", "obsidian"]))
-    if method in {"auto", "flatpak"} and system == "linux" and shutil.which("flatpak"):
-        candidates.append(
-            (
-                "flatpak",
-                [
-                    shutil.which("flatpak") or "flatpak",
-                    "install",
-                    "--user",
-                    "-y",
-                    "flathub",
-                    "md.obsidian.Obsidian",
-                ],
-            )
-        )
-    if (
-        method in {"auto", "snap"}
-        and system == "linux"
-        and shutil.which("snap")
-        and hasattr(os, "geteuid")
-        and os.geteuid() == 0
-    ):
-        candidates.append(("snap", [shutil.which("snap") or "snap", "install", "obsidian", "--classic"]))
-
-    for installer, argv in candidates[:1]:
-        result = optional_run(argv, downloads, "obsidian", installer, cwd=Path.home())
+        candidates.append([shutil.which("winget") or "winget", "install", "--id", "Obsidian.Obsidian", "-e", "--accept-package-agreements", "--accept-source-agreements"])
+    elif method in {"auto", "brew"} and system == "darwin" and shutil.which("brew"):
+        candidates.append([shutil.which("brew") or "brew", "install", "--cask", "obsidian"])
+    elif method in {"auto", "flatpak"} and system == "linux" and shutil.which("flatpak"):
+        candidates.append([shutil.which("flatpak") or "flatpak", "install", "--user", "-y", "flathub", "md.obsidian.Obsidian"])
+    elif method in {"auto", "snap"} and system == "linux" and shutil.which("snap") and hasattr(os, "geteuid") and os.geteuid() == 0:
+        candidates.append([shutil.which("snap") or "snap", "install", "obsidian", "--classic"])
+    if candidates:
+        result = optional_run(candidates[0], downloads, "obsidian", candidates[0][0], cwd=Path.home())
         after = command_version("obsidian")
-        return {
-            "name": "obsidian",
-            "installed": after != "not installed" or result["ok"],
-            "configured": after != "not installed" or result["ok"],
-            "version": after,
-            "path": shutil.which("obsidian"),
-            "install_result": result,
-            "reference": OBSIDIAN_HELP_URL,
-        }
-
-    commands = []
-    if system == "linux":
-        commands = [
-            "flatpak install --user flathub md.obsidian.Obsidian",
-            "sudo snap install obsidian --classic",
-            "or download the AppImage from https://obsidian.md/download",
-        ]
-    elif system == "darwin":
-        commands = ["brew install --cask obsidian", "or download from https://obsidian.md/download"]
-    elif system == "windows":
-        commands = ["winget install --id Obsidian.Obsidian -e", "or download from https://obsidian.md/download"]
-    return guidance("obsidian", "No supported Obsidian installer was available automatically.", commands, OBSIDIAN_HELP_URL)
+        return {"name": "obsidian", "installed": after != "not installed" or result.get("ok"), "configured": after != "not installed" or result.get("ok"), "version": after, "path": shutil.which("obsidian"), "install_result": result, "reference": OBSIDIAN_HELP_URL}
+    return guidance("obsidian", "No supported automatic Obsidian installer was available.", ["Install Obsidian from https://obsidian.md/download"], OBSIDIAN_HELP_URL)
 
 
-def choose_stack_mode(selection: str, install_flag: bool, skip_flag: bool) -> str:
-    if install_flag:
-        return "install"
-    if skip_flag:
-        return "skip"
-    if selection != "ask":
-        return selection
-    if not sys.stdin.isatty():
-        return "skip"
-    print("Recommended local stack:")
-    print("  - GBrain memory")
-    print("  - GitNexus code graph")
-    print("  - AUTOREVIEW review helper")
-    print("  - Clawpatch review and fix loop")
-    print("  - Obsidian notes")
-    answer = input("Install and guide this stack now? [Y/n]: ").strip().lower()
-    return "skip" if answer in {"n", "no", "skip"} else "install"
-
-
-def choose_gbrain_lane(selection: str) -> str:
-    if selection != "ask":
-        return selection
-    if not sys.stdin.isatty():
-        return "local"
-    print("GBrain setup lane:")
-    print("  1) local - installer uses Bun, `gbrain init --pglite`, probes status, and guides source mapping")
-    print("  2) official - print Garry Tan/GBrain's agent-supervised INSTALL_FOR_AGENTS.md protocol")
-    print("  3) skip")
-    answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
-    return {
-        "": "local",
-        "1": "local",
-        "local": "local",
-        "ours": "local",
-        "our": "local",
-        "2": "official",
-        "official": "official",
-        "upstream": "official",
-        "agent": "official",
-        "3": "skip",
-        "skip": "skip",
-    }.get(answer, "local")
-
-
-def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
-    if skip_flag or selection == "skip":
-        return "skip"
-    if selection == "install":
-        return "install"
-    if not sys.stdin.isatty():
-        return "install"
-    print("Recommended local skill pack:")
-    print("  - MANAGEROO routing skill")
-    print("  - Prompt cleanup, brain lookup, ingest, media, PDF, long-prose, exact text")
-    print("  - PRD/issues, grilling, diagnosis, TDD, testing, security, review")
-    print("  - Website/UI proof, Playwright browser checks, web copy, and design cleanup")
-    print("  - Subagent/minion routing for work large enough to split safely")
-    print("  - Write A Skill, Skillify, Edit Skill, and skillpack health")
-    print("  - Token reduction with two styles: clean Caveman or Uncle Matt's Caveman Curse")
-    print("This is optional, but strongly suggested for AI IDE agents.")
-    print("Default is yes because this saves the user from remembering skill names.")
-    print("You can skip it and install it later with: manageroo skills reconcile --apply")
-    answer = input("Install the recommended skill pack now? [Y/n]: ").strip().lower()
-    return "skip" if answer in {"n", "no", "skip"} else "install"
-
-
-def install_recommended_stack(
-    downloads: list[dict],
-    obsidian_method: str,
-    prefix: Path,
-    gbrain_lane: str,
-    clawpatch_codex_login: str,
-) -> list[dict]:
-    status_line("STACK", "installing recommended local stack")
+def install_recommended_stack(downloads: list[dict], obsidian_method: str, prefix: Path, gbrain_lane: str, clawpatch_codex_login: str) -> list[dict]:
     return [
         install_gbrain(downloads, gbrain_lane),
         install_gitnexus(downloads),
@@ -973,39 +467,45 @@ def choose_token_mode(selection: str) -> str:
         return selection
     if not sys.stdin.isatty():
         return "off"
-    print("Token reduction mode:")
-    print("  1) off")
-    print("  2) caveman - same token reduction, clean style")
-    print("  3) curse - same token reduction, appropriately placed profanity")
-    print("Curse mode exists because life is more fun with appropriately placed, well-used profanity.")
-    answer = input("Choose 1, 2, or 3 [1]: ").strip().lower()
-    return {
-        "": "off",
-        "1": "off",
-        "off": "off",
-        "none": "off",
-        "2": "caveman",
-        "caveman": "caveman",
-        "3": "curse",
-        "curse": "curse",
-        "uncle": "curse",
-        "uncle-matts-caveman-curse": "curse",
-    }.get(answer, "off")
+    print("Token mode: 1) off  2) caveman  3) Uncle Matt's Caveman Curse")
+    return {"2": "caveman", "3": "curse"}.get(input("Choose 1, 2, or 3 [1]: ").strip(), "off")
 
 
-def print_lane_explainer() -> None:
-    print("")
-    print("Lane readiness, plain English:")
-    print("  - Memory lane: if the brief asks for GBrain, memory, Obsidian, or prior decisions, map GBrain sources before the run.")
-    print("  - Document/prose lane: if the brief asks for PDFs, transcripts, screenshots, images, long prose, or exact wording, configure document_analysis_command first.")
-    print("  - Intent lock lane: solo captures what you want, must-not rules, proof, rejected ideas, and corrections; compacted handoffs should pass compaction audit.")
-    print("  - Stateless worker lane: MANAGEROO is not AI remembers better; it saves truth on disk and gives each disposable worker one complete packet.")
-    print("  - Continue lane: manageroo run --continue <run-id> replays saved controller facts and gives unfinished jobs a fresh packet.")
-    print("  - Acceptance lane: outcomes need real gate, review, or demo evidence; unknown acceptance blocks COMPLETE instead of pretending.")
-    print("  - Release-ready lane: final release proof requires a completed Manageroo run, approved review, final report, final patch, and applied source.")
-    print("  - Passive files: if the repo merely contains documents or media, ready prints WARN but does not block.")
-    print("  - AUTOREVIEW/Clawpatch lane: if configured, those commands own their findings and repairs; the AI must not freehand fixes from them.")
-    print("  - Where to read more: docs/SOLO_OPERATOR_MODE.md, docs/CONTEXT_COMPILER.md, docs/DOCUMENT_LANE.md, docs/REVIEW_REPAIR_LANES.md, docs/EXTERNAL_INTEGRATIONS.md")
+def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
+    if skip_flag:
+        return "skip"
+    if selection != "ask":
+        return selection
+    if not sys.stdin.isatty():
+        return "install"
+    return "skip" if input("Install Manageroo's portable core agent skill pack? [Y/n]: ").strip().lower() in {"n", "no", "skip"} else "install"
+
+
+def choose_stack_mode(selection: str, install_flag: bool, skip_flag: bool) -> str:
+    if install_flag:
+        return "install"
+    if skip_flag:
+        return "skip"
+    if selection != "ask":
+        return selection
+    if not sys.stdin.isatty():
+        return "skip"
+    print("Recommended surrounding stack:")
+    print("  - GBrain external knowledge lane")
+    print("  - GitNexus repository/code-graph intelligence")
+    print("  - AUTOREVIEW review helper")
+    print("  - Clawpatch review and repair loop")
+    print("  - Obsidian notes")
+    return "skip" if input("Install and guide this stack now? [Y/n]: ").strip().lower() in {"n", "no", "skip"} else "install"
+
+
+def choose_gbrain_lane(selection: str) -> str:
+    if selection != "ask":
+        return selection
+    if not sys.stdin.isatty():
+        return "local"
+    print("GBrain setup lane: 1) local  2) official agent-supervised protocol  3) skip")
+    return {"2": "official", "3": "skip"}.get(input("Choose 1, 2, or 3 [1]: ").strip(), "local")
 
 
 def choose_project_discovery_mode(selection: str) -> str:
@@ -1013,14 +513,7 @@ def choose_project_discovery_mode(selection: str) -> str:
         return selection
     if not sys.stdin.isatty():
         return "skip"
-    print("")
-    print("Find and add your projects now?")
-    print("The guided project setup scans common folders, shows a checkbox-style list, lets you choose which ones to add, and lets you paste extra paths if it missed one.")
-    print("It only initializes the projects you select.")
-    answer = input("Run guided project setup now? [Y/n]: ").strip().lower()
-    if answer in {"n", "no", "skip"}:
-        return "skip"
-    return "add"
+    return "skip" if input("Run guided project setup now? [Y/n]: ").strip().lower() in {"n", "no", "skip"} else "add"
 
 
 def choose_stack_doctor_mode(selection: str) -> str:
@@ -1028,54 +521,31 @@ def choose_stack_doctor_mode(selection: str) -> str:
         return selection
     if not sys.stdin.isatty():
         return "skip"
-    print("")
-    print("Smart dependency check?")
-    print("This is read-only. It checks existing GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, and Codex setup.")
-    answer = input("Run smart stack doctor now? [Y/n]: ").strip().lower()
-    if answer in {"n", "no", "skip"}:
-        return "skip"
-    return "run"
+    return "skip" if input("Run the read-only smart stack doctor now? [Y/n]: ").strip().lower() in {"n", "no", "skip"} else "run"
 
 
 def print_next_commands() -> None:
     print("\nNext commands:")
-    print("  manageroo --version")
-    print("  manageroo self-test")
-    print("  manageroo skills list")
-    print("  # Strongly suggested if you skipped the local agent skill pack:")
-    print("  manageroo skills reconcile --apply")
-    print("  # If you copied skills from another computer:")
-    print("  manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply")
-    print("  manageroo stack-status")
-    print("  manageroo stack-doctor")
-    print("  manageroo repair-install --no-apply")
-    print("  # Easiest first product setup: choose found repos with a checkbox-style list and paste missing paths")
-    print("  manageroo projects --add")
-    print("  # Read-only picker for one next command:")
-    print("  manageroo projects --pick")
-    print('  manageroo solo /path/to/new-project --create --want "Describe the first useful version"')
-    print("  # After solo, inspect or audit the intent lock when a chat/handoff gets compacted:")
-    print("  manageroo intent show")
-    print("  manageroo compact audit --summary SUMMARY.md")
-    print("  # If readiness says no checks exist:")
-    print("  manageroo checks suggest")
-    print("  # When readiness is green:")
-    print("  manageroo run --apply")
-    print('  manageroo release-ready --target "Production deploy path" --rollback "Rollback steps" --approved-by "Your name"')
+    for command in [
+        "manageroo --version", "manageroo self-test", "manageroo skills list", "manageroo stack-status",
+        "manageroo stack-doctor", "manageroo repair-install --no-apply", "manageroo projects --add", "manageroo next",
+    ]:
+        print(f"  {command}")
+
+
+def print_lane_explainer() -> None:
+    print("\nHow Manageroo fits together:")
+    print("  - Manageroo owns run truth, planning, scope, verification, review, evidence, repair, and completion.")
+    print("  - GitNexus is first-class recommended repository intelligence when installed and configured.")
+    print("  - GBrain is an external durable knowledge lane when explicitly relevant.")
+    print("  - AUTOREVIEW and Clawpatch are command-owned review/repair lanes, not freehand AI repair prompts.")
+    print("  - Host skills may be used when relevant but remain host-owned unless they are in Manageroo's portable core.")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"Install {FULL_NAME}")
-    parser.add_argument(
-        "--prefix",
-        type=Path,
-        default=Path.home() / ".local" / "share" / "manageroo",
-    )
-    parser.add_argument(
-        "--bin-dir",
-        type=Path,
-        default=Path.home() / ".local" / "bin",
-    )
+    parser.add_argument("--prefix", type=Path, default=Path.home() / ".local" / "share" / "manageroo")
+    parser.add_argument("--bin-dir", type=Path, default=Path.home() / ".local" / "bin")
     parser.add_argument("--skip-tests", action="store_true")
     parser.add_argument("--skip-self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--install-codex", action="store_true")
@@ -1083,56 +553,20 @@ def main() -> int:
     parser.add_argument("--stack", choices=["ask", "skip", "install"], default="ask")
     parser.add_argument("--install-stack", action="store_true")
     parser.add_argument("--skip-stack", action="store_true")
-    parser.add_argument(
-        "--obsidian-method",
-        choices=["auto", "guide", "flatpak", "snap", "brew", "winget"],
-        default="auto",
-    )
-    parser.add_argument(
-        "--gbrain-lane",
-        choices=["ask", "local", "official", "skip"],
-        default="ask",
-        help="Choose the GBrain stack lane: local CLI install, official agent-supervised protocol, or skip.",
-    )
-    parser.add_argument(
-        "--clawpatch-codex-login",
-        choices=["ask", "run", "skip"],
-        default="ask",
-        help="For Clawpatch's codex provider, check Codex login and optionally run `codex login`.",
-    )
+    parser.add_argument("--obsidian-method", choices=["auto", "guide", "flatpak", "snap", "brew", "winget"], default="auto")
+    parser.add_argument("--gbrain-lane", choices=["ask", "local", "official", "skip"], default="ask")
+    parser.add_argument("--clawpatch-codex-login", choices=["ask", "run", "skip"], default="ask")
     parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
-    parser.add_argument(
-        "--project-discovery",
-        choices=["ask", "pick", "add", "skip"],
-        default="ask",
-        help="After install, optionally run guided project setup.",
-    )
-    parser.add_argument(
-        "--stack-doctor",
-        choices=["ask", "run", "skip"],
-        default="ask",
-        help="After install, optionally run the read-only smart stack dependency doctor.",
-    )
-    parser.add_argument(
-        "--skill-pack",
-        choices=["ask", "install", "skip"],
-        default="ask",
-        help="Choose whether to install the optional but strongly suggested local agent skill pack.",
-    )
-    parser.add_argument(
-        "--skip-skill-pack",
-        action="store_true",
-        help="Same as --skill-pack skip. You can install it later with `manageroo skills reconcile --apply`.",
-    )
+    parser.add_argument("--project-discovery", choices=["ask", "pick", "add", "skip"], default="ask")
+    parser.add_argument("--stack-doctor", choices=["ask", "run", "skip"], default="ask")
+    parser.add_argument("--skill-pack", choices=["ask", "install", "skip"], default="ask")
+    parser.add_argument("--skip-skill-pack", action="store_true")
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
     args = parser.parse_args()
+
     if args.install_stack and args.skip_stack:
         raise SystemExit("--install-stack and --skip-stack conflict. Choose one.")
-    if args.install_stack and args.stack == "skip":
-        raise SystemExit("--install-stack conflicts with --stack skip.")
-    if args.skip_stack and args.stack == "install":
-        raise SystemExit("--skip-stack conflicts with --stack install.")
     if args.skip_skill_pack and args.skill_pack == "install":
         raise SystemExit("--skip-skill-pack conflicts with --skill-pack install.")
 
@@ -1140,7 +574,6 @@ def main() -> int:
     if banner_ticker:
         atexit.register(banner_ticker.stop)
     print(f"Installing {FULL_NAME}\n")
-
     if sys.version_info < (3, 11):
         raise SystemExit("Python 3.11 or newer is required.")
     if shutil.which("git") is None:
@@ -1153,98 +586,49 @@ def main() -> int:
         venv_root = prefix / "venv"
         app_root = prefix / "app"
         prefix.mkdir(parents=True, exist_ok=True)
-
         token_mode = choose_token_mode(args.token_mode)
-
         source_env = {"PYTHONPATH": str(ROOT / "src")}
         if not args.skip_tests:
-            status_line("VERIFY", "compiling source")
             run([sys.executable, "-m", "compileall", "-q", "src"], env=source_env)
-            status_line("VERIFY", "running deterministic tests")
-            run(
-                [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
-                env=source_env,
-            )
+            run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"], env=source_env)
 
         token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
-        status_line("TOKEN MODE", token_mode_record["label"], ok=True)
         skill_pack_mode = choose_skill_pack_mode(args.skill_pack, args.skip_skill_pack)
-        if skill_pack_mode == "skip":
-            helper_skills_record = {
-                "skipped": True,
-                "reason": "Recommended skill pack skipped. It is optional, but strongly suggested for AI IDE guidance.",
-                "install_later": "manageroo skills reconcile --apply",
-                "recommended_skills": sorted(CORE_HELPER_SKILLS),
-            }
-            status_line("SKILL PACK", "skipped; strongly recommended for AI IDE guidance", ok=True)
-        else:
-            helper_skills_record = install_core_helper_skills()
-            status_line("SKILL PACK", ", ".join(sorted(helper_skills_record)), ok=True)
+        helper_skills_record = (
+            {"skipped": True, "reason": "Portable core skill pack skipped.", "install_later": "manageroo skills reconcile --apply", "recommended_skills": sorted(CORE_HELPER_SKILLS)}
+            if skill_pack_mode == "skip" else install_core_helper_skills()
+        )
 
         if args.install_codex and not args.skip_codex:
             external_tools.append({"name": "codex", **install_codex_latest(downloads)})
         else:
-            external_tools.append(
-                {
-                    "name": "codex",
-                    "path": shutil.which("codex"),
-                    "version": command_version("codex"),
-                    "skipped": True,
-                    "reason": "Codex is an adapter choice, not a core installer requirement.",
-                }
-            )
+            external_tools.append({"name": "codex", "path": shutil.which("codex"), "version": command_version("codex"), "skipped": True, "reason": "Codex is an adapter choice, not a core requirement."})
 
         stack_mode = choose_stack_mode(args.stack, args.install_stack, args.skip_stack)
         if stack_mode == "install":
-            gbrain_lane = choose_gbrain_lane(args.gbrain_lane)
-            external_tools.extend(
-                install_recommended_stack(
-                    downloads,
-                    args.obsidian_method,
-                    prefix,
-                    gbrain_lane,
-                    args.clawpatch_codex_login,
-                )
-            )
+            external_tools.extend(install_recommended_stack(downloads, args.obsidian_method, prefix, choose_gbrain_lane(args.gbrain_lane), args.clawpatch_codex_login))
         else:
-            external_tools.append(
-                {
-                    "name": "recommended-stack",
-                    "skipped": True,
-                    "reason": "Stack install was skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch, and Obsidian.",
-                }
-            )
+            external_tools.append({"name": "recommended-stack", "skipped": True, "reason": "Stack install skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch, and Obsidian."})
 
         stack_summary = summarize_external_tools(external_tools)
-        status_line("STACK", f"{stack_summary['counts']['needs_action']} item(s) need follow-up")
         for item in stack_summary["items"]:
             state = "OK" if item["installed"] and not item["needs_action"] else "ACTION"
             print(f"  {state} {item['name']}")
-            if item.get("reason"):
-                print(f"    {item['reason']}")
             for command in item.get("next_commands", []):
                 print(f"    next: {command}")
 
         if not venv_root.exists():
-            status_line("INSTALL", f"creating isolated runtime at {venv_root}")
             venv.EnvBuilder(with_pip=False, clear=False).create(venv_root)
-
         if app_root.exists():
             shutil.rmtree(app_root)
-        shutil.copytree(ROOT / "src", app_root)
-
+        shutil.copytree(ROOT / "src", app_root, symlinks=False)
         python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")
         launcher = install_launcher(args.bin_dir.expanduser().resolve(), python, app_root, prefix)
-
         installed_env = {"PYTHONPATH": str(app_root)}
         version = run([str(python), "-m", "manageroo", "--version"], cwd=prefix, env=installed_env)
-        if args.skip_self_test:
-            self_test_output = "skipped by release smoke"
-        else:
-            self_test = run([str(python), "-m", "manageroo", "self-test"], cwd=prefix, env=installed_env)
-            self_test_output = self_test.stdout.strip()
+        self_test_output = "skipped by release smoke" if args.skip_self_test else run([str(python), "-m", "manageroo", "self-test"], cwd=prefix, env=installed_env).stdout.strip()
 
         lock = {
             "product": FULL_NAME,
@@ -1264,72 +648,23 @@ def main() -> int:
             "stack_summary": stack_summary,
             "uninstall_plan": uninstall_plan(prefix, args.bin_dir.expanduser().resolve()),
             "network_downloads": downloads,
-            "dependency_policy": (
-                "Core install is MANAGEROO. Real runs require a configured agent "
-                "adapter, a Git-backed target repo, and deterministic verification gates. "
-                "MANAGEROO is not AI remembers better; it saves truth on disk and "
-                "hands disposable workers complete packets. "
-                "The recommended skill pack is optional but strongly suggested because it "
-                "lets AI IDE agents route rough requests, skill creation, skill cleanup, "
-                "memory lookup, source ingest, media/PDF handling, long prose, exact text, "
-                "PRD/issue planning, requirement grilling, debugging, test-first work, "
-                "test-suite health, security review, second-model review, browser proof, "
-                "subagent/minion fan-out, public copy, website cleanup, UI/design review, "
-                "and token reduction without the user memorizing skill names. "
-                "It includes MANAGEROO routing, Pimp My Prompt for rough request intake, "
-                "Brain Ops and Query for GBrain-backed context, Ingest/Media Ingest/Voice Note "
-                "Ingest for source capture, Article Enrichment/Book Mirror/Strategic Reading "
-                "for long documents, PDF/Brain PDF/Citation Fixer/Reports/Exact Text Replacement "
-                "for document output and exact wording, To PRD/To Issues/Grill skills for "
-                "scope shaping, Diagnose/TDD/Testing for proof, AUTOREVIEW/Security Review/"
-                "Cross Modal Review for closeout pressure, Playwright for browser evidence, "
-                "Open Design/Web Design Guidelines/Fix My Bad Website/Plain Web Copy for "
-                "user-facing work, Subagent Orchestrator/Minion Orchestrator for safe split "
-                "work, Write A Skill/Skillify/Edit Skill for improving repeat workflows, "
-                "Skillpack Check for GBrain skill health, and both Caveman modes. "
-                "The guided local stack includes GBrain, GitNexus, AUTOREVIEW, Clawpatch, "
-                "and Obsidian when configured."
-            ),
+            "dependency_policy": "Manageroo is the portable controller. GitNexus is first-class recommended repository intelligence in the full stack; GBrain, AUTOREVIEW, Clawpatch, and Obsidian are surrounding lanes. External tools never replace Manageroo completion authority.",
         }
-        (prefix / "install-lock.json").write_text(
-            json.dumps(lock, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        (prefix / "install-lock.json").write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     status_line("INSTALLED", str(launcher), ok=True)
-    status_line("LOCKFILE", str(prefix / "install-lock.json"), ok=True)
     if str(args.bin_dir.expanduser().resolve()) not in os.environ.get("PATH", "").split(os.pathsep):
         print(f"Add {args.bin_dir.expanduser().resolve()} to PATH, then open a new terminal.")
     if not args.no_music:
         play_once(cue="success", variant=69)
-    stack_doctor_mode = choose_stack_doctor_mode(args.stack_doctor)
-    if stack_doctor_mode == "run":
-        print("")
-        optional_run(
-            [str(python), "-m", "manageroo", "stack-doctor"],
-            downloads,
-            "stack-doctor",
-            "manageroo stack-doctor",
-            cwd=Path.home(),
-            env=installed_env,
-        )
-    project_discovery_mode = choose_project_discovery_mode(args.project_discovery)
-    if project_discovery_mode in {"pick", "add"}:
-        print("")
-        project_args = ["projects", "--add" if project_discovery_mode == "add" else "--pick"]
-        optional_run(
-            [str(python), "-m", "manageroo", *project_args],
-            downloads,
-            "project-discovery",
-            f"manageroo {' '.join(project_args)}",
-            cwd=Path.home(),
-            env=installed_env,
-        )
+    if choose_stack_doctor_mode(args.stack_doctor) == "run":
+        optional_run([str(python), "-m", "manageroo", "stack-doctor"], downloads, "stack-doctor", "manageroo stack-doctor", cwd=Path.home(), env=installed_env)
+    project_mode = choose_project_discovery_mode(args.project_discovery)
+    if project_mode in {"pick", "add"}:
+        optional_run([str(python), "-m", "manageroo", "projects", "--add" if project_mode == "add" else "--pick"], downloads, "project-discovery", "manageroo projects", cwd=Path.home(), env=installed_env)
     print_next_commands()
     print_lane_explainer()
-    print("  AI IDEs can use the same command and repo-local skill; no vendor-specific build is needed.")
-    print("")
-    print(format_special_thanks())
+    print("\n" + format_special_thanks())
     return 0
 
 
