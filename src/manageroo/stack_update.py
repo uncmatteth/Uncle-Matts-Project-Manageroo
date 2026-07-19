@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import os
 import platform
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 GBRAIN_REFERENCE = "https://github.com/garrytan/gbrain"
-GITNEXUS_REFERENCE = "https://github.com/abhigyanpatwari/GitNexus"
+GITNEXUS_REFERENCE = "https://github.com/nxpatterns/gitnexus"
 AUTOREVIEW_REPO = "https://github.com/openclaw/agent-skills.git"
 AUTOREVIEW_REFERENCE = "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
+STACK_TOOL_NAMES = ("gbrain", "gitnexus", "autoreview", "clawpatch", "obsidian")
 
 
 def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 900) -> dict[str, Any]:
@@ -51,10 +51,20 @@ def _tool(name: str, installed: bool, commands: list[list[str]], reference: str,
     }
 
 
-def stack_update_plan() -> dict[str, Any]:
+def _normalize_only(only: Iterable[str] | None) -> set[str] | None:
+    if only is None:
+        return None
+    selected = {str(name).strip().lower() for name in only if str(name).strip()}
+    unknown = selected - set(STACK_TOOL_NAMES)
+    if unknown:
+        raise ValueError(f"Unknown stack tool(s): {', '.join(sorted(unknown))}")
+    return selected
+
+
+def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
+    selected = _normalize_only(only)
     gbrain = shutil.which("gbrain")
     npm = shutil.which("npm")
-    npx = shutil.which("npx")
     gitnexus = shutil.which("gitnexus")
     pnpm = shutil.which("pnpm")
     clawpatch = shutil.which("clawpatch")
@@ -68,13 +78,15 @@ def stack_update_plan() -> dict[str, Any]:
 
     gitnexus_commands: list[list[str]] = []
     gitnexus_note = (
-        "GitNexus upstream now recommends npx gitnexus analyze/setup for normal use; "
-        "a global install is optional."
+        "Manageroo's recommended stack installs a persistent GitNexus CLI and runs `gitnexus setup`. "
+        "Repository indexing remains project-specific and is performed with `gitnexus analyze` from a target repo."
     )
     if gitnexus and npm:
         gitnexus_commands.append([npm, "install", "-g", "gitnexus@latest"])
-    elif npx:
-        gitnexus_note += " npx resolves the package on demand, so there is no persistent binary to update."
+    elif gitnexus and pnpm:
+        gitnexus_commands.append([pnpm, "add", "-g", "gitnexus@latest"])
+    elif not gitnexus:
+        gitnexus_note += " No persistent GitNexus installation was detected, so stack-update will not install one implicitly."
 
     obsidian_commands: list[list[str]] = []
     system = platform.system().lower()
@@ -107,11 +119,11 @@ def stack_update_plan() -> dict[str, Any]:
             bool(gbrain),
             [[gbrain, "upgrade"], [gbrain, "doctor", "--json"]] if gbrain else [],
             GBRAIN_REFERENCE,
-            "Uses GBrain's supported upgrade command, which also handles schema migrations and post-upgrade prompts.",
+            "Uses GBrain's supported upgrade command and verifies the result with `gbrain doctor --json`.",
         ),
         _tool(
             "gitnexus",
-            bool(gitnexus or npx),
+            bool(gitnexus),
             gitnexus_commands,
             GITNEXUS_REFERENCE,
             gitnexus_note,
@@ -130,17 +142,24 @@ def stack_update_plan() -> dict[str, Any]:
             if clawpatch and pnpm
             else [],
             CLAWPATCH_REFERENCE,
-            "Uses the existing pnpm-based package lane and reruns clawpatch doctor after update.",
+            "Uses the existing pnpm-based package lane and reruns `clawpatch doctor` after update.",
         ),
         _tool(
             "obsidian",
             bool(obsidian),
             obsidian_commands,
             OBSIDIAN_REFERENCE,
-            "Uses the detected operating-system package manager when an update command is available.",
+            "Uses the detected operating-system package manager when a safe update command is available.",
         ),
     ]
-    return {"ok": True, "executes_changes": False, "tools": tools}
+    if selected is not None:
+        tools = [tool for tool in tools if tool["name"] in selected]
+    return {
+        "ok": True,
+        "executes_changes": False,
+        "selected_tools": [tool["name"] for tool in tools],
+        "tools": tools,
+    }
 
 
 def _update_autoreview() -> dict[str, Any]:
@@ -174,8 +193,8 @@ def _update_autoreview() -> dict[str, Any]:
         }
 
 
-def apply_stack_updates() -> dict[str, Any]:
-    plan = stack_update_plan()
+def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
+    plan = stack_update_plan(only)
     results: list[dict[str, Any]] = []
     for tool in plan["tools"]:
         if tool["name"] == "autoreview":
@@ -202,6 +221,7 @@ def apply_stack_updates() -> dict[str, Any]:
     return {
         "ok": all(item.get("ok") for item in results),
         "executes_changes": True,
+        "selected_tools": plan.get("selected_tools", []),
         "results": results,
     }
 
