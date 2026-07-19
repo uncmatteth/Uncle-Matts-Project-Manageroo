@@ -62,6 +62,7 @@ class GBrainSetupTests(unittest.TestCase):
     def test_format_gbrain_setup_surfaces_failed_actions(self):
         text = format_gbrain_setup(
             {
+                "ok": False,
                 "installed": True,
                 "status": {
                     "ok": True,
@@ -81,6 +82,8 @@ class GBrainSetupTests(unittest.TestCase):
                 "rule": "No broad scan.",
             }
         )
+        self.assertTrue(text.startswith("GBRAIN: ACTION"))
+        self.assertNotIn("GBRAIN: OK", text)
         self.assertIn("FAILED: gbrain sources add", text)
         self.assertIn("site: /repo", text)
         self.assertIn("bad path", text)
@@ -89,6 +92,7 @@ class GBrainSetupTests(unittest.TestCase):
     def test_format_gbrain_setup_zero_sources_is_action_not_ok(self):
         text = format_gbrain_setup(
             {
+                "ok": False,
                 "installed": True,
                 "status": {
                     "ok": True,
