@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -9,29 +10,31 @@ from .project import git_root
 from .readiness import brief_is_template, readiness
 
 
-DEFAULT_WANT = '"Describe the first useful version"'
+DEFAULT_WANT = "Describe the first useful version"
 
 
-def _command_repo(path: Path) -> str:
-    return str(path)
+def _command(argv: list[str]) -> str:
+    return shlex.join(argv)
 
 
 def _solo_setup_command(repo: Path, *, force: bool = False) -> str:
-    force_flag = " --force" if force else ""
-    return f"{PUBLIC_COMMAND} solo {_command_repo(repo)} --want {DEFAULT_WANT}{force_flag}"
+    argv = [PUBLIC_COMMAND, "solo", str(repo), "--want", DEFAULT_WANT]
+    if force:
+        argv.append("--force")
+    return _command(argv)
 
 
 def _create_command(path: Path) -> str:
-    return f"{PUBLIC_COMMAND} solo {_command_repo(path)} --create --want {DEFAULT_WANT}"
+    return _command([PUBLIC_COMMAND, "solo", str(path), "--create", "--want", DEFAULT_WANT])
 
 
 def _run_command(repo: Path, *, mode: str, apply_on_success: bool) -> str:
     apply_flag = "--apply" if apply_on_success else "--no-apply"
-    return f"{PUBLIC_COMMAND} run --repo {_command_repo(repo)} --mode {mode} {apply_flag}"
+    return _command([PUBLIC_COMMAND, "run", "--repo", str(repo), "--mode", mode, apply_flag])
 
 
 def _git_init_command(path: Path) -> str:
-    return f"git -C {_command_repo(path)} init -b main"
+    return _command(["git", "-C", str(path), "init", "-b", "main"])
 
 
 def next_action(
@@ -92,7 +95,7 @@ def next_action(
             "stage": "needs-project-memory",
             "repo": str(repo),
             "reason": "The repo-local project memory file is missing.",
-            "command": f"{PUBLIC_COMMAND} memory init {_command_repo(repo)}",
+            "command": _command([PUBLIC_COMMAND, "memory", "init", str(repo)]),
         }
 
     ready = readiness(repo)
@@ -103,7 +106,7 @@ def next_action(
                 "stage": f"needs-{item['name'].replace(' ', '-')}",
                 "repo": str(repo),
                 "reason": item.get("detail", "A required readiness item is missing."),
-                "command": item.get("next") or f"{PUBLIC_COMMAND} ready {_command_repo(repo)}",
+                "command": item.get("next") or _command([PUBLIC_COMMAND, "ready", str(repo)]),
                 "readiness": ready,
             }
 
