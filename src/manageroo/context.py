@@ -107,6 +107,36 @@ class ContextCompiler:
             excerpt += "\n"
         return excerpt, start, end, sha256_file(path), "full"
 
+    @staticmethod
+    def _metadata_evidence(metadata: dict | None) -> list[EvidenceItem]:
+        if not isinstance(metadata, dict):
+            return []
+        items: list[EvidenceItem] = []
+        for raw in metadata.get("_evidence_items", []) or []:
+            if not isinstance(raw, dict):
+                continue
+            content = str(raw.get("content") or "").strip()
+            if not content:
+                continue
+            try:
+                items.append(
+                    EvidenceItem(
+                        content=content,
+                        source=str(raw.get("source") or "unknown"),
+                        location=str(raw.get("location") or ""),
+                        authority=str(raw.get("authority") or "unknown"),
+                        confidence=float(raw.get("confidence", 0.0)),
+                        freshness=float(raw.get("freshness", 0.0)),
+                        created_at=str(raw.get("created_at")) if raw.get("created_at") else None,
+                        retrieved_at=str(raw.get("retrieved_at") or "") or raw.get("retrieved_at") or "",
+                        content_sha256=str(raw.get("content_sha256") or ""),
+                        metadata=dict(raw.get("metadata") or {}) if isinstance(raw.get("metadata"), dict) else {},
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        return items
+
     def compile(
         self,
         packet_name: str,
@@ -118,6 +148,10 @@ class ContextCompiler:
     ) -> Path:
         packet = self._packet_path(packet_name)
         packet.mkdir(parents=True, exist_ok=False)
+
+        evidence_items = list(evidence)
+        if not evidence_items:
+            evidence_items = self._metadata_evidence(metadata)
 
         prepared: list[tuple[ContextRequest, str, int, int, str, int, str]] = []
         omitted: list[dict] = []
@@ -168,7 +202,7 @@ class ContextCompiler:
 
         evidence_entries: list[dict] = []
         selected_evidence: list[tuple[EvidenceItem, str, int]] = []
-        for item in rank_evidence(evidence):
+        for item in rank_evidence(evidence_items):
             content = item.content
             tokens = max(1, int(len(content) / self.chars_per_token))
             if tokens > self.max_single_file_tokens:
