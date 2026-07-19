@@ -1,8 +1,18 @@
 # External integrations
 
-Manageroo is the controller. GBrain, GitNexus, Obsidian, AUTOREVIEW, and
-Clawpatch are optional surrounding tools. Current repository truth, Manageroo's
-locked run artifacts, deterministic gates, and evidence remain authoritative.
+Manageroo is the controller. GitNexus, GBrain, AUTOREVIEW, Clawpatch, and Obsidian provide surrounding capabilities. Current repository truth, Manageroo's locked run artifacts, deterministic gates, and evidence remain authoritative.
+
+## Recommended full stack
+
+The intended full installation can include:
+
+- GitNexus for repository/code-graph intelligence;
+- GBrain for external durable knowledge when explicitly relevant;
+- AUTOREVIEW for external review;
+- Clawpatch for external review and repair;
+- Obsidian for human-readable knowledge.
+
+These integrations are first-class parts of the full Manageroo experience without becoming completion authorities.
 
 ## Safe maintenance
 
@@ -12,101 +22,95 @@ Preview the current supported update plan without changing anything:
 manageroo stack-update
 ```
 
-Apply only the supported updates Manageroo can safely identify:
+Target one or more tools when useful:
 
 ```bash
+manageroo stack-update gitnexus
+manageroo stack-update gbrain gitnexus
+```
+
+Apply only explicitly selected supported updates:
+
+```bash
+manageroo stack-update gitnexus --apply
 manageroo stack-update --apply
 ```
 
-The command is intentionally explicit and fail-visible. It does not silently add
-new third-party products or treat an unavailable update method as success.
+The command is intentionally explicit and fail-visible. It does not silently install missing third-party products merely because an update command was requested.
+
+## GitNexus
+
+GitNexus is Manageroo's first-class recommended repository-intelligence integration.
+
+The integration has two distinct scopes:
+
+### Machine-level setup
+
+When the surrounding stack is selected during Manageroo installation, Manageroo installs a persistent GitNexus CLI and completes:
+
+```bash
+gitnexus setup
+```
+
+The platform installer updates `install-lock.json` with the real setup result. If selected GitNexus setup fails, the installation fails visibly instead of pretending GitNexus is configured.
+
+### Project-level indexing
+
+Repository indexing is project-specific and runs from the target repository:
+
+```bash
+gitnexus analyze
+```
+
+GitNexus can then provide repository exploration, dependency awareness, impact analysis, debugging, and refactoring context through its current installed integration surfaces.
+
+Manageroo remains the controller. Current Git files and command output beat stale graph data, and Manageroo can still operate when GitNexus was intentionally skipped or is temporarily unavailable.
+
+For an existing persistent installation, `manageroo stack-update gitnexus --apply` refreshes the CLI with the detected supported global package-manager lane. Stack update does not install GitNexus merely because it is absent; use the Manageroo installer when you want to add the recommended stack.
+
+Project: https://github.com/nxpatterns/gitnexus
 
 ## GBrain
 
-GBrain is optional external memory and retrieval. Manageroo's own
-`.manageroo/PROJECT-MEMORY.md` remains the normal repo-local continuity lane.
-GBrain becomes relevant when the operator explicitly wants GBrain or another
-external knowledge source.
+GBrain is external memory and retrieval. Manageroo's own `.manageroo/PROJECT-MEMORY.md` remains the normal repo-local continuity lane.
 
-Current upstream maintenance path:
+GBrain becomes required only when the operator explicitly wants GBrain, a brain page, Obsidian-backed external context, or another external knowledge source.
+
+Supported maintenance path:
 
 ```bash
 gbrain upgrade
 gbrain doctor --json
 ```
 
-`gbrain upgrade` is GBrain's supported updater and handles schema migrations and
-post-upgrade prompts. Fresh local installs can still use:
+Fresh local installs can use:
 
 ```bash
 bun install -g github:garrytan/gbrain
 gbrain init --pglite
+gbrain skillpack scaffold --all
 gbrain doctor
 ```
 
-For the full agent-supervised setup, use the upstream
-`INSTALL_FOR_AGENTS.md` protocol instead of Manageroo guessing API keys,
-embedding choices, integrations, recurring jobs, or source mapping.
+For the full agent-supervised setup, use GBrain's upstream agent installation protocol instead of Manageroo guessing API keys, embedding choices, integrations, recurring jobs, or source mapping.
 
 Manageroo never reinitializes an existing brain merely to update it.
 
 Project: https://github.com/garrytan/gbrain
 
-## GitNexus
-
-GitNexus is optional code-graph context. Its current upstream normal-use path is:
-
-```bash
-npx gitnexus analyze
-npx gitnexus setup
-```
-
-A permanent global install is optional. When a global `gitnexus` binary already
-exists, `manageroo stack-update --apply` can refresh it with
-`npm install -g gitnexus@latest`. When only `npx` is available, there is no
-persistent Manageroo-owned binary to update.
-
-Manageroo may consume configured GitNexus output as supplementary context, but
-Git files and current command output still win when graph data is stale.
-
-Project: https://github.com/abhigyanpatwari/GitNexus
-
-## Obsidian
-
-Obsidian is optional human-readable Markdown context. Manageroo does not require
-an Obsidian plugin and does not treat the GUI application as a source of truth.
-
-`manageroo stack-update --apply` uses a detected operating-system package manager
-when a safe update command is available:
-
-- Windows: Winget
-- macOS: Homebrew cask
-- Linux: Flatpak, or Snap when that is the detected installation lane
-
-When no safe package-manager update can be identified, Manageroo leaves Obsidian
-alone and reports the boundary instead of inventing an updater.
-
-Official download: https://obsidian.md/download
-
 ## AUTOREVIEW
 
-AUTOREVIEW is an optional command-owned closeout review lane. The canonical
-source is `openclaw/agent-skills`.
+AUTOREVIEW is a command-owned closeout review lane. The canonical source is `openclaw/agent-skills`.
 
-Current upstream provides its own `scripts/install-skills` workflow. Manageroo's
-stack updater refreshes an existing AUTOREVIEW installation from the canonical
-`skills/autoreview` tree, rejects symlinked downloaded content, and preserves a
-backup of the previous installed copy before replacement.
+Manageroo's stack updater refreshes an existing AUTOREVIEW installation from the canonical `skills/autoreview` tree, rejects symlinked downloaded content, and preserves a backup of the previous installed copy before replacement.
 
-AUTOREVIEW findings do not become freehand AI repair prompts. When configured as
-a Manageroo command-owned lane, its command owns its result and Manageroo
-scope-checks any resulting edits.
+AUTOREVIEW findings do not become unconstrained freehand AI repair prompts. When configured as a Manageroo command-owned lane, its command owns its result and Manageroo scope-checks any resulting edits.
 
 Project: https://github.com/openclaw/agent-skills/tree/main/skills/autoreview
 
 ## Clawpatch
 
-Clawpatch is an optional command-owned review and repair lane.
+Clawpatch is a command-owned review and repair lane.
 
 For an existing pnpm-managed installation, Manageroo's supported update path is:
 
@@ -115,25 +119,33 @@ pnpm add -g clawpatch@latest
 clawpatch doctor
 ```
 
-Manageroo does not claim Clawpatch is healthy merely because the executable
-exists. The post-update doctor remains part of the update result.
+Manageroo does not claim Clawpatch is healthy merely because the executable exists. The post-update doctor remains part of the update result.
 
-Clawpatch findings remain command-owned: Manageroo must not hand them to a worker
-for unconstrained freehand repair.
+Clawpatch findings remain command-owned. Manageroo must not hand them to a worker for unconstrained freehand repair.
 
 Project: https://github.com/openclaw/clawpatch
 
+## Obsidian
+
+Obsidian is a human-readable Markdown knowledge lane. Manageroo does not require an Obsidian plugin and does not treat the GUI application as a completion authority.
+
+`manageroo stack-update obsidian --apply` uses a detected operating-system package manager when a safe update command is available:
+
+- Windows: Winget;
+- macOS: Homebrew cask;
+- Linux: Flatpak, or Snap when that is the detected installation lane.
+
+When no safe package-manager update can be identified, Manageroo leaves Obsidian alone and reports the boundary instead of inventing an updater.
+
+Official download: https://obsidian.md/download
+
 ## Failure and trust boundary
 
-External tools are optional context or explicitly configured command-owned lanes.
-Their absence must not silently change Manageroo's controller semantics.
+For every surrounding integration:
 
-For any external tool:
-
-1. current repo truth beats external cached context;
-2. update failure is reported, not hidden;
+1. current repo truth beats stale external context;
+2. update and setup failures are reported, not hidden;
 3. credentials and authentication remain user-owned;
-4. Manageroo does not auto-install unrelated dependencies to chase an optional
-   integration;
-5. a successful external-tool update is not proof that a target product is ready
-   for production.
+4. Manageroo does not auto-install unrelated dependencies merely to chase a missing integration;
+5. a successful external-tool setup or update is not proof that a target product is ready for production;
+6. Manageroo alone owns its run state, acceptance evidence, and `COMPLETE` decision.
