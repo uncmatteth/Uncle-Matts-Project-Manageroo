@@ -100,6 +100,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "MANAGEROO installer failed with exit code $LASTEXITCODE"
 }
 
+$ResolvedPrefix = if ($Prefix) { $Prefix } else { Join-Path $HOME ".local\share\manageroo" }
+$FinalizeGitNexus = Join-Path $Root "scripts\finalize_gitnexus.py"
+& $PythonExe @PythonPrefixArgs $FinalizeGitNexus --prefix $ResolvedPrefix
+if ($LASTEXITCODE -ne 0) {
+    throw "MANAGEROO GitNexus setup failed with exit code $LASTEXITCODE"
+}
+
 Write-Host ""
 Write-Host "Host profile: run 'manageroo capacity' to inspect this machine's CPU, RAM, GPU/VRAM, and free disk."
 Write-Host "Manageroo itself is hardware-agnostic: the profile is context only and never auto-tunes worker concurrency."
