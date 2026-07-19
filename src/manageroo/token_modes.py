@@ -61,6 +61,7 @@ TOKEN_MODES = {
 BUNDLED_SKILL_LIBRARY = {
     "uncle-matts-project-manageroo": "skills/uncle-matts-project-manageroo/SKILL.md",
     "use-installed-skills-first": "skills/use-installed-skills-first/SKILL.md",
+    "skill-vetter": "skills/skill-vetter/SKILL.md",
     "pimp-my-prompt": "skills/pimp-my-prompt/SKILL.md",
     "brain-ops": "skills/brain-ops/SKILL.md",
     "query": "skills/query/SKILL.md",
@@ -116,6 +117,7 @@ BUNDLED_SKILL_LIBRARY = {
 CORE_SKILL_NAMES = (
     "uncle-matts-project-manageroo",
     "use-installed-skills-first",
+    "skill-vetter",
     "pimp-my-prompt",
     "to-prd",
     "to-issues",
