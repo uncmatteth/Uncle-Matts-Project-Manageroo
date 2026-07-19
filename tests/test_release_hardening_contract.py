@@ -24,7 +24,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}
         required = {
             "docs/DISCOVERY_AND_CAPACITY.md",
-            "docs/HOST_AND_TOS_INTEGRATION.md",
+            "docs/HOST_INTEGRATION.md",
             "scripts/release.py",
             "src/manageroo/acceptance.py",
             "src/manageroo/discovery_policy.py",
