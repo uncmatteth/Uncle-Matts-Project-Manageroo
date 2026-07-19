@@ -1,8 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from manageroo.discovery_preflight import build_discovery_preflight
+from manageroo.discovery_preflight import _repo_text, build_discovery_preflight
 
 
 class DiscoveryPreflightTests(unittest.TestCase):
@@ -33,6 +34,33 @@ class DiscoveryPreflightTests(unittest.TestCase):
         self.assertIn("deployment-and-runtime", categories)
         self.assertIn("user-facing-quality", categories)
         self.assertIn("does not automatically change Manageroo worker concurrency", preflight["capacity_notes"][0])
+
+    def test_repo_text_prunes_skipped_directories_before_descent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            src = repo / "src"
+            src.mkdir()
+            (src / "app.py").write_text("login = True\n", encoding="utf-8")
+
+            def bounded_walk(root, topdown=True, followlinks=False):
+                dirs = ["node_modules", "src"]
+                yield str(repo), dirs, []
+                if "node_modules" in dirs:
+                    raise AssertionError("ignored tree was not pruned before descent")
+                yield str(src), [], ["app.py"]
+
+            with patch("manageroo.discovery_preflight.os.walk", bounded_walk):
+                corpus = _repo_text(repo, max_files=10)
+            self.assertIn("login = true", corpus)
+
+    def test_repo_text_stops_at_file_cap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            for index in range(5):
+                (repo / f"file-{index}.txt").write_text(f"marker-{index}\n", encoding="utf-8")
+            corpus = _repo_text(repo, max_files=2, max_chars=100_000)
+            markers = [f"marker-{index}" for index in range(5) if f"marker-{index}" in corpus]
+            self.assertEqual(len(markers), 2)
 
     def test_preflight_always_reviews_recovery_observability_proof_and_scope(self):
         with tempfile.TemporaryDirectory() as temp:
