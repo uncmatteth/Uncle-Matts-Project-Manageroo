@@ -4,6 +4,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -41,13 +42,21 @@ def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 900) -> dic
         return {"ok": False, "exit_code": 127, "argv": argv, "output": str(exc)}
 
 
-def _tool(name: str, installed: bool, commands: list[list[str]], reference: str, note: str = "") -> dict:
+def _tool(
+    name: str,
+    installed: bool,
+    commands: list[list[str]],
+    reference: str,
+    note: str = "",
+    **extra: Any,
+) -> dict:
     return {
         "name": name,
         "installed": installed,
         "commands": commands,
         "reference": reference,
         "note": note,
+        **extra,
     }
 
 
@@ -61,6 +70,14 @@ def _normalize_only(only: Iterable[str] | None) -> set[str] | None:
     return selected
 
 
+def _autoreview_installations() -> list[Path]:
+    candidates = [
+        Path.home() / ".agents" / "skills" / "autoreview",
+        Path.home() / ".codex" / "skills" / "autoreview",
+    ]
+    return [path for path in candidates if (path / "SKILL.md").is_file()]
+
+
 def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     selected = _normalize_only(only)
     gbrain = shutil.which("gbrain")
@@ -69,12 +86,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     pnpm = shutil.which("pnpm")
     clawpatch = shutil.which("clawpatch")
     obsidian = shutil.which("obsidian")
-
-    autoreview_candidates = [
-        Path.home() / ".agents" / "skills" / "autoreview" / "SKILL.md",
-        Path.home() / ".codex" / "skills" / "autoreview" / "SKILL.md",
-    ]
-    autoreview_installed = any(path.is_file() for path in autoreview_candidates)
+    autoreview_paths = _autoreview_installations()
 
     gitnexus_commands: list[list[str]] = []
     gitnexus_note = (
@@ -130,10 +142,14 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
         ),
         _tool(
             "autoreview",
-            autoreview_installed,
+            bool(autoreview_paths),
             [],
             AUTOREVIEW_REFERENCE,
-            "Updated from the canonical openclaw/agent-skills repository using its current autoreview folder.",
+            (
+                "Updates each detected AUTOREVIEW installation in place from the canonical source; "
+                "Manageroo does not create a second installation in a different skill root."
+            ),
+            install_paths=[str(path) for path in autoreview_paths],
         ),
         _tool(
             "clawpatch",
@@ -162,11 +178,63 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     }
 
 
-def _update_autoreview() -> dict[str, Any]:
+def _unique_backup(destination: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}")
+    index = 2
+    while candidate.exists():
+        candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}-{index}")
+        index += 1
+    return candidate
+
+
+def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
+    destination = destination.expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    stage = destination.with_name(destination.name + ".manageroo-stage")
+    if stage.exists():
+        shutil.rmtree(stage)
+    backup: Path | None = None
+    try:
+        shutil.copytree(source, stage)
+        if destination.exists():
+            backup = _unique_backup(destination)
+            destination.rename(backup)
+        stage.rename(destination)
+        return {
+            "ok": True,
+            "name": "autoreview",
+            "path": str(destination),
+            "backup": str(backup) if backup else None,
+        }
+    except Exception as exc:
+        try:
+            if stage.exists():
+                shutil.rmtree(stage)
+            if backup and backup.exists() and not destination.exists():
+                backup.rename(destination)
+        except OSError as rollback_exc:
+            return {
+                "ok": False,
+                "name": "autoreview",
+                "path": str(destination),
+                "error": f"update failed: {exc}; rollback failed: {rollback_exc}",
+            }
+        return {
+            "ok": False,
+            "name": "autoreview",
+            "path": str(destination),
+            "error": f"update failed and original installation was preserved: {exc}",
+        }
+
+
+def _update_autoreview(destinations: Iterable[Path]) -> dict[str, Any]:
+    targets = [Path(path) for path in destinations]
+    if not targets:
+        return {"ok": True, "name": "autoreview", "skipped": True, "reason": "not installed"}
     git = shutil.which("git")
     if not git:
         return {"ok": False, "name": "autoreview", "error": "git is required to update AUTOREVIEW"}
-    destination = Path.home() / ".agents" / "skills" / "autoreview"
     with tempfile.TemporaryDirectory(prefix="manageroo-autoreview-update-") as temp:
         checkout = Path(temp) / "agent-skills"
         clone = _run([git, "clone", "--depth", "1", AUTOREVIEW_REPO, str(checkout)], cwd=Path(temp))
@@ -175,21 +243,13 @@ def _update_autoreview() -> dict[str, Any]:
         source = checkout / "skills" / "autoreview"
         if not (source / "SKILL.md").is_file():
             return {"ok": False, "name": "autoreview", "error": "canonical autoreview skill was not found"}
-        if any(path.is_symlink() for path in source.rglob("*")):
+        if source.is_symlink() or any(path.is_symlink() for path in source.rglob("*")):
             return {"ok": False, "name": "autoreview", "error": "canonical autoreview tree contains symlinks"}
-        backup = None
-        if destination.exists():
-            backup = destination.with_name(destination.name + ".manageroo-backup")
-            if backup.exists():
-                shutil.rmtree(backup)
-            shutil.move(str(destination), str(backup))
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(source, destination)
+        results = [_replace_autoreview(source, destination) for destination in targets]
         return {
-            "ok": True,
+            "ok": all(item.get("ok") for item in results),
             "name": "autoreview",
-            "path": str(destination),
-            "backup": str(backup) if backup else None,
+            "installations": results,
         }
 
 
@@ -198,10 +258,7 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     for tool in plan["tools"]:
         if tool["name"] == "autoreview":
-            if tool["installed"]:
-                results.append(_update_autoreview())
-            else:
-                results.append({"name": "autoreview", "ok": True, "skipped": True, "reason": "not installed"})
+            results.append(_update_autoreview(Path(path) for path in tool.get("install_paths", [])))
             continue
         commands = tool.get("commands", [])
         if not commands:
@@ -241,6 +298,8 @@ def format_stack_update(report: dict[str, Any]) -> str:
         lines.append(f"- {item['name']}: {state}")
         if item.get("note"):
             lines.append(f"  {item['note']}")
+        for path in item.get("install_paths", []):
+            lines.append(f"  path: {path}")
         for command in item.get("commands", []):
             lines.append("  update: " + " ".join(command))
     return "\n".join(lines) + "\n"
