@@ -55,10 +55,11 @@ TOKEN_MODES = {
     ),
 }
 
-RECOMMENDED_SKILL_PACK = {
-    "uncle-matts-project-manageroo": (
-        "skills/uncle-matts-project-manageroo/SKILL.md"
-    ),
+# Everything shipped in the source distribution. These assets remain available for
+# explicit installation/import, but Manageroo does not claim ownership of equivalent
+# skills already present in a host environment such as Tommy's tOS.
+BUNDLED_SKILL_LIBRARY = {
+    "uncle-matts-project-manageroo": "skills/uncle-matts-project-manageroo/SKILL.md",
     "use-installed-skills-first": "skills/use-installed-skills-first/SKILL.md",
     "pimp-my-prompt": "skills/pimp-my-prompt/SKILL.md",
     "brain-ops": "skills/brain-ops/SKILL.md",
@@ -108,7 +109,40 @@ RECOMMENDED_SKILL_PACK = {
     "caveman": "skills/caveman/SKILL.md",
     "uncle-matts-caveman-curse": "skills/uncle-matts-caveman-curse/SKILL.md",
 }
-CORE_HELPER_SKILLS = RECOMMENDED_SKILL_PACK
+
+# Portable public default. These skills define Manageroo's own operating contract.
+# Host-specific research, design, memory, marketplace, and competing-orchestrator
+# skills are deliberately not installed by default.
+CORE_SKILL_NAMES = (
+    "uncle-matts-project-manageroo",
+    "use-installed-skills-first",
+    "pimp-my-prompt",
+    "to-prd",
+    "to-issues",
+    "grill-me",
+    "grill-with-docs",
+    "diagnose",
+    "tdd",
+    "testing",
+    "security-review",
+    "handoff",
+    "write-a-skill",
+    "edit-skill",
+    "skillify",
+    "caveman",
+    "uncle-matts-caveman-curse",
+)
+CORE_SKILL_PACK = {name: BUNDLED_SKILL_LIBRARY[name] for name in CORE_SKILL_NAMES}
+OPTIONAL_SKILL_PACK = {
+    name: asset
+    for name, asset in BUNDLED_SKILL_LIBRARY.items()
+    if name not in CORE_SKILL_PACK
+}
+
+# Backward-compatible names used by installer/reconcile code. "Recommended" now
+# means the small portable core, not every asset shipped in the repository.
+RECOMMENDED_SKILL_PACK = CORE_SKILL_PACK
+CORE_HELPER_SKILLS = CORE_SKILL_PACK
 
 ALIASES = {
     "none": "off",
@@ -192,7 +226,7 @@ def install_core_helper_skills(skills_dir: Path | None = None) -> dict[str, str]
     root = (skills_dir or token_mode_skills_dir()).expanduser().resolve()
     return {
         skill_name: _install_bundled_skill(root, skill_name, asset)
-        for skill_name, asset in RECOMMENDED_SKILL_PACK.items()
+        for skill_name, asset in CORE_SKILL_PACK.items()
     }
 
 
