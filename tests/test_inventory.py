@@ -120,6 +120,34 @@ class InventoryTests(unittest.TestCase):
             self.assertIn("OCR OR PDF TEXT", pdf_text)
             self.assertIn("OCR OR PDF TEXT", image_text)
 
+    def test_nested_relative_media_paths_are_resolved_once_for_extractors(self):
+        class PathCheckingRunner:
+            def run(self, argv, *, cwd, timeout_seconds=1800, **kwargs):
+                candidate = Path(argv[2] if argv[0] == "pdftotext" else argv[1])
+                self.assert_target = candidate
+                if not candidate.is_absolute() or not candidate.exists():
+                    raise AssertionError(f"extractor target is not a valid absolute path: {candidate}")
+                return CommandResult(
+                    argv=list(argv),
+                    cwd=str(cwd),
+                    started_at="start",
+                    finished_at="finish",
+                    exit_code=0,
+                    stdout="nested text",
+                    stderr="",
+                )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            docs = root / "docs"
+            docs.mkdir()
+            pdf = docs / "book.pdf"
+            pdf.write_bytes(b"%PDF-1.7\n/Type /Page\n")
+            runner = PathCheckingRunner()
+            with patch("manageroo.file_inspection.shutil.which", return_value="/usr/bin/tool"):
+                text, _ = media_summary(pdf, "docs/book.pdf", runner=runner)
+            self.assertIn("nested text", text)
+
 
 if __name__ == "__main__":
     unittest.main()
