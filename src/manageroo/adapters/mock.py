@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
+from ..errors import SafetyError
 from ..schema import load_schema, validate
-from ..util import atomic_write_json
+from ..util import atomic_write_json, safe_repo_relative
 
 
 class MockAdapter(AgentAdapter):
@@ -106,13 +107,19 @@ class MockAdapter(AgentAdapter):
             data = {"status": "approved", "summary": "Plan is bounded.", "findings": []}
         elif role in {"implementer", "repairer"}:
             target = metadata.get("task", {}).get("allowed_paths", ["manageroo_fixture.txt"])[0]
-            target_path = request.cwd / target
+            relative = safe_repo_relative(str(target))
+            root = request.cwd.expanduser().resolve()
+            target_path = (root / relative).resolve()
+            try:
+                target_path.relative_to(root)
+            except ValueError as exc:
+                raise SafetyError(f"Mock adapter target escapes working tree: {target}") from exc
             target_path.parent.mkdir(parents=True, exist_ok=True)
             target_path.write_text("MANAGEROO deterministic fixture completed\n", encoding="utf-8")
             data = {
                 "status": "implemented",
                 "summary": "Fixture change implemented.",
-                "files_changed": [target],
+                "files_changed": [relative],
                 "commands_run": [],
                 "risks": [],
                 "scope_expansion_requested": [],
