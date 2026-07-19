@@ -9,86 +9,42 @@ A very serious local CLI that keeps AI coding agents on task: one brief in, repo
 ## Plain-English About Text
 
 - The command is `manageroo`.
-- The full name is incredibly super serious.
-- Use it when you want an AI coding agent to work on a real Git repo without drifting all over the place.
-- If you are starting from nothing, `solo --create` can make a missing or empty Git repo first.
-- `solo --create --starter static-site` can start a tiny homepage with a smoke test instead of a blank folder.
-- You write the brief. The tool maps the repo, splits the job up, runs checks, sends bad work back for repair, and saves the report.
-- Before implementation, Manageroo runs an unknown-unknowns preflight so the product analyst reviews failure/recovery, proof strength, scope, and relevant signals such as auth, payments, data migrations, deployment, hardware, external services, accessibility, and user-facing states.
-- Manageroo answers questions from repo evidence when it can, adopts reversible conventional defaults when safe, and surfaces only genuinely high-impact unresolved choices as blocking decisions with a recommended option.
-- `manageroo decisions show RUN_ID` displays those questions; `manageroo decisions answer RUN_ID` records the operator's answers and allows the same durable run to continue.
-- `manageroo capacity` reports the development machine's CPU, RAM, detectable NVIDIA GPU/VRAM, free disk, capacity class, and conservative worker-concurrency recommendation. The detected workstation is context, not the product's minimum hardware requirement.
-- It includes `pimp-my-prompt`, so rough, long, frustrated, or half-formed requests can become clear scope, proof, and stop rules.
-- It includes memory and document helpers, so GBrain lookup, source ingest, screenshots, PDFs, transcripts, long prose, exact wording, citations, reports, and PDF export have obvious lanes.
-- It includes `diagnose`, `tdd`, and `autoreview`, so bugs get a feedback loop, behavior gets proof, and finished work gets a review lane.
-- It includes `plain-web-copy` and `fix-my-bad-website`, so public pages do not have to look or read like generic AI slop.
-- It includes `edit-skill`, so your local skills can get tighter instead of turning into long duplicate slop files.
-- It includes `write-a-skill` and `skillify`, so repeated painful work can become a small reusable skill with triggers and proof.
-- It includes one token-reduction feature with two styles: clean `caveman` or profane `curse`, because life is more fun with appropriately placed, well-used profanity.
-- The recommended skill pack is optional but strongly suggested. The installer offers it, defaults to yes, `--skill-pack skip` skips it, and `manageroo skills reconcile --apply` adds it later.
-- The installer can scan common project folders, show a checkbox-style list of found repos, initialize only the ones selected, and ask for extra paths it missed.
-- The repo-local MANAGEROO skill tells AI IDE agents when to use each helper, so the user does not have to remember which skill to call.
-- Project init handles `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, and the repo-local skill block so the user does not have to figure out agent-context files by hand.
-- `skills reconcile --source ~/Downloads/SKILLS --include-external --apply` turns a copied skills folder into a curated local toolbox without manual file moving.
-- The normal path is simple: run `manageroo solo`, answer normal product questions, then follow the one next command.
-- `.manageroo/PROJECT-MEMORY.md` keeps the project identity, shipped facts, must-not-break rules, proof, and operator notes in the repo instead of hidden in chat.
-- Every run can leave learning cards with evidence: remember this, fix that lane, consider a media/prose workflow, or turn a repeated problem into a future task.
-- Learning cards are approval-gated. `learning apply CARD_ID --approve` is required, and only low-risk project-memory notes apply automatically right now.
-- Manual-only cards do not give the AI permission to rewrite skills, config, docs, installer behavior, checks, prompts, or code.
-- `setup`, `brief`, `ready`, `run --apply`, and `release-ready` are still available when you want lower-level control.
-- `next` is the low-noise helper for "what do I do now?": it prints the current stage, the reason, and one command.
-- Bare `setup` is the lower-level wizard: AI choice, repo path, and optional stack checks.
-- If configured, GBrain/GitNexus feed memory and code-graph context into the run; if they fail, the report says so and the core path keeps going.
-- If configured, `document_analysis_command` reads a run-owned document manifest and adds long-prose/PDF/transcript evidence without giving the AI permission to freehand a whole manuscript.
-- GBrain setup has two lanes: the local Bun/PGLite path, or the official upstream agent-supervised `INSTALL_FOR_AGENTS.md` protocol.
-- Clawpatch setup checks `clawpatch doctor` and Codex login status for its codex provider.
-- AUTOREVIEW and Clawpatch are command-owned lanes; their findings do not become AI freehand repair prompts.
-- `gbrain-setup` can prompt for one selected folder. No broad personal-folder crawl.
-- `agent list` and `agent preset` make Codex, Gemini, Claude Code, mock, or generic CLI setup visible instead of hidden in docs.
-- `repair-install` inspects and fixes the local launcher and recommended skill-pack install.
-- It was built around GBrain, GitNexus, Obsidian, AUTOREVIEW, Clawpatch, and any AI IDE or CLI agent that can run commands in the repo.
-- Solo Operator Mode reports every selected extra: configured, missing, skipped, or the exact command to fix next.
-- `checks suggest --apply-first` looks at the repo and saves the first detected proof command without hand-editing TOML.
-- `release-ready` is the final no-bullshit operator gate: completed Manageroo run proven, review approved, final report and patch present, patch applied to source, checks green, Git clean, deployment target named, rollback notes written, human approval recorded, and a plain-English production handoff written.
+- Manageroo is a portable project controller for AI coding agents working on real Git repositories.
+- It is **hardware-agnostic**. Manageroo core does not require a particular GPU, VRAM amount, CPU tier, or RAM class.
+- `manageroo capacity` records the current development host's CPU, RAM, detectable GPU/VRAM, and free disk as context only. It does not auto-tune worker concurrency or turn one developer workstation into a minimum system requirement.
+- A target project or explicitly selected local AI tool may have its own hardware requirements. Those belong to that project/tool, not to Manageroo.
+- The core software requirements are Python 3.11+, Git, and at least one usable agent path for real AI work.
+- Give Manageroo an existing Git repo, or use `solo --create` to start a missing or empty one.
+- You write the brief. Manageroo maps the repo, creates bounded worker jobs, runs real checks, performs independent review, repairs failures, and saves evidence.
+- Before implementation, the unknown-unknowns preflight reviews failure/recovery, proof strength, scope, and relevant signals such as auth, payments, migrations, deployment, target-project hardware, external services, accessibility, and user-facing states.
+- Manageroo answers questions from repository evidence when it can and surfaces only genuinely high-impact unresolved choices as blocking decisions.
+- `manageroo decisions show RUN_ID` displays those decisions; `manageroo decisions answer RUN_ID` records answers and lets the same durable run continue.
+- The Python controller is the boss. Codex, Claude Code, Gemini, generic compatible CLIs, and future workers are disposable adapters; workers do not certify their own completion.
+- The default `auto` worker pool can use compatible installed agents without making Manageroo vendor-specific.
+- Manageroo's durable state, intent lock, project memory, proof bindings, transactional attempts, rollback, budgets, review, and completion evidence stay controller-owned.
+- Manageroo installs only its small portable core skill pack by default.
+- `use-installed-skills-first` lets workers use relevant host/tOS skills when present without Manageroo copying, deleting, upgrading, or claiming ownership of the host environment.
+- `manageroo host-skills` inventories that boundary read-only.
+- Optional integrations such as GBrain, GitNexus, Obsidian, AUTOREVIEW, and Clawpatch can add context or review lanes but do not become the source of truth for Manageroo completion.
+- `manageroo stack-update` is dry-run by default and only updates already-installed optional components when `--apply` is explicit.
+- `manageroo capacity` is informational; concurrency comes from project orchestration configuration because an arbitrary agent command may be cloud-backed, remote, or local.
+- `manageroo next` prints one next operator action instead of dumping a giant workflow.
+- `release-ready` is the final operator gate; it does not deploy.
+- The release process is local and fail-closed. This repository does not use GitHub Actions.
 - Credit to Matthew Berman / Forward Future's public loop-engineering work, including Loop Library, for clarifying bounded action, independent verification, budgets, stop rules, and evidence. Manageroo implements those ideas natively and does not connect to or depend on Loop Library.
-- Credit to Peter Yang's public skill-writing advice for the skill-hygiene idea: clear triggers, examples/evals when useful, memory only when it is actually read, and an edit-skill pass to remove duplicate or stale instructions.
-- It does not need a special version for Codex, Claude Code, Gemini, Grok, or the next AI thing. If the agent can work in the repo, it can use the same installed command.
-- It is alpha software. First real run goes on a clone, branch, or disposable copy.
-- It is not a replacement for tests, backups, security review, or human judgment.
+- Credit to Peter Yang's public skill-writing advice for the skill-hygiene direction.
+- Manageroo is not a replacement for tests, backups, security review, production monitoring, or human judgment.
 
-## Special Thanks: The MANAGEROO Super Team
+## Core Boundary
 
-These are the real-world powers this project remixes:
+```text
+Manageroo portable core
+    -> owns controller state, jobs, proof, review, repair, and completion
+    -> installs only its small portable core skill pack
+    -> works with different host hardware and different compatible agent providers
 
-- **Peter Yang / @petergyang as The Skill Smith**
-  - Stats: STR 8 | DEX 12 | CON 14 | INT 18 | WIS 17 | CHA 16
-  - Power: turns messy repeated agent behavior into tight reusable skills, then keeps those skills short with edit passes.
-  - Credit: skill hygiene, self-improving skill loops, and the edit-skill idea.
-- **Matthew Berman / Forward Future as Captain Looplight**
-  - Stats: STR 10 | DEX 13 | CON 15 | INT 17 | WIS 18 | CHA 17
-  - Power: makes agent loops easy to understand: bounded task, verifier, stop rule, and evidence.
-  - Credit: plain-language framing of bounded action, independent verification, budgets, stop rules, and evidence. This is conceptual influence; Manageroo has no Loop Library runtime dependency.
-- **Garry Tan / GBrain as The Memory Architect**
-  - Stats: STR 11 | DEX 11 | CON 18 | INT 18 | WIS 18 | CHA 14
-  - Power: gives agents durable memory without dumping the whole universe into the prompt.
-  - Credit: GBrain local memory and retrieval.
-- **Abhigyan Patwari / GitNexus as The Graph Cartographer**
-  - Stats: STR 9 | DEX 16 | CON 14 | INT 18 | WIS 16 | CHA 13
-  - Power: turns codebases into navigable graphs so agents can reason about impact.
-  - Credit: GitNexus code graph and impact-analysis direction.
-- **OpenClaw Agent Skills, AUTOREVIEW, and Clawpatch as The Patch Council**
-  - Stats: STR 15 | DEX 15 | CON 16 | INT 17 | WIS 17 | CHA 12
-  - Power: maps work into bounded slices, reviews with evidence, and keeps patching explicit.
-  - Credit: agent skill packaging, structured review, and Clawpatch-style fix loops.
-- **OpenAI Codex skill system as The Skill Forge**
-  - Stats: STR 10 | DEX 14 | CON 15 | INT 18 | WIS 16 | CHA 15
-  - Power: gives local agents a simple skill format: trigger text first, then instructions and resources only when needed.
-  - Credit: Codex skill routing, skill-creator guidance, and agent-readable skill packaging.
-- **Obsidian as The Vault Keeper**
-  - Stats: STR 8 | DEX 13 | CON 17 | INT 16 | WIS 17 | CHA 15
-  - Power: keeps human notes in plain Markdown that the user can read and own.
-  - Credit: Markdown-vault notes as a human-readable context lane.
-
-Together they are the local-agent super team: skills shape the ask, loops define
-the mission, memory remembers the map, graphs show the blast radius, review
-catches the bad stuff, and notes keep a human-readable trail.
+Host / tOS environment
+    -> may contain extra skills and optional tools
+    -> remains independently owned and maintained
+    -> can be used when relevant without becoming Manageroo's public product definition
+```
