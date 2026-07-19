@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import shlex
 from typing import Any
 
 from .branding import PUBLIC_COMMAND
 from .readiness import format_readiness
 
 
-def solo_run_command(*, mode: str, apply_on_success: bool) -> str:
+def solo_run_command(*, repo: str, mode: str, apply_on_success: bool) -> str:
     apply_flag = "--apply" if apply_on_success else "--no-apply"
-    return f"{PUBLIC_COMMAND} run --mode {mode} {apply_flag}"
+    return shlex.join([PUBLIC_COMMAND, "run", "--repo", repo, "--mode", mode, apply_flag])
 
 
 def solo_next_command(
@@ -20,8 +21,9 @@ def solo_next_command(
     apply_on_success: bool,
     run_result: dict[str, Any] | None = None,
 ) -> str:
+    repo = str(readiness_report.get("repo") or ".")
     if run_result and run_result.get("run_id"):
-        return f"{PUBLIC_COMMAND} report {run_result['run_id']}"
+        return shlex.join([PUBLIC_COMMAND, "report", str(run_result["run_id"]), "--repo", repo])
     for item in readiness_report.get("items", []):
         if item.get("required", True) and not item.get("ok") and item.get("next"):
             return item["next"]
@@ -30,7 +32,7 @@ def solo_next_command(
     for item in integration_guidance or []:
         if not item.get("ok") and item.get("next"):
             return item["next"]
-    return solo_run_command(mode=mode, apply_on_success=apply_on_success)
+    return solo_run_command(repo=repo, mode=mode, apply_on_success=apply_on_success)
 
 
 def format_solo_report(payload: dict[str, Any]) -> str:
@@ -46,12 +48,7 @@ def format_solo_report(payload: dict[str, Any]) -> str:
     if payload.get("created_project"):
         created = payload["created_project"]
         lines.append(f"OK project repository {created.get('status', 'created')}")
-    lines.extend(
-        [
-            "OK project initialized",
-            "OK product brief written from your request",
-        ]
-    )
+    lines.extend(["OK project initialized", "OK product brief written from your request"])
     if payload.get("intent_lock"):
         lines.append("OK intent lock captured for compaction/drift audits")
     if payload.get("installed_skills") == []:
@@ -63,12 +60,10 @@ def format_solo_report(payload: dict[str, Any]) -> str:
             label = "OK" if record.get("status") in {"configured", "kept"} else "ACTION"
             lines.append(f"{label} {record['name']}: {record['status']}")
     if payload.get("integration_guidance"):
-        lines.append("")
-        lines.append("Selected extras:")
+        lines.extend(["", "Selected extras:"])
         for item in payload["integration_guidance"]:
             label = "OK" if item.get("ok") else "ACTION"
-            detail = item.get("detail", "")
-            lines.append(f"{label} {item['name']}: {detail}")
+            lines.append(f"{label} {item['name']}: {item.get('detail', '')}")
     if payload.get("run_skipped_reason"):
         lines.append(f"ACTION run skipped: {payload['run_skipped_reason']}")
     if payload.get("run"):
