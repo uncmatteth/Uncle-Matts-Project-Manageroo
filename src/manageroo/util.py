@@ -17,6 +17,7 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|token|password|secret)\s*[:=]\s*([^\s,;]+)"),
     re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+"),
 ]
+_WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
 
 def utc_now() -> str:
@@ -60,7 +61,10 @@ def sha256_file(path: Path) -> str:
 def redact_text(text: str) -> str:
     redacted = text
     for pattern in _SECRET_PATTERNS:
-        redacted = pattern.sub(lambda m: f"{m.group(1)}=<REDACTED>" if m.lastindex and m.lastindex >= 1 else "<REDACTED>", redacted)
+        redacted = pattern.sub(
+            lambda m: f"{m.group(1)}=<REDACTED>" if m.lastindex and m.lastindex >= 1 else "<REDACTED>",
+            redacted,
+        )
     return redacted
 
 
@@ -98,9 +102,15 @@ def ensure_within(root: Path, candidate: Path) -> Path:
 
 
 def safe_repo_relative(value: str) -> str:
-    normalized = value.replace("\\", "/").lstrip("/")
+    normalized = str(value).replace("\\", "/")
     pure = PurePosixPath(normalized)
-    if not normalized or pure.is_absolute() or ".." in pure.parts:
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or _WINDOWS_ABSOLUTE_RE.match(normalized)
+        or pure.is_absolute()
+        or ".." in pure.parts
+    ):
         raise SafetyError(f"Unsafe repository-relative path: {value!r}")
     return str(pure)
 
