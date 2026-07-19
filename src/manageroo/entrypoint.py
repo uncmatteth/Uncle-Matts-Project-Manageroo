@@ -13,7 +13,7 @@ from .config import AGENT_PRESETS
 from .discovery_policy import decisions_fully_resolved, render_blocking_questions
 from .host_skills import format_host_skills, inspect_host_skills
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
-from .stack_update import apply_stack_updates, format_stack_update, stack_update_plan
+from .stack_update import STACK_TOOL_NAMES, apply_stack_updates, format_stack_update, stack_update_plan
 from .system_capacity import format_capacity, host_capacity
 from .util import atomic_write_json, read_json, utc_now
 
@@ -115,13 +115,20 @@ def _stack_update_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo stack-update",
         description=(
-            "Plan or explicitly apply upstream-supported updates for Manageroo's optional local stack."
+            "Plan or explicitly apply upstream-supported updates for Manageroo's recommended surrounding stack."
         ),
+    )
+    parser.add_argument(
+        "tools",
+        nargs="*",
+        choices=STACK_TOOL_NAMES,
+        help="Optionally limit the operation to one or more named stack tools.",
     )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    report = apply_stack_updates() if args.apply else stack_update_plan()
+    selected = args.tools or None
+    report = apply_stack_updates(selected) if args.apply else stack_update_plan(selected)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
@@ -233,9 +240,9 @@ def _root_help() -> str:
         + "\nDiscovery and host context:\n"
         + "  capacity              Inspect host CPU, RAM, GPU/VRAM, and disk as context only.\n"
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
-        + "  host-skills           Inspect host/tOS skills without modifying or owning them.\n"
-        + "\nOptional stack maintenance:\n"
-        + "  stack-update          Dry-run current upstream update commands; pass --apply explicitly.\n"
+        + "  host-skills           Inspect host skills without modifying or owning them.\n"
+        + "\nRecommended stack maintenance:\n"
+        + "  stack-update          Dry-run upstream-supported updates; optionally name tools; pass --apply explicitly.\n"
     )
 
 
