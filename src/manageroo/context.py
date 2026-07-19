@@ -49,7 +49,7 @@ class ContextCompiler:
         max_single_file_tokens: int,
     ):
         self.repo = repo.resolve()
-        self.packet_root = packet_root
+        self.packet_root = packet_root.expanduser().resolve()
         self.max_input_tokens = max_input_tokens
         self.reserve_output_tokens = reserve_output_tokens
         self.chars_per_token = chars_per_token
@@ -61,6 +61,20 @@ class ContextCompiler:
         if usable <= 0:
             raise ContextBudgetError("Context reserve leaves no usable input budget.")
         return usable
+
+    def _packet_path(self, packet_name: str) -> Path:
+        value = str(packet_name).strip()
+        if not value:
+            raise SafetyError("Context packet name cannot be empty.")
+        candidate = Path(value)
+        if candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts):
+            raise SafetyError(f"Context packet name is unsafe: {packet_name}")
+        packet = (self.packet_root / candidate).resolve()
+        try:
+            packet.relative_to(self.packet_root)
+        except ValueError as exc:
+            raise SafetyError(f"Context packet path escapes packet root: {packet_name}") from exc
+        return packet
 
     def _excerpt(self, request: ContextRequest) -> tuple[str, int, int, str, str]:
         relative = safe_repo_relative(request.path)
@@ -79,9 +93,13 @@ class ContextCompiler:
             return summary, 1, max(1, line_count), sha256_file(path), "summary"
         text = path.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
+        if not lines:
+            if request.start_line not in (None, 1) or request.end_line not in (None, 0, 1):
+                raise ContextBudgetError(f"Invalid line range for empty file {relative}")
+            return "", 1, 0, sha256_file(path), "full"
         start = request.start_line or 1
         end = request.end_line or len(lines)
-        if start < 1 or end < start or end > max(1, len(lines)):
+        if start < 1 or end < start or end > len(lines):
             raise ContextBudgetError(f"Invalid line range for {relative}: {start}-{end}")
         excerpt = "\n".join(lines[start - 1 : end])
         if text.endswith("\n") and end == len(lines):
@@ -96,7 +114,7 @@ class ContextCompiler:
         requests: Iterable[ContextRequest],
         metadata: dict | None = None,
     ) -> Path:
-        packet = self.packet_root / packet_name
+        packet = self._packet_path(packet_name)
         packet.mkdir(parents=True, exist_ok=False)
 
         prepared: list[tuple[ContextRequest, str, int, int, str, int, str]] = []
