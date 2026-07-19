@@ -2,205 +2,287 @@
 
 Use `manageroo` at the terminal. The name is incredibly super serious.
 
-This is a local tool for putting an actual process around AI coding agents.
-The main path is **Solo Operator Mode**: one technically minded person uses AI
-coding tools like a product team in a box.
-
-Give it a Git repo, or let it create a new empty one. Then give it a
-plain-English brief and real checks. It helps the agent read the project, make
-a plan, work in smaller pieces, run the checks, review the result, repair the
-bad parts, and leave a report you can inspect.
-
-The whole point is to stop the usual AI coding mess: one giant chat, too much
-context, half-remembered requirements, surprise file changes, and a confident
-"done" with no proof.
-
-Manageroo is not "AI remembers better." Manageroo makes remembering
-unnecessary. The controller saves the truth on disk. Each AI worker gets one
-complete assignment. If a worker drifts, dies, lies, or runs out of room,
-Manageroo throws that worker away and starts a clean one from saved facts.
-
-## GitHub description
-
-Copy this into the GitHub repository description:
-
-```text
-A very serious local CLI that keeps AI coding agents on task: one brief in, repo-aware build or repair work, checks, review, and proof out.
-```
-
-## Explain It Like I Am Five
-
-- You have an app, website, script, or repo.
-- If you have nothing yet, `manageroo solo --create` can make the first
-  empty Git project for you.
-- You want an AI coding agent to work on it without wandering off.
-- You do not want to hire a whole team just to get from idea to releaseable product.
-- `manageroo solo` is the front door: explain the job, get a brief,
-  readiness check, and one next action.
-- You write what you want in normal language.
-- If the request is messy, angry, long, or half-formed, the bundled
-  `pimp-my-prompt` skill helps turn it into exact scope, proof, and stop rules
-  without losing what you meant.
-- `solo` also captures an intent lock: what you want, what must not happen,
-  what proof matters, what got rejected, and the latest corrections.
-- Before or after a long chat gets compacted, run a compaction audit so the
-  summary cannot quietly drop must-not rules or rejected ideas.
-- `manageroo` reads the repo and breaks the job into smaller chunks.
-- The Python controller is the boss. AI tools are disposable workers that get
-  complete packets; chat memory and compaction are not trusted as proof.
-- Every worker job and retry is recorded under `.manageroo/runs/<run-id>/`.
-- `manageroo status <run-id>` shows the current job, completed jobs, failed
-  attempts, blocking reason, and next action.
-- `manageroo run --continue <run-id>` replays the controller from the saved run
-  folder, skips completed worker jobs, and gives unfinished jobs a fresh packet.
-  It is not a magic terminal-keepalive trick.
-- The recommended skill pack gives agents built-in lanes for rough intake,
-  memory lookup, source ingest, media/PDF work, long prose, exact wording,
-  debugging, test-first work, closeout review, public copy, website cleanup,
-  reusable skills, and token reduction.
-- You do not have to figure out `AGENTS.md` and `CONTEXT.md` by hand. Project
-  init writes managed guidance blocks, preserves existing files, and the
-  context compiler prioritizes `AGENTS.md`, `CONTEXT.md`, project memory, and
-  docs when building packets.
-- If GBrain or GitNexus commands are configured, it asks them for useful memory
-  or code-graph context during discovery and records what worked or failed.
-- Independent map and review chunks can run in parallel; actual code changes stay dependency ordered.
-- Pictures, PDFs, and big prose files are not invisible. The tool records media
-  metadata, writes a document manifest, and can run a configured
-  `document_analysis_command` as an evidence lane so the agent knows what exists
-  and asks for the right slice.
-- Most MANAGEROO work is a `goal`: keep going until a verifiable outcome is true, then stop.
-- A `loop` repeats while you are present. A `routine` runs later or on a schedule. MANAGEROO can adapt those ideas into one bounded local repo run; it does not pretend to be a cloud scheduler.
-- Your AI tool does the code work.
-- `manageroo` runs the checks you told it to run: tests, lint, typecheck, build, or whatever your repo actually uses.
-- A separate review pass looks for problems before the run gets called done.
-- If the work is not good enough, it goes back through repair.
-- You get the patch, the checks, the review notes, and the report.
-- Every run can leave learning cards: small evidence-backed suggestions for
-  what should be remembered, fixed, or improved next.
-- Those cards are approval-gated. The tool may save the suggestion, but it does
-  not silently rewrite skills, config, docs, installer behavior, or project
-  memory.
-- The installer also includes `edit-skill`, a helper for keeping local skills
-  short, non-duplicative, and free of stale AI junk.
-- It also includes `write-a-skill` and `skillify`, so repeated painful work can
-  become a small reusable skill instead of another giant thread.
-- Token reduction is one feature with two styles: clean `caveman` or
-  `uncle-matts-caveman-curse`. Curse mode exists because life is more fun with
-  appropriately placed, well-used profanity.
-- The installer should be simple for normal users, but still fun: color, ASCII art, and generated chiptune music with a long install theme and smooth three-second fades.
-
-## What Problem It Solves
-
-AI coding agents are useful. They also drift.
-
-- They forget parts of the request.
-- They touch files they did not need to touch.
-- They miss the test that would have caught the bug.
-- They treat "looks plausible" like "works."
-- They leave you digging through a chat transcript to figure out what happened.
-
-This tool is meant to make that harder. It keeps the work tied to the repo, the
-brief, the checks, the review, and the final evidence.
-
-The idea came from the thing Clawpatch gets right: AI agents work better when
-they look at one real slice of the product at a time, with the right files and
-some proof. MANAGEROO uses that same kind of structure for build and repair
-work, not only bug review.
-
-Credit where it is due: Matthew Berman / Forward Future's public
-loop-engineering work, including Loop Library, helped clarify the pattern:
-bounded action, independent verification, a budget, a stop condition, and
-evidence. MANAGEROO implements those ideas natively and does not connect to or
-depend on Loop Library.
-
-## Special Thanks: The MANAGEROO Super Team
-
-These are the real-world powers this project remixes:
-
-- **Peter Yang / @petergyang as The Skill Smith**
-  - Stats: STR 8 | DEX 12 | CON 14 | INT 18 | WIS 17 | CHA 16
-  - Power: turns messy repeated agent behavior into tight reusable skills, then keeps those skills short with edit passes.
-  - Credit: skill hygiene, self-improving skill loops, and the edit-skill idea.
-- **Matthew Berman / Forward Future as Captain Looplight**
-  - Stats: STR 10 | DEX 13 | CON 15 | INT 17 | WIS 18 | CHA 17
-  - Power: makes agent loops easy to understand: bounded task, verifier, stop rule, and evidence.
-  - Credit: plain-language framing of bounded action, independent verification, budgets, stop rules, and evidence. This is conceptual influence; Manageroo has no Loop Library runtime dependency.
-- **Garry Tan / GBrain as The Memory Architect**
-  - Stats: STR 11 | DEX 11 | CON 18 | INT 18 | WIS 18 | CHA 14
-  - Power: gives agents durable memory without dumping the whole universe into the prompt.
-  - Credit: GBrain local memory and retrieval.
-- **Abhigyan Patwari / GitNexus as The Graph Cartographer**
-  - Stats: STR 9 | DEX 16 | CON 14 | INT 18 | WIS 16 | CHA 13
-  - Power: turns codebases into navigable graphs so agents can reason about impact.
-  - Credit: GitNexus code graph and impact-analysis direction.
-- **OpenClaw Agent Skills, AUTOREVIEW, and Clawpatch as The Patch Council**
-  - Stats: STR 15 | DEX 15 | CON 16 | INT 17 | WIS 17 | CHA 12
-  - Power: maps work into bounded slices, reviews with evidence, and keeps patching explicit.
-  - Credit: agent skill packaging, structured review, and Clawpatch-style fix loops.
-- **OpenAI Codex skill system as The Skill Forge**
-  - Stats: STR 10 | DEX 14 | CON 15 | INT 18 | WIS 16 | CHA 15
-  - Power: gives local agents a simple skill format: trigger text first, then instructions and resources only when needed.
-  - Credit: Codex skill routing, skill-creator guidance, and agent-readable skill packaging.
-- **Obsidian as The Vault Keeper**
-  - Stats: STR 8 | DEX 13 | CON 17 | INT 16 | WIS 17 | CHA 15
-  - Power: keeps human notes in plain Markdown that the user can read and own.
-  - Credit: Markdown-vault notes as a human-readable context lane.
-
-Together they are the local-agent super team: skills shape the ask, loops define
-the mission, memory remembers the map, graphs show the blast radius, review
-catches the bad stuff, and notes keep a human-readable trail.
+Manageroo is a local control plane for AI coding agents working on real Git repositories.
 
 ```text
 ONE PLAIN-ENGLISH BRIEF
-      ↓
-REPO MAP
-      ↓
-SMALL JOBS FOR THE AI AGENT
-      ↓
-CHECKS + REVIEW
-      ↓
+        ↓
+MANAGEROO CONTROLLER
+        ↓
+BOUNDED WORKER JOBS
+        ↓
+REAL CHECKS + REVIEW
+        ↓
 REPAIR IF NEEDED
-      ↓
+        ↓
 PATCH + REPORT + EVIDENCE
 ```
 
-MANAGEROO is not trying to replace your AI tool, your IDE, GBrain,
-GitNexus, Obsidian, AUTOREVIEW, Clawpatch, CI, or your own judgment. It is the
-local command that makes those pieces follow a job instead of becoming one more
-pile of loose chat.
+The point is simple: stop relying on one giant AI chat to remember everything, make every change correctly, review itself, and confidently say “done.”
 
-## Solo Operator Mode
+Manageroo keeps the durable truth on disk. Workers are disposable.
 
-The intended user is a technically minded non-coder who can explain what should
-exist, make product decisions, and judge proof, but does not want the headache
-of managing a software team.
+## What Manageroo is
 
-Start here:
+Manageroo:
+
+- reads a Git repository;
+- captures the requested outcome, must-not rules, and proof expectations;
+- creates bounded worker assignments;
+- launches compatible coding-agent CLIs;
+- records every job and retry;
+- verifies scope and repository state;
+- runs deterministic checks;
+- performs independent review;
+- repairs failed work within budgets;
+- blocks completion when required proof is missing;
+- produces a final patch, report, and evidence trail.
+
+Manageroo is **not** an IDE, model host, memory database, code graph, cloud scheduler, or deployment platform.
+
+## Hardware compatibility
+
+Manageroo core is **hardware-agnostic**.
+
+It does not require:
+
+- Tommy's workstation specs;
+- a GPU;
+- a particular VRAM amount;
+- a CPU tier;
+- a RAM class.
+
+The core software requirements are:
+
+- Python 3.11+;
+- Git;
+- a usable terminal or PowerShell environment.
+
+For real AI work, at least one compatible agent path must also be available.
+
+Inspect the current host with:
+
+```bash
+manageroo capacity
+manageroo capacity --json
+```
+
+That command records CPU, RAM, detectable GPU/VRAM, and free disk as **development context only**.
+
+Manageroo does **not** automatically increase or reduce worker concurrency from detected hardware. A worker can be cloud-backed, remote, local, or a custom CLI, so Manageroo cannot truthfully infer the cost of one agent call from host CPU/RAM/GPU.
+
+A target project or explicitly selected local AI tool can still have its own hardware requirements. Those belong to that project or tool, not to Manageroo.
+
+## Agent support
+
+The default agent mode is provider-neutral `auto`.
+
+Built-in paths cover:
+
+- Codex;
+- Claude Code;
+- Gemini;
+- a generic CLI adapter.
+
+If a compatible AI IDE or CLI can read files and run commands in the repo, it does not need a special Manageroo build.
+
+```bash
+manageroo agent list
+```
+
+## Durable runs
+
+Every run stores controller-owned truth under:
+
+```text
+.manageroo/runs/<run-id>/
+```
+
+That includes:
+
+- controller state;
+- phase journal;
+- worker jobs;
+- worker attempts;
+- prompts;
+- agent outputs;
+- planning artifacts;
+- verification evidence;
+- review evidence;
+- delivery output.
+
+`manageroo run --continue <run-id>` resumes from durable saved state. It does not pretend a dead OS process kept running.
+
+## Proof before “done”
+
+Manageroo does not let a worker certify its own work.
+
+Completion requires the controller to reconcile:
+
+- requested outcomes;
+- bound proof gates;
+- changed-file scope;
+- review state;
+- verification results;
+- required demonstration evidence.
+
+Observable browser flows, authentication behavior, security claims, deployment claims, visual outcomes, and user journeys remain unknown unless matching evidence exists.
+
+## Discovery and unknown unknowns
+
+Before implementation, the product analyst receives a deterministic preflight that reviews things the operator may not know to ask about, including:
+
+- failure and recovery;
+- proof strength;
+- scope and non-goals;
+- authentication and authorization;
+- payments and reconciliation;
+- migrations and data preservation;
+- deployment and rollback;
+- target-project hardware or local-AI assumptions;
+- external services and rate limits;
+- accessibility and user-facing states.
+
+High-impact unresolved decisions can be answered with:
+
+```bash
+manageroo decisions show RUN_ID --repo /path/to/repo
+manageroo decisions answer RUN_ID --repo /path/to/repo
+manageroo run --continue RUN_ID --repo /path/to/repo --apply
+```
+
+The development host's hardware profile is never turned into a Manageroo minimum requirement.
+
+## Portable core skills
+
+Manageroo installs a small portable default core:
+
+1. `uncle-matts-project-manageroo`
+2. `use-installed-skills-first`
+3. `pimp-my-prompt`
+4. `to-prd`
+5. `to-issues`
+6. `grill-me`
+7. `grill-with-docs`
+8. `diagnose`
+9. `tdd`
+10. `testing`
+11. `security-review`
+12. `handoff`
+13. `write-a-skill`
+14. `edit-skill`
+15. `skillify`
+16. `caveman`
+17. `uncle-matts-caveman-curse`
+
+The source distribution may contain additional optional skill assets. They are not installed as Manageroo-owned defaults.
+
+## tOS and host skills
+
+Tommy's tOS is a host environment, not the public Manageroo product definition.
+
+```text
+Manageroo portable core
+    -> owns controller state, runs, evidence, review, repair, completion
+    -> owns only the small core skill pack
+
+Host / tOS
+    -> may contain many extra skills and tools
+    -> remains independently owned and maintained
+    -> can expose relevant capabilities to Manageroo workers
+```
+
+Inspect the boundary without modifying anything:
+
+```bash
+manageroo host-skills
+manageroo host-skills --json
+```
+
+`use-installed-skills-first` is the bridge. Relevant installed host skills may be used when appropriate, but Manageroo does not copy, delete, upgrade, or claim ownership of the whole host skill environment.
+
+An installed competing orchestrator does not replace Manageroo's controller during a Manageroo run.
+
+## Optional integrations
+
+Manageroo can coexist with and optionally use:
+
+- GBrain;
+- GitNexus;
+- Obsidian;
+- AUTOREVIEW;
+- Clawpatch.
+
+These are surrounding lanes, not authorities over Manageroo completion.
+
+Inspect them:
+
+```bash
+manageroo stack-status
+manageroo stack-doctor
+```
+
+Preview updates:
+
+```bash
+manageroo stack-update
+```
+
+Explicitly apply supported updates to already-installed components:
+
+```bash
+manageroo stack-update --apply
+```
+
+## Install
+
+Unix-like systems:
+
+```bash
+./install.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\install.ps1
+```
+
+The installer includes the Manageroo terminal banner and generated chiptune music. Music is generated at a reduced default level, and the banner is resize-safe: it animates once and then behaves like normal terminal output instead of repainting fixed screen rows.
+
+Useful installer controls:
+
+```bash
+./install.sh --no-music
+./install.sh --no-animation
+./install.sh --skill-pack skip
+./install.sh --install-stack
+./install.sh --skip-stack
+```
+
+## First project
+
+Discover existing projects:
 
 ```bash
 manageroo projects --add
 ```
 
-That scans common folders, shows a checkbox-style list of existing Git repos,
-asks which ones you want to add, and then asks whether you want to paste more
-project paths it missed. It initializes only the projects you select.
-
-If you only want a read-only list and the next command for one project:
+Start in an existing repo:
 
 ```bash
-manageroo projects --pick
+manageroo solo /absolute/path/to/product
 ```
 
-Starting from an empty or missing folder:
+Create a new missing or empty repo:
 
 ```bash
 manageroo solo /absolute/path/to/new-product \
   --create \
-  --want "Build a simple first release checklist"
+  --want "Describe what should be built first"
 ```
 
-Use a starter when you do not want a totally blank repo:
+Use a starter:
 
 ```bash
 manageroo solo /absolute/path/to/new-site \
@@ -209,426 +291,54 @@ manageroo solo /absolute/path/to/new-site \
   --want "Build a simple product homepage"
 ```
 
-Starter choices:
-
-- `blank`: only `README.md` and `.gitignore`.
-- `static-site`: `index.html`, `styles.css`, and a no-dependency smoke test.
-- `python-cli`: `app.py` and a no-dependency smoke test.
-- `docs-project`: project docs, release checklist, and a no-dependency smoke test.
-
-Or pass the first ask directly:
-
-```bash
-manageroo solo \
-  --want "Make checkout less confusing" \
-  --outcome "One clear payment path" \
-  --must-not "Do not change admin exports" \
-  --proof "Run checkout tests" \
-  --force
-```
-
-`solo` prepares the project, writes the product brief, writes
-`.manageroo/PROJECT-MEMORY.md`, checks readiness, and prints exactly one
-next command. If readiness is already green during the first intake command,
-add `--run --apply` to let it start the build or repair run.
-
-When you are not sure what to do next, ask the tool for only the next action:
+When unsure what to do next:
 
 ```bash
 manageroo next
 ```
 
-It prints the current stage, the reason, and one command. It uses `solo` for
-setup/brief work, `checks suggest --apply-first` when proof gates are missing,
-and `run` when the repo is ready.
+## Run
 
-The project memory file is the small repo-local lane for continuity: what this
-project is, what has shipped, what must not break, what proof matters, and
-operator notes. Show or update it with:
-
-```bash
-manageroo memory show
-manageroo memory add --shipped "First release shipped" --must-not "Do not break checkout"
-```
-
-Each run also creates proactive learning cards when it sees something worth
-remembering. List them, inspect the evidence, and apply only the supported
-low-risk cards after approval:
-
-```bash
-manageroo learning list
-manageroo learning show CARD_ID
-manageroo learning apply CARD_ID --approve
-```
-
-Right now the supported automatic apply target is a project-memory note. Higher
-risk cards, like skill cleanup, config changes, installer changes, failed
-AUTOREVIEW/Clawpatch lanes, media lanes, or long-document lanes, stay
-manual-only until you approve a separate scoped task.
-
-## Intent lock and compaction audit
-
-Long-running AI work should not depend on a giant chat transcript staying good
-forever. Chat compaction is useful, but it is not the source of truth.
-
-`solo` captures the important intake facts here:
-
-```text
-.manageroo/intent/INTENT-LOCK.json
-.manageroo/intent/INTENT-LOCK.md
-```
-
-That lock records the plain ask, required outcomes, must-not rules, proof,
-corrections, rejected ideas, open questions, and scope boundaries.
-
-When an agent or tool gives you a compact summary or handoff, audit it:
-
-```bash
-manageroo compact audit --summary SUMMARY.md
-```
-
-The audit is strict on purpose. If the summary drops a locked phrase like "Do
-not deploy production" or "Do not add GitHub Actions", the audit blocks. If an
-agent says "best", "smartest", "perfect", "ready", or "100% done" without the
-evidence preserved, treat that as a recommendation, not proven best.
-
-If the repo has no detected tests or build checks, add one real command without
-editing config by hand:
-
-```bash
-manageroo checks suggest --apply-first
-manageroo checks list
-manageroo ready
-```
-
-The full target path is:
-
-```text
-idea -> brief -> setup -> build/repair -> checks -> review -> repair -> report -> release-ready
-```
-
-See [`docs/SOLO_OPERATOR_MODE.md`](docs/SOLO_OPERATOR_MODE.md).
-
-## Choose the correct package
-
-- **GitHub source repository:** the checked-out source tree is what gets committed to GitHub. If you seed it from a ZIP, extract the ZIP first and commit the files, not the ZIP file itself.
-- **End-user release archive:** the generated release ZIP and checksum file go on a GitHub Release. Normal users download that ZIP, extract it, and run the installer.
-
-See [`PUBLISH_TO_GITHUB.md`](PUBLISH_TO_GITHUB.md).
-
-## Install from an extracted release archive
-
-```bash
-unzip uncle-matts-project-manageroo-v2026.6.22.1.zip
-cd Uncle-Matts-Project-Manageroo
-./install.sh
-```
-
-Same installer, same behavior. Use `./install.sh` from a normal Unix-style
-terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
-products.
-
-The installer validates the source, runs the tests, installs the command for the
-current user, offers the recommended skill pack, runs `self-test`, and writes
-`install-lock.json`. It does not require Codex. Use `./install.sh
---install-codex` only when you specifically want this machine to install or
-update Codex too.
-
-At the end of a normal interactive install, it offers guided project setup. It
-scans common folders like `~/Documents/GitHub`, shows a checkbox-style list of
-Git repos, asks which ones you want to add, and then asks whether you want to
-paste more project paths it missed. It initializes only the projects you pick.
-It does not initialize every repo on the machine. Run it later with:
-
-```bash
-manageroo projects --add
-```
-
-If you only want the older read-only picker that prints one next command:
-
-```bash
-manageroo projects --pick
-```
-
-The skill pack is optional but strongly suggested. It is what lets AI IDE agents
-choose the right helper without the user remembering magic skill names. Agents
-should load only the helper skill needed for the current job, not the whole
-pack. The installer asks in a normal terminal and defaults to yes.
-Non-interactive installs use the recommended yes path. Skip it with
-`./install.sh --skill-pack skip` or `./install.sh --skip-skill-pack`; reconcile
-it later with `manageroo skills reconcile --apply`.
-
-The recommended skill pack is installed under `~/.agents/skills`:
-
-- `uncle-matts-project-manageroo`:
-  tells agents how to follow the controller instead of freelancing.
-- Intake and scope: `pimp-my-prompt`, `to-prd`, `to-issues`, `grill-me`,
-  `grill-with-docs`, and `functional-area-resolver`.
-- Memory and source context: `brain-ops`, `query`, `ingest`, `idea-ingest`,
-  `media-ingest`, `voice-note-ingest`, `article-enrichment`, `book-mirror`,
-  `strategic-reading`, `repo-architecture`, `academic-verify`,
-  `data-research`, and `perplexity-research`.
-- Documents and exact wording: `pdf`, `brain-pdf`, `citation-fixer`,
-  `reports`, and `exact-text-replacement`.
-- Build proof: `diagnose`, `tdd`, `testing`, `autoreview`,
-  `security-review`, `cross-modal-review`, `handoff`, and `skillpack-check`.
-- Website/UI proof: `plain-web-copy`, `fix-my-bad-website`,
-  `web-design-guidelines`, `open-design`, `playwright`, and
-  `playwright-interactive`.
-- Skill hygiene and routing: `use-installed-skills-first`, `find-skills`,
-  `write-a-skill`, `edit-skill`, and `skillify`.
-- Big-work routing: `subagent-orchestrator` and `minion-orchestrator`.
-- Token reduction: `caveman` and `uncle-matts-caveman-curse`.
-
-The installer also offers the recommended local stack:
-
-- GBrain for memory.
-- GitNexus for code graph context.
-- AUTOREVIEW for independent command-owned review passes.
-- Clawpatch for feature-slice review and explicit command-owned fix loops.
-- Obsidian for human-readable notes.
-
-Interactive installs ask before touching those third-party tools. To force the
-guided stack lane:
-
-```bash
-./install.sh --install-stack
-```
-
-If Bun, Node/npm/npx/pnpm, Flatpak, Snap, Homebrew, or Winget is missing, the
-installer records the missing piece and prints the exact next commands instead
-of pretending it finished that part.
-
-Release trust check:
-
-```bash
-python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.6.22.1.zip
-```
-
-That command creates a clean temporary home directory, installs from the
-end-user ZIP, verifies the launcher, runs `self-test`, checks the 49-skill pack
-and support files, creates a throwaway product repo, runs `solo`, checks
-readiness, and completes a mock Manageroo run. `package_release.py` runs the
-same smoke against the generated ZIP before refreshing the release drop.
-
-If GBrain already exists, the stack lane inspects it instead of blindly running
-`gbrain init --pglite` over an existing Postgres/Ollama setup. It records the
-engine, embedding model, schema pack, source count, and embedding coverage, then
-prints source-mapping commands only when sources are missing.
-
-GBrain has two installer lanes: `--gbrain-lane local` for this package's Bun +
-PGLite quick path, and `--gbrain-lane official` for Garry Tan/GBrain's upstream
-agent-supervised `INSTALL_FOR_AGENTS.md` protocol.
-
-Clawpatch setup checks `clawpatch doctor` and Codex login status for
-Clawpatch's codex provider. Use `--clawpatch-codex-login run` if you want the
-installer to launch `codex login` during stack setup.
-
-After install, inspect what happened:
-
-```bash
-manageroo stack-status
-manageroo uninstall-plan
-manageroo repair-install --no-apply
-```
-
-Disable terminal presentation only when needed:
-
-```bash
-./install.sh --no-music --no-animation
-```
-
-Choose token-reduction mode during install:
-
-```bash
-./install.sh --token-mode caveman
-./install.sh --token-mode curse
-./install.sh --token-mode off
-```
-
-`caveman` is token reduction in the clean style. `curse` is the same token
-reduction through Uncle Matt's Caveman Curse: profanity for people who want the
-funny version because life is more fun with appropriately placed, well-used
-profanity. Code, commands, JSON keys, exact errors, and quoted source stay clean
-unless you ask for profanity there.
-
-## One-line installation after the GitHub repository exists
-
-Replace the repository visibility as desired before sharing these commands.
-
-```bash
-git clone --depth 1 https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
-```
-
-## First local use
-
-```bash
-manageroo --version
-manageroo self-test
-manageroo skills list
-manageroo token-mode status
-manageroo projects --add
-```
-
-The setup flow shows found repos, lets you select the ones to initialize, and
-lets you paste missing paths. The read-only picker still prints the right next
-command for one project:
-
-- initialized project: `manageroo next /absolute/path/to/project`
-- existing Git repo: `manageroo solo /absolute/path/to/project`
-- new project: `manageroo solo /absolute/path/to/new-project --create`
-
-Lower-level commands are still available when you want them:
-
-```bash
-manageroo setup
-```
-
-Run bare `setup` for the lower-level wizard. It asks:
-
-- what AI you are using;
-- what repo you want to work on;
-- whether you want GBrain, GitNexus, or Obsidian help.
-
-Project setup writes `.manageroo/PROJECT-MEMORY.md`, the current product
-brief, a repo-local MANAGEROO skill, and managed `AGENTS.md`/`CONTEXT.md`
-blocks. Existing human content is preserved, so the user does not have to
-figure out which agent-context file belongs to which AI tool.
-
-Use `--agent codex` when this tool should launch Codex itself. Use another
-preset when the agent CLI is already installed and you do not want the prompt:
-
-```bash
-manageroo agent list
-manageroo setup --agent gemini
-manageroo agent preset generic
-```
-
-The `generic`, `gemini`, and `claude-code` presets are command templates. They
-are useful starters, not separate vendor products. If your CLI needs different
-flags, edit `[agent].argv_template` in `.manageroo/config.toml`.
-
-If you are using an AI IDE or another agent shell, it does not need a special
-build of this thing. If it can read files and run commands in the repo, it can
-use `manageroo`.
-
-Switch token-reduction mode later:
-
-```bash
-manageroo token-mode set off
-manageroo token-mode set caveman
-manageroo token-mode set curse
-```
-
-The switch command installs the bundled `caveman` and
-`uncle-matts-caveman-curse` skills under `~/.agents/skills` when needed. If a
-different local skill file already exists there, it is backed up before the
-bundled copy is installed.
-
-Reinstall the recommended skill pack later if needed:
-
-```bash
-manageroo skills reconcile --apply
-```
-
-If you copied a skills folder from another machine, reconcile it directly:
-
-```bash
-manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply
-```
-
-That installs one active Manageroo-managed copy of each bundled skill, copies
-support files for skills that need them, backs up different existing target
-files first, imports the supplied folder when requested, and reports duplicate
-skill names in other scanned roots. It does not delete outside agent skill
-directories.
-
-Then a compatible agent can call `$pimp-my-prompt`, `$diagnose`, `$tdd`,
-`$autoreview`, `$plain-web-copy`, `$fix-my-bad-website`, `$brain-ops`,
-`$query`, `$ingest`, `$media-ingest`, `$voice-note-ingest`,
-`$article-enrichment`, `$book-mirror`, `$strategic-reading`, `$pdf`,
-`$brain-pdf`, `$citation-fixer`, `$reports`, `$exact-text-replacement`,
-`$write-a-skill`, `$edit-skill`, `$skillify`, `$caveman`, or
-`$uncle-matts-caveman-curse` directly. The repo-local MANAGEROO skill tells
-agents when to use each one, so the user does not have to remember the list.
-
-Make the first brief without hand-editing the template:
-
-```bash
-manageroo brief \
-  --want "Make checkout less confusing without breaking admin exports." \
-  --outcome "One clear payment path" \
-  --must-not "Do not change admin order export" \
-  --proof "Run checkout tests" \
-  --force
-```
-
-Then check the whole setup:
-
-```bash
-manageroo ready
-manageroo next
-```
-
-`ready` now checks the brief for lane needs in plain English. If the brief asks
-for PDFs, transcripts, screenshots, images, long prose, or exact wording, it
-blocks until `document_analysis_command` is configured. If the repo merely
-contains document/media files but the brief does not ask to use them, it prints
-a `WARN` instead of blocking. If the brief asks for GBrain, memory, Obsidian, or
-prior decisions, GBrain becomes required for that run.
-
-If readiness says no checks are configured, ask the tool to suggest the simplest
-real proof command for that repo and add the first detected one:
-
-```bash
-manageroo checks suggest --apply-first
-```
-
-If you want GBrain memory mapped for this repo, inspect first and add only the
-folder you choose. Run bare `gbrain-setup` for the prompt, or pass everything
-explicitly:
-
-```bash
-manageroo gbrain-setup
-manageroo gbrain-setup --source-id my-product --path "$PWD" --apply --sync
-```
-
-If you want `run` to use your memory or code graph, wire the commands in
-`.manageroo/config.toml`. Empty arrays mean off. Failed optional tools are
-recorded, but they do not block the normal controller path:
-
-```toml
-[integrations]
-gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
-gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
-gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
-gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
-```
-
-If the local command gets broken after install, inspect or repair it:
-
-```bash
-manageroo repair-install --no-apply
-manageroo repair-install
-```
-
-Run the build:
+Build:
 
 ```bash
 manageroo run --apply
 ```
 
-For already-broken code:
+Repair:
 
 ```bash
 manageroo run --mode repair --apply
 ```
 
-`run` defaults to the current repo, `.manageroo/PRODUCT-BRIEF.md`, and
-`build` mode. You can still pass `--repo`, `--brief`, and `--mode` explicitly
-when scripting.
+Inspect:
 
-Before a real release, run the final operator gate:
+```bash
+manageroo status RUN_ID --repo .
+manageroo report RUN_ID --repo .
+```
+
+## Project memory and intent
+
+Manageroo keeps small repo-local continuity files instead of trusting chat history:
+
+```text
+.manageroo/PROJECT-MEMORY.md
+.manageroo/intent/INTENT-LOCK.json
+.manageroo/intent/INTENT-LOCK.md
+```
+
+Useful commands:
+
+```bash
+manageroo memory show
+manageroo intent show
+manageroo compact audit --summary SUMMARY.md
+```
+
+## Release gate for managed projects
+
+Before a production release of a project managed by Manageroo:
 
 ```bash
 manageroo release-ready \
@@ -637,119 +347,59 @@ manageroo release-ready \
   --approved-by "Your name"
 ```
 
-It does not deploy. It checks base readiness, the latest completed Manageroo
-run, approved review, final report, final patch, applied-to-source status, real
-verification gates, clean Git state, deployment target, rollback notes, and
-human approval.
-It writes a plain-English production handoff at
-`.manageroo/cache/production-handoff.md` with the current commit, latest
-changed files, Manageroo run ID, final report, final patch, review status,
-proof commands, release blockers, ship target, rollback plan, and next operator
-action. When the gate is ready, it also appends the shipped target, Manageroo
-run ID, passing proof, handoff path, rollback plan, and approver to
-`.manageroo/PROJECT-MEMORY.md` so the next agent does not have to rediscover
-what shipped. Commit that project-memory update if you want it tracked.
+This does not deploy. It is an operator gate.
 
-## Context-window control
+## Manageroo's own release proof
 
-Each role gets a fresh packet with the files and instructions for that job. The
-tool does not trust the chat to remember everything. It stores state on disk,
-records hashes and line ranges, tracks omitted files, refuses silent truncation,
-uses generated summaries for media and oversized prose when explicitly requested,
-and rejects stale packets.
+This repository intentionally does **not** use GitHub Actions.
 
-Unchanged file/media/prose summaries are cached under:
+The fail-closed release command is:
 
-```text
-.manageroo/cache/file-summaries.json
-.manageroo/cache/system-map.json
+```bash
+python3 scripts/release.py
 ```
 
-The cache is keyed by file path, size, and SHA-256. If a file changes, its
-summary is regenerated. If it does not change, the next run reuses the summary
-instead of doing that work again. The system-map cache is stricter: it reuses
-the repo map only when the inventory fingerprint and product brief hash match
-exactly.
+That command must complete:
 
-Configured GBrain and GitNexus commands are treated as optional context, not as
-the source of truth. Passing output is included in the planning prompts. Missing
-or failing tools are written to
-`.manageroo/runs/<run-id>/artifacts/discovery/external-intelligence.json`
-so you can see exactly what happened.
+1. adversarial Manageroo product proof;
+2. regression and structural verification;
+3. packaging and checksums;
+4. clean-install end-user ZIP smoke testing;
+5. release drop assembly.
 
-Configured document/prose commands work the same way. Every run writes:
+A release is not honestly certified until that command passes on a real machine. A passing smoke on one operating system proves only that operating system.
+
+## Architecture principle
 
 ```text
-.manageroo/runs/<run-id>/artifacts/discovery/document-manifest.json
-.manageroo/runs/<run-id>/artifacts/discovery/document-intelligence.json
+Manageroo
+    ↓
+universal worker/adapter protocol
+    ↓
+Codex / Claude / Gemini / compatible future agents
+    ↓
+normalized structured responses
+    ↓
+Manageroo-owned verification / review / evidence / completion
 ```
 
-`document_analysis_command` can read that manifest and produce evidence for
-books, articles, PDFs, transcripts, or long notes. If it fails, the failure is
-recorded as optional context. The AI does not get permission to freehand a whole
-manuscript or pretend metadata is real visual understanding.
+The controller is the product. The surrounding tools are optional capabilities.
 
-See [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md).
-See [`docs/DOCUMENT_LANE.md`](docs/DOCUMENT_LANE.md).
+## Credits
 
-## Proactive learning
+Credit where it is due: Matthew Berman / Forward Future's public loop-engineering work, including Loop Library, helped clarify the pattern: bounded action, independent verification, a budget, a stop condition, and evidence. MANAGEROO implements those ideas natively and does not connect to or depend on Loop Library.
 
-After a run, MANAGEROO records improvement cards under:
+Peter Yang's public skill-writing advice influenced the skill-hygiene direction: clear triggers, reusable procedures, and edit passes that remove duplicate or stale instructions.
 
-```text
-.manageroo/cache/learning/pending/
-```
-
-The run-owned copy lives at:
-
-```text
-.manageroo/runs/<run-id>/artifacts/learning/improvement-cards.json
-```
-
-This is the self-improvement path without hidden self-mutation: observe the run,
-write cards with evidence, bundle repeat cards, and wait for explicit approval.
-See [`docs/LEARNING_LANE.md`](docs/LEARNING_LANE.md).
-
-## Intended Local Stack
-
-This was built around the local agent stack you actually wanted:
-
-- GBrain for durable memory.
-- GitNexus for code graph and impact context.
-- Obsidian for notes a human can read.
-- The bundled memory/document skills for GBrain lookup, ingest, media/PDF work,
-  long prose, exact wording, citations, reports, and PDF export.
-- AUTOREVIEW and Clawpatch for command-owned review and repair lanes. Their
-  findings are not handed to the AI for freehand repairs.
-- `pimp-my-prompt` for rough request intake.
-- `diagnose`, `tdd`, and `autoreview` for bug loops, test-first work, and
-  closeout review.
-- `plain-web-copy` and `fix-my-bad-website` for public copy and website quality.
-- `write-a-skill` and `skillify` for turning repeated work into reusable skills.
-- `edit-skill` for keeping skills short, specific, and useful.
-- Any AI IDE or CLI agent that can read files and run commands in the repo.
-
-Those tools do not need separate versions of this package. They use the same
-installed command and the same repo-local skill.
-
-## Current maturity
-
-This is **alpha software**. The mock run and package tests are included.
-Real use still depends on your target repo, your selected AI tool, and your real
-checks. Do the first live run on a clone, branch, or disposable copy.
+GBrain, GitNexus, OpenClaw Agent Skills/AUTOREVIEW, Clawpatch, Obsidian, and the OpenAI Codex skill ecosystem all influenced optional integration or workflow ideas around the controller.
 
 ## Documentation
 
 - [`LOCAL_SETUP.md`](LOCAL_SETUP.md)
 - [`PUBLISH_TO_GITHUB.md`](PUBLISH_TO_GITHUB.md)
 - [`docs/00_START_HERE.md`](docs/00_START_HERE.md)
-- [`docs/SOLO_OPERATOR_MODE.md`](docs/SOLO_OPERATOR_MODE.md)
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/CONTEXT_COMPILER.md`](docs/CONTEXT_COMPILER.md)
-- [`docs/DOCUMENT_LANE.md`](docs/DOCUMENT_LANE.md)
-- [`docs/LEARNING_LANE.md`](docs/LEARNING_LANE.md)
-- [`docs/ENFORCEMENT_MATRIX.md`](docs/ENFORCEMENT_MATRIX.md)
-- [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md)
+- [`docs/DISCOVERY_AND_CAPACITY.md`](docs/DISCOVERY_AND_CAPACITY.md)
+- [`docs/HOST_AND_TOS_INTEGRATION.md`](docs/HOST_AND_TOS_INTEGRATION.md)
 - [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)
-- [`docs/CREDITS.md`](docs/CREDITS.md)
