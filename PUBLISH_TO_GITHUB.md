@@ -21,7 +21,7 @@ If you are using the local source checkout, start inside that repository folder.
 If you are starting from a source ZIP, extract it first:
 
 ```bash
-unzip uncle-matts-project-manageroo-v2026.7.18.2-source.zip
+unzip uncle-matts-project-manageroo-v2026.7.19.1-source.zip
 cd Uncle-Matts-Project-Manageroo
 ```
 
@@ -54,7 +54,7 @@ That one command performs the required sequence:
 1. `manageroo prove --json` with an automatically selected installed live coding worker;
 2. the complete source regression and structural verifier;
 3. release packaging and checksum generation;
-4. clean-install end-user ZIP smoke testing;
+4. clean-install end-user ZIP smoke testing, including the hardware-agnostic host-profile contract;
 5. drop-folder assembly.
 
 The command refuses to package unless product proof reports `COMPLETE`.
@@ -82,7 +82,7 @@ Do not publish a release ZIP that contains `.github/workflows/`.
 Run the generated release ZIP smoke on each operating system you claim to support. The same smoke script selects `install.sh` on Unix-like systems and `install.ps1` on Windows:
 
 ```bash
-python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.7.18.2.zip
+python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.7.19.1.zip
 ```
 
 A passing smoke on one operating system is proof only for that operating system.
@@ -92,15 +92,15 @@ A passing smoke on one operating system is proof only for that operating system.
 Suggested tag:
 
 ```text
-v2026.7.18.2
+v2026.7.19.1
 ```
 
 Attach every generated drop-folder file to the GitHub Release, because
 `SHA256SUMS.txt` lists the full drop set:
 
 ```text
-uncle-matts-project-manageroo-v2026.7.18.2.zip
-uncle-matts-project-manageroo-v2026.7.18.2-source.zip
+uncle-matts-project-manageroo-v2026.7.19.1.zip
+uncle-matts-project-manageroo-v2026.7.19.1-source.zip
 SHA256SUMS.txt
 SOURCE-VALIDATION.json
 FINAL-VALIDATION.json
