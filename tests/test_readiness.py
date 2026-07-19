@@ -1,4 +1,6 @@
+import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,7 +24,7 @@ class ReadinessTests(unittest.TestCase):
             + 'kind = "test"\n'
             + "required = true\n"
             + "timeout_seconds = 60\n"
-            + 'argv = ["python3", "-m", "compileall", "."]\n',
+            + f"argv = [{json.dumps(sys.executable)}, \"-m\", \"compileall\", \".\"]\n",
             encoding="utf-8",
         )
         (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(brief, encoding="utf-8")
