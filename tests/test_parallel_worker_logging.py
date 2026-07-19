@@ -1,5 +1,7 @@
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from manageroo.adapters.base import AgentRequest
@@ -15,9 +17,15 @@ class _Result:
 class _Runner:
     def __init__(self):
         self.log_names = []
+        self._lock = threading.Lock()
+        self._barrier = threading.Barrier(2)
 
     def run(self, argv, *, cwd, timeout_seconds, input_text=None, log_name=None, **kwargs):
-        self.log_names.append(log_name)
+        self._barrier.wait(timeout=5)
+        with self._lock:
+            if log_name in self.log_names:
+                raise AssertionError(f"duplicate concurrent log destination: {log_name}")
+            self.log_names.append(log_name)
         return _Result()
 
 
@@ -50,9 +58,14 @@ class ParallelWorkerLoggingTests(unittest.TestCase):
             root = Path(temp)
             runner = _Runner()
             adapter = GenericAdapter(["agent", "-p", "{prompt_text}"], runner, prompt_transport="argument")
-            adapter.run(_request(root, "001-map", "001"))
-            adapter.run(_request(root, "002-map", "001"))
-            self.assertEqual(
+            requests = [
+                _request(root, "001-map", "001"),
+                _request(root, "002-map", "001"),
+            ]
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(adapter.run, requests))
+            self.assertEqual(len(results), 2)
+            self.assertCountEqual(
                 runner.log_names,
                 ["agent-001-map-001", "agent-002-map-001"],
             )
