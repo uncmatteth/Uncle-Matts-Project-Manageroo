@@ -19,6 +19,14 @@ from .evidence import (
 )
 
 
+PLANNING_EVIDENCE_ROLES = {
+    "product-analyst",
+    "reuse-researcher",
+    "plan-compiler",
+    "plan-reviewer",
+}
+
+
 def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) -> EvidenceBundle:
     items = []
     items.extend(ProjectMemoryEvidenceProvider(orchestrator.source_repo).retrieve(brief, limit=4))
@@ -64,12 +72,13 @@ def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) ->
 
 
 def install_evidence_policy(orchestrator_module) -> None:
-    original = orchestrator_module.Orchestrator._external_intelligence
-    if getattr(original, "_manageroo_evidence_policy", False):
+    original_external = orchestrator_module.Orchestrator._external_intelligence
+    original_call = orchestrator_module.Orchestrator._call
+    if getattr(original_external, "_manageroo_evidence_policy", False):
         return
 
     def _external_intelligence_with_evidence(self, brief: str, inventory: dict[str, Any]) -> dict[str, Any]:
-        payload = original(self, brief, inventory)
+        payload = original_external(self, brief, inventory)
         existing = self._artifact_json("discovery/evidence.json")
         if existing is None:
             bundle = _bundle_from_discovery(self, brief, payload)
@@ -84,6 +93,7 @@ def install_evidence_policy(orchestrator_module) -> None:
             self.artifacts.write_json("discovery/evidence.json", evidence_payload, lock=True)
         else:
             evidence_payload = existing
+        self._planning_evidence_items = list(evidence_payload.get("items", []))
         return {
             **payload,
             "evidence_bundle": evidence_payload,
@@ -93,5 +103,22 @@ def install_evidence_policy(orchestrator_module) -> None:
             ).strip(),
         }
 
+    def _call_with_evidence(self, *args, **kwargs):
+        role = str(kwargs.get("role") or "")
+        if role in PLANNING_EVIDENCE_ROLES:
+            evidence_items = list(getattr(self, "_planning_evidence_items", []) or [])
+            if evidence_items:
+                metadata = dict(kwargs.get("metadata") or {})
+                metadata["_evidence_items"] = evidence_items
+                metadata["_evidence_policy"] = {
+                    "source": "discovery/evidence.json",
+                    "context_only": True,
+                    "controller_authority": True,
+                }
+                kwargs["metadata"] = metadata
+        return original_call(self, *args, **kwargs)
+
     _external_intelligence_with_evidence._manageroo_evidence_policy = True
+    _call_with_evidence._manageroo_evidence_policy = True
     orchestrator_module.Orchestrator._external_intelligence = _external_intelligence_with_evidence
+    orchestrator_module.Orchestrator._call = _call_with_evidence
