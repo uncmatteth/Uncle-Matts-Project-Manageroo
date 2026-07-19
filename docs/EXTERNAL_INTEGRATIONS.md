@@ -14,6 +14,22 @@ The intended full installation can include:
 
 These integrations are first-class parts of the full Manageroo experience without becoming completion authorities.
 
+## Evidence provider boundary
+
+GitNexus and GBrain now feed Manageroo's generic evidence layer rather than being treated as interchangeable "memory" systems.
+
+Configured discovery commands remain command-owned. Successful output is normalized into provenance-aware evidence records with source, location when known, authority, confidence, freshness, retrieval time, and content hash. Failed provider calls remain visible as provider errors.
+
+Manageroo combines that with selected native project/run evidence in:
+
+```text
+.manageroo/runs/<run-id>/artifacts/discovery/evidence.json
+```
+
+A bounded highest-ranked subset can enter planning worker packets through `ContextCompiler`. Required repository files are budgeted first. Retrieved evidence is context only and cannot authorize edits, approve review, pass gates, or mark a run `COMPLETE`.
+
+See `docs/EVIDENCE_RETRIEVAL.md`.
+
 ## Safe maintenance
 
 Preview the current supported update plan without changing anything:
@@ -64,6 +80,8 @@ gitnexus analyze
 
 GitNexus can then provide repository exploration, dependency awareness, impact analysis, debugging, and refactoring context through its current installed integration surfaces.
 
+When a configured GitNexus discovery command returns evidence, Manageroo ranks that output as current repository intelligence, while still preferring direct current Git file reads whenever exact source truth is required.
+
 Manageroo remains the controller. Current Git files and command output beat stale graph data, and Manageroo can still operate when GitNexus was intentionally skipped or is temporarily unavailable.
 
 For an existing persistent installation, `manageroo stack-update gitnexus --apply` refreshes the CLI with the detected supported global package-manager lane. Stack update does not install GitNexus merely because it is absent; use the Manageroo installer when you want to add the recommended stack.
@@ -75,6 +93,8 @@ Project: https://github.com/nxpatterns/gitnexus
 GBrain is external memory and retrieval. Manageroo's own `.manageroo/PROJECT-MEMORY.md` remains the normal repo-local continuity lane.
 
 GBrain becomes required only when the operator explicitly wants GBrain, a brain page, Obsidian-backed external context, or another external knowledge source.
+
+When a configured GBrain search command returns evidence, Manageroo preserves it as external knowledge with provenance rather than allowing it to override current repository state or locked run truth.
 
 Supported maintenance path:
 
