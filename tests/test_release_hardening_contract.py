@@ -24,10 +24,12 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}
         required = {
             "docs/DISCOVERY_AND_CAPACITY.md",
+            "docs/HOST_AND_TOS_INTEGRATION.md",
             "scripts/release.py",
             "src/manageroo/acceptance.py",
             "src/manageroo/discovery_policy.py",
             "src/manageroo/discovery_preflight.py",
+            "src/manageroo/host_skills.py",
             "src/manageroo/system_capacity.py",
             "src/manageroo/stack_update.py",
             "src/manageroo/external_repair_policy.py",
@@ -43,6 +45,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "tests/test_discovery_preflight.py",
             "tests/test_external_loop_library_removed.py",
             "tests/test_external_repair_resume.py",
+            "tests/test_host_skills.py",
             "tests/test_parallel_worker_logging.py",
             "tests/test_plan_proof_policy.py",
             "tests/test_release_driver.py",
@@ -77,8 +80,10 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         acceptance = (ROOT / "src/manageroo/acceptance.py").read_text(encoding="utf-8")
         discovery = (ROOT / "src/manageroo/discovery_policy.py").read_text(encoding="utf-8")
         preflight = (ROOT / "src/manageroo/discovery_preflight.py").read_text(encoding="utf-8")
+        host_skills = (ROOT / "src/manageroo/host_skills.py").read_text(encoding="utf-8")
         capacity = (ROOT / "src/manageroo/system_capacity.py").read_text(encoding="utf-8")
         stack_update = (ROOT / "src/manageroo/stack_update.py").read_text(encoding="utf-8")
+        token_modes = (ROOT / "src/manageroo/token_modes.py").read_text(encoding="utf-8")
         release_driver = (ROOT / "scripts/release.py").read_text(encoding="utf-8")
 
         self.assertIn("critical_controller_truth_guard", transactional)
@@ -94,6 +99,9 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("capacity_bounded_parallel", discovery)
         self.assertIn("decisions_fully_resolved", discovery)
         self.assertIn("ask_only_when", preflight)
+        self.assertIn("host_owned_or_external", host_skills)
+        self.assertIn("CORE_SKILL_NAMES", token_modes)
+        self.assertIn("OPTIONAL_SKILL_PACK", token_modes)
         self.assertIn("max_parallel_agent_calls", capacity)
         self.assertIn("gbrain", stack_update)
         self.assertIn("gitnexus@latest", stack_update)
