@@ -47,6 +47,7 @@ An agent may help explain choices, troubleshoot failures, or perform an installa
 - The default `auto` worker pool can use compatible installed agents without making Manageroo vendor-specific.
 - Manageroo's durable state, intent lock, project memory, proof bindings, transactional attempts, rollback, budgets, review, and completion evidence stay controller-owned.
 - Manageroo installs only its small portable core skill pack by default.
+- The portable core now includes `skill-vetter`, a security-first pre-install review lane adapted from `spclaudehome/Skill Vetter` under MIT-0. Third-party skills are treated as untrusted until their files, permissions, commands, network access, credential access, persistence, and side effects have been reviewed; high-risk installs require explicit human approval.
 - `use-installed-skills-first` lets workers use relevant host-installed skills when present without Manageroo copying, deleting, upgrading, or claiming ownership of the host environment.
 - `manageroo host-skills` inventories that boundary read-only.
 - Optional integrations such as GBrain, GitNexus, Obsidian, AUTOREVIEW, and Clawpatch can add context or review lanes but do not become the source of truth for Manageroo completion.
