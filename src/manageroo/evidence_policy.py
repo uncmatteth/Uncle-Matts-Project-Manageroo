@@ -84,6 +84,21 @@ def _planning_items(evidence_payload: dict[str, Any]) -> list[dict[str, Any]]:
     return selected
 
 
+def _evidence_summary(orchestrator, evidence_payload: dict[str, Any]) -> dict[str, Any]:
+    items = [item for item in evidence_payload.get("items", []) if isinstance(item, dict)]
+    contradictions = [
+        item for item in evidence_payload.get("contradictions", []) if isinstance(item, dict)
+    ]
+    return {
+        "artifact": str(orchestrator.artifacts.root / "discovery" / "evidence.json"),
+        "item_count": len(items),
+        "contradiction_count": len(contradictions),
+        "top_sources": list(dict.fromkeys(str(item.get("source") or "unknown") for item in items))[:8],
+        "controller_authority": True,
+        "context_only": True,
+    }
+
+
 def install_evidence_policy(orchestrator_module) -> None:
     original_external = orchestrator_module.Orchestrator._external_intelligence
     original_call = orchestrator_module.Orchestrator._call
@@ -109,7 +124,7 @@ def install_evidence_policy(orchestrator_module) -> None:
         self._planning_evidence_items = _planning_items(evidence_payload)
         return {
             **payload,
-            "evidence_bundle": evidence_payload,
+            "evidence_bundle": _evidence_summary(self, evidence_payload),
             "note": (
                 str(payload.get("note") or "")
                 + " Retrieved evidence is provenance-ranked context only; Manageroo remains the completion authority."
