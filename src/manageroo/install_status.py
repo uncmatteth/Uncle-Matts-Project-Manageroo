@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 from pathlib import Path
 from typing import Any
 
 from .branding import PUBLIC_COMMAND
+from .token_modes import CORE_HELPER_SKILLS, token_mode_skills_dir
 
 
 DEFAULT_PREFIX = Path.home() / ".local" / "share" / PUBLIC_COMMAND
@@ -28,12 +30,25 @@ def read_install_lock(path: Path | None = None) -> dict[str, Any]:
             "ok": False,
             "lock_path": str(lock_path),
             "error": "install-lock.json was not found. Run the installer first.",
+            "next_commands": ["Run the Manageroo installer again to recreate install-lock.json."],
         }
-    return {
-        "ok": True,
-        "lock_path": str(lock_path),
-        "lock": json.loads(lock_path.read_text(encoding="utf-8")),
-    }
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "lock_path": str(lock_path),
+            "error": f"install-lock.json is unreadable or malformed: {exc}",
+            "next_commands": ["Run the Manageroo installer again to recreate install-lock.json."],
+        }
+    if not isinstance(payload, dict):
+        return {
+            "ok": False,
+            "lock_path": str(lock_path),
+            "error": "install-lock.json must contain a JSON object.",
+            "next_commands": ["Run the Manageroo installer again to recreate install-lock.json."],
+        }
+    return {"ok": True, "lock_path": str(lock_path), "lock": payload}
 
 
 def summarize_external_tools(external_tools: list[dict[str, Any]]) -> dict[str, Any]:
@@ -41,18 +56,17 @@ def summarize_external_tools(external_tools: list[dict[str, Any]]) -> dict[str, 
     counts = {"installed": 0, "configured": 0, "skipped": 0, "needs_action": 0}
     for tool in external_tools:
         installed = bool(tool.get("installed") or tool.get("path"))
+        configured_present = "configured" in tool
         configured = bool(tool.get("configured"))
         skipped = bool(tool.get("skipped"))
-        next_commands = [
-            *tool.get("next_commands", []),
-            *tool.get("guidance_commands", []),
-        ]
+        next_commands = [*tool.get("next_commands", []), *tool.get("guidance_commands", [])]
         needs_action = bool(
             skipped
             or tool.get("guidance")
             or tool.get("error")
             or next_commands
             or not installed
+            or (configured_present and not configured)
         )
         counts["installed"] += 1 if installed else 0
         counts["configured"] += 1 if configured else 0
@@ -75,6 +89,27 @@ def summarize_external_tools(external_tools: list[dict[str, Any]]) -> dict[str, 
     return {"counts": counts, "items": items}
 
 
+def helper_skill_roots() -> list[Path]:
+    roots: list[Path] = []
+    for root in [
+        token_mode_skills_dir(),
+        Path.home() / ".codex" / "skills",
+        Path.home() / ".agents" / "skills",
+    ]:
+        expanded = root.expanduser()
+        if expanded not in roots:
+            roots.append(expanded)
+    return roots
+
+
+def _find_skill(skill: str) -> str | None:
+    for root in helper_skill_roots():
+        candidate = root / skill / "SKILL.md"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
     loaded = read_install_lock(lock_path)
     if not loaded["ok"]:
@@ -85,38 +120,9 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
         name: shutil.which(name)
         for name in ("codex", "gbrain", "gitnexus", "clawpatch", "obsidian")
     }
-    autoreview_candidates = [
-        Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
-        Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
-    ]
-    probes["autoreview"] = next(
-        (str(path) for path in autoreview_candidates if path.exists()),
-        None,
-    )
-    for skill in (
-        "pimp-my-prompt",
-        "brain-ops",
-        "query",
-        "ingest",
-        "idea-ingest",
-        "media-ingest",
-        "voice-note-ingest",
-        "article-enrichment",
-        "book-mirror",
-        "strategic-reading",
-        "pdf",
-        "brain-pdf",
-        "citation-fixer",
-        "reports",
-        "exact-text-replacement",
-        "write-a-skill",
-        "edit-skill",
-        "skillify",
-        "caveman",
-        "uncle-matts-caveman-curse",
-    ):
-        path = Path.home() / ".agents" / "skills" / skill / "SKILL.md"
-        probes[skill] = str(path) if path.exists() else None
+    probes["autoreview"] = _find_skill("autoreview")
+    for skill in CORE_HELPER_SKILLS:
+        probes[skill] = _find_skill(skill)
     return {
         "ok": True,
         "lock_path": loaded["lock_path"],
@@ -130,20 +136,16 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
 
 
 def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> dict[str, Any]:
-    prefix = (prefix.expanduser() if prefix else default_prefix())
+    prefix = prefix.expanduser() if prefix else default_prefix()
     bin_dir = (bin_dir or DEFAULT_BIN_DIR).expanduser()
     launcher = bin_dir / PUBLIC_COMMAND
     launcher_cmd = bin_dir / f"{PUBLIC_COMMAND}.cmd"
     return {
         "executes_deletions": False,
-        "core_paths": [
-            str(prefix),
-            str(launcher),
-            str(launcher_cmd),
-        ],
+        "core_paths": [str(prefix), str(launcher), str(launcher_cmd)],
         "core_commands": [
-            f'rm -rf "{prefix}"',
-            f'rm -f "{launcher}" "{launcher_cmd}"',
+            shlex.join(["rm", "-rf", str(prefix)]),
+            shlex.join(["rm", "-f", str(launcher), str(launcher_cmd)]),
         ],
         "third_party_notes": [
             "GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Codex, Bun, Node, pnpm, Flatpak, Snap, Homebrew, and Winget are external tools.",
@@ -151,19 +153,19 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
             "Use stack-status first, then remove only the external tools you intentionally want gone.",
         ],
         "skill_paths_to_review": [
-            str(Path.home() / ".agents" / "skills" / "autoreview"),
-            str(Path.home() / ".codex" / "skills" / "autoreview"),
-            str(Path.home() / ".agents" / "skills" / "pimp-my-prompt"),
-            str(Path.home() / ".agents" / "skills" / "edit-skill"),
-            str(Path.home() / ".agents" / "skills" / "caveman"),
-            str(Path.home() / ".agents" / "skills" / "uncle-matts-caveman-curse"),
+            str(root / skill)
+            for root in helper_skill_roots()
+            for skill in ("autoreview", "pimp-my-prompt", "edit-skill", "caveman", "uncle-matts-caveman-curse")
         ],
     }
 
 
 def format_stack_status(status: dict[str, Any]) -> str:
     if not status.get("ok"):
-        return f"NOT READY: {status.get('error', 'install status unavailable')}\n"
+        lines = [f"NOT READY: {status.get('error', 'install status unavailable')}"]
+        for command in status.get("next_commands", []):
+            lines.append(f"next: {command}")
+        return "\n".join(lines) + "\n"
     lines = [
         f"Install lock: {status['lock_path']}",
         f"Launcher: {status.get('launcher') or '(unknown)'}",
