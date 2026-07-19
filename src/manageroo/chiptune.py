@@ -14,7 +14,7 @@ from pathlib import Path
 
 SAMPLE_RATE = 11_025
 FADE_SECONDS = 3.0
-MASTER_VOLUME = 0.5
+MASTER_VOLUME = 0.2
 
 _NOTE_OFFSETS = {
     "C": 0,
