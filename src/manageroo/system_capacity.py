@@ -98,17 +98,15 @@ def _nvidia_gpus() -> list[dict[str, Any]]:
     return gpus
 
 
-def _capacity_class(*, ram_gib: float | None, max_vram_gib: float | None) -> str:
-    if ram_gib is not None and ram_gib >= 64 and (max_vram_gib or 0) >= 16:
-        return "high-capacity-local"
-    if ram_gib is not None and ram_gib >= 32:
-        return "strong-general-purpose"
-    if ram_gib is not None and ram_gib >= 16:
-        return "standard-development"
-    return "constrained-or-unknown"
-
-
 def host_capacity(repo: Path | None = None) -> dict[str, Any]:
+    """Return host hardware as context, never as a Manageroo core requirement.
+
+    Manageroo orchestrates configured agent CLIs and repository commands. A worker may
+    itself be cloud-backed or local. Because Manageroo cannot infer the resource model
+    behind an arbitrary agent command, host CPU/RAM/GPU must not automatically change
+    Manageroo concurrency or determine whether the core product is usable.
+    """
+
     target = (repo or Path.cwd()).expanduser().resolve()
     disk_target = target if target.exists() else Path.cwd()
     disk = shutil.disk_usage(disk_target)
@@ -124,21 +122,18 @@ def host_capacity(repo: Path | None = None) -> dict[str, Any]:
         default=None,
     )
     cpu_count = os.cpu_count() or 1
-    ram_parallel = max(1, int(ram_gib // 8)) if ram_gib is not None else 4
-    recommended_parallel = max(
-        1,
-        min(8, max(1, cpu_count // 2), ram_parallel),
-    )
-    warnings: list[str] = []
     free_disk_gib = round(disk.free / (1024**3), 1)
+
+    notes: list[str] = []
     if free_disk_gib < 10:
-        warnings.append(
-            "Less than 10 GiB of free disk space is available for isolated workspaces and builds."
+        notes.append(
+            "Less than 10 GiB of free disk space is available. Large target-repo builds "
+            "or isolated workspaces may need more, but this is not a Manageroo hardware gate."
         )
     if ram_gib is not None and ram_gib < 8:
-        warnings.append(
-            "Less than 8 GiB of system RAM was detected; large builds or parallel workers "
-            "may be unreliable."
+        notes.append(
+            "Less than 8 GiB of system RAM was detected. Some target-repo builds or local "
+            "AI tools may need more, but Manageroo itself does not impose an 8 GiB minimum."
         )
 
     return {
@@ -161,8 +156,8 @@ def host_capacity(repo: Path | None = None) -> dict[str, Any]:
             "devices": gpus,
             "max_vram_gib": max_vram_gib,
             "note": (
-                "GPU detection is best-effort. NVIDIA devices are read through nvidia-smi; "
-                "other accelerators may not be reported automatically."
+                "GPU detection is best-effort. No GPU is required by Manageroo core. "
+                "A selected local AI tool or target project may have separate GPU requirements."
             ),
         },
         "disk": {
@@ -170,19 +165,19 @@ def host_capacity(repo: Path | None = None) -> dict[str, Any]:
             "total_gib": round(disk.total / (1024**3), 1),
             "free_gib": free_disk_gib,
         },
-        "recommendations": {
-            "capacity_class": _capacity_class(
-                ram_gib=ram_gib,
-                max_vram_gib=max_vram_gib,
-            ),
-            "max_parallel_agent_calls": recommended_parallel,
-            "reason": (
-                "Conservative recommendation based on logical CPU count and roughly one "
-                "8 GiB RAM slice per concurrent worker when RAM is detectable. "
-                "Repository-specific build processes may require less concurrency."
+        "manageroo_core": {
+            "hardware_agnostic": True,
+            "gpu_required": False,
+            "cpu_minimum_enforced": False,
+            "ram_minimum_enforced": False,
+            "auto_tunes_worker_concurrency_from_hardware": False,
+            "concurrency_source": "project orchestration configuration",
+            "note": (
+                "Host hardware is recorded only as context. Manageroo can orchestrate cloud-backed "
+                "or local agents, so it does not infer worker cost from CPU, RAM, GPU, or VRAM."
             ),
         },
-        "warnings": warnings,
+        "notes": notes,
     }
 
 
@@ -194,7 +189,7 @@ def format_capacity(profile: dict[str, Any]) -> str:
         f"({profile['platform']['machine']})"
     )
     lines = [
-        "SYSTEM CAPACITY",
+        "HOST HARDWARE PROFILE",
         f"Platform: {platform_text}",
         f"CPU: {profile['cpu']['logical_cores']} logical cores",
         f"RAM: {memory if memory is not None else 'unknown'} GiB",
@@ -206,13 +201,19 @@ def format_capacity(profile: dict[str, Any]) -> str:
             lines.append(f"GPU: {device['name']} ({vram} GiB VRAM)")
     else:
         lines.append("GPU: no NVIDIA GPU detected automatically")
-    lines.append(f"Capacity class: {profile['recommendations']['capacity_class']}")
-    lines.append(
-        "Recommended max parallel agent calls: "
-        + str(profile["recommendations"]["max_parallel_agent_calls"])
+    lines.extend(
+        [
+            "Manageroo core: hardware-agnostic",
+            "GPU required by Manageroo core: no",
+            "Automatic hardware-based worker throttling: no",
+            (
+                "Note: target projects and explicitly selected local AI tools can have their own "
+                "hardware requirements."
+            ),
+        ]
     )
-    for warning in profile.get("warnings", []):
-        lines.append("WARNING: " + warning)
+    for note in profile.get("notes", []):
+        lines.append("NOTE: " + note)
     return "\n".join(lines) + "\n"
 
 
