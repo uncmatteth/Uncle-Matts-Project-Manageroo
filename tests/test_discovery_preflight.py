@@ -15,11 +15,11 @@ class DiscoveryPreflightTests(unittest.TestCase):
             )
             (repo / "schema.sql").write_text("create table users(id integer);", encoding="utf-8")
             capacity = {
-                "warnings": [],
-                "recommendations": {
-                    "capacity_class": "strong-general-purpose",
-                    "max_parallel_agent_calls": 4,
+                "manageroo_core": {
+                    "hardware_agnostic": True,
+                    "auto_tunes_worker_concurrency_from_hardware": False,
                 },
+                "notes": [],
             }
             preflight = build_discovery_preflight(
                 repo,
@@ -32,6 +32,7 @@ class DiscoveryPreflightTests(unittest.TestCase):
         self.assertIn("data-and-migrations", categories)
         self.assertIn("deployment-and-runtime", categories)
         self.assertIn("user-facing-quality", categories)
+        self.assertIn("does not automatically change Manageroo worker concurrency", preflight["capacity_notes"][0])
 
     def test_preflight_always_reviews_recovery_observability_proof_and_scope(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -39,11 +40,11 @@ class DiscoveryPreflightTests(unittest.TestCase):
                 Path(temp),
                 "Change one internal function.",
                 {
-                    "warnings": [],
-                    "recommendations": {
-                        "capacity_class": "standard-development",
-                        "max_parallel_agent_calls": 2,
+                    "manageroo_core": {
+                        "hardware_agnostic": True,
+                        "auto_tunes_worker_concurrency_from_hardware": False,
                     },
+                    "notes": [],
                 },
             )
         categories = {item["category"] for item in preflight["always_review"]}
@@ -58,6 +59,12 @@ class DiscoveryPreflightTests(unittest.TestCase):
         )
         self.assertIn("ask_only_when", preflight["decision_policy"])
         self.assertIn("do_not_block_for", preflight["decision_policy"])
+        self.assertTrue(
+            any(
+                "Manageroo host having different CPU" in item
+                for item in preflight["decision_policy"]["do_not_block_for"]
+            )
+        )
 
 
 if __name__ == "__main__":
