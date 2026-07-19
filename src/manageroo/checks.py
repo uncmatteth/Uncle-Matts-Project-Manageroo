@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -122,7 +123,7 @@ def _python_compile_fallback(repo: Path) -> dict[str, Any] | None:
         return None
     return _suggestion(
         repo,
-        {"id": "python-compile", "kind": "check", "argv": ["python3", "-m", "compileall", "."]},
+        {"id": "python-compile", "kind": "check", "argv": [sys.executable, "-m", "compileall", "."]},
         "Safe starter check: catches Python syntax errors when no test command was found.",
     )
 
@@ -166,7 +167,13 @@ def add_first_suggested_check_gate(repo: Path) -> dict[str, Any]:
 
 def format_add_check_gate(report: dict[str, Any]) -> str:
     command = _command_text(report["argv"])
-    return f"CHECK ADDED\nID: {report['id']}\nCommand: {command}\nConfig: {report['config']}\nNext: {report['next_command']}\n"
+    return (
+        "CHECK ADDED\n"
+        f"ID: {report['id']}\n"
+        f"Command: {command}\n"
+        f"Config: {report['config']}\n"
+        f"Next: {report['next_command']}\n"
+    )
 
 
 def format_check_gate_list(report: dict[str, Any]) -> str:
@@ -196,7 +203,17 @@ def format_check_gate_suggestions(report: dict[str, Any]) -> str:
 
 def format_applied_check_suggestion(report: dict[str, Any]) -> str:
     if not report.get("ok"):
-        return f"CHECK SUGGESTION NOT APPLIED\nReason: {report['reason']}\nNext: {report['next_command']}\n"
+        return (
+            "CHECK SUGGESTION NOT APPLIED\n"
+            f"Reason: {report['reason']}\n"
+            f"Next: {report['next_command']}\n"
+        )
     added = report["added"]
     command = _command_text(added["argv"])
-    return f"CHECK SUGGESTION APPLIED\nID: {added['id']}\nCommand: {command}\nConfig: {added['config']}\nNext: {report['next_command']}\n"
+    return (
+        "CHECK SUGGESTION APPLIED\n"
+        f"ID: {added['id']}\n"
+        f"Command: {command}\n"
+        f"Config: {added['config']}\n"
+        f"Next: {report['next_command']}\n"
+    )
