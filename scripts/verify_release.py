@@ -95,18 +95,22 @@ def structural_checks() -> list[dict]:
     required = [
         "install.sh", "install.ps1", "scripts/smoke_release_install.py", "scripts/finalize_gitnexus_install.py",
         "README.md", "GIVE-THIS-TO-YOUR-IDE-AGENT.md", "docs/CONTEXT_COMPILER.md", "docs/DOCUMENT_LANE.md",
-        "docs/INSTALLATION.md", "docs/LEARNING_LANE.md", "docs/LIMITATIONS.md", "docs/REVIEW_REPAIR_LANES.md",
-        "docs/SOLO_OPERATOR_MODE.md", "docs/STATELESS_ORCHESTRATION.md", "docs/TERMINAL_EXPERIENCE.md",
-        "src/manageroo/branding.py", "src/manageroo/checks.py", "src/manageroo/chiptune.py", "src/manageroo/document_lane.py",
-        "src/manageroo/jobs.py", "src/manageroo/learning.py", "src/manageroo/next_action.py", "src/manageroo/project_memory.py",
-        "src/manageroo/solo.py", "src/manageroo/token_modes.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
-        "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md", "tests/test_jobs.py", "tests/test_learning.py",
-        "tests/test_truth_contract.py", "tests/test_release_hardening_contract.py",
+        "docs/EVIDENCE_RETRIEVAL.md", "docs/INSTALLATION.md", "docs/LEARNING_LANE.md", "docs/LIMITATIONS.md",
+        "docs/REVIEW_REPAIR_LANES.md", "docs/SOLO_OPERATOR_MODE.md", "docs/STATELESS_ORCHESTRATION.md",
+        "docs/TERMINAL_EXPERIENCE.md", "src/manageroo/branding.py", "src/manageroo/checks.py",
+        "src/manageroo/chiptune.py", "src/manageroo/document_lane.py", "src/manageroo/evidence.py",
+        "src/manageroo/evidence_policy.py", "src/manageroo/jobs.py", "src/manageroo/learning.py",
+        "src/manageroo/next_action.py", "src/manageroo/project_memory.py", "src/manageroo/solo.py",
+        "src/manageroo/token_modes.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
+        "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md", "tests/test_evidence.py",
+        "tests/test_jobs.py", "tests/test_learning.py", "tests/test_truth_contract.py",
+        "tests/test_release_hardening_contract.py",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     limitations = (ROOT / "docs" / "LIMITATIONS.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    evidence = (ROOT / "docs" / "EVIDENCE_RETRIEVAL.md").read_text(encoding="utf-8")
     stateless = (ROOT / "docs" / "STATELESS_ORCHESTRATION.md").read_text(encoding="utf-8")
     review_repair = (ROOT / "docs" / "REVIEW_REPAIR_LANES.md").read_text(encoding="utf-8")
     installer = (ROOT / "scripts" / "install.py").read_text(encoding="utf-8")
@@ -147,6 +151,20 @@ def structural_checks() -> list[dict]:
         {
             "name": "truth:stateless-worker-orchestration",
             "ok": contains_compact(stateless, 'Manageroo is not "AI remembers better." Manageroo makes remembering unnecessary.'),
+        },
+        {
+            "name": "truth:evidence-is-context-not-authority",
+            "ok": contains_compact(evidence, "Evidence helps a worker receive better context")
+            or (
+                contains_compact(evidence, "retrieved evidence is context")
+                and contains_compact(evidence, "cannot certify one")
+            ),
+        },
+        {
+            "name": "truth:gitnexus-gbrain-evidence-provider-boundary",
+            "ok": contains_compact(evidence, "GitNexus remains the first-class repository/code-graph intelligence integration")
+            and contains_compact(evidence, "GBrain remains the external durable knowledge lane")
+            and contains_compact(evidence, "None of them can mark a run `COMPLETE`"),
         },
         {
             "name": "no-github-actions-workflows",
