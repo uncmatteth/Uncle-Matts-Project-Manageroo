@@ -26,18 +26,25 @@ def _bullets(values: list[str], fallback: str) -> list[str]:
     return [f"- {item}" for item in items]
 
 
+def _read_utf8(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"Refusing to rewrite non-UTF-8 project memory file: {path}. Convert it to UTF-8 first."
+        ) from exc
+
+
 def _readme_summary(repo: Path) -> str:
     readme = repo / "README.md"
     if not readme.exists():
         return ""
-    lines = [
-        line.strip().lstrip("#").strip()
-        for line in readme.read_text(encoding="utf-8", errors="replace").splitlines()
-        if line.strip()
-    ]
-    if not lines:
+    try:
+        text = readme.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
         return ""
-    return " - ".join(lines[:2])
+    lines = [line.strip().lstrip("#").strip() for line in text.splitlines() if line.strip()]
+    return " - ".join(lines[:2]) if lines else ""
 
 
 def build_project_memory(
@@ -55,31 +62,14 @@ def build_project_memory(
     proof_items = _clean_items(proof)
     note_items = _clean_items(notes)
     lines = [
-        "# Project Memory",
-        "",
+        "# Project Memory", "",
         "This is the repo-local continuity file for humans and AI agents.",
-        "Read it before broad product work. Keep it short and update it after meaningful releases.",
-        "",
-        "## What This Project Is",
-        "",
-        *_bullets([summary], "Describe what this project is for."),
-        "",
-        "## What Has Shipped",
-        "",
-        *_bullets(shipped_items, "Nothing shipped through MANAGEROO yet."),
-        "",
-        "## What Must Not Break",
-        "",
-        *_bullets(must_not_items, "Add product promises, workflows, files, or behaviors that must stay intact."),
-        "",
-        "## Current Proof",
-        "",
-        *_bullets(proof_items, "Add the commands or manual checks that prove the current state."),
-        "",
-        "## Operator Notes",
-        "",
-        *_bullets(note_items, f"Created by MANAGEROO on {utc_now()}."),
-        "",
+        "Read it before broad product work. Keep it short and update it after meaningful releases.", "",
+        "## What This Project Is", "", *_bullets([summary], "Describe what this project is for."), "",
+        "## What Has Shipped", "", *_bullets(shipped_items, "Nothing shipped through MANAGEROO yet."), "",
+        "## What Must Not Break", "", *_bullets(must_not_items, "Add product promises, workflows, files, or behaviors that must stay intact."), "",
+        "## Current Proof", "", *_bullets(proof_items, "Add the commands or manual checks that prove the current state."), "",
+        "## Operator Notes", "", *_bullets(note_items, f"Created by MANAGEROO on {utc_now()}."), "",
     ]
     return "\n".join(lines)
 
@@ -102,7 +92,7 @@ def _append_items(text: str, heading: str, values: list[str]) -> tuple[str, bool
         return text, False
     prefix = text[:insert_at].rstrip()
     suffix = text[insert_at:]
-    return prefix + "\n" + "\n".join(new_lines) + ("\n" if suffix else "\n") + suffix.lstrip("\n"), True
+    return prefix + "\n" + "\n".join(new_lines) + "\n" + suffix.lstrip("\n"), True
 
 
 def ensure_project_memory(
@@ -127,15 +117,9 @@ def ensure_project_memory(
             notes=notes,
         )
         atomic_write_text(path, markdown)
-        updated_sections = [
-            "What This Project Is",
-            "What Has Shipped",
-            "What Must Not Break",
-            "Current Proof",
-            "Operator Notes",
-        ]
+        updated_sections = ["What This Project Is", "What Has Shipped", "What Must Not Break", "Current Proof", "Operator Notes"]
     else:
-        markdown = path.read_text(encoding="utf-8", errors="replace")
+        markdown = _read_utf8(path)
         updates = [
             ("What This Project Is", [project_summary] if _clean(project_summary) else []),
             ("What Has Shipped", shipped or []),
@@ -156,7 +140,7 @@ def ensure_project_memory(
         "path": str(path),
         "created": created,
         "updated_sections": updated_sections,
-        "content": path.read_text(encoding="utf-8", errors="replace"),
+        "content": _read_utf8(path),
     }
 
 
@@ -164,17 +148,19 @@ def read_project_memory(repo: Path) -> dict[str, Any]:
     path = project_memory_path(repo)
     if not path.exists():
         return {"ok": False, "path": str(path), "content": "", "next_command": "manageroo memory init"}
-    return {"ok": True, "path": str(path), "content": path.read_text(encoding="utf-8", errors="replace")}
+    try:
+        content = _read_utf8(path)
+    except ValueError as exc:
+        return {"ok": False, "path": str(path), "content": "", "error": str(exc)}
+    return {"ok": True, "path": str(path), "content": content}
 
 
 def format_project_memory(report: dict[str, Any]) -> str:
     if report.get("content"):
         return f"PROJECT MEMORY\nPath: {report['path']}\n\n{report['content']}"
-    lines = [
-        "PROJECT MEMORY",
-        f"Path: {report['path']}",
-        f"Created: {'yes' if report.get('created') else 'no'}",
-    ]
+    lines = ["PROJECT MEMORY", f"Path: {report['path']}", f"Created: {'yes' if report.get('created') else 'no'}"]
+    if report.get("error"):
+        lines.append(f"Error: {report['error']}")
     updated = report.get("updated_sections") or []
     lines.append("Updated: " + (", ".join(updated) if updated else "nothing changed"))
     return "\n".join(lines) + "\n"
