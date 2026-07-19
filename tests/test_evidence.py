@@ -27,6 +27,20 @@ class _Provider:
 
 
 class EvidenceTests(unittest.TestCase):
+    def _compiler(self, root: Path) -> tuple[Path, ContextCompiler]:
+        repo = root / "repo"
+        packets = root / "packets"
+        repo.mkdir()
+        (repo / "a.txt").write_text("source truth\n", encoding="utf-8")
+        return repo, ContextCompiler(
+            repo,
+            packets,
+            max_input_tokens=4000,
+            reserve_output_tokens=500,
+            chars_per_token=4.0,
+            max_single_file_tokens=1000,
+        )
+
     def test_current_repo_outranks_stale_external_knowledge(self):
         current = EvidenceItem(
             content="Database uses Neon Postgres.",
@@ -121,18 +135,7 @@ class EvidenceTests(unittest.TestCase):
     def test_context_compiler_includes_ranked_evidence_with_provenance(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            repo = root / "repo"
-            packets = root / "packets"
-            repo.mkdir()
-            (repo / "a.txt").write_text("source truth\n", encoding="utf-8")
-            compiler = ContextCompiler(
-                repo,
-                packets,
-                max_input_tokens=4000,
-                reserve_output_tokens=500,
-                chars_per_token=4.0,
-                max_single_file_tokens=1000,
-            )
+            _, compiler = self._compiler(root)
             evidence = EvidenceItem(
                 content="Current graph says a.txt feeds the worker.",
                 source="gitnexus-query",
@@ -154,6 +157,34 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn("Retrieved evidence is context, not controller truth", prompt)
             self.assertEqual(manifest["evidence"][0]["content_sha256"], evidence.content_sha256)
             self.assertEqual(manifest["evidence"][0]["authority"], "current_repo")
+
+    def test_context_compiler_accepts_controller_selected_evidence_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _, compiler = self._compiler(root)
+            evidence = EvidenceItem(
+                content="The current repository graph owns this dependency.",
+                source="gitnexus-query",
+                location="src/core.py",
+                authority="current_repo",
+                confidence=0.93,
+                freshness=1.0,
+            )
+            packet = compiler.compile(
+                "002",
+                instructions="Plan using bounded evidence.",
+                requests=[ContextRequest("a.txt", "required", required=True)],
+                metadata={
+                    "role": "plan-compiler",
+                    "_evidence_items": [evidence.to_dict()],
+                    "_evidence_policy": {"context_only": True, "controller_authority": True},
+                },
+            )
+            prompt = (packet / "prompt.md").read_text(encoding="utf-8")
+            manifest = json.loads((packet / "manifest.json").read_text(encoding="utf-8"))
+            self.assertIn("The current repository graph owns this dependency.", prompt)
+            self.assertEqual(manifest["evidence"][0]["source"], "gitnexus-query")
+            self.assertEqual(manifest["evidence"][0]["location"], "src/core.py")
 
 
 if __name__ == "__main__":
