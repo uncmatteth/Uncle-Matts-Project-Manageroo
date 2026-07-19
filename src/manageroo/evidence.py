@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -29,6 +30,8 @@ AUTHORITY_WEIGHTS: dict[str, float] = {
     "unknown": 0.10,
 }
 MAX_EVIDENCE_CONTENT_CHARS = 12_000
+MAX_EVIDENCE_INPUT_BYTES = 256_000
+EVIDENCE_SUFFIXES = {".json", ".md", ".txt"}
 
 
 def evidence_timestamp() -> str:
@@ -45,6 +48,36 @@ def _clamp(value: float) -> float:
 
 def _query_terms(query: str) -> set[str]:
     return {item.lower() for item in re.findall(r"[A-Za-z0-9_.:/-]{3,}", query)}
+
+
+def _read_bounded_text(path: Path, *, max_bytes: int = MAX_EVIDENCE_INPUT_BYTES) -> tuple[str, float] | None:
+    """Read only a bounded prefix and capture mtime in the same guarded operation."""
+    try:
+        if path.is_symlink():
+            return None
+        with path.open("rb") as handle:
+            payload = handle.read(max_bytes + 1)
+        stat = path.stat()
+    except OSError:
+        return None
+    if len(payload) > max_bytes:
+        payload = payload[:max_bytes]
+    try:
+        return payload.decode("utf-8"), stat.st_mtime
+    except UnicodeDecodeError:
+        return None
+
+
+def _safe_contained_file(root: Path, candidate: Path) -> Path | None:
+    """Reject direct symlinks and resolved paths that escape a trusted root."""
+    try:
+        if candidate.is_symlink():
+            return None
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    return resolved if resolved.is_file() else None
 
 
 @dataclass(frozen=True)
@@ -66,8 +99,11 @@ class EvidenceItem:
             raise ValueError("Evidence content cannot be empty.")
         object.__setattr__(self, "confidence", _clamp(self.confidence))
         object.__setattr__(self, "freshness", _clamp(self.freshness))
-        if not self.content_sha256:
-            object.__setattr__(self, "content_sha256", _sha256_text(content))
+        computed = _sha256_text(content)
+        supplied = str(self.content_sha256 or "").strip()
+        if supplied and supplied != computed:
+            raise ValueError("Evidence content_sha256 does not match evidence content.")
+        object.__setattr__(self, "content_sha256", computed)
 
     def score(self) -> float:
         authority_weight = AUTHORITY_WEIGHTS.get(self.authority, AUTHORITY_WEIGHTS["unknown"])
@@ -167,13 +203,14 @@ class ProjectMemoryEvidenceProvider:
         self.repo = repo.expanduser().resolve()
 
     def retrieve(self, query: str, *, limit: int = 12) -> list[EvidenceItem]:
-        path = self.repo / PROJECT_DIR / "PROJECT-MEMORY.md"
-        if not path.is_file():
+        lexical = self.repo / PROJECT_DIR / "PROJECT-MEMORY.md"
+        path = _safe_contained_file(self.repo, lexical)
+        if path is None:
             return []
-        try:
-            content = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        record = _read_bounded_text(path)
+        if record is None:
             return []
+        content, mtime = record
         terms = _query_terms(query)
         lowered = content.lower()
         relevance = sum(lowered.count(term) for term in terms)
@@ -183,12 +220,16 @@ class ProjectMemoryEvidenceProvider:
             EvidenceItem(
                 content=content[:MAX_EVIDENCE_CONTENT_CHARS],
                 source=self.name,
-                location=str(path.relative_to(self.repo)),
+                location=str(lexical.relative_to(self.repo)),
                 authority="project_memory",
                 confidence=0.90,
                 freshness=0.85,
-                created_at=datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
-                metadata={"relevance_hits": relevance, "provider": self.name},
+                created_at=datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
+                metadata={
+                    "relevance_hits": relevance,
+                    "provider": self.name,
+                    "input_byte_limit": MAX_EVIDENCE_INPUT_BYTES,
+                },
             )
         ]
 
@@ -201,37 +242,63 @@ class RunArtifactEvidenceProvider:
         self.artifact_root = self.run_root / "artifacts"
 
     def retrieve(self, query: str, *, limit: int = 12) -> list[EvidenceItem]:
-        if not self.artifact_root.is_dir():
+        if not self.artifact_root.is_dir() or self.artifact_root.is_symlink():
+            return []
+        try:
+            resolved_artifact_root = self.artifact_root.resolve(strict=True)
+            resolved_artifact_root.relative_to(self.run_root)
+        except (OSError, ValueError):
             return []
         terms = _query_terms(query)
         candidates: list[tuple[int, float, Path, str]] = []
-        for path in self.artifact_root.rglob("*"):
-            if len(candidates) >= max(limit * 20, 100):
+        eligible_seen = 0
+        eligible_cap = max(limit * 20, 100)
+        for current, dirs, files in os.walk(resolved_artifact_root, topdown=True, followlinks=False):
+            dirs[:] = sorted(
+                name for name in dirs if not (Path(current) / name).is_symlink()
+            )
+            for name in sorted(files):
+                if eligible_seen >= eligible_cap:
+                    break
+                lexical = Path(current) / name
+                if lexical.suffix.lower() not in EVIDENCE_SUFFIXES:
+                    continue
+                eligible_seen += 1
+                path = _safe_contained_file(resolved_artifact_root, lexical)
+                if path is None:
+                    continue
+                record = _read_bounded_text(path)
+                if record is None:
+                    continue
+                text, mtime = record
+                lowered = (path.as_posix() + "\n" + text).lower()
+                relevance = sum(lowered.count(term) for term in terms)
+                if terms and relevance == 0:
+                    continue
+                candidates.append((relevance, mtime, path, text))
+            if eligible_seen >= eligible_cap:
                 break
-            if not path.is_file() or path.is_symlink() or path.suffix.lower() not in {".json", ".md", ".txt"}:
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            lowered = (path.as_posix() + "\n" + text).lower()
-            relevance = sum(lowered.count(term) for term in terms)
-            if terms and relevance == 0:
-                continue
-            candidates.append((relevance, path.stat().st_mtime, path, text))
         candidates.sort(key=lambda row: (row[0], row[1], row[2].as_posix()), reverse=True)
         items: list[EvidenceItem] = []
         for relevance, mtime, path, text in candidates[:limit]:
+            try:
+                location = str(path.relative_to(self.run_root))
+            except ValueError:
+                continue
             items.append(
                 EvidenceItem(
                     content=text[:MAX_EVIDENCE_CONTENT_CHARS],
                     source=self.name,
-                    location=str(path.relative_to(self.run_root)),
+                    location=location,
                     authority="manageroo_run",
                     confidence=0.98,
                     freshness=0.95,
                     created_at=datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
-                    metadata={"relevance_hits": relevance, "provider": self.name},
+                    metadata={
+                        "relevance_hits": relevance,
+                        "provider": self.name,
+                        "input_byte_limit": MAX_EVIDENCE_INPUT_BYTES,
+                    },
                 )
             )
         return items
