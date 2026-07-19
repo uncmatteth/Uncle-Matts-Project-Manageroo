@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,8 @@ from .gates import gates_from_config
 from .policy import CommandPolicy
 from .util import atomic_write_text
 
+_GATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
 
 def _toml_value(value: Any) -> str:
     if isinstance(value, bool):
@@ -19,8 +23,8 @@ def _toml_value(value: Any) -> str:
     if isinstance(value, int | float):
         return str(value)
     if isinstance(value, list):
-        return "[" + ", ".join(json.dumps(item) for item in value) + "]"
-    return json.dumps(str(value))
+        return "[" + ", ".join(json.dumps(item, ensure_ascii=False) for item in value) + "]"
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def add_check_gate(
@@ -35,6 +39,11 @@ def add_check_gate(
     gate_id = gate_id.strip()
     if not gate_id:
         raise ValueError("Check id is required, for example: smoke")
+    if not _GATE_ID_RE.fullmatch(gate_id):
+        raise ValueError("Check id may contain only letters, digits, dots, underscores, and hyphens.")
+    kind = str(kind).strip()
+    if not _GATE_ID_RE.fullmatch(kind):
+        raise ValueError("Check kind may contain only letters, digits, dots, underscores, and hyphens.")
     if not argv:
         raise ValueError(f"Command is required. Run `{PUBLIC_COMMAND} checks suggest` for repo-aware options.")
     if argv and argv[0] == "--":
@@ -62,7 +71,7 @@ def add_check_gate(
         f"argv = {_toml_value(argv)}",
         "",
     ]
-    text = config_path.read_text(encoding="utf-8", errors="replace")
+    text = config_path.read_text(encoding="utf-8")
     if text and not text.endswith("\n"):
         text += "\n"
     atomic_write_text(config_path, text + "\n".join(block).lstrip("\n"))
@@ -74,7 +83,7 @@ def add_check_gate(
         "required": required,
         "timeout_seconds": int(timeout_seconds),
         "config": str(config_path),
-        "next_command": f"{PUBLIC_COMMAND} ready",
+        "next_command": shlex.join([PUBLIC_COMMAND, "ready"]),
     }
 
 
@@ -87,19 +96,17 @@ def list_check_gates(repo: Path) -> dict[str, Any]:
 
 
 def _command_text(argv: list[str]) -> str:
-    return " ".join(argv)
+    return shlex.join([str(item) for item in argv])
 
 
 def _suggestion(repo: Path, gate: dict[str, Any], reason: str) -> dict[str, Any]:
     argv = list(gate["argv"])
-    if argv and Path(argv[0]).name.startswith("python"):
-        argv[0] = "python3"
     return {
         "id": gate["id"],
         "kind": gate.get("kind", "check"),
         "argv": argv,
         "reason": reason,
-        "add_command": f"{PUBLIC_COMMAND} checks add {gate['id']} -- {_command_text(argv)}",
+        "add_command": shlex.join([PUBLIC_COMMAND, "checks", "add", str(gate["id"]), "--", *[str(item) for item in argv]]),
         "repo": str(repo),
     }
 
@@ -115,11 +122,7 @@ def _python_compile_fallback(repo: Path) -> dict[str, Any] | None:
         return None
     return _suggestion(
         repo,
-        {
-            "id": "python-compile",
-            "kind": "check",
-            "argv": ["python3", "-m", "compileall", "."],
-        },
+        {"id": "python-compile", "kind": "check", "argv": ["python3", "-m", "compileall", "."]},
         "Safe starter check: catches Python syntax errors when no test command was found.",
     )
 
@@ -127,10 +130,7 @@ def _python_compile_fallback(repo: Path) -> dict[str, Any] | None:
 def suggest_check_gates(repo: Path) -> dict[str, Any]:
     repo = repo.resolve()
     detected = detect_gates(repo)
-    suggestions = [
-        _suggestion(repo, gate, "Detected from repository files and package scripts.")
-        for gate in detected
-    ]
+    suggestions = [_suggestion(repo, gate, "Detected from repository files and package scripts.") for gate in detected]
     if not suggestions:
         fallback = _python_compile_fallback(repo)
         if fallback:
@@ -139,13 +139,10 @@ def suggest_check_gates(repo: Path) -> dict[str, Any]:
         "ok": True,
         "repo": str(repo),
         "suggestions": suggestions,
-        "next_command": suggestions[0]["add_command"] if suggestions else (
-            f"{PUBLIC_COMMAND} checks add smoke -- COMMAND_THAT_PROVES_THE_PROJECT_WORKS"
-        ),
-        "note": (
-            "Pick one command the repo can really run. Add it, then run "
-            f"`{PUBLIC_COMMAND} ready` again."
-        ),
+        "next_command": suggestions[0]["add_command"] if suggestions else shlex.join([
+            PUBLIC_COMMAND, "checks", "add", "smoke", "--", "COMMAND_THAT_PROVES_THE_PROJECT_WORKS"
+        ]),
+        "note": f"Pick one command the repo can really run. Add it, then run `{PUBLIC_COMMAND} ready` again.",
     }
 
 
@@ -153,52 +150,23 @@ def add_first_suggested_check_gate(repo: Path) -> dict[str, Any]:
     report = suggest_check_gates(repo)
     suggestions = report.get("suggestions", [])
     if not suggestions:
-        return {
-            "ok": False,
-            "repo": report["repo"],
-            "reason": "No automatic check suggestion was found.",
-            "next_command": report["next_command"],
-        }
+        return {"ok": False, "repo": report["repo"], "reason": "No automatic check suggestion was found.", "next_command": report["next_command"]}
     skipped: list[dict[str, str]] = []
     for suggestion in suggestions:
         try:
-            added = add_check_gate(
-                repo,
-                gate_id=suggestion["id"],
-                argv=list(suggestion["argv"]),
-                kind=suggestion.get("kind", "check"),
-            )
+            added = add_check_gate(repo, gate_id=suggestion["id"], argv=list(suggestion["argv"]), kind=suggestion.get("kind", "check"))
         except ValueError as exc:
             if "already exists" not in str(exc):
                 raise
             skipped.append({"id": suggestion["id"], "reason": str(exc)})
             continue
-        return {
-            "ok": True,
-            "repo": report["repo"],
-            "selected": suggestion,
-            "added": added,
-            "skipped": skipped,
-            "next_command": added["next_command"],
-        }
-    return {
-        "ok": False,
-        "repo": report["repo"],
-        "reason": "All automatic check suggestions are already configured.",
-        "skipped": skipped,
-        "next_command": f"{PUBLIC_COMMAND} checks list",
-    }
+        return {"ok": True, "repo": report["repo"], "selected": suggestion, "added": added, "skipped": skipped, "next_command": added["next_command"]}
+    return {"ok": False, "repo": report["repo"], "reason": "All automatic check suggestions are already configured.", "skipped": skipped, "next_command": shlex.join([PUBLIC_COMMAND, "checks", "list"])}
 
 
 def format_add_check_gate(report: dict[str, Any]) -> str:
-    command = " ".join(report["argv"])
-    return (
-        "CHECK ADDED\n"
-        f"ID: {report['id']}\n"
-        f"Command: {command}\n"
-        f"Config: {report['config']}\n"
-        f"Next: {report['next_command']}\n"
-    )
+    command = _command_text(report["argv"])
+    return f"CHECK ADDED\nID: {report['id']}\nCommand: {command}\nConfig: {report['config']}\nNext: {report['next_command']}\n"
 
 
 def format_check_gate_list(report: dict[str, Any]) -> str:
@@ -207,7 +175,7 @@ def format_check_gate_list(report: dict[str, Any]) -> str:
     if not gates:
         lines.append("ACTION none configured")
     for gate in gates:
-        lines.append(f"OK {gate['id']}: {' '.join(gate['argv'])}")
+        lines.append(f"OK {gate['id']}: {_command_text(gate['argv'])}")
     return "\n".join(lines) + "\n"
 
 
@@ -228,17 +196,7 @@ def format_check_gate_suggestions(report: dict[str, Any]) -> str:
 
 def format_applied_check_suggestion(report: dict[str, Any]) -> str:
     if not report.get("ok"):
-        return (
-            "CHECK SUGGESTION NOT APPLIED\n"
-            f"Reason: {report['reason']}\n"
-            f"Next: {report['next_command']}\n"
-        )
+        return f"CHECK SUGGESTION NOT APPLIED\nReason: {report['reason']}\nNext: {report['next_command']}\n"
     added = report["added"]
-    command = " ".join(added["argv"])
-    return (
-        "CHECK SUGGESTION APPLIED\n"
-        f"ID: {added['id']}\n"
-        f"Command: {command}\n"
-        f"Config: {added['config']}\n"
-        f"Next: {report['next_command']}\n"
-    )
+    command = _command_text(added["argv"])
+    return f"CHECK SUGGESTION APPLIED\nID: {added['id']}\nCommand: {command}\nConfig: {added['config']}\nNext: {report['next_command']}\n"
