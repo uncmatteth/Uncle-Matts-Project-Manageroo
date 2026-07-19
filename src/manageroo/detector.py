@@ -47,6 +47,8 @@ def detect_gates(repo: Path) -> list[dict]:
         pyproject_text = (repo / "pyproject.toml").read_text(encoding="utf-8", errors="ignore")
     if "[tool.ruff" in pyproject_text:
         gates.append({"id": "ruff", "kind": "lint", "argv": [sys.executable, "-m", "ruff", "check", "."], "required": True})
+    if "[tool.pyright" in pyproject_text or (repo / "pyrightconfig.json").is_file():
+        gates.append({"id": "pyright", "kind": "typecheck", "argv": [sys.executable, "-m", "pyright"], "required": True})
     if "pytest" in pyproject_text or (repo / "pytest.ini").exists():
         gates.append({"id": "pytest", "kind": "test", "argv": [sys.executable, "-m", "pytest"], "required": True})
     elif any(repo.glob("test*.py")) or (repo / "tests").exists():
