@@ -14,7 +14,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_TAG = "v2026.7.18.2"
+VERSION_TAG = "v2026.7.19.1"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 EXPECTED_SKILL_COUNT = 17
@@ -200,6 +200,17 @@ def smoke(
         if host_skills.get("manageroo_core_missing"):
             raise RuntimeError(f"Installed core not visible to host inventory: {host_skills}")
 
+        capacity = parse_json_command(
+            ["manageroo", "capacity", "--json"],
+            cwd=extracted,
+            env=env,
+        )
+        core_capacity = capacity.get("manageroo_core", {})
+        if core_capacity.get("hardware_agnostic") is not True:
+            raise RuntimeError(f"Capacity report lost hardware-agnostic contract: {capacity}")
+        if core_capacity.get("auto_tunes_worker_concurrency_from_hardware") is not False:
+            raise RuntimeError(f"Capacity report unexpectedly auto-tunes concurrency: {capacity}")
+
         reconcile_target = temp_root / "reconciled-skills"
         reconcile = parse_json_command(
             [
@@ -286,6 +297,7 @@ def smoke(
             "install_stdout_tail": install.stdout[-2000:],
             "self_test_run_id": self_test.get("run_id"),
             "skill_count": len(bundled),
+            "hardware_agnostic": core_capacity.get("hardware_agnostic"),
             "reconcile_duplicate_count": reconcile.get("duplicate_count"),
             "product_repo": str(product),
             "product_run_id": run_result.get("run_id"),
