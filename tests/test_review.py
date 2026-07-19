@@ -38,6 +38,26 @@ class ReviewTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 validate_review_evidence(review, repo)
 
+    def test_review_evidence_rejects_traversal_and_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            outside = root / "outside.txt"
+            outside.write_text("secret\n", encoding="utf-8")
+            for path in ("../outside.txt", str(outside.resolve())):
+                review = {
+                    "findings": [{
+                        "path": path,
+                        "start_line": 1,
+                        "end_line": 1,
+                        "quote": "secret",
+                        "blocking": True,
+                    }]
+                }
+                with self.subTest(path=path), self.assertRaises(ValidationError):
+                    validate_review_evidence(review, repo)
+
     def test_blocking_finding_requires_non_empty_quote(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
