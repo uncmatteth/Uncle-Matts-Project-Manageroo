@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from .cli import main as cli_main
 from .cli import parser as cli_parser
 from .config import AGENT_PRESETS
 from .discovery_policy import decisions_fully_resolved, render_blocking_questions
+from .errors import SafetyError
 from .host_skills import format_host_skills, inspect_host_skills
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
 from .stack_update import STACK_TOOL_NAMES, apply_stack_updates, format_stack_update, stack_update_plan
@@ -27,10 +29,7 @@ def _auto_live_agent() -> str | None:
 
 
 def _provider_neutral_argv(argv: list[str]) -> list[str]:
-    explicit_agent = any(
-        value == "--agent" or value.startswith("--agent=")
-        for value in argv
-    )
+    explicit_agent = any(value == "--agent" or value.startswith("--agent=") for value in argv)
     if argv and argv[0] in {"init", "projects"} and not explicit_agent:
         return [*argv, "--agent", "auto"]
     return argv
@@ -76,19 +75,13 @@ def _prove_main(argv: list[str]) -> int:
 def _capacity_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo capacity",
-        description=(
-            "Inspect this machine's hardware as informational development-host context."
-        ),
+        description="Inspect this machine's hardware as informational development-host context.",
     )
     parser.add_argument("repo", nargs="?", default=".")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     profile = host_capacity(Path(args.repo))
-    rendered = (
-        json.dumps(profile, indent=2, sort_keys=True)
-        if args.json
-        else format_capacity(profile)
-    )
+    rendered = json.dumps(profile, indent=2, sort_keys=True) if args.json else format_capacity(profile)
     print(rendered, end="\n" if args.json else "")
     return 0
 
@@ -137,7 +130,17 @@ def _stack_update_main(argv: list[str]) -> int:
 
 
 def _run_root(repo: Path, run_id: str) -> Path:
-    return repo.expanduser().resolve() / PROJECT_DIR / "runs" / run_id
+    value = str(run_id).strip()
+    candidate = Path(value)
+    if not value or candidate.is_absolute() or len(candidate.parts) != 1 or value in {".", ".."}:
+        raise SafetyError(f"Invalid run id: {run_id!r}")
+    base = repo.expanduser().resolve() / PROJECT_DIR / "runs"
+    resolved = (base / value).resolve()
+    try:
+        resolved.relative_to(base.resolve())
+    except ValueError as exc:
+        raise SafetyError(f"Run id escapes repository run directory: {run_id!r}") from exc
+    return resolved
 
 
 def _blocking_decisions(run_root: Path) -> list[dict]:
@@ -153,9 +156,7 @@ def _blocking_decisions(run_root: Path) -> list[dict]:
 def _decisions_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo decisions",
-        description=(
-            "Show or answer high-impact product decisions that Manageroo could not safely infer."
-        ),
+        description="Show or answer high-impact product decisions that Manageroo could not safely infer.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("show", "answer"):
@@ -165,7 +166,10 @@ def _decisions_main(argv: list[str]) -> int:
         if command == "show":
             item.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    run_root = _run_root(Path(args.repo), args.run_id)
+    try:
+        run_root = _run_root(Path(args.repo), args.run_id)
+    except SafetyError as exc:
+        parser.error(str(exc))
     decisions = _blocking_decisions(run_root)
     if not decisions:
         print("No unresolved blocking decisions were found for that run.")
@@ -176,11 +180,7 @@ def _decisions_main(argv: list[str]) -> int:
             print(json.dumps({"run_id": args.run_id, "decisions": decisions}, indent=2))
         else:
             markdown = render_blocking_questions(run_root)
-            text = (
-                markdown.read_text(encoding="utf-8")
-                if markdown
-                else "No blocking questions found."
-            )
+            text = markdown.read_text(encoding="utf-8") if markdown else "No blocking questions found."
             print(text, end="")
         return 0
 
@@ -223,10 +223,7 @@ def _decisions_main(argv: list[str]) -> int:
     )
     repo = Path(args.repo).expanduser().resolve()
     print(f"\nSaved {len(answers)} decision answer(s).")
-    print(
-        f"Next: manageroo run --continue {args.run_id} "
-        f"--repo {repo} --apply"
-    )
+    print("Next: " + shlex.join(["manageroo", "run", "--continue", args.run_id, "--repo", str(repo), "--apply"]))
     return 0
 
 
