@@ -35,8 +35,10 @@ The manifest records:
 - excerpt SHA-256;
 - inclusion reason;
 - required/optional status;
-- every omitted optional source and reason.
-- context mode: full source or generated summary.
+- every omitted optional source and reason;
+- context mode: full source or generated summary;
+- each included evidence item's source, location, authority, confidence, freshness, retrieval timestamp, and content hash;
+- evidence omitted because the bounded packet budget was already consumed.
 
 ## Hard rules
 
@@ -44,20 +46,19 @@ The manifest records:
 2. A required file slice exceeding the single-file limit blocks the plan.
 3. A required packet exceeding the total budget blocks or forces decomposition.
 4. Optional context may be omitted only with an explicit manifest reason.
-5. A packet becomes stale when any included source hash changes.
+5. A packet becomes stale when any included repository source hash changes.
 6. Fresh agent processes receive artifacts, not previous chat transcripts.
 7. Planning artifacts have explicit size limits and must be reduced before the next phase.
 8. Review is partitioned across changed-code chunks when the changed set exceeds the review packet budget.
 9. Media files are represented as generated metadata summaries, not silently skipped.
 10. Oversized prose can be included through explicit summary mode; full required prose still must be sliced or decomposed.
-11. Intent locks are audited with a strict phrase-preservation audit before a
-    compact summary is trusted.
-12. Worker jobs are stateless. A retry receives a fresh packet generated from
-    controller-owned facts, not from the previous worker's memory.
-13. Completed jobs are loaded from recorded artifacts and hashes, not rerun from
-    a compacted chat summary. Missing artifact hashes make the job stale.
-14. Continue reuses the original saved job when the logical worker call already
-    exists, so skipped completed phases do not shift later failed jobs.
+11. Intent locks are audited with a strict phrase-preservation audit before a compact summary is trusted.
+12. Worker jobs are stateless. A retry receives a fresh packet generated from controller-owned facts, not from the previous worker's memory.
+13. Completed jobs are loaded from recorded artifacts and hashes, not rerun from a compacted chat summary. Missing artifact hashes make the job stale.
+14. Continue reuses the original saved job when the logical worker call already exists, so skipped completed phases do not shift later failed jobs.
+15. Required repository context is budgeted before retrieved evidence.
+16. Retrieved evidence is context, not controller truth, and cannot override current repository state, locked decisions, gates, review, or completion proof.
+17. Evidence provenance survives packet compilation. If an excerpt is clipped to fit the per-item budget, the original content hash remains recorded.
 
 ## Intent lock and compaction audit
 
@@ -92,6 +93,16 @@ Git-visible inventory
 ```
 
 No mapper is expected to remember or inspect the entire repository.
+
+## Evidence retrieval
+
+Discovery may produce `artifacts/discovery/evidence.json`. Manageroo normalizes successful configured GitNexus and GBrain output together with selected native project/run evidence, ranks it by authority, confidence, and freshness, and preserves contradictions when providers supply a shared claim key.
+
+For planning roles, the controller selects a small bounded subset of the highest-ranked evidence and records that selection in the worker job specification. `ContextCompiler` then renders those records as explicit evidence blocks after required repository files.
+
+The evidence layer does not replace direct file context. GitNexus can provide structural repository intelligence and GBrain can provide external durable knowledge, but exact current code and locked Manageroo artifacts remain stronger evidence.
+
+See `docs/EVIDENCE_RETRIEVAL.md`.
 
 ## Media and prose
 
