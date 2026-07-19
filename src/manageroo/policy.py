@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ FORBIDDEN_SCOPE_PATTERNS = (
     "**/*secret*",
     "**/*credential*",
 )
+PYTHON_EXECUTABLE_RE = re.compile(r"^python(?:3(?:\.\d+)?)?(?:\.exe)?$", re.IGNORECASE)
 
 
 def validate_allowed_scope_patterns(patterns: Iterable[str]) -> list[str]:
@@ -32,10 +34,7 @@ def validate_allowed_scope_patterns(patterns: Iterable[str]) -> list[str]:
         raw_text = str(raw).strip().replace("\\", "/")
         if raw_text.endswith("/"):
             raise SafetyError(f"Allowed scope must be a file path, not a directory: {raw!r}")
-        try:
-            path = safe_repo_relative(raw_text)
-        except SafetyError:
-            raise
+        path = safe_repo_relative(raw_text)
         if path in {".", ""} or str(raw).strip() in {"/", "\\"}:
             raise SafetyError(f"Allowed scope must be an exact task-owned file path: {raw!r}")
         if path in broad or "*" in path or "?" in path or "[" in path or "]" in path:
@@ -57,22 +56,29 @@ class ScopePolicy:
         return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
     def validate_paths(self, changed_paths: Iterable[str]) -> list[str]:
+        changed = list(changed_paths)
+        if changed and not self.allowed:
+            raise SafetyError("Scope policy has no approved paths; refusing changes.")
         violations: list[str] = []
-        for raw in changed_paths:
+        for raw in changed:
             path = safe_repo_relative(raw)
             if self._matches(path, self.forbidden):
                 violations.append(f"{path}: forbidden")
                 continue
-            if self.allowed and not self._matches(path, self.allowed):
+            if not self._matches(path, self.allowed):
                 violations.append(f"{path}: outside approved scope")
         if violations:
             raise SafetyError("Scope policy violation:\n" + "\n".join(violations))
-        return list(changed_paths)
+        return changed
 
 
 @dataclass(frozen=True)
 class CommandPolicy:
     allowed_programs: tuple[str, ...]
+
+    @staticmethod
+    def _is_python_name(name: str) -> bool:
+        return bool(PYTHON_EXECUTABLE_RE.fullmatch(name))
 
     def _trusted_resolved_path(self, raw_program: str, program: str) -> bool:
         requested = Path(raw_program).expanduser()
@@ -80,7 +86,7 @@ class CommandPolicy:
         discovered = shutil.which(program)
         if discovered:
             candidates.append(Path(discovered))
-        if program.startswith("python"):
+        if self._is_python_name(program):
             candidates.append(Path(sys.executable))
         try:
             resolved = requested.resolve(strict=False)
@@ -97,18 +103,19 @@ class CommandPolicy:
         program = program_path.name
         allowed_raw = set(self.allowed_programs)
         allowed_names = {Path(item).name for item in self.allowed_programs}
-        python_family_allowed = any(item.startswith("python") for item in allowed_names)
+        python_family_allowed = any(self._is_python_name(item) for item in allowed_names)
 
-        path_qualified = program_path.parent != Path(".")
+        path_qualified = program_path.is_absolute() or program_path.parent != Path(".")
         explicitly_allowlisted = raw_program in allowed_raw
         resolved_trusted = path_qualified and self._trusted_resolved_path(raw_program, program)
         if path_qualified and not explicitly_allowlisted and not resolved_trusted:
             raise SafetyError(
-                f"Path-qualified command must be explicitly allowlisted or resolve to the trusted executable: {raw_program}"
+                "Path-qualified command must be explicitly allowlisted or resolve to the trusted executable: "
+                + raw_program
             )
 
         if program not in allowed_names and not (
-            python_family_allowed and program.startswith("python")
+            python_family_allowed and self._is_python_name(program)
         ):
             raise SafetyError(f"Command program is not allowlisted: {program}")
 
