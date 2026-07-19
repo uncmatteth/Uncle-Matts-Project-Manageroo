@@ -37,10 +37,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "parallel_mapping": True,
         "parallel_review": True,
     },
-    "budget": {
-        "max_total_worker_calls": 80,
-        "max_runtime_minutes": 240,
-    },
+    "budget": {"max_total_worker_calls": 80, "max_runtime_minutes": 240},
     "safety": {
         "allowed_programs": [
             "python", "python3", "node", "npm", "pnpm", "yarn", "bun",
@@ -64,38 +61,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 AGENT_PRESETS: dict[str, dict[str, Any]] = {
-    "auto": {
-        "adapter": "auto",
-        "candidates": ["codex", "claude-code", "gemini"],
-        "timeout_seconds": 3600,
-    },
-    "codex": {
-        "adapter": "codex",
-        "executable": "codex",
-        "model": "",
-        "timeout_seconds": 3600,
-    },
-    "mock": {
-        "adapter": "mock",
-        "executable": "python",
-        "model": "",
-        "timeout_seconds": 3600,
-    },
+    "auto": {"adapter": "auto", "candidates": ["codex", "claude-code", "gemini"], "timeout_seconds": 3600},
+    "codex": {"adapter": "codex", "executable": "codex", "model": "", "timeout_seconds": 3600},
+    "mock": {"adapter": "mock", "executable": "python", "model": "", "timeout_seconds": 3600},
     "generic": {
         "adapter": "generic",
         "executable": "YOUR_AGENT",
         "model": "",
         "timeout_seconds": 3600,
         "prompt_transport": "file_path",
-        "argv_template": [
-            "YOUR_AGENT",
-            "--prompt-file",
-            "{prompt}",
-            "--schema",
-            "{schema}",
-            "--output",
-            "{output}",
-        ],
+        "argv_template": ["YOUR_AGENT", "--prompt-file", "{prompt}", "--schema", "{schema}", "--output", "{output}"],
     },
     "claude-code": {
         "adapter": "generic",
@@ -103,11 +78,7 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
         "model": "",
         "timeout_seconds": 3600,
         "prompt_transport": "stdin",
-        "argv_template": [
-            "claude",
-            "-p",
-            "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object.",
-        ],
+        "argv_template": ["claude", "-p", "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object."],
         "sandbox_read_only_argv": ["--permission-mode", "plan"],
         "sandbox_workspace_write_argv": ["--permission-mode", "acceptEdits"],
         "doctor_argv": ["claude", "--help"],
@@ -119,11 +90,7 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
         "model": "",
         "timeout_seconds": 3600,
         "prompt_transport": "stdin",
-        "argv_template": [
-            "gemini",
-            "-p",
-            "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object.",
-        ],
+        "argv_template": ["gemini", "-p", "Follow the complete Manageroo assignment provided on stdin. Return only the requested JSON object."],
         "sandbox_read_only_argv": ["--approval-mode=plan"],
         "sandbox_workspace_write_argv": ["--approval-mode=auto_edit"],
         "doctor_argv": ["gemini", "--help"],
@@ -132,17 +99,8 @@ AGENT_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 _AGENT_KEYS = [
-    "adapter",
-    "executable",
-    "model",
-    "timeout_seconds",
-    "candidates",
-    "prompt_transport",
-    "argv_template",
-    "sandbox_read_only_argv",
-    "sandbox_workspace_write_argv",
-    "doctor_argv",
-    "required_help_flags",
+    "adapter", "executable", "model", "timeout_seconds", "candidates", "prompt_transport",
+    "argv_template", "sandbox_read_only_argv", "sandbox_workspace_write_argv", "doctor_argv", "required_help_flags",
 ]
 
 
@@ -179,8 +137,8 @@ def _toml_value(value: Any) -> str:
     if isinstance(value, int | float):
         return str(value)
     if isinstance(value, list):
-        return "[" + ", ".join(json.dumps(item) for item in value) + "]"
-    return json.dumps(str(value))
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def _agent_block(preset_name: str, timeout_seconds: int | None = None) -> str:
@@ -243,7 +201,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "",
         "[integrations]",
         'obsidian_vault = ""',
-        f'obsidian_export_folder = "{FULL_ACRONYM}"',
+        f"obsidian_export_folder = {_toml_value(FULL_ACRONYM)}",
         "gbrain_search_command = []",
         "gbrain_capture_command = []",
         "gitnexus_analyze_command = []",
@@ -254,17 +212,15 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "",
     ]
     for gate in gates:
-        lines.extend(
-            [
-                "[[verification.gates]]",
-                f'id = "{gate["id"]}"',
-                f'kind = "{gate["kind"]}"',
-                "required = true" if gate.get("required", True) else "required = false",
-                f"timeout_seconds = {int(gate.get('timeout_seconds', 1800))}",
-                "argv = [" + ", ".join(json.dumps(item) for item in gate["argv"]) + "]",
-                "",
-            ]
-        )
+        lines.extend([
+            "[[verification.gates]]",
+            f"id = {_toml_value(gate['id'])}",
+            f"kind = {_toml_value(gate['kind'])}",
+            "required = true" if gate.get("required", True) else "required = false",
+            f"timeout_seconds = {int(gate.get('timeout_seconds', 1800))}",
+            f"argv = {_toml_value(list(gate['argv']))}",
+            "",
+        ])
     return "\n".join(lines)
 
 
@@ -280,17 +236,9 @@ def apply_agent_preset(repo: Path, preset_name: str) -> dict[str, Any]:
     path = repo / PROJECT_DIR / "config.toml"
     if not path.exists():
         raise ConfigurationError(f"Missing {path}. Run `{PUBLIC_COMMAND} init` first.")
-    updated = replace_agent_block(
-        path.read_text(encoding="utf-8", errors="replace"),
-        preset_name,
-    )
+    updated = replace_agent_block(path.read_text(encoding="utf-8"), preset_name)
     atomic_write_text(path, updated)
-    return {
-        "repo": str(repo),
-        "config": str(path),
-        "preset": preset_name,
-        "agent": agent_preset(preset_name),
-    }
+    return {"repo": str(repo), "config": str(path), "preset": preset_name, "agent": agent_preset(preset_name)}
 
 
 def executable_exists(config: dict[str, Any]) -> bool:
