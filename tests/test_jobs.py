@@ -110,6 +110,32 @@ class JobStoreTests(unittest.TestCase):
             self.assertIsNone(store.completed_data(job.id, run_root / "artifacts"))
             self.assertEqual(store.load_job(job.id).status, JobStatus.PENDING.value)
 
+    def test_completed_job_with_mutated_artifact_is_not_trusted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_job(
+                job.id,
+                output_artifact="agent/001-product-analyst.json",
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+
+            atomic_write_json(artifact, {"ok": False, "tampered": True})
+
+            self.assertIsNone(store.completed_data(job.id, run_root / "artifacts"))
+            reloaded = store.load_job(job.id)
+            self.assertEqual(reloaded.status, JobStatus.PENDING.value)
+            self.assertEqual(reloaded.failure_type, "StaleArtifact")
+
     def test_blocked_and_failed_jobs_outrank_pending_jobs_in_status(self):
         with tempfile.TemporaryDirectory() as temp:
             store = JobStore(Path(temp))
