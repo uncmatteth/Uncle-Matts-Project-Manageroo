@@ -79,11 +79,12 @@ SIGNALS: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
         ),
         (
             "What CPU, RAM, GPU, VRAM, disk, model-size, and concurrency assumptions must "
-            "the product respect?"
+            "the target product or explicitly selected local AI tool respect?"
         ),
         (
-            "Use the detected host profile as a development baseline, but document minimum "
-            "and recommended capacity separately from one developer machine."
+            "Treat the detected host as one example development machine only. Infer the target "
+            "product's requirements from repository/runtime evidence and never turn the developer's "
+            "hardware into a Manageroo requirement."
         ),
     ),
     (
@@ -263,23 +264,13 @@ def build_discovery_preflight(
             }
         )
 
-    capacity_notes: list[str] = []
-    warnings = list(capacity.get("warnings", []) or [])
-    if warnings:
-        capacity_notes.extend(warnings)
-    capacity_notes.append(
-        "Detected development-host capacity class: "
-        + str(capacity.get("recommendations", {}).get("capacity_class", "unknown"))
-    )
-    capacity_notes.append(
-        "Conservative detected-host parallel-worker recommendation: "
-        + str(
-            capacity.get("recommendations", {}).get(
-                "max_parallel_agent_calls",
-                "unknown",
-            )
+    capacity_notes: list[str] = [
+        (
+            "Host hardware is informational development context only. It is not a Manageroo "
+            "minimum requirement and does not automatically change Manageroo worker concurrency."
         )
-    )
+    ]
+    capacity_notes.extend(list(capacity.get("notes", []) or []))
 
     return {
         "purpose": (
@@ -299,11 +290,12 @@ def build_discovery_preflight(
                 "legal or regulated behavior depends on the choice",
                 "the available options would create materially different products",
                 (
-                    "hardware/runtime requirements cannot be inferred safely and affect whether "
-                    "the product can work"
+                    "target-product or explicitly selected local-runtime hardware requirements "
+                    "cannot be inferred safely and affect whether that product can work"
                 ),
             ],
             "do_not_block_for": [
+                "the Manageroo host having different CPU, RAM, GPU, or VRAM than the developer's machine",
                 "cosmetic preferences with conventional defaults",
                 "implementation details that can be changed later",
                 "questions answerable by inspecting the repository",
