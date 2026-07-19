@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,21 +25,34 @@ def current_app_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _safe_launcher_text(value: Path) -> str:
+    text = str(value)
+    if any(character in text for character in ("\r", "\n", '"')):
+        raise ValueError(f"Unsafe character in launcher path: {text!r}")
+    return text
+
+
 def _write_launcher(launcher: Path, *, python: Path, app_root: Path, prefix: Path) -> None:
     launcher.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt" or launcher.suffix.lower() == ".cmd":
+        app_text = _safe_launcher_text(app_root)
+        prefix_text = _safe_launcher_text(prefix)
+        python_text = _safe_launcher_text(python)
         launcher.write_text(
-            f'@set "PYTHONPATH={app_root}"\r\n'
-            f'@set "MANAGEROO_PREFIX={prefix}"\r\n'
-            f'@"{python}" -m manageroo %*\r\n',
+            f'@set "PYTHONPATH={app_text}"\r\n'
+            f'@set "MANAGEROO_PREFIX={prefix_text}"\r\n'
+            f'@"{python_text}" -m manageroo %*\r\n',
             encoding="utf-8",
         )
     else:
+        app_value = shlex.quote(str(app_root))
+        prefix_value = shlex.quote(str(prefix))
+        python_value = shlex.quote(str(python))
         launcher.write_text(
             "#!/bin/sh\n"
-            f'export PYTHONPATH="{app_root}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
-            f'export MANAGEROO_PREFIX="{prefix}"\n'
-            f'exec "{python}" -m manageroo "$@"\n',
+            f"export PYTHONPATH={app_value}${{PYTHONPATH:+:$PYTHONPATH}}\n"
+            f"export MANAGEROO_PREFIX={prefix_value}\n"
+            f"exec {python_value} -m manageroo \"$@\"\n",
             encoding="utf-8",
         )
         launcher.chmod(0o755)
@@ -76,14 +90,30 @@ def repair_install(
         return {
             "ok": False,
             "prefix": str(prefix),
-            "checks": [
-                _check("install-lock", False, "missing", "./install.sh"),
-            ],
+            "checks": [_check("install-lock", False, "missing", "./install.sh")],
             "actions": actions,
             "next_commands": ["./install.sh"],
         }
 
-    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "prefix": str(prefix),
+            "checks": [_check("install-lock", False, f"malformed or unreadable: {exc}", "./install.sh")],
+            "actions": actions,
+            "next_commands": ["./install.sh"],
+        }
+    if not isinstance(lock, dict):
+        return {
+            "ok": False,
+            "prefix": str(prefix),
+            "checks": [_check("install-lock", False, "must contain a JSON object", "./install.sh")],
+            "actions": actions,
+            "next_commands": ["./install.sh"],
+        }
+
     launcher = Path(lock.get("launcher") or bin_dir / "manageroo").expanduser()
     reported_bin_dir = launcher.parent.expanduser().resolve()
     app_root = current_app_root()
@@ -95,15 +125,20 @@ def repair_install(
 
     if not launcher.exists():
         if apply:
-            _write_launcher(launcher, python=python, app_root=app_root, prefix=prefix)
-            actions.append({"name": "launcher", "status": "recreated", "path": str(launcher)})
+            try:
+                _write_launcher(launcher, python=python, app_root=app_root, prefix=prefix)
+                actions.append({"name": "launcher", "status": "recreated", "path": str(launcher)})
+            except (OSError, ValueError) as exc:
+                checks.append(_check("launcher-write", False, str(exc), "./install.sh"))
+                next_commands.append("./install.sh")
         else:
             next_commands.append("manageroo repair-install")
+    launcher_ok = launcher.exists() and (os.name == "nt" or os.access(launcher, os.X_OK))
     checks.append(
         _check(
             "launcher",
-            launcher.exists(),
-            str(launcher) if launcher.exists() else "missing",
+            launcher_ok,
+            str(launcher) if launcher_ok else "missing or not executable",
             "manageroo repair-install",
         )
     )
