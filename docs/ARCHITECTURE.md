@@ -10,6 +10,7 @@ CLI
      ├─ State machine
      ├─ Artifact ledger and locked contracts
      ├─ Source mirror
+     ├─ Evidence retrieval and provenance ranking
      ├─ Context compiler
      ├─ Durable worker job store
      ├─ Agent adapter / worker pool
@@ -73,6 +74,27 @@ Every worker call is represented as a durable job:
 Completed jobs are loaded from recorded artifacts. They are not rerun merely because a chat was compacted or a new worker process starts. A completed job record must include a matching output-artifact SHA-256 hash or it is treated as stale.
 
 `manageroo run --continue <run-id>` replays the Python controller from the saved run folder. The old worker process is not trusted or required. Replay keeps logical job IDs stable so later attempts continue the original job instead of creating shifted duplicate work.
+
+## Evidence retrieval, not AI memory
+
+Manageroo has a generic evidence boundary. It can normalize current repository intelligence, locked run artifacts, curated project knowledge, and external knowledge into a common provenance-preserving model.
+
+```text
+GitNexus ───────────────┐
+GBrain ─────────────────┤
+Manageroo run artifacts ├─> evidence normalization ─> ranking ─> ContextCompiler
+Project memory ─────────┘
+```
+
+Each evidence item retains source, location, authority, confidence, freshness, retrieval time, and a content hash. Providers may also attach a stable claim key so contradictions are surfaced instead of silently merged.
+
+The ranking policy prefers current repository evidence over run evidence, explicit project knowledge, external knowledge, and historical context. Confidence and freshness refine that ordering but do not let an old semantic match outrank current source truth merely because it sounds relevant.
+
+Successful configured GitNexus and GBrain discovery output is normalized into `artifacts/discovery/evidence.json` together with native Manageroo project/run evidence. Retrieved evidence can inform planning, but it cannot authorize edits, pass gates, approve review, apply patches, or mark a run `COMPLETE`.
+
+`ContextCompiler` can include ranked `EvidenceItem` objects after required repository context has been budgeted. Packet manifests retain evidence provenance and hashes, and prompts explicitly tell workers that retrieval is context rather than controller truth.
+
+See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 
 ## Controller-owned commits
 
