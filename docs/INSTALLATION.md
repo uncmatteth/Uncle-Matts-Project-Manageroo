@@ -10,9 +10,11 @@ Manageroo core requires:
 
 For real AI work, at least one compatible agent path must also be available, such as Codex, Claude Code, Gemini, or a configured generic CLI.
 
-Manageroo does **not** require a particular GPU, VRAM amount, CPU tier, or RAM class. The selected target project or an explicitly chosen local AI tool may have separate requirements.
+Manageroo does **not** require a particular GPU, VRAM amount, CPU tier, or RAM class. A selected target project or explicitly chosen local AI tool may have separate requirements.
 
-## Install
+## Human-first first install
+
+The recommended first install is interactive and human-run. This lets the operator see what Manageroo is doing and make intentional choices about optional components.
 
 Unix-like systems:
 
@@ -28,6 +30,8 @@ Windows PowerShell:
 
 The launchers install the same Manageroo product.
 
+An AI or IDE agent can assist, but it should surface meaningful installer choices before selecting them on the user's behalf.
+
 ## Hardware profile
 
 After installation:
@@ -42,11 +46,11 @@ This reports the current host's CPU, RAM, detectable NVIDIA GPU/VRAM, and free d
 It does not:
 
 - decide whether Manageroo is allowed to run;
-- turn Tommy's workstation into the minimum requirement;
 - require a GPU;
+- turn one developer machine into a minimum system requirement;
 - automatically increase or reduce Manageroo worker concurrency.
 
-Concurrency comes from the project orchestration configuration because a configured agent may be cloud-backed, remote, local, or a custom CLI.
+Concurrency comes from project orchestration configuration because a configured agent may be cloud-backed, remote, local, or a custom CLI.
 
 ## Portable core skill pack
 
@@ -54,23 +58,24 @@ Manageroo installs a small portable core by default:
 
 1. `uncle-matts-project-manageroo`
 2. `use-installed-skills-first`
-3. `pimp-my-prompt`
-4. `to-prd`
-5. `to-issues`
-6. `grill-me`
-7. `grill-with-docs`
-8. `diagnose`
-9. `tdd`
-10. `testing`
-11. `security-review`
-12. `handoff`
-13. `write-a-skill`
-14. `edit-skill`
-15. `skillify`
-16. `caveman`
-17. `uncle-matts-caveman-curse`
+3. `skill-vetter`
+4. `pimp-my-prompt`
+5. `to-prd`
+6. `to-issues`
+7. `grill-me`
+8. `grill-with-docs`
+9. `diagnose`
+10. `tdd`
+11. `testing`
+12. `security-review`
+13. `handoff`
+14. `write-a-skill`
+15. `edit-skill`
+16. `skillify`
+17. `caveman`
+18. `uncle-matts-caveman-curse`
 
-The repository may ship additional skill assets as an optional library, but they are not Manageroo-owned default dependencies.
+The repository may ship additional optional skill assets, but they are not Manageroo-owned default dependencies.
 
 Inspect what the current host already has without changing anything:
 
@@ -79,7 +84,7 @@ manageroo host-skills
 manageroo host-skills --json
 ```
 
-`use-installed-skills-first` lets compatible workers use relevant host/tOS skills when present. Manageroo does not copy, delete, upgrade, or claim ownership of the whole host skill environment.
+`use-installed-skills-first` lets compatible workers use relevant host-installed skills when present. Manageroo does not copy, delete, upgrade, or claim ownership of the whole host skill environment.
 
 Reconcile the Manageroo core later if needed:
 
@@ -87,19 +92,23 @@ Reconcile the Manageroo core later if needed:
 manageroo skills reconcile --apply
 ```
 
-## Optional local stack
+## Recommended full stack
 
-Manageroo can coexist with and optionally integrate with:
+Manageroo can install and integrate with a recommended surrounding stack:
 
-- GBrain;
-- GitNexus;
-- Obsidian;
-- AUTOREVIEW;
-- Clawpatch.
+- **GitNexus** for repository and code-graph intelligence;
+- **GBrain** for external durable knowledge when explicitly relevant;
+- **AUTOREVIEW** for an external review lane;
+- **Clawpatch** for an external review/repair lane;
+- **Obsidian** for human-readable Markdown knowledge.
 
-These are surrounding tools, not requirements for the Manageroo core controller.
+These tools add capabilities around Manageroo. They do not become authorities over Manageroo completion.
 
-Inspect them:
+GitNexus is a first-class recommended integration. When the installer selected and installed GitNexus, the platform launcher completes `gitnexus setup` and updates the install lock to reflect whether configuration succeeded. A selected GitNexus setup failure fails the installation instead of being silently reported as complete.
+
+Manageroo itself can still run without GitNexus when the operator intentionally skips the surrounding stack or GitNexus is unavailable.
+
+Inspect the stack:
 
 ```bash
 manageroo stack-status
@@ -161,7 +170,7 @@ Create a new missing or empty repo:
 ```bash
 manageroo solo /absolute/path/to/new-product \
   --create \
-  --want "Describe what should be built first"
+  --want "Describe the result"
 ```
 
 Use the default provider-neutral worker pool unless you need to force a specific agent.
@@ -176,6 +185,7 @@ manageroo skills list
 manageroo host-skills
 manageroo token-mode status
 manageroo stack-status
+manageroo stack-doctor
 manageroo repair-install --no-apply
 ```
 
@@ -193,12 +203,18 @@ A passing smoke on one operating system proves that operating system only.
 
 ## Truth boundary
 
-Manageroo is the controller. Optional host tools, local skills, tOS, and the developer's hardware are context and capabilities around it.
-
 ```text
-Manageroo core = portable controller
-Host/tOS = optional extra capabilities
-Target repo = may have its own runtime and hardware requirements
+Manageroo core
+    = portable controller and its small core skill pack
+
+Recommended surrounding stack
+    = GitNexus, GBrain, AUTOREVIEW, Clawpatch, Obsidian when selected
+
+Host environment
+    = additional independently owned skills and tools
+
+Target repository
+    = may have its own runtime and hardware requirements
 ```
 
-Do not collapse those three layers into one system requirement.
+Do not collapse those layers into one system requirement, and do not let surrounding tools replace Manageroo's controller authority.
