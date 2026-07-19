@@ -14,70 +14,24 @@ from manageroo.token_modes import (
 
 
 class TokenModeTests(unittest.TestCase):
-    def test_installs_core_helper_skills(self):
+    def test_public_token_mode_apis_import_and_core_is_18_skills(self):
+        self.assertEqual(len(CORE_HELPER_SKILLS), 18)
+        self.assertIn("skill-vetter", CORE_HELPER_SKILLS)
+        self.assertIn("uncle-matts-project-manageroo", CORE_HELPER_SKILLS)
+
+    def test_installs_portable_core_helper_skills(self):
         with tempfile.TemporaryDirectory() as temp:
-            installed = install_core_helper_skills(Path(temp))
+            root = Path(temp)
+            installed = install_core_helper_skills(root)
             self.assertEqual(set(installed), set(CORE_HELPER_SKILLS))
-            self.assertGreaterEqual(len(installed), 40)
-            prompt = Path(temp) / "pimp-my-prompt" / "SKILL.md"
-            brain_ops = Path(temp) / "brain-ops" / "SKILL.md"
-            query = Path(temp) / "query" / "SKILL.md"
-            media_ingest = Path(temp) / "media-ingest" / "SKILL.md"
-            book_mirror = Path(temp) / "book-mirror" / "SKILL.md"
-            brain_pdf = Path(temp) / "brain-pdf" / "SKILL.md"
-            exact_text = Path(temp) / "exact-text-replacement" / "SKILL.md"
-            editor = Path(temp) / "edit-skill" / "SKILL.md"
-            writer = Path(temp) / "write-a-skill" / "SKILL.md"
-            skillify = Path(temp) / "skillify" / "SKILL.md"
-            diagnose = Path(temp) / "diagnose" / "SKILL.md"
-            tdd = Path(temp) / "tdd" / "SKILL.md"
-            autoreview = Path(temp) / "autoreview" / "SKILL.md"
-            plain_web_copy = Path(temp) / "plain-web-copy" / "SKILL.md"
-            fix_website = Path(temp) / "fix-my-bad-website" / "SKILL.md"
-            playwright_reference = Path(temp) / "playwright" / "references" / "cli.md"
-            grill_reference = Path(temp) / "grill-with-docs" / "ADR-FORMAT.md"
-            controller = (
-                Path(temp)
-                / "uncle-matts-project-manageroo"
-                / "SKILL.md"
-            )
-            self.assertTrue(prompt.exists())
-            self.assertTrue(brain_ops.exists())
-            self.assertTrue(query.exists())
-            self.assertTrue(media_ingest.exists())
-            self.assertTrue(book_mirror.exists())
-            self.assertTrue(brain_pdf.exists())
-            self.assertTrue(exact_text.exists())
-            self.assertTrue(editor.exists())
-            self.assertTrue(writer.exists())
-            self.assertTrue(skillify.exists())
-            self.assertTrue(diagnose.exists())
-            self.assertTrue(tdd.exists())
-            self.assertTrue(autoreview.exists())
-            self.assertTrue(plain_web_copy.exists())
-            self.assertTrue(fix_website.exists())
-            self.assertTrue(playwright_reference.exists())
-            self.assertTrue(grill_reference.exists())
-            self.assertTrue((Path(temp) / "caveman" / "SKILL.md").exists())
-            self.assertTrue((Path(temp) / "uncle-matts-caveman-curse" / "SKILL.md").exists())
-            self.assertTrue(controller.exists())
-            self.assertIn("rough-draft users", prompt.read_text(encoding="utf-8"))
-            self.assertIn("Brain Ops", brain_ops.read_text(encoding="utf-8"))
-            self.assertIn("# Query", query.read_text(encoding="utf-8"))
-            self.assertIn("Media Ingest", media_ingest.read_text(encoding="utf-8"))
-            self.assertIn("Book Mirror", book_mirror.read_text(encoding="utf-8"))
-            self.assertIn("Brain PDF", brain_pdf.read_text(encoding="utf-8"))
-            self.assertIn("Exact Text Replacement", exact_text.read_text(encoding="utf-8"))
-            self.assertIn("duplicate instructions", editor.read_text(encoding="utf-8"))
-            self.assertIn("Create a new local agent skill", writer.read_text(encoding="utf-8"))
-            self.assertIn("Skillify only when", skillify.read_text(encoding="utf-8"))
-            self.assertIn("Build a feedback loop first", diagnose.read_text(encoding="utf-8"))
-            self.assertIn("one behavior test", tdd.read_text(encoding="utf-8"))
-            self.assertIn("closeout code review", autoreview.read_text(encoding="utf-8"))
-            self.assertIn("truth before tone", plain_web_copy.read_text(encoding="utf-8"))
-            self.assertIn("not generic AI output", fix_website.read_text(encoding="utf-8"))
-            self.assertIn("Do not make the user remember skill names", controller.read_text(encoding="utf-8"))
-            self.assertIn("Do not load the whole skill pack", controller.read_text(encoding="utf-8"))
+            self.assertEqual(len(installed), 18)
+            for name in CORE_HELPER_SKILLS:
+                self.assertTrue((root / name / "SKILL.md").is_file(), name)
+            self.assertFalse((root / "brain-ops" / "SKILL.md").exists())
+            self.assertFalse((root / "autoreview" / "SKILL.md").exists())
+            controller = (root / "uncle-matts-project-manageroo" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("Do not make the user remember skill names", controller)
+            self.assertIn("Do not load the whole skill pack", controller)
 
     def test_installs_bundled_caveman_skills(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -136,6 +90,17 @@ class TokenModeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 install_core_helper_skills(skills)
             self.assertEqual(outside.read_text(encoding="utf-8"), "do not overwrite\n")
+
+    def test_refuses_symlinked_skills_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            outside = base / "outside"
+            outside.mkdir()
+            linked = base / "skills"
+            os.symlink(outside, linked)
+            with self.assertRaises(ValueError):
+                install_core_helper_skills(linked)
+            self.assertEqual(list(outside.iterdir()), [])
 
 
 if __name__ == "__main__":
