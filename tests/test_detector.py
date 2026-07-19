@@ -1,4 +1,5 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,26 @@ class DetectorTests(unittest.TestCase):
             (repo / "package-lock.json").write_text("{}", encoding="utf-8")
             gates = detect_gates(repo)
             self.assertEqual([item["id"] for item in gates], ["lint", "test"])
+
+    def test_pyright_configuration_adds_required_typecheck_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / "pyproject.toml").write_text(
+                "[project]\nname = 'demo'\nversion = '0.0.1'\n\n[tool.pyright]\ntypeCheckingMode = 'strict'\n",
+                encoding="utf-8",
+            )
+            gates = detect_gates(repo)
+            pyright = next(item for item in gates if item["id"] == "pyright")
+            self.assertEqual(pyright["kind"], "typecheck")
+            self.assertEqual(pyright["argv"], [sys.executable, "-m", "pyright"])
+            self.assertTrue(pyright["required"])
+
+    def test_pyrightconfig_json_adds_required_typecheck_gate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / "pyrightconfig.json").write_text("{}", encoding="utf-8")
+            gates = detect_gates(repo)
+            self.assertIn("pyright", [item["id"] for item in gates])
 
     def test_multiple_lockfiles_block(self):
         with tempfile.TemporaryDirectory() as temp:
