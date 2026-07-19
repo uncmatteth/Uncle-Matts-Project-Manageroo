@@ -40,6 +40,7 @@ def _claim_is_explicitly_denied(sentence: str, phrase: str) -> bool:
         r"\bnever\b",
         r"\bmust\s+not\b",
         r"\bnot\b",
+        r"\bno\b",
         r"\bwithout\b",
         r"\binstead\s+of\b",
     )
