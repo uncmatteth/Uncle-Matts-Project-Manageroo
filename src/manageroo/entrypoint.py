@@ -11,6 +11,7 @@ from .cli import main as cli_main
 from .cli import parser as cli_parser
 from .config import AGENT_PRESETS
 from .discovery_policy import decisions_fully_resolved, render_blocking_questions
+from .host_skills import format_host_skills, inspect_host_skills
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
 from .stack_update import apply_stack_updates, format_stack_update, stack_update_plan
 from .system_capacity import format_capacity, host_capacity
@@ -89,6 +90,24 @@ def _capacity_main(argv: list[str]) -> int:
         else format_capacity(profile)
     )
     print(rendered, end="\n" if args.json else "")
+    return 0
+
+
+def _host_skills_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="manageroo host-skills",
+        description=(
+            "Inspect local agent skill roots without copying, deleting, or claiming ownership of host skills."
+        ),
+    )
+    parser.add_argument("--root", action="append", type=Path, default=[])
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    report = inspect_host_skills(args.root or None)
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(format_host_skills(report), end="")
     return 0
 
 
@@ -214,6 +233,7 @@ def _root_help() -> str:
         + "\nDiscovery and capacity:\n"
         + "  capacity              Inspect CPU, RAM, GPU/VRAM, disk, and worker concurrency.\n"
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
+        + "  host-skills           Inspect host/tOS skills without modifying or owning them.\n"
         + "\nOptional stack maintenance:\n"
         + "  stack-update          Dry-run current upstream update commands; pass --apply explicitly.\n"
     )
@@ -225,6 +245,8 @@ def main() -> int:
         return _prove_main(argv[1:])
     if argv and argv[0] == "capacity":
         return _capacity_main(argv[1:])
+    if argv and argv[0] == "host-skills":
+        return _host_skills_main(argv[1:])
     if argv and argv[0] == "decisions":
         return _decisions_main(argv[1:])
     if argv and argv[0] == "stack-update":
