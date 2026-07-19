@@ -5,8 +5,7 @@ description: Use MANAGEROO when an AI agent needs to build, repair, refactor, or
 
 # Uncle Matt's Project Manageroo
 
-The local `manageroo` command owns the run. This skill tells an AI agent how
-to participate without freelancing.
+The local `manageroo` command owns the run. This skill tells an AI agent how to participate without freelancing.
 
 ## Mandatory operating model
 
@@ -18,27 +17,23 @@ to participate without freelancing.
 6. Do not weaken tests or redefine acceptance criteria.
 7. Do not claim global completion. Only the controller may mark a run `COMPLETE`.
 8. When scope is insufficient, return `scope_expansion_requested`; do not expand it yourself.
-9. When you discover a possible future feature, report it as an idea; do not silently build it.
+9. Report possible future features as ideas; do not silently build them.
 10. Every factual review finding must cite current file evidence.
 11. Read `.manageroo/PROJECT-MEMORY.md` before broad product work and preserve `What Must Not Break`.
 12. Read `.manageroo/intent/INTENT-LOCK.md` before trusting compacted chat, handoffs, or old summaries.
-13. Do not apply learning cards without explicit approval from the operator.
+13. Do not apply learning cards without explicit operator approval.
 
 ## Context rule
 
 No role receives or relies on the full prior conversation. The packet is the complete authority for that role. Read its `manifest.json` when provenance or omissions matter.
 
-If a compacted summary, handoff, or resumed chat drops the locked ask, must-not
-rules, rejected ideas, latest corrections, proof, or scope boundaries, stop and
-run:
+If a compacted summary, handoff, or resumed chat drops the locked ask, must-not rules, rejected ideas, latest corrections, proof, or scope boundaries, stop and run:
 
 ```bash
 manageroo compact audit --summary SUMMARY.md
 ```
 
-Do not say a plan is best, smartest, perfect, ready, or 100% complete unless
-the current evidence proves that exact claim. Without proof, call it a
-recommendation or partial status.
+Do not call a plan best, perfect, ready, or 100% complete unless current evidence proves that exact claim.
 
 ## First-install request policy
 
@@ -46,12 +41,12 @@ Manageroo's first installation is intentionally human-first because the installe
 
 When a user asks an AI or IDE agent to install Manageroo, do not silently guess those choices and run an unattended end-to-end installation by default.
 
-First explain, in plain language:
+First explain that:
 
-- Manageroo recommends that the user run the installer themselves in a terminal the first time;
+- the user should preferably run the installer themselves the first time;
 - this lets them see what is happening and choose optional components intentionally;
-- the agent can provide the exact command, explain every choice, and troubleshoot problems;
-- if the user still wants the agent to perform or guide the installation, the agent should gather the user's selections before choosing on their behalf.
+- the agent can provide the exact command and explain every choice;
+- if the user still wants agent-assisted installation, gather their selections instead of guessing.
 
 Recommended starting commands:
 
@@ -59,128 +54,109 @@ Recommended starting commands:
 ./install.sh
 ```
 
-or on Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 .\install.ps1
 ```
 
-Before performing an agent-assisted install, surface the relevant choices that the current installer exposes, including when applicable:
+Meaningful choices include the recommended surrounding stack, GBrain lane, core skill installation, token-reduction mode, project discovery, stack doctor, Clawpatch/Codex login assistance, music, and animation.
 
-- whether to install or skip the optional surrounding tool stack;
-- GBrain setup lane;
-- optional skill-pack installation;
-- token-reduction mode;
-- project discovery behavior;
-- stack doctor or repair checks;
-- Clawpatch/Codex login assistance;
-- music and animation preferences;
-- any other installer option that materially changes the user's machine or setup.
+Do not invent selections or bypass explicit choices.
 
-Do not invent selections. Do not treat optional integrations as mandatory. Do not bypass a user's explicit choices.
+## Core skill routing
 
-If the user explicitly says they understand the choices and want the agent to proceed with specified options, the agent may assist or perform the installation using those selections.
+Manageroo owns a small portable 18-skill core. Do not load the whole pack for every job. Route only to relevant helpers.
 
-## Recommended skill pack routing
+- Use `$use-installed-skills-first` before non-trivial local work when the host supports skills.
+- Use `$skill-vetter` before adopting or installing third-party skills from external sources.
+- Use `$pimp-my-prompt` when a rough or overloaded request needs exact scope, acceptance criteria, proof, and stop rules.
+- Use `$to-prd`, `$to-issues`, `$grill-me`, or `$grill-with-docs` for product definition, issue breakdown, and requirement pressure.
+- Use `$diagnose` before editing when something is broken, flaky, slow, or confusing.
+- Use `$tdd` for behavior that should be protected by tests.
+- Use `$testing` for broader test-suite and conformance work.
+- Use `$security-review` for auth, secrets, deployments, custody, data loss, public readiness claims, and production-risk review.
+- Use `$handoff` when a fresh agent needs to continue from durable evidence rather than chat memory.
+- Use `$write-a-skill`, `$edit-skill`, and `$skillify` for reusable workflow creation and cleanup.
+- Use `$caveman` or `$uncle-matts-caveman-curse` only when the selected token mode or user explicitly asks for token reduction.
 
-Do not make the user remember skill names. Do not load the whole skill pack.
-Pick only the helper skill or skills that match the current job, read those
-entrypoints, then continue.
+## Host and optional skill routing
 
-- Use `$use-installed-skills-first` before non-trivial local work when the host
-  agent supports skills and needs to route from the installed pack.
-- Use `$pimp-my-prompt` before a run when the human request is rough, overloaded,
-  ambiguous, frustrated, or reusable and needs exact scope, acceptance criteria,
-  fallback behavior, proof, and stop rules.
-- Use `$brain-ops` when past decisions, project history, user memory, people,
-  companies, or durable context may matter.
-- Use `$query` when answering from the brain's stored knowledge.
-- Use `$find-skills` when a useful specialist skill may exist but is not bundled.
-- Use `$ingest`, `$idea-ingest`, `$media-ingest`, or `$voice-note-ingest` when
-  links, articles, PDFs, screenshots, transcripts, voice notes, or media sources
-  need to become useful local context.
-- Use `$article-enrichment`, `$book-mirror`, or `$strategic-reading` for long
-  articles, books, manuscripts, research, and prose that should be processed in
-  bounded sections instead of one giant context dump.
-- Use `$academic-verify`, `$data-research`, or `$perplexity-research` when a
-  claim, source, market, company, or current-state answer needs cited research
-  instead of memory or guessing.
-- Use `$exact-text-replacement` when the user supplies wording that must stay
-  byte-for-byte exact.
-- Use `$pdf` or `$brain-pdf` when the user needs a PDF checked, created, or
-  rendered from a brain page.
-- Use `$citation-fixer`, `$repo-architecture`, `$skillpack-check`, and
-  `$reports` for citation cleanup, brain filing, GBrain skillpack health, and
-  durable local report lookup/output.
-- Use `$write-a-skill` when a painful workflow should become a reusable local
-  agent skill.
-- Use `$edit-skill` when a local skill becomes bloated, duplicated, stale,
-  vague, or full of generic AI instructions.
-- Use `$skillify` when deciding whether a workflow deserves a skill and what
-  proof it needs.
-- Use `$handoff` when a fresh agent needs to continue without trusting chat
-  memory or compaction.
-- Use `$to-prd`, `$to-issues`, `$grill-me`, or `$grill-with-docs` when the
-  project needs product definition, issue breakdown, or requirement pressure
-  before implementation.
-- Use `$diagnose` when something is broken, flaky, slow, or confusing and a
-  fast feedback loop is needed before editing.
-- Use `$tdd` when adding or changing behavior that should be protected by tests.
-- Use `$testing` for broader test-suite health or skill conformance checks.
-- Use `$improve-codebase-architecture` when the repo structure or domain model
-  needs deeper design review before more code is added.
-- Use `$security-review` for auth, secrets, deployments, custody, data loss,
-  public readiness claims, or production-risk review.
-- Use `$cross-modal-review` when a large change, security-sensitive change, or
-  churny decision needs a second-model gate.
-- Use `$subagent-orchestrator` or `$minion-orchestrator` only when work is large,
-  parallelizable, or restart-durable enough to justify worker fan-out.
-- Use `$autoreview` as the closeout review lane before commit, release, or handoff.
-- Use `$plain-web-copy` when public words need to be factual, clear, and free of
-  hype.
-- Use `$fix-my-bad-website` when a website or app screen looks generic,
-  template-like, or visually disconnected from the product.
-- Use `$web-design-guidelines` or `$open-design` for visual/product UI quality.
-- Use `$playwright` or `$playwright-interactive` when browser proof, screenshots,
-  rendered QA, or interactive web debugging is needed.
-- Use `$functional-area-resolver` when an agent routing file is too broad and
-  needs smaller ownership boundaries.
-- Use `$caveman` or `$uncle-matts-caveman-curse` only when the selected token
-  mode or user explicitly asks for token reduction.
+Additional skills may exist in the host environment or Manageroo's optional source library. Their presence is not guaranteed.
+
+Before invoking one:
+
+1. confirm that the skill is actually installed and relevant;
+2. read its current `SKILL.md`;
+3. confirm any required tools are available;
+4. do not treat a host-owned skill as part of Manageroo's portable core.
+
+Potential specialist categories include research, document handling, design, browser automation, architecture review, external memory, and orchestration helpers. Route to them only when present and useful.
+
+## First-class surrounding integrations
+
+Manageroo remains the controller, but the recommended full setup can include:
+
+- **GitNexus** for repository/code-graph intelligence;
+- **GBrain** for external durable knowledge when explicitly relevant;
+- **AUTOREVIEW** for external review;
+- **Clawpatch** for external review and repair;
+- **Obsidian** for human-readable knowledge.
+
+### GitNexus
+
+GitNexus is a first-class recommended repository-intelligence integration, not a completion authority.
+
+When GitNexus is available and the task benefits from code-relationship knowledge, use its current installed capabilities for repository exploration, dependency awareness, impact analysis, debugging, and refactoring. Repository indexing is project-specific.
+
+Do not assume GitNexus is installed merely because Manageroo supports it. Degrade gracefully when it was intentionally skipped or unavailable.
+
+### GBrain
+
+Ordinary Manageroo project continuity belongs in `.manageroo/PROJECT-MEMORY.md` and the intent lock.
+
+Require GBrain only when the task explicitly needs GBrain, a brain page, Obsidian-backed context, or an external knowledge base.
+
+### AUTOREVIEW and Clawpatch
+
+AUTOREVIEW and Clawpatch are command-owned lanes. Run the configured command, capture exact output and artifacts, and let the tool own any supported repair/apply behavior.
+
+Do not convert their findings into untracked AI freehand fixes. If a configured external repair command fails or cannot repair its own finding, preserve the exact evidence and let Manageroo's controller policy decide the next state.
 
 ## Role separation
 
 Planning, implementation, verification, and review run in fresh processes. A reviewer is not an implementer and must not mutate the reviewed repository.
 
-## AUTOREVIEW and Clawpatch command lanes
+Review both:
 
-AUTOREVIEW and Clawpatch are command-owned repair lanes. Run the configured AUTOREVIEW command. Run the configured Clawpatch command. Capture their exact output and artifacts. If either tool has a repair/apply mode, use that tool command.
+- **implementation quality**: whether the change follows current repository standards and avoids regressions;
+- **requested-outcome fidelity**: whether the change actually satisfies the brief, acceptance criteria, and proof expectations.
 
-The AI agent must not freehand fixes from AUTOREVIEW or Clawpatch findings. If
-one of those commands fails or cannot repair its own finding, report the exact
-tool output and stop instead of inventing a patch.
+Passing one axis does not imply the other passed.
+
+## Evidence rule
+
+Current repository truth beats stale memory, summaries, old plans, or assumptions.
+
+Retrieve current files and command output before making factual claims that depend on repository state. Never claim runtime proof from static inspection.
 
 ## Learning card lane
 
-After a run, inspect learning cards when the operator asks what should improve
-next:
+After a run, inspect learning cards when the operator asks what should improve next:
 
 ```bash
 manageroo learning list
 manageroo learning show CARD_ID
 ```
 
-Learning cards are suggestions with evidence. Supported automatic apply still
-requires:
+Applying a supported card still requires:
 
 ```bash
 manageroo learning apply CARD_ID --approve
 ```
 
-Manual-only cards mean report the next scoped task. Do not edit skills, config,
-docs, installer behavior, checks, prompts, or code just because a card exists.
+A card is evidence-backed advice, not permission for silent self-mutation.
 
 ## Completion
 
-A successful agent response is only one piece of the run. Completion requires
-scope checks, real gates, review, product proof, and the final report.
+A successful worker response is only one piece of the run. Completion requires Manageroo-owned scope checks, real gates, review, acceptance evidence, and the final report.
