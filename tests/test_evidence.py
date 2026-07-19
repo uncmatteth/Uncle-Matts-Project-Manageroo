@@ -1,13 +1,16 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from manageroo.context import ContextCompiler, ContextRequest
 from manageroo.evidence import (
+    MAX_EVIDENCE_INPUT_BYTES,
     EvidenceItem,
     EvidenceRouter,
     ProjectMemoryEvidenceProvider,
+    RunArtifactEvidenceProvider,
     detect_contradictions,
     normalize_external_payload,
     rank_evidence,
@@ -82,6 +85,15 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(contradictions[0].preferred_hash, current.content_sha256)
         self.assertEqual(set(contradictions[0].sources), {"historical-note", "gitnexus-query"})
 
+    def test_supplied_content_hash_must_match_content(self):
+        with self.assertRaises(ValueError):
+            EvidenceItem(
+                content="actual content",
+                source="provider",
+                content_sha256="0" * 64,
+                metadata={"claim_key": "same-claim"},
+            )
+
     def test_router_keeps_provider_failure_structured(self):
         good = EvidenceItem(
             content="Current repo fact.",
@@ -131,6 +143,38 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0].authority, "project_memory")
             self.assertEqual(items[0].location, ".manageroo/PROJECT-MEMORY.md")
+
+    def test_project_memory_rejects_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            outside = root / "outside.md"
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
+            memory.parent.mkdir(parents=True)
+            outside.write_text("secret database migration", encoding="utf-8")
+            try:
+                memory.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+            self.assertEqual(ProjectMemoryEvidenceProvider(repo).retrieve("database migration"), [])
+
+    def test_project_memory_never_scans_beyond_bounded_input_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
+            memory.parent.mkdir(parents=True)
+            memory.write_bytes(b"x" * MAX_EVIDENCE_INPUT_BYTES + b"\nneedle-beyond-boundary\n")
+            items = ProjectMemoryEvidenceProvider(repo).retrieve("needle-beyond-boundary")
+            self.assertEqual(items, [])
+
+    def test_run_artifact_never_scans_beyond_bounded_input_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp) / "run"
+            artifact = run_root / "artifacts" / "large.txt"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"x" * MAX_EVIDENCE_INPUT_BYTES + b"\nneedle-beyond-boundary\n")
+            items = RunArtifactEvidenceProvider(run_root).retrieve("needle-beyond-boundary")
+            self.assertEqual(items, [])
 
     def test_context_compiler_includes_ranked_evidence_with_provenance(self):
         with tempfile.TemporaryDirectory() as temp:
