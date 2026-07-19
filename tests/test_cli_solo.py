@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -101,7 +102,10 @@ class CliSoloTests(unittest.TestCase):
                 )
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
-            self.assertEqual(payload["next_command"], "manageroo run --mode repair --no-apply")
+            self.assertEqual(
+                payload["next_command"],
+                shlex.join(["manageroo", "run", "--repo", str(repo), "--mode", "repair", "--no-apply"]),
+            )
 
     def test_solo_create_initializes_missing_project_before_brief(self):
         with tempfile.TemporaryDirectory() as temp:
