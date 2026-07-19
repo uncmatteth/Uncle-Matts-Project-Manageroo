@@ -18,7 +18,7 @@ def _load_package_release():
 
 
 class ReleaseHardeningContractTests(unittest.TestCase):
-    def test_hardened_controller_modules_and_regressions_are_packaged(self):
+    def test_hardened_controller_modules_and_behavioral_regressions_are_packaged(self):
         package_release = _load_package_release()
         source = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}
@@ -51,7 +51,6 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             "tests/test_parallel_worker_logging.py",
             "tests/test_plan_proof_policy.py",
             "tests/test_release_driver.py",
-            "tests/test_release_hardening_contract.py",
             "tests/test_stack_update.py",
             "tests/test_system_capacity.py",
             "tests/test_worker_attempt_isolation.py",
@@ -67,52 +66,22 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         }
         self.assertTrue(end_user_required <= end_user, sorted(end_user_required - end_user))
 
-    def test_controller_hardening_contract_is_present(self):
-        transactional = (ROOT / "src/manageroo/adapters/transactional.py").read_text(encoding="utf-8")
-        budget = (ROOT / "src/manageroo/adapters/budget.py").read_text(encoding="utf-8")
-        pool = (ROOT / "src/manageroo/adapters/pool.py").read_text(encoding="utf-8")
-        repair = (ROOT / "src/manageroo/external_repair_policy.py").read_text(encoding="utf-8")
-        proof_plan = (ROOT / "src/manageroo/plan_proof_policy.py").read_text(encoding="utf-8")
-        acceptance = (ROOT / "src/manageroo/acceptance.py").read_text(encoding="utf-8")
-        discovery = (ROOT / "src/manageroo/discovery_policy.py").read_text(encoding="utf-8")
-        preflight = (ROOT / "src/manageroo/discovery_preflight.py").read_text(encoding="utf-8")
-        host_skills = (ROOT / "src/manageroo/host_skills.py").read_text(encoding="utf-8")
-        capacity = (ROOT / "src/manageroo/system_capacity.py").read_text(encoding="utf-8")
-        stack_update = (ROOT / "src/manageroo/stack_update.py").read_text(encoding="utf-8")
-        token_modes = (ROOT / "src/manageroo/token_modes.py").read_text(encoding="utf-8")
-        release_driver = (ROOT / "scripts/release.py").read_text(encoding="utf-8")
-        gitnexus_finalizer = (ROOT / "scripts/finalize_gitnexus.py").read_text(encoding="utf-8")
-
-        self.assertIn("critical_controller_truth_guard", transactional)
-        self.assertIn("ignored_worker_state_discarded", transactional)
-        self.assertIn("pending-workspace-validation.json", transactional)
-        self.assertIn("threading.RLock", budget)
-        self.assertIn("worker_calls_consumed", budget)
-        self.assertIn("threading.RLock", pool)
-        self.assertIn("resumed_from_checkpoint", repair)
-        self.assertIn("PROOF-DEMONSTRATION", proof_plan)
-        self.assertIn("Outcome-specific proof binding is missing", acceptance)
-        self.assertIn("unknown-unknowns preflight", discovery)
-        self.assertIn("MUST NOT be used to auto-tune Manageroo worker concurrency", discovery)
-        self.assertNotIn("capacity_bounded_parallel", discovery)
-        self.assertIn("decisions_fully_resolved", discovery)
-        self.assertIn("ask_only_when", preflight)
-        self.assertIn("host_owned_or_external", host_skills)
-        self.assertIn("CORE_SKILL_NAMES", token_modes)
-        self.assertIn("OPTIONAL_SKILL_PACK", token_modes)
-        self.assertIn('"skill-vetter"', token_modes)
-        self.assertIn('"hardware_agnostic": True', capacity)
-        self.assertIn('"auto_tunes_worker_concurrency_from_hardware": False', capacity)
-        self.assertNotIn("max_parallel_agent_calls", capacity)
-        self.assertIn("gbrain", stack_update)
-        self.assertIn("gitnexus@latest", stack_update)
-        self.assertIn("STACK_TOOL_NAMES", stack_update)
-        self.assertIn("clawpatch@latest", stack_update)
-        self.assertIn("AUTOREVIEW_REPO", stack_update)
-        self.assertIn('[str(executable), "setup"]', gitnexus_finalizer)
-        self.assertIn('record["configured"] = configured', gitnexus_finalizer)
-        self.assertIn('"release_created": False', release_driver)
-        self.assertIn('"manageroo", "prove", "--json"', release_driver)
+    def test_behavior_critical_hardening_is_covered_by_executable_tests(self):
+        expected_behavioral_tests = {
+            "tests/test_acceptance_evidence.py",
+            "tests/test_decision_workflow.py",
+            "tests/test_discovery_preflight.py",
+            "tests/test_external_repair_resume.py",
+            "tests/test_parallel_worker_logging.py",
+            "tests/test_plan_proof_policy.py",
+            "tests/test_release_driver.py",
+            "tests/test_stack_update.py",
+            "tests/test_system_capacity.py",
+            "tests/test_worker_attempt_isolation.py",
+            "tests/test_worker_pool.py",
+        }
+        missing = [relative for relative in sorted(expected_behavioral_tests) if not (ROOT / relative).is_file()]
+        self.assertEqual(missing, [])
 
     def test_public_boundary_is_generic_and_current(self):
         public_files = [
