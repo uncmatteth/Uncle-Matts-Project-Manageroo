@@ -118,6 +118,7 @@ def gbrain_setup_status(
 
     actions: list[dict[str, Any]] = []
     next_commands: list[str] = []
+    add_failed = False
     if source_id or source_path:
         if not source_id or not source_path:
             raise ValueError("--source-id and --path must be provided together.")
@@ -127,7 +128,8 @@ def gbrain_setup_status(
         if apply:
             add_result = run_probe(add_argv)
             actions.append(add_result)
-            if sync and add_result.get("ok"):
+            add_failed = not bool(add_result.get("ok"))
+            if sync and not add_failed:
                 actions.append(run_probe(sync_argv, timeout_seconds=300))
             elif sync:
                 next_commands.append(
@@ -140,15 +142,24 @@ def gbrain_setup_status(
 
     config_probe = run_probe([gbrain, "config", "show"])
     config_summary = summarize_gbrain_config(config_probe.get("output", "")) if config_probe.get("ok") else {}
-    status_probe = run_probe([gbrain, "status", "--json", "--section", "sync"])
-    summary = (
-        summarize_sync_status(status_probe.get("output", ""))
-        if status_probe.get("ok")
-        else {
+    if add_failed:
+        status_probe = {
             "ok": False,
-            "error": status_probe.get("error") or status_probe.get("output") or "gbrain status failed",
+            "argv": [],
+            "error": "GBrain source add failed; status and sync probes were not attempted.",
+            "output": "",
         }
-    )
+        summary = {"ok": False, "error": status_probe["error"]}
+    else:
+        status_probe = run_probe([gbrain, "status", "--json", "--section", "sync"])
+        summary = (
+            summarize_sync_status(status_probe.get("output", ""))
+            if status_probe.get("ok")
+            else {
+                "ok": False,
+                "error": status_probe.get("error") or status_probe.get("output") or "gbrain status failed",
+            }
+        )
     if summary.get("ok") and summary.get("source_count") == 0:
         next_commands.append("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder")
         next_commands.append("gbrain sync --source YOUR_SOURCE_ID --json --yes")
@@ -161,6 +172,7 @@ def gbrain_setup_status(
         "config": config_summary,
         "config_probe": safe_probe_record(config_probe),
         "status": summary,
+        "status_probe": safe_probe_record(status_probe),
         "actions": actions,
         "next_commands": next_commands,
         "rule": "No broad scan. Add only folders the operator chooses.",
