@@ -30,8 +30,9 @@ class TokenModeTests(unittest.TestCase):
             self.assertFalse((root / "brain-ops" / "SKILL.md").exists())
             self.assertFalse((root / "autoreview" / "SKILL.md").exists())
             controller = (root / "uncle-matts-project-manageroo" / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("Do not make the user remember skill names", controller)
-            self.assertIn("Do not load the whole skill pack", controller)
+            self.assertIn("Do not load the whole pack for every job", controller)
+            self.assertIn("Route only to relevant helpers", controller)
+            self.assertIn("use-installed-skills-first", controller)
 
     def test_installs_bundled_caveman_skills(self):
         with tempfile.TemporaryDirectory() as temp:
