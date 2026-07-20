@@ -98,14 +98,19 @@ class CommandPolicy:
         if not argv:
             raise SafetyError("Empty command.")
 
-        raw_program = argv[0]
+        raw_program = str(argv[0])
         program_path = Path(raw_program)
         program = program_path.name
         allowed_raw = set(self.allowed_programs)
         allowed_names = {Path(item).name for item in self.allowed_programs}
         python_family_allowed = any(self._is_python_name(item) for item in allowed_names)
 
-        path_qualified = program_path.is_absolute() or program_path.parent != Path(".")
+        path_qualified = (
+            program_path.is_absolute()
+            or "/" in raw_program
+            or "\\" in raw_program
+            or program_path.parent != Path(".")
+        )
         explicitly_allowlisted = raw_program in allowed_raw
         resolved_trusted = path_qualified and self._trusted_resolved_path(raw_program, program)
         if path_qualified and not explicitly_allowlisted and not resolved_trusted:
