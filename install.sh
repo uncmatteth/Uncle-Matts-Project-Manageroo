@@ -43,5 +43,5 @@ done
 "$PYTHON" "$SCRIPT_DIR/scripts/finalize_gitnexus.py" --prefix "$PREFIX_VALUE"
 
 printf '%s\n' ''
-printf '%s\n' 'Host profile: run `manageroo capacity` to inspect this machine'''s CPU, RAM, GPU/VRAM, and free disk.'
+printf '%s\n' "Host profile: run \`manageroo capacity\` to inspect this machine's CPU, RAM, GPU/VRAM, and free disk."
 printf '%s\n' 'Manageroo itself is hardware-agnostic: the profile is context only and never auto-tunes worker concurrency.'
