@@ -87,9 +87,18 @@ class CodexAdapter(AgentAdapter):
             log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}",
         )
         if not result.passed:
+            stdout_tail = (result.stdout or "")[-8000:].strip()
+            stderr_tail = (result.stderr or "")[-4000:].strip()
+            details = []
+            if stdout_tail:
+                details.append("stdout:\n" + stdout_tail)
+            if stderr_tail:
+                details.append("stderr:\n" + stderr_tail)
+            if not details:
+                details.append("Codex produced no stdout or stderr diagnostics.")
             raise AgentExecutionError(
                 f"Codex role {request.role!r} failed with exit code {result.exit_code}:\n"
-                f"{result.stderr[-4000:]}"
+                + "\n\n".join(details)
             )
         if not request.output_path.exists():
             raise AgentExecutionError(
