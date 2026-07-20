@@ -163,7 +163,7 @@ class LearningLaneTests(unittest.TestCase):
         self.assertIn("approval-gated", docs)
         self.assertIn("manual-only", docs)
         self.assertIn("learning apply", docs)
-        self.assertIn("Do not apply learning cards without explicit approval", skill)
+        self.assertIn("Do not apply learning cards without explicit operator approval", skill)
 
 
 if __name__ == "__main__":
