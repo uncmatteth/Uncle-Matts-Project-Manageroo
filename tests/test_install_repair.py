@@ -53,6 +53,8 @@ class InstallRepairTests(unittest.TestCase):
             prefix.mkdir()
             bin_dir.mkdir()
             launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+            if os.name != "nt":
+                launcher.chmod(0o755)
             (prefix / "install-lock.json").write_text(
                 json.dumps({"launcher": str(launcher)}) + "\n",
                 encoding="utf-8",
