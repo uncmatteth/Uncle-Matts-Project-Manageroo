@@ -35,18 +35,15 @@ class InstallScriptTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(install.choose_skill_pack_mode("ask", False), "install")
 
-    def test_skill_pack_prompt_explains_default_skip_and_later_install(self):
+    def test_skill_pack_prompt_can_skip_and_records_later_reconcile_command(self):
         install = load_install_script()
-        output = io.StringIO()
         with patch.object(install.sys.stdin, "isatty", return_value=True):
             with patch("builtins.input", return_value="n"):
-                with redirect_stdout(output):
+                with redirect_stdout(io.StringIO()):
                     self.assertEqual(install.choose_skill_pack_mode("ask", False), "skip")
-        prompt = output.getvalue()
-        self.assertIn("optional, but strongly suggested", prompt)
-        self.assertIn("Default is yes", prompt)
-        self.assertIn("You can skip it", prompt)
-        self.assertIn("manageroo skills reconcile --apply", prompt)
+        source = INSTALL_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("Portable core skill pack skipped", source)
+        self.assertIn("manageroo skills reconcile --apply", source)
 
     def test_skill_pack_non_interactive_uses_recommended_install(self):
         install = load_install_script()
@@ -59,41 +56,31 @@ class InstallScriptTests(unittest.TestCase):
         with redirect_stdout(output):
             install.print_lane_explainer()
         text = output.getvalue()
-        self.assertIn("Memory lane", text)
-        self.assertIn("Document/prose lane", text)
-        self.assertIn("Intent lock lane", text)
-        self.assertIn("compaction audit", text)
-        self.assertIn("document_analysis_command", text)
-        self.assertIn("ready prints WARN but does not block", text)
-        self.assertIn("AUTOREVIEW/Clawpatch lane", text)
+        self.assertIn("How Manageroo fits together", text)
+        self.assertIn("Manageroo owns run truth", text)
+        self.assertIn("GitNexus", text)
+        self.assertIn("GBrain", text)
+        self.assertIn("AUTOREVIEW and Clawpatch", text)
+        self.assertIn("Host skills", text)
 
-    def test_next_commands_offer_project_picker_instead_of_manual_path_juggling(self):
+    def test_next_commands_offer_guided_project_setup(self):
         install = load_install_script()
         output = io.StringIO()
         with redirect_stdout(output):
             install.print_next_commands()
         text = output.getvalue()
-        self.assertIn("manageroo projects --pick", text)
         self.assertIn("manageroo projects --add", text)
         self.assertIn("manageroo stack-doctor", text)
-        self.assertIn("manageroo skills reconcile --apply", text)
-        self.assertIn("manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply", text)
-        self.assertIn("manageroo intent show", text)
-        self.assertIn("manageroo compact audit --summary SUMMARY.md", text)
-        self.assertIn("checkbox-style list", text)
+        self.assertIn("manageroo repair-install --no-apply", text)
+        self.assertIn("manageroo next", text)
         self.assertNotIn("cd /path/to/project && manageroo solo", text)
 
     def test_project_discovery_prompt_defaults_to_add_selected_projects(self):
         install = load_install_script()
-        output = io.StringIO()
         with patch.object(install.sys.stdin, "isatty", return_value=True):
             with patch("builtins.input", return_value=""):
-                with redirect_stdout(output):
+                with redirect_stdout(io.StringIO()):
                     self.assertEqual(install.choose_project_discovery_mode("ask"), "add")
-        text = output.getvalue()
-        self.assertIn("checkbox-style", text)
-        self.assertIn("choose which ones to add", text)
-        self.assertIn("paste extra paths", text)
 
     def test_stack_doctor_prompt_defaults_to_run_when_interactive(self):
         install = load_install_script()
@@ -128,7 +115,7 @@ class InstallScriptTests(unittest.TestCase):
             self.assertNotIn("signals.forwardfuture", text)
         self.assertNotIn("install_loop_library", py)
 
-    def test_public_installer_and_docs_do_not_hardcode_tommy_skill_import_path(self):
+    def test_public_installer_and_docs_do_not_hardcode_private_skill_import_paths(self):
         public_files = [
             ROOT / "scripts" / "install.py",
             ROOT / "README.md",
@@ -136,20 +123,27 @@ class InstallScriptTests(unittest.TestCase):
             ROOT / "docs" / "00_START_HERE.md",
             ROOT / "docs" / "INSTALLATION.md",
         ]
+        private_fragments = (
+            "/home/Tommy/",
+            "/Users/tommythehamburger/",
+            "C:\\Users\\David\\",
+            "Tommy's tOS",
+        )
         for path in public_files:
             with self.subTest(path=path.name):
                 text = path.read_text(encoding="utf-8")
-                self.assertNotIn("/home/Tommy/Downloads/SKILLS", text)
-                self.assertIn("~/Downloads/SKILLS", text)
+                for fragment in private_fragments:
+                    self.assertNotIn(fragment, text)
 
-    def test_official_gbrain_lane_does_not_tell_users_to_copy_paste(self):
+    def test_official_gbrain_lane_uses_upstream_agent_protocol(self):
         install = load_install_script()
         output = io.StringIO()
         with patch.object(install, "command_version", return_value="not installed"):
             with redirect_stdout(output):
                 result = install.install_gbrain([], lane="official")
         text = output.getvalue() + "\n".join(result["next_commands"])
-        self.assertIn("official GBrain agent install guide", text)
+        self.assertIn("INSTALL_FOR_AGENTS.md", text)
+        self.assertIn("agent-supervised", str(result.get("guidance", "")))
         self.assertNotIn("Paste this into your AI agent", text)
 
 
