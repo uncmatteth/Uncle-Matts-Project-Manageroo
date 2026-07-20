@@ -9,7 +9,7 @@ from manageroo import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_TAG_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9])v\d+(?:\.\d+){2,3}(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?![A-Za-z0-9.-])"
+    r"(?<![A-Za-z0-9])v\d+(?:\.\d+){2,3}(?:-(?:rc|alpha|beta|pre|dev)\d*)?(?![A-Za-z0-9-])"
 )
 
 
