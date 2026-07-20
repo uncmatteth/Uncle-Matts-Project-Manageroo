@@ -13,6 +13,9 @@ from ..schema import extract_json, load_schema, validate
 from ..util import atomic_write_json
 
 
+_BWRAP_LOOPBACK_FAILURE = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+
+
 def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Return a Codex structured-output-compatible copy of a JSON schema.
 
@@ -87,6 +90,52 @@ class CodexAdapter(AgentAdapter):
             "missing_required_flags": missing,
         }
 
+    def _argv(
+        self,
+        request: AgentRequest,
+        codex_schema_path: Path,
+        *,
+        sandbox: str,
+    ) -> list[str]:
+        argv = [
+            self.executable,
+            "exec",
+            "--json",
+            "--sandbox",
+            sandbox,
+            "--output-schema",
+            str(codex_schema_path),
+            "--output-last-message",
+            str(request.output_path),
+            "-C",
+            str(request.cwd),
+        ]
+        if self.model:
+            argv.extend(["--model", self.model])
+        argv.append("-")
+        return argv
+
+    def _run_codex(
+        self,
+        request: AgentRequest,
+        *,
+        prompt: str,
+        codex_schema_path: Path,
+        sandbox: str,
+        log_suffix: str = "",
+    ):
+        argv = self._argv(request, codex_schema_path, sandbox=sandbox)
+        result = self.runner.run(
+            argv,
+            cwd=request.cwd,
+            timeout_seconds=request.timeout_seconds,
+            input_text=prompt,
+            log_name=(
+                f"agent-{request.output_path.parent.name}-{request.output_path.stem}{log_suffix}"
+            ),
+        )
+        return argv, result
+
     def run(self, request: AgentRequest) -> AgentResponse:
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         packet_text = request.prompt_path.read_text(encoding="utf-8", errors="replace")
@@ -100,38 +149,36 @@ class CodexAdapter(AgentAdapter):
         source_schema = load_schema(request.schema_path)
         codex_schema_path = request.output_path.with_suffix(".codex-schema.json")
         atomic_write_json(codex_schema_path, _codex_compatible_schema(source_schema))
-        argv = [
-            self.executable,
-            "exec",
-            "--json",
-        ]
-        if request.sandbox == "workspace-write":
-            # Non-interactive write workers cannot pause for operator approval.
-            # Full-auto still runs inside Codex's sandbox and is additionally
-            # constrained by Manageroo's transactional rollback and scope checks.
-            argv.append("--full-auto")
-        argv.extend(
-            [
-                "--sandbox",
-                request.sandbox,
-                "--output-schema",
-                str(codex_schema_path),
-                "--output-last-message",
-                str(request.output_path),
-                "-C",
-                str(request.cwd),
-            ]
+
+        argv, result = self._run_codex(
+            request,
+            prompt=prompt,
+            codex_schema_path=codex_schema_path,
+            sandbox=request.sandbox,
         )
-        if self.model:
-            argv.extend(["--model", self.model])
-        argv.append("-")
-        result = self.runner.run(
-            argv,
-            cwd=request.cwd,
-            timeout_seconds=request.timeout_seconds,
-            input_text=prompt,
-            log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}",
-        )
+
+        diagnostics = (result.stdout or "") + "\n" + (result.stderr or "")
+        if request.sandbox == "workspace-write" and _BWRAP_LOOPBACK_FAILURE in diagnostics:
+            # Some Linux hosts cannot initialize Codex's bubblewrap network namespace
+            # even though the process itself exits successfully with a blocked result.
+            # Retry only this exact host-sandbox initialization failure with Codex's
+            # unrestricted sandbox mode. Manageroo's outer TransactionalAdapter still
+            # snapshots controller truth, rolls back failed attempts, and validates the
+            # final repository diff before work can be accepted.
+            for path in (
+                request.output_path,
+                request.output_path.with_suffix(".validated.json"),
+            ):
+                if path.is_file() or path.is_symlink():
+                    path.unlink()
+            argv, result = self._run_codex(
+                request,
+                prompt=prompt,
+                codex_schema_path=codex_schema_path,
+                sandbox="danger-full-access",
+                log_suffix="-host-sandbox-fallback",
+            )
+
         if not result.passed:
             stdout_tail = (result.stdout or "")[-8000:].strip()
             stderr_tail = (result.stderr or "")[-4000:].strip()
