@@ -11,6 +11,7 @@ from manageroo.skill_pack import (
     reconcile_skill_pack,
     scan_skill_folder,
 )
+from manageroo.token_modes import CORE_HELPER_SKILLS
 
 
 def _skill(path: Path, name: str, body: str = "Use when testing.\n") -> Path:
@@ -72,7 +73,7 @@ class SkillPackImportTests(unittest.TestCase):
             self.assertEqual(len(backups), 1)
             self.assertIn("current", backups[0].read_text(encoding="utf-8"))
 
-    def test_reconcile_installs_bundled_pack_without_manual_copying(self):
+    def test_reconcile_installs_portable_core_without_manual_copying(self):
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / "skills"
 
@@ -85,9 +86,11 @@ class SkillPackImportTests(unittest.TestCase):
             self.assertTrue(report["ok"])
             self.assertTrue(report["applied"])
             self.assertEqual(report["missing_bundled"], [])
-            self.assertGreaterEqual(report["bundled_skill_count"], 40)
+            self.assertEqual(report["bundled_skill_count"], len(CORE_HELPER_SKILLS))
+            self.assertEqual(report["bundled_skill_count"], 18)
             self.assertTrue((target / "pimp-my-prompt" / "SKILL.md").exists())
-            self.assertTrue((target / "playwright" / "references" / "cli.md").exists())
+            self.assertTrue((target / "uncle-matts-project-manageroo" / "SKILL.md").exists())
+            self.assertFalse((target / "playwright" / "SKILL.md").exists())
 
     def test_reconcile_reports_duplicate_skill_names_across_roots(self):
         with tempfile.TemporaryDirectory() as temp:
