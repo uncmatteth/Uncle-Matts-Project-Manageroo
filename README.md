@@ -1,7 +1,5 @@
 # Uncle Matt's Project Manageroo
 
-Use `manageroo` at the terminal. The name is incredibly super serious.
-
 ## Install in one command
 
 **Linux / macOS:**
@@ -17,6 +15,8 @@ git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-L
 ```
 
 The installer walks you through the optional stack and setup choices. Requirements: Python 3.11+ and Git.
+
+Use `manageroo` at the terminal. The name is incredibly super serious.
 
 Manageroo is a local control plane for AI coding agents working on real Git repositories.
 
