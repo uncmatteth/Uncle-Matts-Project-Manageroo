@@ -71,10 +71,10 @@ class ExternalLoopLibraryRemovalTests(unittest.TestCase):
                 with self.subTest(surface=surface.name, phrase=phrase):
                     self.assertNotIn(phrase, text)
 
-    def test_readme_keeps_conceptual_credit_without_dependency_claim(self):
+    def test_readme_keeps_credit_without_dependency_claim(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("Matthew Berman / Forward Future", readme)
-        self.assertIn("conceptual", readme.lower())
+        self.assertIn("helped clarify the pattern", readme)
         self.assertIn("does not connect to or depend on Loop Library", readme)
 
 
