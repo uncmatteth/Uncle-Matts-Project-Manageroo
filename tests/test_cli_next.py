@@ -1,5 +1,6 @@
 import io
 import json
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -34,8 +35,11 @@ class CliNextTests(unittest.TestCase):
             self.assertIn("NEXT ACTION", output)
             self.assertIn("Stage: needs-setup", output)
             self.assertEqual(output.count("\nCommand:"), 1, output)
-            self.assertIn(f"manageroo solo {repo}", output)
-            self.assertIn('--want "Describe the first useful version"', output)
+            command = output.split("\nCommand:\n  ", 1)[1].splitlines()[0]
+            self.assertEqual(
+                shlex.split(command),
+                ["manageroo", "solo", str(repo), "--want", "Describe the first useful version"],
+            )
 
     def test_initialized_repo_without_checks_points_to_checks_suggest(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -79,8 +83,8 @@ class CliNextTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(payload["stage"], "ready-to-run")
             self.assertEqual(
-                payload["command"],
-                f"manageroo run --repo {repo} --mode repair --no-apply",
+                shlex.split(payload["command"]),
+                ["manageroo", "run", "--repo", str(repo), "--mode", "repair", "--no-apply"],
             )
 
 
