@@ -88,7 +88,7 @@ def process_safety_violations() -> list[str]:
 
 
 def contains_compact(text: str, phrase: str) -> bool:
-    return " ".join(phrase.split()) in " ".join(text.split())
+    return " ".join(phrase.split()).casefold() in " ".join(text.split()).casefold()
 
 
 def structural_checks() -> list[dict]:
