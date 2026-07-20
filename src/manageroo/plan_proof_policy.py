@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any
 
 from .acceptance import _needs_demonstration, _normalized
+from .util import read_json
 
 
 def proof_binding_findings(
@@ -79,7 +80,6 @@ def proof_binding_findings(
                 }
             )
             continue
-
         gate_ids = {
             str(item).strip()
             for item in matches[0].get("gate_ids", [])
@@ -123,7 +123,11 @@ def install_plan_proof_policy(orchestrator_module: Any) -> None:
 
     def strict_preflight(self: Any, plan: dict, inventory: list[dict]) -> list[dict]:
         findings = list(original(self, plan, inventory))
-        product = self._artifact_json("planning/product-model.json") or {}
+        # _artifact_json intentionally exposes only resumable artifacts while continuing.
+        # Plan proof validation also runs during a brand-new run, so read the controller-owned
+        # product model directly after the intake/decision phase has persisted it.
+        product_path = self.artifacts.root / "planning" / "product-model.json"
+        product = read_json(product_path) if product_path.is_file() else {}
         findings.extend(
             proof_binding_findings(
                 product=product,
