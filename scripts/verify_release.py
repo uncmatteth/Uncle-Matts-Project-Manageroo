@@ -93,7 +93,7 @@ def contains_compact(text: str, phrase: str) -> bool:
 
 def structural_checks() -> list[dict]:
     required = [
-        "install.sh", "install.ps1", "scripts/smoke_release_install.py", "scripts/finalize_gitnexus_install.py",
+        "install.sh", "install.ps1", "scripts/smoke_release_install.py", "scripts/finalize_gitnexus.py",
         "README.md", "GIVE-THIS-TO-YOUR-IDE-AGENT.md", "docs/CONTEXT_COMPILER.md", "docs/DOCUMENT_LANE.md",
         "docs/EVIDENCE_RETRIEVAL.md", "docs/INSTALLATION.md", "docs/LEARNING_LANE.md", "docs/LIMITATIONS.md",
         "docs/REVIEW_REPAIR_LANES.md", "docs/SOLO_OPERATOR_MODE.md", "docs/STATELESS_ORCHESTRATION.md",
@@ -113,7 +113,7 @@ def structural_checks() -> list[dict]:
     evidence = (ROOT / "docs" / "EVIDENCE_RETRIEVAL.md").read_text(encoding="utf-8")
     stateless = (ROOT / "docs" / "STATELESS_ORCHESTRATION.md").read_text(encoding="utf-8")
     review_repair = (ROOT / "docs" / "REVIEW_REPAIR_LANES.md").read_text(encoding="utf-8")
-    installer = (ROOT / "scripts" / "install.py").read_text(encoding="utf-8")
+    skill = (ROOT / "src" / "manageroo" / "assets" / "skills" / "uncle-matts-project-manageroo" / "SKILL.md").read_text(encoding="utf-8")
     project = (ROOT / "src" / "manageroo" / "project.py").read_text(encoding="utf-8")
     selected = source_files()
     selected_relative = {_relative(path).as_posix() for path in selected}
@@ -131,13 +131,13 @@ def structural_checks() -> list[dict]:
         },
         {
             "name": "truth:no-fake-subagent-claim",
-            "ok": contains_compact(architecture, "implementation prioritizes correctness over theatrical agent count")
-            and contains_compact(architecture, "The controller does not run parallel implementation branches"),
+            "ok": contains_compact(architecture, "Tasks are dependency ordered and executed sequentially")
+            and contains_compact(architecture, "Manageroo does not run parallel implementation branches against the same files"),
         },
         {
             "name": "truth:no-ai-freehand-external-repair",
-            "ok": contains_compact(review_repair, "must not freehand fixes from AUTOREVIEW or")
-            and contains_compact(installer, "AI must not freehand fixes from them"),
+            "ok": contains_compact(review_repair, "must not freehand fixes from AUTOREVIEW or Clawpatch findings")
+            and contains_compact(skill, "Do not convert their findings into untracked AI freehand fixes"),
         },
         {
             "name": "truth:no-release-ready-deploy-claim",
@@ -154,11 +154,8 @@ def structural_checks() -> list[dict]:
         },
         {
             "name": "truth:evidence-is-context-not-authority",
-            "ok": contains_compact(evidence, "Evidence helps a worker receive better context")
-            or (
-                contains_compact(evidence, "retrieved evidence is context")
-                and contains_compact(evidence, "cannot certify one")
-            ),
+            "ok": contains_compact(evidence, "retrieved evidence is context")
+            and contains_compact(evidence, "cannot certify one"),
         },
         {
             "name": "truth:gitnexus-gbrain-evidence-provider-boundary",
