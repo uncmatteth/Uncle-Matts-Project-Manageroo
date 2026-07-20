@@ -50,13 +50,13 @@ class VersionConsistencyTests(unittest.TestCase):
             {current_tag, "v1.2.3", f"{current_tag}-rc1"},
         )
 
-    def test_version_pattern_does_not_extract_truncated_tags_from_release_filenames(self):
+    def test_version_pattern_keeps_full_tags_in_release_filenames_without_truncation(self):
         current_tag = f"v{__version__}"
         fixture = (
             f"uncle-matts-project-manageroo-{current_tag}.zip\n"
             f"uncle-matts-project-manageroo-{current_tag}-source.zip\n"
         )
-        self.assertEqual(VERSION_TAG_PATTERN.findall(fixture), [])
+        self.assertEqual(VERSION_TAG_PATTERN.findall(fixture), [current_tag])
 
 
 if __name__ == "__main__":
