@@ -82,6 +82,13 @@ def _configure_proof_project(repo: Path, *, agent: str) -> Path:
         )
     config_path.write_text(text, encoding="utf-8")
 
+    # The live-agent lane verifies a real edit to an existing tracked file. Using a
+    # tracked fixture avoids conflating provider write capability with any provider-
+    # specific policy around creating new untracked files.
+    (repo / "manageroo_live_agent_proof.txt").write_text(
+        "MANAGEROO live agent proof pending\n",
+        encoding="utf-8",
+    )
     (repo / "test_product_proof.py").write_text(
         "import unittest\n"
         "from pathlib import Path\n\n"
@@ -97,7 +104,7 @@ def _configure_proof_project(repo: Path, *, agent: str) -> Path:
     brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
     brief.write_text(
         "# Product request\n\n"
-        "Create exactly one file named `manageroo_live_agent_proof.txt`.\n"
+        "Update exactly one file named `manageroo_live_agent_proof.txt`.\n"
         "Its exact contents must be `MANAGEROO live agent proof completed` followed by one newline.\n"
         "Do not modify the existing test file.\n"
         "The work is complete only when the configured unittest gate passes and independent review approves it.\n",
@@ -161,9 +168,10 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
         output_path = root / "live-agent-output.json"
         prompt_path.write_text(
             "# Bounded live-agent integration proof\n\n"
-            "Work only in the assigned Git repository. Create exactly one repository file named "
-            "`manageroo_live_agent_proof.txt`. Its exact contents must be "
+            "Work only in the assigned Git repository. The tracked file "
+            "`manageroo_live_agent_proof.txt` already exists. Edit that file in place so its exact contents are "
             "`MANAGEROO live agent proof completed` followed by exactly one newline. "
+            "You are explicitly authorized to make this one workspace edit. "
             "Do not modify, delete, rename, or create any other repository file. "
             "Do not commit. Return structured output with status `implemented`, "
             "files_changed containing exactly `manageroo_live_agent_proof.txt`, and truthful "
@@ -218,12 +226,17 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
             "agent": agent,
             "doctor": doctor,
             "response_status": response.data.get("status"),
+            "response_summary": response.data.get("summary"),
+            "response_risks": response.data.get("risks", []),
+            "scope_expansion_requested": response.data.get("scope_expansion_requested", []),
             "declared_files": declared,
             "changed_paths": changed_paths,
             "target_exists": target.is_file(),
             "target_exact": actual == expected,
             "gate_exit_code": gate.exit_code,
             "gate_output_tail": (gate.stdout + gate.stderr)[-2000:],
+            "agent_stdout_tail": response.stdout[-4000:],
+            "agent_stderr_tail": response.stderr[-2000:],
         }
 
 
