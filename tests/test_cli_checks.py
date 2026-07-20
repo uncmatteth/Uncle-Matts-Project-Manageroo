@@ -1,6 +1,7 @@
 import io
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -72,9 +73,11 @@ class CliCheckTests(unittest.TestCase):
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
             self.assertEqual(payload["added"]["id"], "python-compile")
+            self.assertEqual(payload["added"]["argv"], [sys.executable, "-m", "compileall", "."])
             config_text = (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")
             self.assertIn('id = "python-compile"', config_text)
-            self.assertIn('argv = ["python3", "-m", "compileall", "."]', config_text)
+            self.assertIn(json.dumps(sys.executable), config_text)
+            self.assertIn('"-m", "compileall", "."', config_text)
 
 
 if __name__ == "__main__":
