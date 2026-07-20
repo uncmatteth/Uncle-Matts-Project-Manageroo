@@ -60,7 +60,7 @@ class DecisionWorkflowTests(unittest.TestCase):
             self.assertIsNotNone(path)
             text = path.read_text(encoding="utf-8")
             self.assertIn("How should old data be migrated?", text)
-            self.assertIn("Recommended: Additive migration", text)
+            self.assertIn("**Recommended:** Additive migration", text)
             self.assertIn("manageroo decisions answer", text)
 
     def test_resolved_decisions_preserve_original_evidence_and_unblock_continue(self):
