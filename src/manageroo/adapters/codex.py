@@ -104,15 +104,24 @@ class CodexAdapter(AgentAdapter):
             self.executable,
             "exec",
             "--json",
-            "--sandbox",
-            request.sandbox,
-            "--output-schema",
-            str(codex_schema_path),
-            "--output-last-message",
-            str(request.output_path),
-            "-C",
-            str(request.cwd),
         ]
+        if request.sandbox == "workspace-write":
+            # Non-interactive write workers cannot pause for operator approval.
+            # Full-auto still runs inside Codex's sandbox and is additionally
+            # constrained by Manageroo's transactional rollback and scope checks.
+            argv.append("--full-auto")
+        argv.extend(
+            [
+                "--sandbox",
+                request.sandbox,
+                "--output-schema",
+                str(codex_schema_path),
+                "--output-last-message",
+                str(request.output_path),
+                "-C",
+                str(request.cwd),
+            ]
+        )
         if self.model:
             argv.extend(["--model", self.model])
         argv.append("-")
