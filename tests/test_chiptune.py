@@ -47,15 +47,15 @@ class ChiptuneTests(unittest.TestCase):
             with self.subTest(cue=cue):
                 self.assertGreaterEqual(theme_duration_seconds(cue), FADE_SECONDS * 2)
 
-    def test_generated_music_uses_half_volume_master(self):
-        self.assertEqual(MASTER_VOLUME, 0.5)
+    def test_generated_music_uses_twenty_percent_master(self):
+        self.assertEqual(MASTER_VOLUME, 0.2)
         with tempfile.TemporaryDirectory() as temp:
             path = generate_theme(Path(temp) / "success.wav", cue="success", variant=69)
             with wave.open(str(path), "rb") as audio:
                 frames = audio.readframes(audio.getnframes())
             samples = struct.unpack(f"<{len(frames) // 2}h", frames)
             self.assertGreater(max(abs(sample) for sample in samples), 1000)
-            self.assertLessEqual(max(abs(sample) for sample in samples), 17000)
+            self.assertLessEqual(max(abs(sample) for sample in samples), 7000)
 
 
 if __name__ == "__main__":
