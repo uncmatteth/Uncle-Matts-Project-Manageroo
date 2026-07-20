@@ -124,20 +124,29 @@ def collect_solo_answers(
     output_fn: OutputFn | None = print,
 ) -> dict:
     selected_agent = agent or "auto"
+
+    # Supplying --want is the CLI's explicit/noninteractive form. This prevents a
+    # terminal-attached test or automation run from unexpectedly blocking on stdin.
+    if want:
+        interactive = False
+
     if not interactive:
+        selected_outcomes = list(outcomes)
+        selected_must_not = list(must_not) or ["Do not break existing working behavior."]
+        selected_proof = list(proof) or ["Run the repo's configured checks and report the result."]
         return {
             "repo": Path(repo) if repo is not None else Path("."),
             "agent": selected_agent,
             "want": want,
-            "audience": audience,
-            "outcomes": outcomes,
-            "must_not": must_not,
-            "proof": proof,
-            "stop": stop,
-            "later": later,
+            "audience": audience or "The people or systems that use this repo.",
+            "outcomes": selected_outcomes,
+            "must_not": selected_must_not,
+            "proof": selected_proof,
+            "stop": stop or "Stop after two failed repair passes and report the blocker.",
+            "later": list(later),
             "mode": mode,
             "run": bool(run),
-            "integrations": integrations,
+            "integrations": {name: bool(integrations.get(name, False)) for name in INTEGRATIONS},
         }
 
     selected_repo = Path(
