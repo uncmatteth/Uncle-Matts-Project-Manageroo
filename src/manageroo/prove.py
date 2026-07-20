@@ -7,10 +7,13 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
+from .adapters.base import AgentRequest
+from .adapters.factory import build_adapter
+from .assets import asset_path
+from .config import load_config
 from .errors import SafetyError
 from .intent_lock import audit_compaction_text, capture_intent_lock
 from .jobs import JobStatus, JobStore
-from .orchestrator import Orchestrator
 from .policy import CommandPolicy, ScopePolicy
 from .project import initialize_project
 from .runner import CommandRunner
@@ -113,31 +116,114 @@ def _full_lifecycle_case() -> dict[str, Any]:
 
 
 def _live_agent_case(agent: str) -> dict[str, Any]:
+    """Prove one real provider can complete a bounded write assignment.
+
+    The deterministic whole-project lifecycle is already exercised by a separate
+    proof lane. Re-running the entire product-analysis and plan-review lifecycle
+    with a live stochastic model made provider integration certification depend on
+    planning taste rather than the actual integration contract. This lane instead
+    exercises the production adapter, sandbox, transactional wrapper, structured
+    output, repository mutation, declared-file evidence, and an executable gate.
+    """
+
     if agent not in LIVE_AGENT_CHOICES:
         return {
             "ok": False,
             "detail": f"unsupported live-agent proof choice: {agent}",
             "agent": agent,
         }
+
     with tempfile.TemporaryDirectory(prefix=f"manageroo-prove-{agent}-") as temp:
-        repo = _git_fixture(Path(temp))
-        brief = _configure_proof_project(repo, agent=agent)
-        result = Orchestrator(repo).run(
-            brief_path=brief,
-            mode="build",
-            apply_on_success=True,
+        root = Path(temp)
+        repo = _git_fixture(root)
+        _configure_proof_project(repo, agent=agent)
+        runner = CommandRunner(root / "logs")
+
+        # Establish a clean controller-owned baseline before the disposable worker
+        # receives its assignment. Only the requested proof file may remain changed.
+        for argv in (["git", "add", "-A"], ["git", "commit", "-m", "configure live proof"]):
+            result = runner.run(argv, cwd=repo, timeout_seconds=30)
+            if not result.passed:
+                raise RuntimeError(result.stderr or result.stdout)
+
+        config = load_config(repo)
+        adapter = build_adapter(config, runner)
+        doctor = adapter.doctor(repo)
+        if not doctor.get("ok"):
+            return {
+                "ok": False,
+                "detail": f"{agent} failed adapter compatibility checks",
+                "agent": agent,
+                "doctor": doctor,
+            }
+
+        prompt_path = root / "live-agent-prompt.md"
+        output_path = root / "live-agent-output.json"
+        prompt_path.write_text(
+            "# Bounded live-agent integration proof\n\n"
+            "Work only in the assigned Git repository. Create exactly one repository file named "
+            "`manageroo_live_agent_proof.txt`. Its exact contents must be "
+            "`MANAGEROO live agent proof completed` followed by exactly one newline. "
+            "Do not modify, delete, rename, or create any other repository file. "
+            "Do not commit. Return structured output with status `implemented`, "
+            "files_changed containing exactly `manageroo_live_agent_proof.txt`, and truthful "
+            "values for every other required schema field.\n",
+            encoding="utf-8",
         )
+        response = adapter.run(
+            AgentRequest(
+                role="live-proof-implementer",
+                prompt_path=prompt_path,
+                schema_path=asset_path("schemas/agent-result.schema.json"),
+                output_path=output_path,
+                cwd=repo,
+                sandbox="workspace-write",
+                timeout_seconds=int(config["agent"]["timeout_seconds"]),
+                metadata={"allowed_paths": ["manageroo_live_agent_proof.txt"]},
+            )
+        )
+
         target = repo / "manageroo_live_agent_proof.txt"
         expected = "MANAGEROO live agent proof completed\n"
         actual = target.read_text(encoding="utf-8") if target.is_file() else None
+        status = runner.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=repo,
+            timeout_seconds=30,
+        )
+        if not status.passed:
+            raise RuntimeError(status.stderr or status.stdout)
+        changed_paths = sorted(
+            line[3:].strip()
+            for line in status.stdout.splitlines()
+            if len(line) >= 4 and line[3:].strip()
+        )
+        gate = runner.run(
+            [sys.executable, "-m", "unittest", "discover"],
+            cwd=repo,
+            timeout_seconds=60,
+        )
+        declared = sorted(set(str(item) for item in response.data.get("files_changed", [])))
+        expected_paths = ["manageroo_live_agent_proof.txt"]
+        ok = (
+            response.data.get("status") == "implemented"
+            and declared == expected_paths
+            and changed_paths == expected_paths
+            and actual == expected
+            and gate.passed
+        )
         return {
-            "ok": result.get("status") == "COMPLETE" and actual == expected,
-            "detail": f"{agent} completed a disposable project under Manageroo control",
+            "ok": ok,
+            "detail": f"{agent} completed one bounded disposable write through the production adapter",
             "agent": agent,
-            "run_id": result.get("run_id"),
-            "status": result.get("status"),
+            "doctor": doctor,
+            "response_status": response.data.get("status"),
+            "declared_files": declared,
+            "changed_paths": changed_paths,
             "target_exists": target.is_file(),
             "target_exact": actual == expected,
+            "gate_exit_code": gate.exit_code,
+            "gate_output_tail": (gate.stdout + gate.stderr)[-2000:],
         }
 
 
