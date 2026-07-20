@@ -161,9 +161,9 @@ class IntentLockTests(unittest.TestCase):
     def test_public_docs_explain_intent_lock_and_compaction_audit(self):
         surfaces = {
             "README.md": [
-                "intent lock",
-                "compaction audit",
-                "recommendation, not proven best",
+                ".manageroo/intent/INTENT-LOCK.md",
+                "manageroo compact audit",
+                "remain unknown unless matching evidence exists",
             ],
             "docs/CONTEXT_COMPILER.md": [
                 "Chat compaction is not the source of truth",
