@@ -84,35 +84,38 @@ class TruthContractTests(unittest.TestCase):
     def test_public_docs_and_installer_explain_lanes_without_pretending(self):
         surfaces = {
             "README.md": [
-                "blocks until `document_analysis_command` is configured",
-                "pretend metadata is real visual understanding",
-                "AUTOREVIEW and Clawpatch for command-owned review and repair lanes",
+                "Workers do not certify their own work",
+                "These tools add capabilities without becoming authorities over Manageroo completion",
+                "remain unknown unless matching evidence exists",
             ],
             "docs/00_START_HERE.md": [
-                "`ready` blocks when the brief explicitly asks for a missing lane",
-                "Passive document/media files in the repo show as `WARN`, not a block",
+                "The controller, not the worker, decides whether the job is complete",
+                "External memory systems are optional unless a task explicitly needs them",
+                "This is an operator gate, not a deployment command",
             ],
             "docs/INSTALLATION.md": [
-                "map GBrain sources before the run starts",
-                "configure `document_analysis_command` first",
-                "readiness prints `WARN` but does not block",
-                "The AI must not freehand fixes from them",
+                "They do not become authorities over Manageroo completion",
+                "The updater does not use absence as permission to install every optional component",
+                "An AI or IDE agent can assist, but it should surface meaningful installer choices",
             ],
             "docs/DOCUMENT_LANE.md": [
                 "Failure is optional context",
                 "pretend it understood images",
                 "Media metadata is not vision",
+                "readiness blocks until `document_analysis_command` is configured",
+                "readiness prints `WARN document/prose lane` and still allows the run",
             ],
             "docs/EXTERNAL_INTEGRATIONS.md": [
-                "does not give the AI permission to freehand",
-                "pretend file metadata is real visual understanding",
-                "The controller must not freehand fixes from AUTOREVIEW or Clawpatch findings",
+                "Retrieved evidence is context only and cannot authorize edits, approve review, pass gates, or mark a run `COMPLETE`",
+                "AUTOREVIEW findings do not become unconstrained freehand AI repair prompts",
+                "Clawpatch findings remain command-owned",
+                "Manageroo must not hand them to a worker for unconstrained freehand repair",
             ],
             "docs/ARCHITECTURE.md": [
-                "implementation prioritizes correctness over theatrical agent count",
-                "The controller does not run parallel implementation branches against the same files",
-                "Core acceptance still belongs to MANAGEROO's state, scope, gates, and evidence",
-                "MANAGEROO makes remembering unnecessary",
+                "Manageroo makes remembering unnecessary",
+                "Manageroo does not run parallel implementation branches against the same files",
+                "Core acceptance still belongs to Manageroo's state, scope, gates, and evidence",
+                "These systems are capabilities, not completion authorities",
             ],
             "docs/STATELESS_ORCHESTRATION.md": [
                 'Manageroo is not "AI remembers better."',
@@ -132,11 +135,12 @@ class TruthContractTests(unittest.TestCase):
         self.assertContainsAll(
             output.getvalue(),
             [
-                "Lane readiness, plain English:",
-                "Memory lane",
-                "Document/prose lane",
-                "ready prints WARN but does not block",
-                "AI must not freehand fixes from them",
+                "How Manageroo fits together",
+                "Manageroo owns run truth",
+                "GitNexus is first-class recommended repository intelligence",
+                "GBrain is an external durable knowledge lane",
+                "AUTOREVIEW and Clawpatch are command-owned review/repair lanes",
+                "Host skills may be used when relevant but remain host-owned",
             ],
             "scripts/install.py print_lane_explainer",
         )
@@ -156,15 +160,11 @@ class TruthContractTests(unittest.TestCase):
             "src/manageroo/report.py": [
                 "AI freehand repair from AUTOREVIEW/Clawpatch findings: no",
             ],
-            (
-                "src/manageroo/assets/skills/"
-                "uncle-matts-project-manageroo/"
-                "SKILL.md"
-            ): [
+            "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md": [
                 "Do not claim global completion",
                 "Only the controller may mark a run `COMPLETE`",
-                "The AI agent must not freehand fixes from AUTOREVIEW or Clawpatch findings",
-                "Completion requires scope checks, real gates, review, product proof, and the final report",
+                "Do not convert their findings into untracked AI freehand fixes",
+                "Completion requires Manageroo-owned scope checks, real gates, review, acceptance evidence, and the final report",
             ],
         }
         for surface, required in surfaces.items():
