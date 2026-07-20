@@ -8,7 +8,9 @@ from manageroo import __version__
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_TAG_PATTERN = re.compile(r"(?<![A-Za-z0-9])v\d+(?:\.\d+){2,3}(?:[-+][0-9A-Za-z.-]+)?(?![A-Za-z0-9.-])")
+VERSION_TAG_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])v\d+(?:\.\d+){2,3}(?:[-+][0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?![A-Za-z0-9.-])"
+)
 
 
 def _load_module(name: str, relative_path: str):
