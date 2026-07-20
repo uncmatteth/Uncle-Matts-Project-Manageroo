@@ -69,7 +69,7 @@ class HostSkillBoundaryTests(unittest.TestCase):
 
     def test_optional_library_never_contains_manageroo_core(self):
         self.assertFalse(set(CORE_SKILL_PACK) & set(OPTIONAL_SKILL_PACK))
-        self.assertEqual(len(CORE_SKILL_PACK), 17)
+        self.assertEqual(len(CORE_SKILL_PACK), 18)
 
 
 if __name__ == "__main__":
