@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class CliEntrypointSmokeTests(unittest.TestCase):
-    def test_console_script_points_to_manageroo_cli_main(self):
+    def test_console_script_points_to_manageroo_entrypoint_main(self):
         with (ROOT / "pyproject.toml").open("rb") as handle:
             project = tomllib.load(handle)
-        self.assertEqual(project["project"]["scripts"]["manageroo"], "manageroo.cli:main")
+        self.assertEqual(project["project"]["scripts"]["manageroo"], "manageroo.entrypoint:main")
 
     def test_parser_builds_and_help_exits_successfully(self):
         built = parser()
