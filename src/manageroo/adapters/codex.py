@@ -16,10 +16,13 @@ from ..util import atomic_write_json
 def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Return a Codex structured-output-compatible copy of a JSON schema.
 
-    Codex's strict structured-output path requires object schemas to explicitly
-    forbid undeclared properties. Manageroo keeps its repository-owned schemas
-    as the source of truth and only tightens the transient schema passed to
-    Codex; local validation still uses the original schema.
+    Codex's strict structured-output path requires every object schema to:
+    - explicitly forbid undeclared properties; and
+    - list every declared property in ``required``.
+
+    Manageroo keeps its repository-owned schemas as the source of truth and
+    only tightens the transient schema passed to Codex. Local validation still
+    uses the original schema after the agent returns.
     """
 
     normalized = deepcopy(schema)
@@ -27,8 +30,11 @@ def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
     def visit(node: Any) -> None:
         if isinstance(node, dict):
             node_type = node.get("type")
-            if node_type == "object" or "properties" in node:
+            properties = node.get("properties")
+            if node_type == "object" or isinstance(properties, dict):
                 node["additionalProperties"] = False
+                if isinstance(properties, dict):
+                    node["required"] = list(properties.keys())
             for value in node.values():
                 visit(value)
         elif isinstance(node, list):
