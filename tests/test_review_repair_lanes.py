@@ -79,9 +79,9 @@ class ReviewRepairLaneTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("command-owned repair lanes", docs)
         self.assertIn("must not freehand fixes", docs)
-        self.assertIn("Run the configured AUTOREVIEW command", skill)
-        self.assertIn("Run the configured Clawpatch command", skill)
-        self.assertIn("must not freehand fixes", skill)
+        self.assertIn("AUTOREVIEW and Clawpatch are command-owned lanes", skill)
+        self.assertIn("Run the configured command", skill)
+        self.assertIn("Do not convert their findings into untracked AI freehand fixes", skill)
 
     def test_configured_external_lane_runs_as_command_owned_artifact(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -159,7 +159,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
         self.assertFalse(result["installed"])
         self.assertEqual(result["lane"], "official-agent-protocol")
         self.assertIn("INSTALL_FOR_AGENTS.md", result["official_protocol_url"])
-        self.assertIn("API keys", result["guidance"])
+        self.assertIn("credentials", result["guidance"])
 
     def test_installed_clawpatch_checks_codex_provider_without_installing_pnpm(self):
         installer = _load_installer_module()
