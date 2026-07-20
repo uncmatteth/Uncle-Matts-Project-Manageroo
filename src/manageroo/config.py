@@ -16,7 +16,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "project": {
         "apply_on_success": True,
         "max_repair_cycles": 2,
-        "max_plan_review_cycles": 2,
+        "max_plan_review_cycles": 4,
         "require_demonstration": True,
     },
     "agent": {
@@ -172,7 +172,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "[project]",
         "apply_on_success = true",
         "max_repair_cycles = 2",
-        "max_plan_review_cycles = 2",
+        "max_plan_review_cycles = 4",
         "require_demonstration = true",
         "",
         _agent_block(agent),
