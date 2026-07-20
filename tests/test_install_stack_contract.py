@@ -37,7 +37,7 @@ class InstallStackContractTests(unittest.TestCase):
 
         self.assertIn("first-class recommended repository-intelligence integration", readme)
         self.assertIn("GitNexus is a first-class recommended integration", installation)
-        self.assertIn("do not become authorities over Manageroo completion", readme)
+        self.assertIn("without becoming authorities over Manageroo completion", readme)
 
     def test_stack_update_supports_targeted_tools(self):
         entrypoint = (ROOT / "src" / "manageroo" / "entrypoint.py").read_text(encoding="utf-8")
