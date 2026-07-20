@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import shutil
+from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..branding import FULL_NAME
@@ -9,6 +11,32 @@ from ..errors import AgentExecutionError
 from ..runner import CommandRunner
 from ..schema import extract_json, load_schema, validate
 from ..util import atomic_write_json
+
+
+def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return a Codex structured-output-compatible copy of a JSON schema.
+
+    Codex's strict structured-output path requires object schemas to explicitly
+    forbid undeclared properties. Manageroo keeps its repository-owned schemas
+    as the source of truth and only tightens the transient schema passed to
+    Codex; local validation still uses the original schema.
+    """
+
+    normalized = deepcopy(schema)
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            node_type = node.get("type")
+            if node_type == "object" or "properties" in node:
+                node["additionalProperties"] = False
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(normalized)
+    return normalized
 
 
 class CodexAdapter(AgentAdapter):
@@ -63,6 +91,9 @@ class CodexAdapter(AgentAdapter):
             "Do not commit, push, switch branches, alter .git, or edit controller files.\n\n"
             + packet_text
         )
+        source_schema = load_schema(request.schema_path)
+        codex_schema_path = request.output_path.with_suffix(".codex-schema.json")
+        atomic_write_json(codex_schema_path, _codex_compatible_schema(source_schema))
         argv = [
             self.executable,
             "exec",
@@ -70,7 +101,7 @@ class CodexAdapter(AgentAdapter):
             "--sandbox",
             request.sandbox,
             "--output-schema",
-            str(request.schema_path),
+            str(codex_schema_path),
             "--output-last-message",
             str(request.output_path),
             "-C",
@@ -106,8 +137,7 @@ class CodexAdapter(AgentAdapter):
             )
         raw = request.output_path.read_text(encoding="utf-8", errors="replace")
         data = extract_json(raw)
-        schema = load_schema(request.schema_path)
-        validate(data, schema)
+        validate(data, source_schema)
         atomic_write_json(request.output_path.with_suffix(".validated.json"), data)
         return AgentResponse(
             role=request.role,
