@@ -9,7 +9,7 @@ from manageroo import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION_TAG_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9])v\d+(?:\.\d+){2,3}(?:-(?:rc|alpha|beta|pre|dev)\d*)?(?![A-Za-z0-9-])"
+    r"(?<![A-Za-z0-9])v\d+(?:\.\d+){2,3}(?:-(?:rc|alpha|beta|pre|dev)\d*)?(?!\.\d)(?![A-Za-z0-9-])"
 )
 
 
@@ -49,6 +49,14 @@ class VersionConsistencyTests(unittest.TestCase):
             set(VERSION_TAG_PATTERN.findall(fixture)),
             {current_tag, "v1.2.3", f"{current_tag}-rc1"},
         )
+
+    def test_version_pattern_does_not_extract_truncated_tags_from_release_filenames(self):
+        current_tag = f"v{__version__}"
+        fixture = (
+            f"uncle-matts-project-manageroo-{current_tag}.zip\n"
+            f"uncle-matts-project-manageroo-{current_tag}-source.zip\n"
+        )
+        self.assertEqual(VERSION_TAG_PATTERN.findall(fixture), [])
 
 
 if __name__ == "__main__":
