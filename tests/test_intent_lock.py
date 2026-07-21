@@ -45,7 +45,7 @@ class IntentLockTests(unittest.TestCase):
 
     def test_format_compaction_audit_is_plain_about_blockers(self):
         text = format_compaction_audit({"ok": False, "status": "blocked", "lock_path": "/repo/.manageroo/intent/INTENT-LOCK.json", "missing": [{"category": "must_not", "text": "Do not deploy production"}], "warnings": [{"code": "confidence_claim", "text": "perfect"}], "next_command": "manageroo intent show"})
-        self.assertIn("COMPACTION AUDIT: BLOCKED", text); self.assertIn("MISSING must_not: Do not deploy production", text); self.assertIn("WARNING confidence_claim: perfect", text); self.assertIn("Next: manageroo intent show", text)
+        self.assertIn("COMPACTION AUDIT: BLOCKED", text); self.assertIn("MISSING must_not: Do not deploy production", text); self.assertIn("WARN confidence_claim: perfect", text); self.assertIn("Next: manageroo intent show", text)
 
     def test_public_docs_explain_intent_lock_and_compaction_audit(self):
         surfaces = {
