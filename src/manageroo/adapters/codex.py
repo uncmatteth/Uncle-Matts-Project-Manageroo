@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -14,19 +15,11 @@ from ..util import atomic_write_json
 
 
 _BWRAP_LOOPBACK_FAILURE = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+_DANGER_FALLBACK_ENV = "MANAGEROO_CODEX_DANGER_FULL_ACCESS_FALLBACK"
 
 
 def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Return a Codex structured-output-compatible copy of a JSON schema.
-
-    Codex's strict structured-output path requires every object schema to:
-    - explicitly forbid undeclared properties; and
-    - list every declared property in ``required``.
-
-    Manageroo keeps its repository-owned schemas as the source of truth and
-    only tightens the transient schema passed to Codex. Local validation still
-    uses the original schema after the agent returns.
-    """
+    """Return a Codex structured-output-compatible copy of a JSON schema."""
 
     normalized = deepcopy(schema)
 
@@ -48,20 +41,14 @@ def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _danger_fallback_enabled() -> bool:
+    return os.environ.get(_DANGER_FALLBACK_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class CodexAdapter(AgentAdapter):
-    """Runs a fresh Codex process for each role.
+    """Runs a fresh Codex process for each role with explicit sandbox boundaries."""
 
-    The adapter intentionally relies on documented non-interactive primitives:
-    a repository working directory, an explicit sandbox, an output schema, and
-    an output-last-message file. `doctor` blocks execution when the installed
-    CLI does not expose those flags.
-    """
-
-    REQUIRED_FLAGS = (
-        "--output-schema",
-        "--output-last-message",
-        "--sandbox",
-    )
+    REQUIRED_FLAGS = ("--output-schema", "--output-last-message", "--sandbox")
 
     def __init__(self, executable: str, runner: CommandRunner, model: str = ""):
         self.executable = executable
@@ -88,6 +75,7 @@ class CodexAdapter(AgentAdapter):
             "path": found,
             "version": version.stdout.strip() or version.stderr.strip(),
             "missing_required_flags": missing,
+            "danger_full_access_fallback_enabled": _danger_fallback_enabled(),
         }
 
     def _argv(
@@ -130,9 +118,7 @@ class CodexAdapter(AgentAdapter):
             cwd=request.cwd,
             timeout_seconds=request.timeout_seconds,
             input_text=prompt,
-            log_name=(
-                f"agent-{request.output_path.parent.name}-{request.output_path.stem}{log_suffix}"
-            ),
+            log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}{log_suffix}",
         )
         return argv, result
 
@@ -158,17 +144,13 @@ class CodexAdapter(AgentAdapter):
         )
 
         diagnostics = (result.stdout or "") + "\n" + (result.stderr or "")
-        if request.sandbox == "workspace-write" and _BWRAP_LOOPBACK_FAILURE in diagnostics:
-            # Some Linux hosts cannot initialize Codex's bubblewrap network namespace
-            # even though the process itself exits successfully with a blocked result.
-            # Retry only this exact host-sandbox initialization failure with Codex's
-            # unrestricted sandbox mode. Manageroo's outer TransactionalAdapter still
-            # snapshots controller truth, rolls back failed attempts, and validates the
-            # final repository diff before work can be accepted.
-            for path in (
-                request.output_path,
-                request.output_path.with_suffix(".validated.json"),
-            ):
+        genuine_host_sandbox_failure = (
+            request.sandbox == "workspace-write"
+            and not result.passed
+            and _BWRAP_LOOPBACK_FAILURE in diagnostics
+        )
+        if genuine_host_sandbox_failure and _danger_fallback_enabled():
+            for path in (request.output_path, request.output_path.with_suffix(".validated.json")):
                 if path.is_file() or path.is_symlink():
                     path.unlink()
             argv, result = self._run_codex(
@@ -176,7 +158,13 @@ class CodexAdapter(AgentAdapter):
                 prompt=prompt,
                 codex_schema_path=codex_schema_path,
                 sandbox="danger-full-access",
-                log_suffix="-host-sandbox-fallback",
+                log_suffix="-explicit-host-sandbox-fallback",
+            )
+        elif genuine_host_sandbox_failure:
+            raise AgentExecutionError(
+                "Codex could not initialize its workspace-write bubblewrap sandbox on this host. "
+                f"Manageroo refused to escalate automatically. Set {_DANGER_FALLBACK_ENV}=1 only "
+                "when you explicitly accept unrestricted Codex filesystem/network access for this run."
             )
 
         if not result.passed:
