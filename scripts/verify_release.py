@@ -94,6 +94,7 @@ def contains_compact(text: str, phrase: str) -> bool:
 def structural_checks() -> list[dict]:
     required = [
         "install.sh", "install.ps1", "scripts/smoke_release_install.py", "scripts/finalize_gitnexus.py",
+        "scripts/verify_distribution.py",
         "README.md", "GIVE-THIS-TO-YOUR-IDE-AGENT.md", "docs/CONTEXT_COMPILER.md", "docs/DOCUMENT_LANE.md",
         "docs/EVIDENCE_RETRIEVAL.md", "docs/INSTALLATION.md", "docs/LEARNING_LANE.md", "docs/LIMITATIONS.md",
         "docs/REVIEW_REPAIR_LANES.md", "docs/SOLO_OPERATOR_MODE.md", "docs/STATELESS_ORCHESTRATION.md",
@@ -175,6 +176,7 @@ def main() -> int:
     commands = [
         run([sys.executable, "-m", "compileall", "-q", "src"]),
         run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"]),
+        run([sys.executable, "scripts/verify_distribution.py"], timeout=900),
     ]
     if shutil.which("sh"):
         commands.append(run(["sh", "-n", "install.sh", "scripts/install.sh"]))
