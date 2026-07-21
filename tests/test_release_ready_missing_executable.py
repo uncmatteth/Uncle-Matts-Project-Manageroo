@@ -39,6 +39,14 @@ class ReleaseReadyMissingExecutableTests(unittest.TestCase):
                 encoding="utf-8",
             )
             missing = "manageroo-command-that-does-not-exist-9b1e8a"
+            config_path = repo / ".manageroo" / "config.toml"
+            config_text = config_path.read_text(encoding="utf-8")
+            marker = "allowed_programs = ["
+            self.assertIn(marker, config_text)
+            config_path.write_text(
+                config_text.replace(marker, f'allowed_programs = ["{missing}", ', 1),
+                encoding="utf-8",
+            )
             add_check_gate(repo, gate_id="missing-tool", argv=[missing, "--check"])
             git(repo, "add", "-A")
             git(repo, "commit", "-q", "-m", "fixture")
