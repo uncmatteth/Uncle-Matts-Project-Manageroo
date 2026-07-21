@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -28,9 +29,7 @@ class WorkspaceMirror:
         self.runner = runner
         self.workspace = self.run_root / "workspace"
         self.snapshot_path = self.run_root / "source-snapshot.json"
-        self.pending_validation_path = (
-            self.run_root / "controller" / "pending-workspace-validation.json"
-        )
+        self.pending_validation_path = self.run_root / "controller" / "pending-workspace-validation.json"
         self.baseline_commit = ""
 
     def capture_source(self) -> list[SourceFile]:
@@ -38,50 +37,30 @@ class WorkspaceMirror:
         for relative in git_visible_files(self.source_repo, self.runner):
             path = self.source_repo / relative
             if path.is_symlink():
-                raise SafetyError(
-                    f"Tracked or visible symlinks are not supported by the isolated workspace policy: {relative}"
-                )
+                raise SafetyError(f"Tracked or visible symlinks are not supported by the isolated workspace policy: {relative}")
             if not path.is_file():
                 continue
             stat = path.stat()
-            records.append(
-                SourceFile(
-                    path=relative,
-                    sha256=sha256_file(path),
-                    bytes=stat.st_size,
-                    mode=stat.st_mode & 0o777,
-                )
-            )
+            records.append(SourceFile(path=relative, sha256=sha256_file(path), bytes=stat.st_size, mode=stat.st_mode & 0o777))
         atomic_write_json(self.snapshot_path, {"files": [asdict(item) for item in records]})
         return records
 
     def create(self) -> Path:
         if self.workspace.exists() or self.snapshot_path.exists():
-            raise SafetyError(
-                "Run workspace or source snapshot already exists; creation is immutable for an existing run."
-            )
+            raise SafetyError("Run workspace or source snapshot already exists; creation is immutable for an existing run.")
         self.run_root.mkdir(parents=True, exist_ok=True)
         records = self.capture_source()
         self.workspace.mkdir(parents=True)
         for record in records:
-            source = self.source_repo / record.path
-            destination = self.workspace / safe_repo_relative(record.path)
-            copy_file_preserving_mode(source, destination)
-
+            copy_file_preserving_mode(self.source_repo / record.path, self.workspace / safe_repo_relative(record.path))
         self._git(["init", "-b", "manageroo-internal"])
         self._git(["config", "user.name", "MANAGEROO Controller"])
         self._git(["config", "user.email", "manageroo@local.invalid"])
         self._git(["add", "-A"])
         self._git(["commit", "-m", "MANAGEROO isolated baseline"], hooks=False)
         self.baseline_commit = self.head()
-
         hook = self.workspace / ".git" / "hooks" / "pre-commit"
-        hook.write_text(
-            "#!/bin/sh\n"
-            "echo 'Agent commits are forbidden. The MANAGEROO controller owns checkpoints.' >&2\n"
-            "exit 73\n",
-            encoding="utf-8",
-        )
+        hook.write_text("#!/bin/sh\necho 'Agent commits are forbidden. The MANAGEROO controller owns checkpoints.' >&2\nexit 73\n", encoding="utf-8")
         hook.chmod(0o755)
         return self.workspace
 
@@ -90,10 +69,7 @@ class WorkspaceMirror:
             if self.pending_validation_path.is_file():
                 self.pending_validation_path.unlink()
         except OSError as exc:
-            raise SafetyError(
-                "Manageroo could not clear the pending workspace-validation marker: "
-                + str(exc)
-            ) from exc
+            raise SafetyError("Manageroo could not clear the pending workspace-validation marker: " + str(exc)) from exc
 
     def _discard_ignored_state(self) -> None:
         self._git(["clean", "-fdX"])
@@ -106,10 +82,24 @@ class WorkspaceMirror:
             self._git(["clean", "-fdx"])
             remaining = self._git(["status", "--porcelain", "--ignored"])
             if remaining.stdout.strip():
-                raise SafetyError(
-                    "Run workspace contains unverified changes that could not be discarded safely."
-                )
+                raise SafetyError("Run workspace contains unverified changes that could not be discarded safely.")
         self._clear_pending_validation_marker()
+
+    def _workspace_state_digest(self, head: str) -> str:
+        digest = hashlib.sha256()
+        diff = self._git(["diff", "--binary", head, "--"])
+        digest.update(diff.stdout.encode("utf-8", errors="surrogateescape"))
+        untracked = self._git(["ls-files", "-z", "--others", "--exclude-standard"])
+        for relative in sorted(item for item in untracked.stdout.split("\0") if item):
+            path = self.workspace / relative
+            if path.is_symlink():
+                raise SafetyError(f"Pending workspace contains unsupported symlink: {relative}")
+            if path.is_file():
+                digest.update(relative.encode("utf-8", errors="surrogateescape"))
+                digest.update(b"\0")
+                digest.update(sha256_file(path).encode("ascii"))
+                digest.update(b"\0")
+        return digest.hexdigest()
 
     def _completed_write_job_owns_pending_state(self) -> bool:
         if not self.pending_validation_path.is_file():
@@ -117,15 +107,14 @@ class WorkspaceMirror:
         try:
             marker = json.loads(self.pending_validation_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise SafetyError(
-                "Pending workspace-validation state is unreadable: "
-                f"{self.pending_validation_path}: {exc}"
-            ) from exc
+            raise SafetyError(f"Pending workspace-validation state is unreadable: {self.pending_validation_path}: {exc}") from exc
         if not isinstance(marker, dict) or marker.get("sandbox") != "workspace-write":
             raise SafetyError("Pending workspace-validation marker is invalid.")
         job_id = str(marker.get("job_id") or "").strip()
-        if not job_id:
-            raise SafetyError("Pending workspace-validation marker has no job id.")
+        expected_digest = str(marker.get("workspace_state_sha256") or "").strip()
+        pre_attempt_head = str(marker.get("pre_attempt_head") or "").strip()
+        if not job_id or not expected_digest or not pre_attempt_head:
+            raise SafetyError("Pending workspace-validation marker is incomplete.")
         job_path = self.run_root / "jobs" / f"{job_id}.json"
         if not job_path.is_file():
             return False
@@ -133,11 +122,13 @@ class WorkspaceMirror:
             job = json.loads(job_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise SafetyError(f"Run job state is unreadable during resume: {job_path}: {exc}") from exc
-        return bool(
+        if not (
             isinstance(job, dict)
             and job.get("status") == "complete"
             and job.get("sandbox") == "workspace-write"
-        )
+        ):
+            return False
+        return self._workspace_state_digest(pre_attempt_head) == expected_digest
 
     def load_existing(self) -> Path:
         if not self.workspace.is_dir() or not (self.workspace / ".git").is_dir():
@@ -217,39 +208,31 @@ class WorkspaceMirror:
         self.assert_source_unchanged()
         if not patch.exists() or patch.stat().st_size == 0:
             return
-        check = self.runner.run(
-            ["git", "apply", "--check", "--binary", str(patch)],
-            cwd=self.source_repo,
-            timeout_seconds=300,
-        )
+        check = self.runner.run(["git", "apply", "--check", "--binary", str(patch)], cwd=self.source_repo, timeout_seconds=300)
         if not check.passed:
             raise SafetyError("Final patch no longer applies cleanly to the source tree:\n" + check.stderr)
-        applied = self.runner.run(
-            ["git", "apply", "--binary", str(patch)],
-            cwd=self.source_repo,
-            timeout_seconds=300,
-        )
+        applied = self.runner.run(["git", "apply", "--binary", str(patch)], cwd=self.source_repo, timeout_seconds=300)
         if not applied.passed:
             raise SafetyError("Failed to apply validated patch:\n" + applied.stderr)
 
     def patch_already_applied_to_source(self, patch: Path) -> bool:
         if not patch.exists() or patch.stat().st_size == 0:
             return True
-        reverse_check = self.runner.run(
-            ["git", "apply", "--reverse", "--check", "--binary", str(patch)],
-            cwd=self.source_repo,
-            timeout_seconds=300,
-        )
-        return reverse_check.passed
+        return self.runner.run(["git", "apply", "--reverse", "--check", "--binary", str(patch)], cwd=self.source_repo, timeout_seconds=300).passed
 
     def clone_for_review(self, destination: Path) -> Path:
         lexical = destination.expanduser()
         if lexical.exists() or lexical.is_symlink():
-            raise SafetyError(
-                f"Reviewer clone destination already exists; refusing destructive replacement: {lexical}"
-            )
-        parent = lexical.parent
-        parent.mkdir(parents=True, exist_ok=True)
+            raise SafetyError(f"Reviewer clone destination already exists; refusing destructive replacement: {lexical}")
+        unresolved = lexical if lexical.is_absolute() else (Path.cwd() / lexical)
+        nearest = unresolved.parent
+        while not nearest.exists() and nearest != nearest.parent:
+            nearest = nearest.parent
+        try:
+            nearest.resolve(strict=True).relative_to(self.run_root)
+        except (OSError, ValueError) as exc:
+            raise SafetyError("Reviewer clone destination must stay inside the run root.") from exc
+        lexical.parent.mkdir(parents=True, exist_ok=True)
         destination = lexical.resolve(strict=False)
         try:
             relative = destination.relative_to(self.run_root)
@@ -257,7 +240,6 @@ class WorkspaceMirror:
             raise SafetyError("Reviewer clone destination must stay inside the run root.") from exc
         if not relative.parts or destination in {self.run_root, self.workspace, self.source_repo}:
             raise SafetyError("Reviewer clone destination is not an approved scratch path.")
-        # Resolve after parent creation so an in-tree symlink parent cannot redirect the clone.
         try:
             destination.parent.resolve(strict=True).relative_to(self.run_root)
         except (OSError, ValueError) as exc:
