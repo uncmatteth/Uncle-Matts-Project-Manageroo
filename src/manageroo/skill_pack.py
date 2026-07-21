@@ -55,41 +55,78 @@ def _safe_target_root(skills_dir: Path | None, *, create: bool = False) -> Path:
     return resolved
 
 
-def _copy_skill_source_tree(source_dir: Path, target_dir: Path, target_root: Path) -> list[str]:
+def _validate_source_tree(source_dir: Path) -> list[Path]:
     if source_dir.is_symlink():
         raise ValueError(f"Refusing to import from symlinked skill source directory: {source_dir}")
+    files: list[Path] = []
+    for path in source_dir.rglob("*"):
+        if path.is_symlink():
+            raise ValueError(f"Refusing to copy symlinked skill content: {path}")
+        if path.is_file():
+            files.append(path)
+    return files
+
+
+def _validate_destination_tree(target_dir: Path, target_root: Path) -> None:
     try:
-        target_dir.resolve().relative_to(target_root)
+        target_dir.resolve(strict=False).relative_to(target_root)
     except ValueError as exc:
         raise ValueError(f"Skill target escapes approved skills root: {target_dir}") from exc
-    backups: list[str] = []
-    for source_file in source_dir.rglob("*"):
-        if source_file.is_symlink():
-            raise ValueError(f"Refusing to copy symlinked skill content: {source_file}")
-        if not source_file.is_file():
-            continue
-        relative = source_file.relative_to(source_dir)
-        target_file = target_dir / relative
-        if target_file.is_symlink():
-            raise ValueError(f"Refusing to overwrite symlinked skill file: {target_file}")
+    current = target_dir
+    while current != target_root:
+        if current.is_symlink():
+            raise ValueError(f"Refusing to import through symlinked skill destination: {current}")
+        current = current.parent
+    if target_dir.exists() and not target_dir.is_dir():
+        raise ValueError(f"Refusing to import over non-directory skill path: {target_dir}")
+    if target_dir.exists():
+        for path in target_dir.rglob("*"):
+            if path.is_symlink():
+                raise ValueError(f"Refusing to replace skill tree containing symlink: {path}")
+
+
+def _transactional_replace_skill(source_dir: Path, target_dir: Path, target_root: Path) -> str:
+    """Stage a complete skill and swap it atomically at directory granularity."""
+    source_files = _validate_source_tree(source_dir)
+    _validate_destination_tree(target_dir, target_root)
+    stage = target_root / f".{target_dir.name}.manageroo-stage"
+    if stage.exists() or stage.is_symlink():
+        if stage.is_dir() and not stage.is_symlink():
+            shutil.rmtree(stage)
+        else:
+            stage.unlink()
+    backup: Path | None = None
+    try:
+        stage.mkdir(parents=False, exist_ok=False)
+        for source_file in source_files:
+            relative = source_file.relative_to(source_dir)
+            destination = stage / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, destination)
+        if not (stage / "SKILL.md").is_file():
+            raise ValueError(f"Staged skill is missing SKILL.md: {source_dir}")
+        if target_dir.exists():
+            backup = _backup_path(target_dir)
+            target_dir.rename(backup)
+        stage.rename(target_dir)
+        return str(backup) if backup else ""
+    except Exception:
         try:
-            target_file.resolve(strict=False).relative_to(target_root)
-        except ValueError as exc:
-            raise ValueError(f"Skill file target escapes approved skills root: {target_file}") from exc
-        target_file.parent.mkdir(parents=True, exist_ok=True)
-        if target_file.exists() and sha256_file(target_file) != sha256_file(source_file):
-            backup_path = _backup_path(target_file)
-            shutil.copy2(target_file, backup_path)
-            backups.append(str(backup_path))
-        shutil.copy2(source_file, target_file)
-    return backups
+            if stage.exists() and stage.is_dir() and not stage.is_symlink():
+                shutil.rmtree(stage)
+            if backup and backup.exists() and not target_dir.exists():
+                backup.rename(target_dir)
+        except OSError:
+            pass
+        raise
 
 
 def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str]) -> dict[str, Any]:
     name = _skill_name(path).strip()
     status = "importable"
     reason = "ready to import"
-    existing = target_root / name / "SKILL.md"
+    skill_dir = target_root / name
+    existing = skill_dir / "SKILL.md"
     digest = sha256_file(path)
     if not _VALID_SKILL_NAME.fullmatch(name):
         status = "invalid"
@@ -97,6 +134,9 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
     elif name in seen:
         status = "duplicate-source"
         reason = "another SKILL.md in this source folder uses the same skill name"
+    elif skill_dir.is_symlink():
+        status = "blocked"
+        reason = "existing target skill directory is a symlink"
     elif existing.exists():
         if existing.is_symlink():
             status = "blocked"
@@ -106,7 +146,7 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
             reason = "same SKILL.md already installed"
         else:
             status = "conflict"
-            reason = "different SKILL.md already exists; import will back it up"
+            reason = "different skill already exists; import will transactionally back up the complete old skill directory"
     if status != "invalid":
         seen.add(name)
     return {
@@ -261,26 +301,15 @@ def import_skill_folder(source: Path, *, skills_dir: Path | None = None, apply: 
             continue
         source_file = Path(item["path"])
         skill_dir = target_root / item["name"]
-        if skill_dir.is_symlink():
-            raise ValueError(f"Refusing to import through symlinked skill directory: {skill_dir}")
-        if skill_dir.exists() and not skill_dir.is_dir():
-            raise ValueError(f"Refusing to import over non-directory skill path: {skill_dir}")
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            skill_dir.resolve().relative_to(target_root)
-        except ValueError as exc:
-            raise ValueError(f"Skill directory escapes approved target root: {skill_dir}") from exc
-        target_file = skill_dir / "SKILL.md"
-        if target_file.is_symlink():
-            raise ValueError(f"Refusing to overwrite symlinked skill file: {target_file}")
-        skill_backups = _copy_skill_source_tree(source_file.parent, skill_dir, target_root)
-        backups.extend(skill_backups)
+        backup = _transactional_replace_skill(source_file.parent, skill_dir, target_root)
+        if backup:
+            backups.append(backup)
         imported.append({
             "name": item["name"],
             "source": str(source_file),
-            "target": str(target_file),
-            "backup": skill_backups[0] if skill_backups else "",
-            "backups": skill_backups,
+            "target": str(skill_dir / "SKILL.md"),
+            "backup": backup,
+            "backups": [backup] if backup else [],
         })
     return {**scan, "applied": True, "imported": imported, "backups": backups, "next_command": ""}
 
