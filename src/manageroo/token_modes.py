@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .assets import asset_path
+from .util import atomic_write_json
 
 
 @dataclass(frozen=True)
@@ -171,7 +172,26 @@ def _backup_path(destination: Path) -> Path:
     return candidate
 
 
-def _copy_skill_tree(source_dir: Path, destination_dir: Path) -> None:
+def _validated_destination_parent(root_real: Path, destination: Path) -> Path:
+    try:
+        relative = destination.relative_to(root_real)
+    except ValueError as exc:
+        raise ValueError(f"Refusing to install skill outside skills root: {destination}") from exc
+    current = root_real
+    for part in relative.parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"Refusing to install through symlinked destination directory: {current}")
+        if current.exists() and not current.is_dir():
+            raise ValueError(f"Refusing to install through non-directory path: {current}")
+        current.mkdir(exist_ok=True)
+        resolved = current.resolve()
+        if not resolved.is_relative_to(root_real):
+            raise ValueError(f"Refusing to install through path outside skills root: {current}")
+    return destination.parent
+
+
+def _copy_skill_tree(source_dir: Path, destination_dir: Path, *, root_real: Path) -> None:
     for source_path in source_dir.rglob("*"):
         if source_path.is_symlink():
             raise ValueError(f"Refusing to copy symlinked bundled skill content: {source_path}")
@@ -179,11 +199,13 @@ def _copy_skill_tree(source_dir: Path, destination_dir: Path) -> None:
             continue
         relative = source_path.relative_to(source_dir)
         destination = destination_dir / relative
+        _validated_destination_parent(root_real, destination)
         if destination.is_symlink():
             raise ValueError(f"Refusing to overwrite symlinked skill file: {destination}")
-        destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists() and destination.read_bytes() != source_path.read_bytes():
-            shutil.copy2(destination, _backup_path(destination))
+            backup = _backup_path(destination)
+            _validated_destination_parent(root_real, backup)
+            shutil.copy2(destination, backup)
         shutil.copy2(source_path, destination)
 
 
@@ -205,7 +227,7 @@ def _install_bundled_skill(root: Path, skill_name: str, asset: str) -> str:
     if destination.is_symlink():
         raise ValueError(f"Refusing to overwrite symlinked skill file: {destination}")
     source = asset_path(asset)
-    _copy_skill_tree(source.parent, skill_dir)
+    _copy_skill_tree(source.parent, skill_dir, root_real=root_real)
     return str(destination)
 
 
@@ -267,7 +289,7 @@ def set_token_mode(
         "installed_skills": installed,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    atomic_write_json(path, data)
     return data
 
 
