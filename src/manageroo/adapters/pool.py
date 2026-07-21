@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..errors import AgentExecutionError, ConfigurationError, ValidationError
@@ -20,6 +20,11 @@ class WorkerPoolAdapter(AgentAdapter):
         self.workers = list(workers)
         self.last_successful_worker = ""
         self._lock = threading.RLock()
+        self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
+
+    def set_before_worker_launch(self, callback: Callable[[AgentRequest], AgentRequest]) -> None:
+        """Install a controller-owned reservation hook executed before every real worker process."""
+        self._before_worker_launch = callback
 
     def doctor(self, cwd: Path) -> dict:
         checks = []
@@ -57,8 +62,13 @@ class WorkerPoolAdapter(AgentAdapter):
         failures: list[str] = []
         retryable = (AgentExecutionError, ConfigurationError, ValidationError)
         for name, adapter in self._ordered_workers():
+            bounded_request = (
+                self._before_worker_launch(request)
+                if self._before_worker_launch is not None
+                else request
+            )
             try:
-                response = adapter.run(request)
+                response = adapter.run(bounded_request)
                 with self._lock:
                     self.last_successful_worker = name
                 response.command = [f"worker:{name}", *response.command]
