@@ -18,6 +18,51 @@ def _checkpoint_manifest_path(orchestrator: Any, name: str) -> Any:
     return orchestrator.artifacts.root / "review" / "external-state" / f"{safe_name}-checkpoint.json"
 
 
+def _actual_checkpoint_paths(orchestrator: Any, baseline: str, checkpoint: str) -> list[str]:
+    assert orchestrator.workspace is not None
+    result = orchestrator.runner.run(
+        ["git", "diff", "--name-only", "-z", baseline, checkpoint, "--"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if not result.passed:
+        raise SafetyError("Could not inspect resumed command-owned checkpoint paths.")
+    return sorted({safe_repo_relative(item) for item in result.stdout.split("\0") if item})
+
+
+def _restore_checkpoint(orchestrator: Any, *, name: str, checkpoint: str) -> None:
+    assert orchestrator.workspace is not None
+    reset = orchestrator.runner.run(
+        ["git", "reset", "--hard", checkpoint],
+        cwd=orchestrator.workspace,
+        timeout_seconds=120,
+    )
+    clean = orchestrator.runner.run(
+        ["git", "clean", "-fdx"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=120,
+    )
+    head = orchestrator.runner.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    status = orchestrator.runner.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if (
+        not reset.passed
+        or not clean.passed
+        or not head.passed
+        or head.stdout.strip() != checkpoint
+        or not status.passed
+        or status.stdout.strip()
+    ):
+        raise SafetyError(f"Command-owned {name} checkpoint could not be restored exactly.")
+
+
 def _existing_checkpoint(
     orchestrator: Any,
     name: str,
@@ -41,7 +86,6 @@ def _existing_checkpoint(
     if str(payload.get("baseline") or "") != baseline:
         return None
     checkpoint = str(payload.get("checkpoint") or "").strip()
-    changed_paths = [str(item) for item in payload.get("changed_paths", []) or []]
     if not checkpoint:
         raise SafetyError(f"Command-owned {name} checkpoint manifest has no checkpoint SHA.")
     verify = orchestrator.runner.run(
@@ -60,7 +104,11 @@ def _existing_checkpoint(
         raise SafetyError(
             f"Command-owned {name} checkpoint is not descended from this run baseline."
         )
-    return checkpoint, sorted(set(changed_paths))
+    changed_paths = _actual_checkpoint_paths(orchestrator, baseline, checkpoint)
+    recorded_paths = sorted({safe_repo_relative(str(item)) for item in payload.get("changed_paths", []) or []})
+    if recorded_paths and recorded_paths != changed_paths:
+        raise SafetyError(f"Command-owned {name} checkpoint manifest does not match its Git diff.")
+    return checkpoint, changed_paths
 
 
 def _require_clean_lane_start(orchestrator: Any, name: str) -> None:
@@ -115,6 +163,26 @@ def _rollback_lane(orchestrator: Any, *, name: str, baseline: str) -> None:
         )
 
 
+def _validate_persisted_report(existing: Any) -> dict:
+    if not isinstance(existing, dict):
+        raise SafetyError("Persisted external review/repair report is malformed.")
+    summary = existing.get("summary")
+    if not isinstance(summary, dict):
+        raise SafetyError("Persisted external review/repair report has no valid summary.")
+    if summary.get("continuation_safe") is not True:
+        raise SafetyError(
+            "Persisted external review/repair state is not safe to continue. Manual inspection is required."
+        )
+    failed = [str(item) for item in summary.get("failed", []) or [] if str(item)]
+    if failed:
+        raise ValidationError(
+            "Configured external review/repair lane failed previously: "
+            + ", ".join(failed)
+            + ". See review/external-review-repair.json."
+        )
+    return existing
+
+
 def run_external_review_repair_lanes(
     self: Any,
     *,
@@ -127,7 +195,7 @@ def run_external_review_repair_lanes(
     assert self.workspace is not None
     existing = self._artifact_json("review/external-review-repair.json")
     if existing is not None:
-        return existing
+        return _validate_persisted_report(existing)
 
     commands = [
         (name, argv_template)
@@ -183,6 +251,7 @@ def run_external_review_repair_lanes(
         if resumed is not None:
             checkpoint, changed_paths = resumed
             ScopePolicy(tuple(allowed_paths)).validate_paths(changed_paths)
+            _restore_checkpoint(self, name=name, checkpoint=checkpoint)
             records.append(
                 {
                     "name": name,
@@ -241,7 +310,7 @@ def run_external_review_repair_lanes(
                     "name": name,
                     "baseline": before_command,
                     "checkpoint": checkpoint,
-                    "changed_paths": changed_paths,
+                    "changed_paths": _actual_checkpoint_paths(self, before_command, checkpoint),
                 },
             )
         elif not record.get("ok"):
@@ -279,7 +348,7 @@ def run_external_review_repair_lanes(
             "AUTOREVIEW and Clawpatch findings are not fed to the AI repairer. "
             "Each configured lane is run from a clean controller checkpoint. A failed, timed-out, "
             "out-of-scope, or commit-producing lane is rolled back and verified before continuation. "
-            "Successful continuation uses a run-scoped checkpoint manifest rather than global Git history."
+            "Successful continuation restores and verifies the exact run-scoped checkpoint."
         ),
     }
     self.artifacts.write_json("review/external-review-repair.json", payload)
