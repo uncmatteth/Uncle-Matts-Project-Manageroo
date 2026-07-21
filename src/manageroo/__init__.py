@@ -13,6 +13,7 @@ def _install_controller_policies() -> None:
     from . import release_ready as release_ready_module
     from .acceptance import build_acceptance_evidence
     from .discovery_policy import install_discovery_policy
+    from .evidence_artifact_guard import install_evidence_artifact_guard
     from .evidence_hardening import install_evidence_hardening
     from .evidence_policy import install_evidence_policy
     from .external_repair_policy import install_external_repair_policy
@@ -26,6 +27,7 @@ def _install_controller_policies() -> None:
     install_external_repair_policy(orchestrator_module)
     install_discovery_policy(orchestrator_module)
     install_evidence_policy(orchestrator_module)
+    install_evidence_artifact_guard(orchestrator_module)
     install_release_proof_policy(orchestrator_module)
     install_release_ready_policy(release_ready_module)
 
