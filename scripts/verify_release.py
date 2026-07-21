@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -20,6 +21,10 @@ GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
 EXCLUDED_PARTS = {".git", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
 PUBLIC_TRUTH_FILES = (
     "README.md",
+    "GITHUB_DESCRIPTION.md",
+    "LOCAL_SETUP.md",
+    "PUBLISH_TO_GITHUB.md",
+    "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
     "docs/00_START_HERE.md",
     "docs/INSTALLATION.md",
     "docs/LIMITATIONS.md",
@@ -66,7 +71,8 @@ def run(argv: list[str], timeout: int = 300) -> dict:
         )
         return {"argv": argv, "exit_code": completed.returncode, "output": stable_command_output(completed.stdout)}
     except subprocess.TimeoutExpired as exc:
-        output = exc.stdout if isinstance(exc.stdout, str) else ""
+        raw = exc.stdout if exc.stdout is not None else exc.output
+        output = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else (raw or "")
         return {"argv": argv, "exit_code": 124, "output": output + "\nTIMEOUT"}
 
 
@@ -78,14 +84,25 @@ def _excluded(path: Path) -> bool:
     return any(part in EXCLUDED_PARTS for part in _relative(path).parts)
 
 
+def _package_release_module():
+    spec = importlib.util.spec_from_file_location(
+        "manageroo_package_release_for_verification",
+        ROOT / "scripts" / "package_release.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load scripts/package_release.py for source selection.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def source_files() -> list[Path]:
+    """Use the exact source-archive selector so validation and packaging bind the same tree."""
+    module = _package_release_module()
     return sorted(
         path
-        for path in ROOT.rglob("*")
-        if path.is_file()
-        and not path.is_symlink()
-        and not _excluded(path)
-        and _relative(path).as_posix() not in GENERATED
+        for path in module.included_files()
+        if _relative(path).as_posix() not in GENERATED
     )
 
 
@@ -101,8 +118,8 @@ def tree_hash() -> str:
 
 def process_safety_violations() -> list[str]:
     violations: list[str] = []
-    for path in sorted(ROOT.rglob("*.py")):
-        if _excluded(path) or path.is_symlink():
+    for path in source_files():
+        if path.suffix != ".py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
@@ -139,19 +156,25 @@ def public_truth_overclaim_violations() -> list[str]:
 def structural_checks() -> list[dict]:
     required = [
         "install.sh", "install.ps1", "scripts/smoke_release_install.py", "scripts/finalize_gitnexus.py",
-        "scripts/verify_distribution.py",
-        "README.md", "GIVE-THIS-TO-YOUR-IDE-AGENT.md", "docs/CONTEXT_COMPILER.md", "docs/DOCUMENT_LANE.md",
+        "scripts/verify_distribution.py", "sitecustomize.py",
+        "README.md", "GITHUB_DESCRIPTION.md", "LOCAL_SETUP.md", "PUBLISH_TO_GITHUB.md",
+        "GIVE-THIS-TO-YOUR-IDE-AGENT.md", "docs/CONTEXT_COMPILER.md", "docs/DOCUMENT_LANE.md",
         "docs/EVIDENCE_RETRIEVAL.md", "docs/INSTALLATION.md", "docs/LEARNING_LANE.md", "docs/LIMITATIONS.md",
         "docs/REVIEW_REPAIR_LANES.md", "docs/SOLO_OPERATOR_MODE.md", "docs/STATELESS_ORCHESTRATION.md",
         "docs/TERMINAL_EXPERIENCE.md", "src/manageroo/branding.py", "src/manageroo/checks.py",
-        "src/manageroo/chiptune.py", "src/manageroo/document_lane.py", "src/manageroo/evidence.py",
-        "src/manageroo/evidence_policy.py", "src/manageroo/jobs.py", "src/manageroo/learning.py",
-        "src/manageroo/next_action.py", "src/manageroo/project_memory.py", "src/manageroo/solo.py",
-        "src/manageroo/token_modes.py", "src/manageroo/truth_contract.py",
-        "src/manageroo/assets/skills/skill-vetter/SKILL.md",
-        "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md", "tests/test_evidence.py",
-        "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py", "tests/test_truth_contract.py",
-        "tests/test_release_hardening_contract.py",
+        "src/manageroo/chiptune.py", "src/manageroo/chiptune_policy.py", "src/manageroo/document_lane.py",
+        "src/manageroo/evidence.py", "src/manageroo/evidence_hardening.py", "src/manageroo/evidence_artifact_guard.py",
+        "src/manageroo/evidence_policy.py", "src/manageroo/external_repair_policy.py", "src/manageroo/jobs.py",
+        "src/manageroo/learning.py", "src/manageroo/next_action.py", "src/manageroo/project_memory.py",
+        "src/manageroo/release_proof_policy.py", "src/manageroo/release_ready_policy.py", "src/manageroo/skill_pack_policy.py",
+        "src/manageroo/stack_update_policy.py", "src/manageroo/solo.py", "src/manageroo/token_modes.py",
+        "src/manageroo/truth_contract.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
+        "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md",
+        "tests/test_acceptance_evidence.py", "tests/test_clawpatch_remaining_regressions.py",
+        "tests/test_evidence.py", "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py",
+        "tests/test_release_hardening_contract.py", "tests/test_remaining_audit_regressions.py",
+        "tests/test_transactional_adapter_hardening.py", "tests/test_transactional_history_and_pristine.py",
+        "tests/test_truth_contract.py", "tests/test_truth_contract_production.py",
     ]
     checks = [{"name": f"required:{item}", "ok": (ROOT / item).is_file()} for item in required]
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -236,6 +259,7 @@ def main() -> int:
         "python_process_safety_violations": violations,
         "structural_checks": structures,
         "source_tree_sha256": tree_hash(),
+        "source_selection": "scripts/package_release.py included_files minus generated outputs",
     }
     (ROOT / "BUILD-VALIDATION.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
