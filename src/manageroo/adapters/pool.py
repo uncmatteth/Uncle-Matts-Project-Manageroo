@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..errors import AgentExecutionError, ConfigurationError, ValidationError
@@ -21,10 +21,36 @@ class WorkerPoolAdapter(AgentAdapter):
         self.last_successful_worker = ""
         self._lock = threading.RLock()
         self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
+        self._hook_managed_workers: set[str] = set()
+
+    @staticmethod
+    def _install_worker_hook(
+        adapter: Any,
+        callback: Callable[[AgentRequest], AgentRequest],
+        seen: set[int] | None = None,
+    ) -> bool:
+        seen = seen or set()
+        identity = id(adapter)
+        if identity in seen:
+            return False
+        seen.add(identity)
+        setter = getattr(adapter, "set_before_worker_launch", None)
+        if callable(setter):
+            setter(callback)
+            return True
+        nested = getattr(adapter, "inner", None)
+        if nested is not None:
+            return WorkerPoolAdapter._install_worker_hook(nested, callback, seen)
+        return False
 
     def set_before_worker_launch(self, callback: Callable[[AgentRequest], AgentRequest]) -> None:
-        """Install a controller-owned reservation hook executed before every real worker process."""
+        """Reserve once per actual provider process, including provider-internal retries."""
         self._before_worker_launch = callback
+        managed: set[str] = set()
+        for name, adapter in self.workers:
+            if self._install_worker_hook(adapter, callback):
+                managed.add(name)
+        self._hook_managed_workers = managed
 
     def doctor(self, cwd: Path) -> dict:
         checks = []
@@ -62,11 +88,11 @@ class WorkerPoolAdapter(AgentAdapter):
         failures: list[str] = []
         retryable = (AgentExecutionError, ConfigurationError, ValidationError)
         for name, adapter in self._ordered_workers():
-            bounded_request = (
-                self._before_worker_launch(request)
-                if self._before_worker_launch is not None
-                else request
-            )
+            # Concrete-hook-aware workers reserve inside the provider immediately before
+            # each process. Generic workers have no such hook, so reserve once here.
+            bounded_request = request
+            if self._before_worker_launch is not None and name not in self._hook_managed_workers:
+                bounded_request = self._before_worker_launch(request)
             try:
                 response = adapter.run(bounded_request)
                 with self._lock:
