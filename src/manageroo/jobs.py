@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
 from .errors import SafetyError
-from .util import atomic_write_json, read_json, sha256_file, sha256_json, utc_now
+from .util import atomic_write_json, read_json, safe_repo_relative, sha256_file, sha256_json, utc_now
+
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 class JobStatus(str, Enum):
@@ -37,6 +41,13 @@ def _jsonable(value: Any) -> Any:
 
 def _tail(value: str, limit: int = 4000) -> str:
     return value[-limit:] if len(value) > limit else value
+
+
+def _identifier(value: str, label: str) -> str:
+    text = str(value).strip()
+    if not _IDENTIFIER_RE.fullmatch(text):
+        raise SafetyError(f"Unsafe {label}: {value!r}")
+    return text
 
 
 @dataclass
@@ -83,17 +94,30 @@ class JobAttempt:
 
 class JobStore:
     def __init__(self, run_root: Path):
-        self.run_root = run_root
-        self.jobs_root = run_root / "jobs"
-        self.attempts_root = run_root / "worker-attempts"
+        self.run_root = run_root.expanduser().resolve()
+        self.jobs_root = self.run_root / "jobs"
+        self.attempts_root = self.run_root / "worker-attempts"
+        self.artifacts_root = self.run_root / "artifacts"
         self.jobs_root.mkdir(parents=True, exist_ok=True)
         self.attempts_root.mkdir(parents=True, exist_ok=True)
 
     def _job_path(self, job_id: str) -> Path:
-        return self.jobs_root / f"{job_id}.json"
+        return self.jobs_root / f"{_identifier(job_id, 'job id')}.json"
 
     def _attempt_path(self, job_id: str, attempt_id: str) -> Path:
-        return self.attempts_root / job_id / f"{attempt_id}.json"
+        safe_job = _identifier(job_id, "job id")
+        safe_attempt = _identifier(attempt_id, "attempt id")
+        return self.attempts_root / safe_job / f"{safe_attempt}.json"
+
+    def _artifact_path(self, output_artifact: str, artifacts_root: Path | None = None) -> tuple[str, Path]:
+        relative = safe_repo_relative(output_artifact)
+        root = (artifacts_root or self.artifacts_root).expanduser().resolve()
+        candidate = (root / relative).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise SafetyError(f"Job artifact escapes artifact root: {output_artifact!r}") from exc
+        return relative, candidate
 
     def _spec(
         self,
@@ -131,6 +155,7 @@ class JobStore:
         metadata: dict[str, Any] | None = None,
         sandbox: str = "read-only",
     ) -> Job:
+        job_id = _identifier(job_id, "job id")
         spec = self._spec(
             role=role,
             schema=schema,
@@ -212,6 +237,7 @@ class JobStore:
         return sorted(matches, key=lambda job: (priority.get(job.status, 99), job.id))[0]
 
     def save_job(self, job: Job) -> None:
+        job.id = _identifier(job.id, "job id")
         job.updated_at = utc_now()
         atomic_write_json(self._job_path(job.id), asdict(job))
 
@@ -222,7 +248,8 @@ class JobStore:
         return [Job(**read_json(path)) for path in sorted(self.jobs_root.glob("*.json"))]
 
     def attempts_for(self, job_id: str) -> list[JobAttempt]:
-        root = self.attempts_root / job_id
+        safe_job = _identifier(job_id, "job id")
+        root = self.attempts_root / safe_job
         if not root.exists():
             return []
         return [JobAttempt(**read_json(path)) for path in sorted(root.glob("*.json"))]
@@ -232,13 +259,15 @@ class JobStore:
         if job.status == JobStatus.COMPLETE.value:
             raise SafetyError(f"Completed job cannot start another attempt: {job_id}")
         attempt_id = f"{len(self.attempts_for(job_id)) + 1:03d}"
-        attempt = JobAttempt(job_id=job_id, attempt_id=attempt_id, started_at=utc_now())
+        attempt = JobAttempt(job_id=job.id, attempt_id=attempt_id, started_at=utc_now())
         job.status = JobStatus.RUNNING.value
         self.save_job(job)
         self.save_attempt(attempt)
         return attempt
 
     def save_attempt(self, attempt: JobAttempt) -> None:
+        attempt.job_id = _identifier(attempt.job_id, "job id")
+        attempt.attempt_id = _identifier(attempt.attempt_id, "attempt id")
         atomic_write_json(self._attempt_path(attempt.job_id, attempt.attempt_id), asdict(attempt))
 
     def load_attempt(self, job_id: str, attempt_id: str) -> JobAttempt:
@@ -298,12 +327,21 @@ class JobStore:
         data: dict[str, Any],
         artifact_path: Path | None = None,
     ) -> Job:
-        if not artifact_path or not artifact_path.is_file():
+        relative, expected = self._artifact_path(output_artifact)
+        if artifact_path is None:
             raise SafetyError(f"Completed job requires a written artifact: {job_id}")
+        try:
+            actual = artifact_path.expanduser().resolve(strict=True)
+        except OSError as exc:
+            raise SafetyError(f"Completed job requires a written artifact: {job_id}") from exc
+        if actual != expected or actual.is_symlink() or not actual.is_file():
+            raise SafetyError(
+                f"Completed job artifact path does not match its run-owned artifact reference: {relative}"
+            )
         job = self.load_job(job_id)
         job.status = JobStatus.COMPLETE.value
-        job.output_artifact = output_artifact
-        job.output_artifact_sha256 = sha256_file(artifact_path)
+        job.output_artifact = relative
+        job.output_artifact_sha256 = sha256_file(actual)
         job.result_sha256 = sha256_json(data)
         job.failure_type = ""
         job.failure = ""
@@ -336,17 +374,17 @@ class JobStore:
             job.failure = f"Completed job artifact hash is missing: {job.output_artifact}"
             self.save_job(job)
             return None
-        path = artifacts_root / job.output_artifact
-        if not path.exists():
+        relative, path = self._artifact_path(job.output_artifact, artifacts_root)
+        if not path.exists() or path.is_symlink() or not path.is_file():
             job.status = JobStatus.PENDING.value
             job.failure_type = "MissingArtifact"
-            job.failure = f"Completed job artifact is missing: {job.output_artifact}"
+            job.failure = f"Completed job artifact is missing: {relative}"
             self.save_job(job)
             return None
         if sha256_file(path) != job.output_artifact_sha256:
             job.status = JobStatus.PENDING.value
             job.failure_type = "StaleArtifact"
-            job.failure = f"Completed job artifact changed: {job.output_artifact}"
+            job.failure = f"Completed job artifact changed: {relative}"
             self.save_job(job)
             return None
         return read_json(path)
