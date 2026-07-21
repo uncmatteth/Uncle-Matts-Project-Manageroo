@@ -13,7 +13,9 @@ from .branding import PUBLIC_COMMAND
 from .errors import SafetyError
 
 
-_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)")
+_SECRET_KEY_RE = re.compile(
+    r"(?i)(?:^|[_-])(?:api[_-]?key|token|password|secret|authorization)(?:$|[_-])"
+)
 _SECRET_PATTERNS = [
     re.compile(
         r'''(?ix)
@@ -73,7 +75,7 @@ def sha256_file(path: Path) -> str:
 def _redact_json_value(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            key: "<REDACTED>" if _SECRET_KEY_RE.fullmatch(str(key)) else _redact_json_value(item)
+            key: "<REDACTED>" if _SECRET_KEY_RE.search(str(key)) else _redact_json_value(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
