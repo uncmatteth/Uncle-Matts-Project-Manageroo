@@ -57,20 +57,40 @@ class _IgnoredSuccess(AgentAdapter):
         )
 
 
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        [
+            "git",
+            "-c",
+            "commit.gpgSign=false",
+            "-c",
+            "tag.gpgSign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            *args,
+        ],
+        cwd=repo,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return result.stdout.strip()
+
+
 def _git_repo(root: Path) -> Path:
     repo = root / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "MANAGEROO Tests"], cwd=repo, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "tests@local.invalid"],
-        cwd=repo,
-        check=True,
-    )
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.name", "MANAGEROO Tests")
+    _git(repo, "config", "user.email", "tests@local.invalid")
+    _git(repo, "config", "commit.gpgSign", "false")
+    _git(repo, "config", "tag.gpgSign", "false")
+    _git(repo, "config", "core.hooksPath", "/dev/null")
     (repo / ".gitignore").write_text("ignored-cache/\n", encoding="utf-8")
     (repo / "tracked.txt").write_text("clean\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
     return repo
 
 
