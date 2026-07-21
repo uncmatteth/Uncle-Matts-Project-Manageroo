@@ -57,7 +57,7 @@ It is especially useful for:
 - changes where blast radius matters;
 - projects where the agent that wrote the code should not be the only thing reviewing it;
 - repair work that needs budgets and stop conditions instead of endless autonomous thrashing;
-- solo builders who are tired of manually saying "keep going, check the rest, test it, are you sure?";
+- solo builders tired of manually saying "keep going, check the rest, test it, are you sure?";
 - teams that want evidence instead of "the model says it is done."
 
 Manageroo keeps important project truth outside the worker so a model change, terminal restart, failed run, or new chat does not erase the mission.
@@ -113,7 +113,7 @@ Manageroo keeps controller-owned run state under:
 .manageroo/runs/<run-id>/
 ```
 
-That run state includes the information needed to understand what happened, what is still pending, what failed, what was retried, and what evidence exists.
+That run state records what happened, what is still pending, what failed, what was retried, and what evidence exists.
 
 Project continuity also uses repository-local files such as:
 
@@ -169,13 +169,11 @@ Claims that require observable evidence remain unproven until matching evidence 
 
 ## 1. Point Manageroo at a project
 
-To discover Git repositories on your machine and add them to Manageroo's project list:
+Discover Git repositories on your machine and add them to Manageroo's project list:
 
 ```bash
 manageroo projects --add
 ```
-
-Use this when you already have projects and want Manageroo to help you find and register them.
 
 For one specific existing repository:
 
@@ -211,7 +209,7 @@ manageroo run --apply
 
 This starts a normal Manageroo work run for the current project.
 
-Manageroo reads the project truth, performs its discovery and planning work, creates bounded worker jobs, sends those jobs to compatible coding agents, checks the resulting changes, runs verification, performs review, and attempts bounded repair when necessary.
+Manageroo reads the project truth, performs discovery and planning, creates bounded worker jobs, sends those jobs to compatible coding agents, checks the resulting changes, runs verification, performs review, and attempts bounded repair when necessary.
 
 `--apply` means Manageroo is allowed to apply a successfully verified delivery patch back to the source repository when its safety checks pass.
 
@@ -225,13 +223,13 @@ manageroo run --mode repair --apply
 
 Use repair mode when the mission is specifically to diagnose and fix an existing broken project or failed implementation rather than build a normal new change.
 
-Repair mode still uses the same basic rules: bounded work, verification, review, evidence, and controlled retries. It is not a command for endlessly changing files until something happens to pass.
+Repair mode still uses bounded work, verification, review, evidence, and controlled retries. It is not a command for endlessly changing files until something happens to pass.
 
 ## 5. Check what a run is doing or what happened
 
 Every Manageroo run has a run ID.
 
-To see the current state of a run:
+See the current state of a run:
 
 ```bash
 manageroo status RUN_ID --repo .
@@ -239,7 +237,7 @@ manageroo status RUN_ID --repo .
 
 Use `status` for the concise operational view: where the run is, whether it is blocked, whether it failed, and what state it currently holds.
 
-To see the fuller human-readable result and evidence:
+See the fuller human-readable result and evidence:
 
 ```bash
 manageroo report RUN_ID --repo .
@@ -247,7 +245,7 @@ manageroo report RUN_ID --repo .
 
 Use `report` when you want the explanation of what Manageroo did, what changed, what passed, what failed, what evidence was collected, and what still needs attention.
 
-`--repo .` means "use the repository in my current directory." You can replace `.` with an absolute repository path when you are running the command from somewhere else.
+`--repo .` means "use the repository in my current directory." Replace `.` with an absolute repository path when running the command from somewhere else.
 
 ## 6. Continue an interrupted or blocked run
 
@@ -456,49 +454,49 @@ GitNexus is treated as a first-class recommended repository-intelligence integra
 
 Manageroo did not appear from nowhere. It deliberately combines ideas from people and projects across the agent ecosystem while keeping its own controller as the authority over the run.
 
-## Peter Yang / @petergyang — The Skill Smith
+## Peter Yang / [@petergyang](https://x.com/petergyang) — The Skill Smith
 
 Credit for the skill-hygiene direction: tighter reusable skills, self-improving skill loops, and the `edit-skill` idea.
 
-https://x.com/petergyang
-
-## Matthew Berman / Forward Future — Captain Looplight
+## Matthew Berman / [@MatthewBerman](https://x.com/MatthewBerman) and Forward Future / [@ForwardFuture](https://x.com/ForwardFuture) — Captain Looplight
 
 Credit for the plain-language framing of bounded agent work: a task, verifier, budget, stopping rule, and evidence. Manageroo implements its own orchestration and has no Loop Library runtime dependency.
 
-https://signals.forwardfuture.com/loop-library/
+Loop Library: https://signals.forwardfuture.com/loop-library/
 
-## Garry Tan / @garrytan — GBrain / The Memory Architect
+## Garry Tan / [@garrytan](https://x.com/garrytan) — GBrain / The Memory Architect
 
 Credit for GBrain's local durable-memory and retrieval direction: useful knowledge should survive outside the immediate prompt instead of forcing every agent session to rediscover the world.
 
-https://github.com/garrytan/gbrain
+GBrain: https://github.com/garrytan/gbrain
 
 ## Abhigyan Patwari — GitNexus / The Graph Cartographer
 
 Credit for code-graph and impact-analysis direction: repositories have relationships and blast radius, not just flat piles of files.
 
-https://github.com/abhigyanpatwari/GitNexus
+No X handle is listed here because one has not been confidently verified.
 
-## OpenClaw Agent Skills, AUTOREVIEW, and Clawpatch — The Patch Council
+GitNexus: https://github.com/abhigyanpatwari/GitNexus
+
+## OpenClaw / [@OpenClaw](https://x.com/OpenClaw) — Agent Skills, AUTOREVIEW, and Clawpatch / The Patch Council
 
 Credit for agent-skill packaging, structured review, and explicit evidence-to-fix loops.
 
-https://github.com/openclaw/agent-skills
+Agent Skills: https://github.com/openclaw/agent-skills
 
-https://github.com/openclaw/clawpatch
+Clawpatch: https://github.com/openclaw/clawpatch
 
-## OpenAI Codex skill ecosystem — The Skill Forge
+## OpenAI / [@OpenAI](https://x.com/OpenAI) — Codex skill ecosystem / The Skill Forge
 
 Credit specifically for Codex-oriented skill routing, skill-creator guidance, and agent-readable skill packaging. This is **not** a claim that OpenAI invented the general concept of skills.
 
-https://developers.openai.com/codex/
+Codex: https://developers.openai.com/codex/
 
-## Obsidian — The Vault Keeper
+## Obsidian / [@obsdmd](https://x.com/obsdmd) — The Vault Keeper
 
 Credit for the human-readable Markdown knowledge direction: important project context should remain understandable and editable by the person who owns the project.
 
-https://obsidian.md/
+Obsidian: https://obsidian.md/
 
 Together, these influences cover different parts of the problem: skills shape specialized work, loops bound the mission, memory preserves useful knowledge, graphs reveal code relationships, review catches failures, repair closes the loop, and Markdown keeps a human-readable trail.
 
