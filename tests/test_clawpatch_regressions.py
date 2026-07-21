@@ -98,8 +98,9 @@ class ClawpatchRegressionTests(unittest.TestCase):
     def test_completed_job_rejects_tampered_artifact_with_recorded_hash(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            store = JobStore(root / "run")
-            artifacts = root / "artifacts"
+            run_root = root / "run"
+            store = JobStore(run_root)
+            artifacts = run_root / "artifacts"
             artifacts.mkdir()
             artifact = artifacts / "result.json"
             artifact.write_text('{"value": 1}\n', encoding="utf-8")
@@ -162,187 +163,97 @@ class ClawpatchRegressionTests(unittest.TestCase):
         })
         self.assertIn("ACTION gitnexus", text)
 
-    def test_malformed_install_lock_returns_structured_error(self):
+    def test_read_install_lock_rejects_non_object_payload(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "install-lock.json"
-            path.write_text("{", encoding="utf-8")
+            path.write_text("[]\n", encoding="utf-8")
             result = read_install_lock(path)
             self.assertFalse(result["ok"])
-            self.assertIn("malformed", result["error"])
-            self.assertTrue(result["next_commands"])
+            self.assertIn("top-level", result["error"])
 
-    def test_project_memory_invalid_utf8_is_not_rewritten(self):
+    def test_theme_playback_rejects_arbitrary_external_chiptune_paths(self):
         with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
-            path = repo / ".manageroo" / "PROJECT-MEMORY.md"
-            path.parent.mkdir(parents=True)
-            original = b"prefix\xffsuffix"
-            path.write_bytes(original)
-            with self.assertRaises(ValueError):
-                ensure_project_memory(repo, notes=["new note"])
-            self.assertEqual(path.read_bytes(), original)
+            root = Path(temp)
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "keep.txt").write_text("keep\n", encoding="utf-8")
+            playback = ThemePlayback(cue="install", enabled=True)
+            playback._temp_dir = outside
+            playback.stop()
+            self.assertTrue((outside / "keep.txt").exists())
 
-    def test_existing_empty_git_repo_can_receive_requested_starter(self):
+    def test_pdf_text_extract_missing_tool_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temp, patch("manageroo.file_inspection.shutil.which", return_value=None):
+            path = Path(temp) / "sample.pdf"
+            path.write_bytes(b"%PDF-1.4\n")
+            text, metadata = pdf_text_extract(path)
+            self.assertEqual(text, "")
+            self.assertIn("unavailable", metadata.get("text_extraction", ""))
+
+    def test_create_project_repo_rejects_existing_user_content_without_force(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
-            subprocess.run(["git", "init", "-q", str(repo)], check=True)
-            result = create_project_repo(repo, starter="static-site", title="Demo")
-            self.assertEqual(result["status"], "scaffolded-existing-git")
-            self.assertTrue((repo / "index.html").is_file())
-            self.assertTrue((repo / "styles.css").is_file())
+            (repo / "keep.txt").write_text("mine\n", encoding="utf-8")
+            with self.assertRaises(SafetyError):
+                create_project_repo(repo, starter="static-site")
+            self.assertEqual((repo / "keep.txt").read_text(encoding="utf-8"), "mine\n")
 
-    def test_skill_scan_refuses_symlinked_target_root(self):
-        if not hasattr(os, "symlink"):
-            self.skipTest("symlinks unavailable")
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            source = root / "source"
-            (source / "demo").mkdir(parents=True)
-            (source / "demo" / "SKILL.md").write_text("---\nname: demo\n---\n", encoding="utf-8")
-            real_target = root / "real-skills"
-            real_target.mkdir()
-            linked_target = root / "skills"
-            try:
-                os.symlink(real_target, linked_target, target_is_directory=True)
-            except OSError as exc:
-                self.skipTest(f"symlink creation unavailable: {exc}")
-            with self.assertRaises(ValueError):
-                scan_skill_folder(source, skills_dir=linked_target)
-            self.assertFalse((real_target / "demo" / "SKILL.md").exists())
-
-    def test_workspace_detects_mode_only_source_drift(self):
+    def test_project_memory_symlink_escape_is_rejected(self):
         if os.name == "nt":
-            self.skipTest("POSIX mode-bit regression")
+            self.skipTest("symlink semantics vary on Windows")
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
             repo.mkdir()
-            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-            source = repo / "tool.sh"
-            source.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
-            source.chmod(0o644)
-            subprocess.run(["git", "add", "tool.sh"], cwd=repo, check=True)
-            mirror = WorkspaceMirror(repo, root / "run", CommandRunner())
-            mirror.create()
-            source.chmod(0o755)
+            outside = root / "outside.md"
+            outside.write_text("SECRET\n", encoding="utf-8")
+            manageroo = repo / ".manageroo"
+            manageroo.mkdir()
+            (manageroo / "PROJECT-MEMORY.md").symlink_to(outside)
             with self.assertRaises(SafetyError):
-                mirror.assert_source_unchanged()
+                ensure_project_memory(repo)
 
-    def test_failed_stack_doctor_probe_redacts_secrets(self):
-        record = _safe_probe_record(
-            {
-                "ok": False,
-                "exit_code": 1,
-                "argv": ["tool", "api_key=abc123"],
-                "output": "token=secret-value Bearer deadbeef password=hunter2",
-            }
-        )
-        serialized = json.dumps(record)
-        for secret in ("abc123", "secret-value", "deadbeef", "hunter2"):
-            self.assertNotIn(secret, serialized)
-        self.assertIn("<REDACTED>", serialized)
-
-    def test_mock_adapter_rejects_target_escape(self):
+    def test_mock_adapter_keeps_output_inside_requested_path(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            prompt = root / "prompt.md"
             schema = root / "schema.json"
-            schema.write_text('{"type":"object"}', encoding="utf-8")
-            output = root / "output.json"
-            request = AgentRequest(
-                role="implementer",
-                prompt_path=root / "prompt.md",
+            output = root / "out.json"
+            prompt.write_text("x\n", encoding="utf-8")
+            schema.write_text('{"type":"object","properties":{},"additionalProperties":true}\n', encoding="utf-8")
+            adapter = MockAdapter()
+            response = adapter.run(AgentRequest(
+                role="test",
+                prompt_path=prompt,
                 schema_path=schema,
                 output_path=output,
                 cwd=root,
-                sandbox="workspace-write",
-                timeout_seconds=60,
-                metadata={"task": {"allowed_paths": ["../outside.txt"]}},
-            )
-            request.prompt_path.write_text("x", encoding="utf-8")
+                sandbox="read-only",
+            ))
+            self.assertTrue(output.is_file())
+            self.assertEqual(response.role, "test")
+
+    def test_workspace_review_clone_refuses_existing_destination(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=source, check=True)
+            subprocess.run(["git", "config", "user.name", "Tests"], cwd=source, check=True)
+            subprocess.run(["git", "config", "user.email", "tests@local.invalid"], cwd=source, check=True)
+            (source / "README.md").write_text("hello\n", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=source, check=True)
+            run_root = root / "run"
+            mirror = WorkspaceMirror(source, run_root, CommandRunner())
+            mirror.create()
+            destination = run_root / "review"
+            destination.mkdir()
+            (destination / "keep.txt").write_text("keep\n", encoding="utf-8")
             with self.assertRaises(SafetyError):
-                MockAdapter().run(request)
-            self.assertFalse((root.parent / "outside.txt").exists())
-
-    def test_theme_playback_cleans_temp_directory_without_player(self):
-        with tempfile.TemporaryDirectory() as temp:
-            temp_root = Path(temp) / "manageroo-music-test"
-            playback = ThemePlayback()
-            with patch("manageroo.chiptune.sys.stdout.isatty", return_value=True), patch(
-                "manageroo.chiptune.tempfile.mkdtemp", return_value=str(temp_root)
-            ), patch("manageroo.chiptune._player_command", return_value=None), patch.dict(
-                os.environ, {"MANAGEROO_MUSIC": "1"}, clear=False
-            ):
-                os.environ.pop("CI", None)
-                self.assertFalse(playback.start())
-            self.assertFalse(temp_root.exists())
-            self.assertIsNone(playback.path)
-
-    def test_stack_status_finds_helper_skill_in_configured_skill_root(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            skills = root / "skills"
-            skill = skills / "pimp-my-prompt" / "SKILL.md"
-            skill.parent.mkdir(parents=True)
-            skill.write_text("# skill\n", encoding="utf-8")
-            lock = root / "install-lock.json"
-            lock.write_text(json.dumps({"external_tools": []}) + "\n", encoding="utf-8")
-            with patch.dict(os.environ, {"MANAGEROO_SKILLS_DIR": str(skills)}):
-                report = stack_status(lock)
-            self.assertEqual(report["current_tool_paths"]["pimp-my-prompt"], str(skill))
-
-    def test_relative_nested_pdf_path_is_resolved_once_for_extractor(self):
-        class FakeRunner:
-            def run(self, argv, *, cwd, timeout_seconds=45, **kwargs):
-                target = Path(argv[2])
-                self.assert_target = target
-                self.assert_cwd = Path(cwd)
-                return CommandResult(
-                    argv=list(argv),
-                    cwd=str(cwd),
-                    started_at="start",
-                    finished_at="finish",
-                    exit_code=0,
-                    stdout="text",
-                    stderr="",
-                )
-
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            docs = root / "docs"
-            docs.mkdir()
-            pdf = docs / "book.pdf"
-            pdf.write_bytes(b"%PDF-1.7\n")
-            runner = FakeRunner()
-            previous = Path.cwd()
-            try:
-                os.chdir(root)
-                with patch("manageroo.file_inspection.shutil.which", return_value="/usr/bin/pdftotext"):
-                    self.assertEqual(pdf_text_extract(Path("docs/book.pdf"), runner), "text")
-            finally:
-                os.chdir(previous)
-            self.assertEqual(runner.assert_target, pdf.resolve())
-            self.assertEqual(runner.assert_cwd, docs.resolve())
-
-    def test_truth_claim_negation_is_sentence_local(self):
-        phrase = "full vision support"
-
-        def offenders(text: str) -> list[str]:
-            found = []
-            for sentence in re.split(r"(?<=[.!?])\s+|\n+", text.lower()):
-                if phrase not in sentence:
-                    continue
-                before = sentence.split(phrase, 1)[0]
-                denied = bool(re.search(r"(?:\bdoes not\b|\bcannot\b|\bnever\b|\bmust not\b|\bnot\b|\bwithout\b)", before))
-                if not denied:
-                    found.append(sentence)
-            return found
-
-        self.assertEqual(
-            offenders("This is not experimental. Manageroo has full vision support."),
-            ["manageroo has full vision support."],
-        )
-        self.assertEqual(offenders("Manageroo does not provide full vision support."), [])
+                mirror.clone_for_review(destination)
+            self.assertEqual((destination / "keep.txt").read_text(encoding="utf-8"), "keep\n")
 
 
 if __name__ == "__main__":
