@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .errors import SafetyError
-from .util import atomic_write_json, redact_text, utc_now
+from .util import atomic_write_json, redact_argv, redact_text, utc_now
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,14 @@ class CommandResult:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def _timeout_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
 
 
 class CommandRunner:
@@ -50,6 +58,7 @@ class CommandRunner:
     ) -> CommandResult:
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise SafetyError("Commands must be non-empty argv arrays.")
+        safe_argv = redact_argv(argv)
         started_at = utc_now()
         process_env = os.environ.copy()
         if env:
@@ -68,7 +77,7 @@ class CommandRunner:
                 check=False,
             )
             result = CommandResult(
-                argv=list(argv),
+                argv=safe_argv,
                 cwd=str(cwd),
                 started_at=started_at,
                 finished_at=utc_now(),
@@ -78,18 +87,18 @@ class CommandRunner:
             )
         except subprocess.TimeoutExpired as exc:
             result = CommandResult(
-                argv=list(argv),
+                argv=safe_argv,
                 cwd=str(cwd),
                 started_at=started_at,
                 finished_at=utc_now(),
                 exit_code=124,
-                stdout=redact_text(exc.stdout or ""),
-                stderr=redact_text(exc.stderr or ""),
+                stdout=redact_text(_timeout_text(exc.stdout)),
+                stderr=redact_text(_timeout_text(exc.stderr)),
                 timed_out=True,
             )
         except OSError as exc:
             result = CommandResult(
-                argv=list(argv),
+                argv=safe_argv,
                 cwd=str(cwd),
                 started_at=started_at,
                 finished_at=utc_now(),
