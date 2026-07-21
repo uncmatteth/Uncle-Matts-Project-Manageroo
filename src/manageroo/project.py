@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 from html import escape
 from pathlib import Path
@@ -84,7 +83,9 @@ def git_root(path: Path) -> Path:
     runner = CommandRunner()
     result = runner.run(["git", "rev-parse", "--show-toplevel"], cwd=path, timeout_seconds=30)
     if not result.passed:
-        raise ConfigurationError("MANAGEROO requires an existing Git repository. Initialize and commit/import the project first.")
+        raise ConfigurationError(
+            "MANAGEROO requires an existing Git repository. Initialize and commit/import the project first."
+        )
     return Path(result.stdout.strip()).resolve()
 
 
@@ -245,7 +246,9 @@ def create_project_repo(path: Path, *, title: str = "", description: str = "", s
                     "Refusing to scaffold over existing project files."
                 )
         elif _has_entries(target):
-            raise ValueError(f"Refusing to initialize non-empty non-Git folder: {target}. Run `git init` there yourself if you want to adopt existing files.")
+            raise ValueError(
+                f"Refusing to initialize non-empty non-Git folder: {target}. Run `git init` there yourself if you want to adopt existing files."
+            )
     else:
         parent = _nearest_existing_parent(target.parent)
         try:
@@ -268,6 +271,7 @@ def create_project_repo(path: Path, *, title: str = "", description: str = "", s
     if status:
         result = runner.run([
             "git", "-c", "user.name=MANAGEROO Controller", "-c", "user.email=manageroo@local.invalid",
+            "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null",
             "commit", "-m", "Initial product scaffold",
         ], cwd=target, timeout_seconds=300)
         if not result.passed:
@@ -277,6 +281,42 @@ def create_project_repo(path: Path, *, title: str = "", description: str = "", s
         "status": "scaffolded-existing-git" if existing_git else "created",
         "repo": str(target), "initial_commit": initial_commit, "starter": starter, "created_files": created_files,
     }
+
+
+def _read_utf8_preflight(path: Path, *, label: str) -> None:
+    if not path.exists():
+        return
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"Refusing to rewrite unsafe {label}: {path}")
+    try:
+        path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Refusing to rewrite non-UTF-8 {label}: {path}") from exc
+
+
+def _preflight_initialize_project(repo: Path) -> None:
+    """Validate every pre-existing path initialization may later read or rewrite.
+
+    This function is intentionally read-only and must run before `.manageroo` or any
+    other initialization directory is created. A validation failure therefore cannot
+    overwrite a customized skill or leave a half-created Manageroo installation behind.
+    """
+    _read_utf8_preflight(repo / "AGENTS.md", label="instruction file")
+    _read_utf8_preflight(repo / "CONTEXT.md", label="instruction file")
+    _read_utf8_preflight(repo / ".gitignore", label=".gitignore")
+
+    manageroo = repo / ".manageroo"
+    if manageroo.exists() and (manageroo.is_symlink() or not manageroo.is_dir()):
+        raise ValueError(f"Refusing to initialize through unsafe Manageroo directory: {manageroo}")
+    for directory in (
+        repo / ".agents",
+        repo / ".agents" / "skills",
+        repo / ".agents" / "skills" / "uncle-matts-project-manageroo",
+    ):
+        if directory.exists() and (directory.is_symlink() or not directory.is_dir()):
+            raise ValueError(f"Refusing to initialize through unsafe skill path: {directory}")
+    skill_destination = repo / ".agents" / "skills" / "uncle-matts-project-manageroo" / "SKILL.md"
+    _read_utf8_preflight(skill_destination, label="Manageroo skill file")
 
 
 def _append_managed_block(
@@ -310,6 +350,11 @@ def initialize_project(
 ) -> dict:
     repo = git_root(repo)
     gates = detect_gates(repo)
+
+    # All potentially failing validation of existing user-owned files happens before
+    # the first mutation. This is the failure boundary for initialization.
+    _preflight_initialize_project(repo)
+
     manageroo = repo / ".manageroo"
     manageroo.mkdir(parents=True, exist_ok=True)
     (manageroo / "ideas").mkdir(exist_ok=True)
@@ -319,24 +364,29 @@ def initialize_project(
     brief_path = manageroo / "PRODUCT-BRIEF.md"
     if not brief_path.exists():
         shutil.copy2(asset_path("templates/PRODUCT-BRIEF.md"), brief_path)
-    memory_result = ensure_project_memory(repo, project_summary=project_summary, must_not=must_not, proof=proof)
+    memory_result = ensure_project_memory(
+        repo,
+        project_summary=project_summary,
+        must_not=must_not,
+        proof=proof,
+    )
 
     skill_destination = repo / ".agents" / "skills" / "uncle-matts-project-manageroo" / "SKILL.md"
     skill_destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(asset_path("skills/uncle-matts-project-manageroo/SKILL.md"), skill_destination)
+    skill_source = asset_path("skills/uncle-matts-project-manageroo/SKILL.md")
+    atomic_write_text(skill_destination, skill_source.read_text(encoding="utf-8"))
 
     _append_managed_block(repo / "AGENTS.md", AGENTS_BLOCK)
-    _append_managed_block(repo / "CONTEXT.md", CONTEXT_BLOCK, heading="# Project context\n\n", marker="<!-- MANAGEROO-CONTEXT:BEGIN -->")
+    _append_managed_block(
+        repo / "CONTEXT.md",
+        CONTEXT_BLOCK,
+        heading="# Project context\n\n",
+        marker="<!-- MANAGEROO-CONTEXT:BEGIN -->",
+    )
 
     gitignore = repo / ".gitignore"
     additions = [".manageroo/runs/", ".manageroo/cache/"]
-    if gitignore.exists():
-        try:
-            current = gitignore.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError(f"Refusing to rewrite non-UTF-8 .gitignore: {gitignore}") from exc
-    else:
-        current = ""
+    current = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     missing = [item for item in additions if item not in current.splitlines()]
     if missing:
         if current and not current.endswith("\n"):
@@ -345,9 +395,16 @@ def initialize_project(
         atomic_write_text(gitignore, current)
 
     result = {
-        "repo": str(repo), "config": str(config_path), "brief": str(brief_path), "memory": memory_result["path"],
-        "context": str(repo / "CONTEXT.md"), "skill": str(skill_destination), "detected_gates": gates,
-        "warning": None if gates else "No deterministic project gate was detected. Add at least one [[verification.gates]] entry before a real run.",
+        "repo": str(repo),
+        "config": str(config_path),
+        "brief": str(brief_path),
+        "memory": memory_result["path"],
+        "context": str(repo / "CONTEXT.md"),
+        "skill": str(skill_destination),
+        "detected_gates": gates,
+        "warning": None
+        if gates
+        else "No deterministic project gate was detected. Add at least one [[verification.gates]] entry before a real run.",
     }
     atomic_write_json(manageroo / "init-report.json", result)
     return result
