@@ -13,8 +13,20 @@ from .branding import PUBLIC_COMMAND
 from .errors import SafetyError
 
 
+_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)")
 _SECRET_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|token|password|secret)\s*[:=]\s*([^\s,;]+)"),
+    re.compile(
+        r'''(?ix)
+        (?P<prefix>["']?(?:api[_-]?key|token|password|secret|authorization)["']?\s*[:=]\s*)
+        (?P<value>
+            "(?:\\.|[^"\\])*"
+            |
+            '(?:\\.|[^'\\])*'
+            |
+            [^\s,;}] +
+        )
+        '''.replace("[^\\s,;}] +", "[^\\s,;}]+")
+    ),
     re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+"),
 ]
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
@@ -58,13 +70,43 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _redact_json_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: "<REDACTED>" if _SECRET_KEY_RE.fullmatch(str(key)) else _redact_json_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_json_value(item) for item in value]
+    return value
+
+
 def redact_text(text: str) -> str:
+    # Structurally redact complete JSON payloads first so quoted keys and values are
+    # handled correctly. Fall back to conservative text patterns for logs and prose.
+    stripped = text.strip()
+    if stripped:
+        try:
+            parsed = json.loads(stripped)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, (dict, list)):
+            redacted_json = json.dumps(
+                _redact_json_value(parsed),
+                ensure_ascii=False,
+                separators=(",", ":") if "\n" not in text else None,
+                indent=2 if "\n" in text else None,
+            )
+            prefix = text[: len(text) - len(text.lstrip())]
+            suffix = text[len(text.rstrip()) :]
+            return prefix + redacted_json + suffix
+
     redacted = text
     for pattern in _SECRET_PATTERNS:
-        redacted = pattern.sub(
-            lambda m: f"{m.group(1)}=<REDACTED>" if m.lastindex and m.lastindex >= 1 else "<REDACTED>",
-            redacted,
-        )
+        if "bearer" in pattern.pattern.lower():
+            redacted = pattern.sub("Bearer <REDACTED>", redacted)
+        else:
+            redacted = pattern.sub(lambda m: f"{m.group('prefix')}<REDACTED>", redacted)
     return redacted
 
 
