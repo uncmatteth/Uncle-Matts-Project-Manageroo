@@ -7,7 +7,7 @@ import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Sequence
 
 from .branding import PUBLIC_COMMAND
 from .errors import SafetyError
@@ -19,7 +19,7 @@ _SECRET_KEY_RE = re.compile(
 _BEARER_RE = re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+")
 _SECRET_PAIR_RE = re.compile(
     r'''(?ix)
-    (?P<prefix>["']?(?:api[_-]?key|token|password|secret|authorization)["']?\s*[:=]\s*)
+    (?P<prefix>["']?(?:[a-z0-9_-]*[_-])?(?:api[_-]?key|token|password|secret|authorization)(?:[_-][a-z0-9_-]*)?["']?\s*[:=]\s*)
     (?P<value>
         "(?:\\.|[^"\\])*"
         |
@@ -28,6 +28,9 @@ _SECRET_PAIR_RE = re.compile(
         [^\s,;}]+
     )
     '''
+)
+_SECRET_FLAG_RE = re.compile(
+    r"(?i)^--?(?:[a-z0-9_-]*[_-])?(?:api[_-]?key|token|password|secret|authorization)(?:[_-][a-z0-9_-]*)?$"
 )
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
@@ -99,10 +102,31 @@ def redact_text(text: str) -> str:
             suffix = text[len(text.rstrip()) :]
             return prefix + redacted_json + suffix
 
-    # Redact bearer values first. Otherwise a generic `Authorization:` match would consume
-    # only the word `Bearer` and leave the actual credential behind.
     redacted = _BEARER_RE.sub("Bearer <REDACTED>", text)
     redacted = _SECRET_PAIR_RE.sub(lambda match: f"{match.group('prefix')}<REDACTED>", redacted)
+    return redacted
+
+
+def redact_argv(argv: Sequence[str]) -> list[str]:
+    """Return log-safe argv, including split ``--token VALUE`` style secrets."""
+    redacted: list[str] = []
+    redact_next = False
+    for raw in argv:
+        item = str(raw)
+        if redact_next:
+            redacted.append("<REDACTED>")
+            redact_next = False
+            continue
+        if "=" in item:
+            flag, value = item.split("=", 1)
+            if _SECRET_FLAG_RE.fullmatch(flag):
+                redacted.append(f"{flag}=<REDACTED>")
+                continue
+        if _SECRET_FLAG_RE.fullmatch(item):
+            redacted.append(item)
+            redact_next = True
+            continue
+        redacted.append(redact_text(item))
     return redacted
 
 
