@@ -63,14 +63,17 @@ def _check(name: str, ok: bool, detail: str, next_command: str = "") -> dict[str
     return {"name": name, "ok": ok, "detail": detail, "next": next_command}
 
 
-def _invalid_report(prefix: Path, detail: str) -> dict[str, Any]:
-    return {
+def _invalid_report(prefix: Path, detail: str, *, bin_dir: Path | None = None) -> dict[str, Any]:
+    report = {
         "ok": False,
         "prefix": str(prefix),
         "checks": [_check("install-lock", False, detail, "./install.sh")],
         "actions": [],
         "next_commands": ["./install.sh"],
     }
+    if bin_dir is not None:
+        report["bin_dir"] = str(bin_dir)
+    return report
 
 
 def helper_skills_present() -> bool:
@@ -83,32 +86,40 @@ def helper_skills_present() -> bool:
 
 def repair_install(*, prefix: Path | None = None, bin_dir: Path | None = None, apply: bool = True) -> dict[str, Any]:
     prefix = (prefix or default_prefix()).expanduser().resolve()
-    bin_dir = (bin_dir or default_bin_dir()).expanduser().resolve()
+    requested_bin_dir = bin_dir.expanduser().resolve() if bin_dir is not None else None
+    fallback_bin_dir = requested_bin_dir or default_bin_dir().expanduser().resolve()
     lock_path = prefix / "install-lock.json"
     checks: list[dict[str, Any]] = []
     actions: list[dict[str, Any]] = []
     next_commands: list[str] = []
     if not lock_path.exists():
-        return _invalid_report(prefix, "missing")
+        return _invalid_report(prefix, "missing", bin_dir=fallback_bin_dir)
     try:
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return _invalid_report(prefix, f"malformed or unreadable: {exc}")
+        return _invalid_report(prefix, f"malformed or unreadable: {exc}", bin_dir=fallback_bin_dir)
     if not isinstance(lock, dict):
-        return _invalid_report(prefix, "must contain a JSON object")
+        return _invalid_report(prefix, "must contain a JSON object", bin_dir=fallback_bin_dir)
 
     raw_launcher = lock.get("launcher")
     validated_launcher, launcher_problem = _validated_launcher_value(raw_launcher)
     if launcher_problem:
-        return _invalid_report(prefix, launcher_problem)
+        return _invalid_report(prefix, launcher_problem, bin_dir=fallback_bin_dir)
     expected_name = "manageroo.cmd" if os.name == "nt" else "manageroo"
-    expected_launcher = bin_dir / expected_name
-    launcher = Path(validated_launcher) if validated_launcher else expected_launcher
-    if launcher.parent.resolve() != bin_dir or launcher.name != expected_name:
+    launcher = Path(validated_launcher).expanduser() if validated_launcher else fallback_bin_dir / expected_name
+    effective_bin_dir = launcher.parent.expanduser().resolve()
+
+    # When the operator explicitly supplied --bin-dir, do not silently mutate a different
+    # recorded launcher. Without an explicit override, the install lock remains the source
+    # of truth for custom installation locations.
+    if requested_bin_dir is not None and effective_bin_dir != requested_bin_dir:
         return _invalid_report(
             prefix,
-            f"recorded launcher is outside the requested Manageroo bin directory; rerun with --bin-dir {launcher.parent} only if that is the intended installation",
+            f"recorded launcher is outside the requested Manageroo bin directory; rerun with --bin-dir {effective_bin_dir} only if that is the intended installation",
+            bin_dir=effective_bin_dir,
         )
+    if launcher.name != expected_name:
+        return _invalid_report(prefix, f"recorded launcher has unexpected basename: {launcher.name}", bin_dir=effective_bin_dir)
 
     app_root = current_app_root()
     python = Path(sys.executable)
@@ -163,8 +174,13 @@ def repair_install(*, prefix: Path | None = None, bin_dir: Path | None = None, a
 
     ok = all(item["ok"] for item in checks)
     return {
-        "ok": ok, "prefix": str(prefix), "bin_dir": str(bin_dir), "lock": str(lock_path),
-        "checks": checks, "actions": actions, "next_commands": next_commands,
+        "ok": ok,
+        "prefix": str(prefix),
+        "bin_dir": str(effective_bin_dir),
+        "lock": str(lock_path),
+        "checks": checks,
+        "actions": actions,
+        "next_commands": next_commands,
     }
 
 
