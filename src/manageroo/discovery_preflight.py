@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -84,11 +85,7 @@ def _signal_present(corpus: str, term: str) -> bool:
 
 
 def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) -> str:
-    """Collect a bounded repository text corpus without descending into ignored trees.
-
-    The traversal reads eligible files as they are encountered and stops as soon as either
-    budget is exhausted. It does not first materialize or sort the whole repository tree.
-    """
+    """Collect a bounded repository text corpus without opening special files."""
     repo = repo.resolve()
     chunks: list[str] = []
     consumed = 0
@@ -113,6 +110,12 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
             if path.is_symlink():
                 continue
             if path.suffix.lower() not in TEXT_SUFFIXES and name not in preferred:
+                continue
+            try:
+                metadata = path.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
                 continue
             try:
                 relative = path.relative_to(repo)
