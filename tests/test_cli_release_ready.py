@@ -11,7 +11,9 @@ from unittest.mock import patch
 from manageroo.checks import add_check_gate
 from manageroo.cli import main
 from manageroo.project import initialize_project
-from manageroo.util import atomic_write_json
+from manageroo.release_proof_policy import source_tree_digest
+from manageroo.runner import CommandRunner
+from manageroo.util import atomic_write_json, sha256_file
 
 
 class CliReleaseReadyTests(unittest.TestCase):
@@ -24,10 +26,7 @@ class CliReleaseReadyTests(unittest.TestCase):
             subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             initialize_project(repo, agent="mock")
-            (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(
-                "# Product brief\n\nShip the thing.\n",
-                encoding="utf-8",
-            )
+            (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text("# Product brief\n\nShip the thing.\n", encoding="utf-8")
             run_root = repo / ".manageroo" / "runs" / "20260622T120000-complete"
             delivery = run_root / "delivery"
             delivery.mkdir(parents=True)
@@ -35,53 +34,35 @@ class CliReleaseReadyTests(unittest.TestCase):
             report_path = delivery / "FINAL-REPORT.md"
             patch_path.write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
             report_path.write_text("# Final Report\n", encoding="utf-8")
+            add_check_gate(repo, gate_id="smoke", argv=[sys.executable, "-c", "print('ok')"])
+            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "ready fixture"], cwd=repo, check=True)
             atomic_write_json(
                 delivery / "final-result.json",
                 {
                     "run_id": run_root.name,
                     "status": "COMPLETE",
                     "review": {"status": "approved", "findings": []},
-                    "evidence_paths": {
-                        "patch": str(patch_path),
-                        "run_root": str(run_root),
-                    },
+                    "evidence_paths": {"patch": str(patch_path), "run_root": str(run_root)},
                     "applied_to_source": True,
+                    "verified_source_tree_sha256": source_tree_digest(repo, CommandRunner()),
+                    "final_patch_sha256": sha256_file(patch_path),
                 },
             )
-            add_check_gate(repo, gate_id="smoke", argv=[sys.executable, "-c", "print('ok')"])
-            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-q", "-m", "ready fixture"], cwd=repo, check=True)
             memory_before = (repo / ".manageroo" / "PROJECT-MEMORY.md").read_bytes()
 
             stdout = io.StringIO()
             with patch(
                 "manageroo.readiness.helper_skill_items",
-                return_value=[
-                    {
-                        "name": "helper:test",
-                        "ok": True,
-                        "detail": "mock",
-                        "next": "",
-                        "required": True,
-                    }
-                ],
+                return_value=[{"name": "helper:test", "ok": True, "detail": "mock", "next": "", "required": True}],
             ), patch(
                 "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ), redirect_stdout(stdout):
-                code = main(
-                    [
-                        "release-ready",
-                        str(repo),
-                        "--target",
-                        "manual production deploy",
-                        "--rollback",
-                        "revert and redeploy",
-                        "--approved-by",
-                        "Operator",
-                        "--json",
-                    ]
-                )
+                code = main([
+                    "release-ready", str(repo), "--target", "manual production deploy",
+                    "--rollback", "revert and redeploy", "--approved-by", "Operator", "--json",
+                ])
 
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
@@ -93,13 +74,7 @@ class CliReleaseReadyTests(unittest.TestCase):
             self.assertIsNone(payload["project_memory_update"])
             self.assertIn("Not mutated by `release-ready`", payload["handoff_markdown"])
             self.assertEqual((repo / ".manageroo" / "PROJECT-MEMORY.md").read_bytes(), memory_before)
-            status = subprocess.run(
-                ["git", "status", "--porcelain", "--untracked-files=all"],
-                cwd=repo,
-                check=True,
-                text=True,
-                stdout=subprocess.PIPE,
-            )
+            status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo, check=True, text=True, stdout=subprocess.PIPE)
             self.assertEqual(status.stdout.strip(), "")
 
 
