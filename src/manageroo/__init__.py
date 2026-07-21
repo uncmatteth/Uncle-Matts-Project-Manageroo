@@ -7,16 +7,20 @@ def _install_controller_policies() -> None:
     # Keep the large orchestrator focused on lifecycle control while independently
     # tested policy modules remain the package-wide authorities for completion,
     # proof-plan validation, discovery, evidence retrieval, repair, and release proof.
+    from . import evidence as evidence_module
+    from . import evidence_policy as evidence_policy_module
     from . import orchestrator as orchestrator_module
     from . import release_ready as release_ready_module
     from .acceptance import build_acceptance_evidence
     from .discovery_policy import install_discovery_policy
+    from .evidence_hardening import install_evidence_hardening
     from .evidence_policy import install_evidence_policy
     from .external_repair_policy import install_external_repair_policy
     from .plan_proof_policy import install_plan_proof_policy
     from .release_proof_policy import install_release_proof_policy
     from .release_ready_policy import install_release_ready_policy
 
+    install_evidence_hardening(evidence_module, evidence_policy_module)
     orchestrator_module.build_acceptance_evidence = build_acceptance_evidence
     install_plan_proof_policy(orchestrator_module)
     install_external_repair_policy(orchestrator_module)
