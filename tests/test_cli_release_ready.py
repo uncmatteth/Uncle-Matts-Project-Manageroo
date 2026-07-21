@@ -16,14 +16,25 @@ from manageroo.runner import CommandRunner
 from manageroo.util import atomic_write_json, sha256_file
 
 
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", *args],
+        cwd=repo,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
 class CliReleaseReadyTests(unittest.TestCase):
     def test_release_ready_json_reports_ready_for_operator_release(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
-            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
-            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+            _git(repo, "init", "-q", "-b", "main")
+            _git(repo, "config", "user.name", "Test")
+            _git(repo, "config", "user.email", "test@example.invalid")
             (repo / "README.md").write_text("fixture\n", encoding="utf-8")
             initialize_project(repo, agent="mock")
             (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text("# Product brief\n\nShip the thing.\n", encoding="utf-8")
@@ -35,8 +46,8 @@ class CliReleaseReadyTests(unittest.TestCase):
             patch_path.write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
             report_path.write_text("# Final Report\n", encoding="utf-8")
             add_check_gate(repo, gate_id="smoke", argv=[sys.executable, "-c", "print('ok')"])
-            subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-q", "-m", "ready fixture"], cwd=repo, check=True)
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", "ready fixture")
             atomic_write_json(
                 delivery / "final-result.json",
                 {
@@ -65,16 +76,21 @@ class CliReleaseReadyTests(unittest.TestCase):
                 ])
 
             payload = json.loads(stdout.getvalue())
+            handoff_path = Path(payload["handoff_path"])
+            persisted_handoff = handoff_path.read_text(encoding="utf-8")
             self.assertEqual(code, 0)
             self.assertTrue(payload["ok"], payload)
             self.assertEqual(payload["status"], "READY FOR OPERATOR RELEASE")
-            self.assertTrue(Path(payload["handoff_path"]).exists())
-            self.assertIn("Production Handoff", payload["handoff_markdown"])
-            self.assertIn(run_root.name, payload["handoff_markdown"])
+            self.assertTrue(payload.get("handoff_verified"))
+            self.assertEqual(persisted_handoff, payload["handoff_markdown"])
+            self.assertIn("Status: READY FOR OPERATOR RELEASE", persisted_handoff)
+            self.assertIn("Ship when the human operator is ready.", persisted_handoff)
+            self.assertIn("Production Handoff", persisted_handoff)
+            self.assertIn(run_root.name, persisted_handoff)
             self.assertIsNone(payload["project_memory_update"])
-            self.assertIn("Not mutated by `release-ready`", payload["handoff_markdown"])
+            self.assertIn("Not mutated by `release-ready`", persisted_handoff)
             self.assertEqual((repo / ".manageroo" / "PROJECT-MEMORY.md").read_bytes(), memory_before)
-            status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo, check=True, text=True, stdout=subprocess.PIPE)
+            status = _git(repo, "status", "--porcelain", "--untracked-files=all")
             self.assertEqual(status.stdout.strip(), "")
 
 
