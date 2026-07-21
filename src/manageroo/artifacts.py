@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import threading
 import time
 from contextlib import contextmanager
@@ -31,9 +32,61 @@ class ArtifactStore:
             if not self.ledger_path.exists():
                 atomic_write_json(self.ledger_path, {"artifacts": {}})
 
+    def _lock_owner_pid(self) -> int | None:
+        owner = self.lock_path / "owner"
+        try:
+            lines = owner.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in lines:
+            if line.startswith("pid="):
+                try:
+                    pid = int(line.split("=", 1)[1])
+                except ValueError:
+                    return None
+                return pid if pid > 0 else None
+        return None
+
+    @staticmethod
+    def _pid_is_live(pid: int) -> bool:
+        if pid == os.getpid():
+            return True
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return True
+        return True
+
+    def _reclaim_abandoned_lock(self) -> bool:
+        pid = self._lock_owner_pid()
+        if pid is not None and self._pid_is_live(pid):
+            return False
+        # Unknown-owner lock directories are reclaimable only after a short age guard,
+        # which avoids stealing one during the tiny mkdir -> owner-write window.
+        try:
+            age = time.time() - self.lock_path.stat().st_mtime
+        except OSError:
+            return True
+        if pid is None and age < 2.0:
+            return False
+        pid = self._lock_owner_pid()
+        if pid is not None and self._pid_is_live(pid):
+            return False
+        try:
+            shutil.rmtree(self.lock_path)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+
     @contextmanager
     def _transaction_lock(self, *, timeout_seconds: float = 30.0) -> Iterator[None]:
-        """Cross-process lock implemented with an atomically-created lock directory."""
+        """Cross-process lock with conservative abandoned-owner recovery."""
         deadline = time.monotonic() + timeout_seconds
         acquired = False
         with self._lock:
@@ -41,27 +94,31 @@ class ArtifactStore:
                 try:
                     self.lock_path.mkdir()
                     acquired = True
-                    try:
-                        (self.lock_path / "owner").write_text(
-                            f"pid={os.getpid()}\ncreated_at={utc_now()}\n",
-                            encoding="utf-8",
-                        )
-                    except OSError:
-                        pass
+                    (self.lock_path / "owner").write_text(
+                        f"pid={os.getpid()}\ncreated_at={utc_now()}\n",
+                        encoding="utf-8",
+                    )
                 except FileExistsError:
+                    self._reclaim_abandoned_lock()
                     if time.monotonic() >= deadline:
                         raise SafetyError(
                             f"Timed out waiting for artifact-store transaction lock: {self.lock_path}"
                         )
                     time.sleep(0.05)
+                except OSError as exc:
+                    if acquired:
+                        shutil.rmtree(self.lock_path, ignore_errors=True)
+                    raise SafetyError(
+                        f"Could not acquire artifact-store transaction lock: {self.lock_path}: {exc}"
+                    ) from exc
             try:
                 yield
             finally:
                 try:
-                    owner = self.lock_path / "owner"
-                    if owner.exists() or owner.is_symlink():
-                        owner.unlink()
-                    self.lock_path.rmdir()
+                    if self._lock_owner_pid() == os.getpid():
+                        shutil.rmtree(self.lock_path)
+                except FileNotFoundError:
+                    pass
                 except OSError as exc:
                     raise SafetyError(
                         f"Could not release artifact-store transaction lock: {self.lock_path}: {exc}"
