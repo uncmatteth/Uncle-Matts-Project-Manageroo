@@ -37,7 +37,11 @@ class WorkspaceMirror:
         records: list[SourceFile] = []
         for relative in git_visible_files(self.source_repo, self.runner):
             path = self.source_repo / relative
-            if not path.is_file() or path.is_symlink():
+            if path.is_symlink():
+                raise SafetyError(
+                    f"Tracked or visible symlinks are not supported by the isolated workspace policy: {relative}"
+                )
+            if not path.is_file():
                 continue
             stat = path.stat()
             records.append(
@@ -239,18 +243,25 @@ class WorkspaceMirror:
         return reverse_check.passed
 
     def clone_for_review(self, destination: Path) -> Path:
-        destination = destination.expanduser().resolve()
+        lexical = destination.expanduser()
+        if lexical.exists() or lexical.is_symlink():
+            raise SafetyError(
+                f"Reviewer clone destination already exists; refusing destructive replacement: {lexical}"
+            )
+        parent = lexical.parent
+        parent.mkdir(parents=True, exist_ok=True)
+        destination = lexical.resolve(strict=False)
         try:
             relative = destination.relative_to(self.run_root)
         except ValueError as exc:
             raise SafetyError("Reviewer clone destination must stay inside the run root.") from exc
         if not relative.parts or destination in {self.run_root, self.workspace, self.source_repo}:
             raise SafetyError("Reviewer clone destination is not an approved scratch path.")
-        if destination.exists():
-            raise SafetyError(
-                f"Reviewer clone destination already exists; refusing destructive replacement: {destination}"
-            )
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Resolve after parent creation so an in-tree symlink parent cannot redirect the clone.
+        try:
+            destination.parent.resolve(strict=True).relative_to(self.run_root)
+        except (OSError, ValueError) as exc:
+            raise SafetyError("Reviewer clone destination resolves outside the run root.") from exc
         result = self.runner.run(
             ["git", "clone", "--no-hardlinks", "--quiet", str(self.workspace), str(destination)],
             cwd=self.run_root,
