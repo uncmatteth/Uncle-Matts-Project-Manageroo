@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
+from .errors import SafetyError
 from .util import atomic_write_text, read_json
 
 
@@ -54,15 +55,35 @@ def install_release_ready_policy(release_ready_module: Any) -> None:
 
     def release_ready_hardened(*args: Any, **kwargs: Any) -> dict[str, Any]:
         report = original_release_ready(*args, **kwargs)
-        # The original function performs its final cleanliness check after initially
-        # writing the operator handoff. Always regenerate from the authoritative final
-        # report so a downgrade can never leave a stale READY/ship instruction on disk.
         repo = Path(str(report.get("repo") or "")).expanduser().resolve()
         handoff_path = Path(str(report.get("handoff_path") or release_ready_module._handoff_path(repo)))
+
+        # Render only from the authoritative final report. The original implementation
+        # may have written a READY handoff before its post-write cleanliness check downgraded
+        # the result, so overwrite that artifact after every final-state transition.
         handoff_markdown = release_ready_module._production_handoff_markdown(report)
         atomic_write_text(handoff_path, handoff_markdown)
+        try:
+            persisted = handoff_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SafetyError(f"Release handoff could not be read back after writing: {exc}") from exc
+
+        expected_status = f"Status: {report.get('status')}"
+        expected_decision = (
+            "Ship when the human operator is ready."
+            if report.get("ok")
+            else "Do not ship yet."
+        )
+        if persisted != handoff_markdown or expected_status not in persisted or expected_decision not in persisted:
+            raise SafetyError(
+                "Persisted production handoff does not match the authoritative final release-readiness result."
+            )
+        if not report.get("ok") and "- None detected by `release-ready`." in persisted:
+            raise SafetyError("Not-ready release handoff incorrectly claims there are no release blockers.")
+
         report["handoff_path"] = str(handoff_path)
-        report["handoff_markdown"] = handoff_markdown
+        report["handoff_markdown"] = persisted
+        report["handoff_verified"] = True
         return report
 
     release_ready_module._latest_manageroo_run_proof = _latest_manageroo_run_proof_hardened
