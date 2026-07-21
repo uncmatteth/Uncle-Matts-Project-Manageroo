@@ -1,9 +1,11 @@
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.cli import main
 from manageroo.stack_doctor import _safe_probe_record, format_stack_doctor, stack_doctor
@@ -57,16 +59,81 @@ class StackDoctorTests(unittest.TestCase):
             self.assertNotIn(secret, rendered)
         self.assertIn("<REDACTED>", rendered)
 
-    def test_cli_stack_doctor_json_reports_missing_tools_without_mutation(self):
-        stdout = io.StringIO()
-        with redirect_stdout(stdout):
-            code = main(["stack-doctor", "--json"])
+    def test_cli_stack_doctor_json_reports_all_missing_tools_without_mutation(self):
+        calls: list[tuple[list[str], int]] = []
+
+        def runner(argv: list[str], timeout_seconds: int = 30) -> dict:
+            calls.append((argv, timeout_seconds))
+            return {"ok": False, "exit_code": 1, "output": "should not run"}
+
+        with tempfile.TemporaryDirectory() as temp:
+            deterministic = stack_doctor(which=lambda _name: None, runner=runner, home=Path(temp))
+            stdout = io.StringIO()
+            with patch("manageroo.cli.stack_doctor", return_value=deterministic):
+                with redirect_stdout(stdout):
+                    code = main(["stack-doctor", "--json"])
 
         payload = json.loads(stdout.getvalue())
         self.assertEqual(code, 0)
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["executes_changes"])
-        self.assertIn("items", payload)
+        self.assertEqual(calls, [])
+        by_name = {item["name"]: item for item in payload["items"]}
+        for name in ("gbrain", "gitnexus", "autoreview", "clawpatch", "obsidian", "codex"):
+            with self.subTest(name=name):
+                self.assertFalse(by_name[name]["installed"])
+                self.assertEqual(by_name[name]["status"], "missing")
+
+    def test_autoreview_requires_a_runnable_regular_script(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            script = home / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview"
+            script.mkdir(parents=True)
+            report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=home)
+            autoreview = next(item for item in report["items"] if item["name"] == "autoreview")
+            self.assertFalse(autoreview["configured"])
+            self.assertEqual(autoreview["status"], "missing")
+
+            script.rmdir()
+            script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            if os.name != "nt":
+                script.chmod(0o644)
+                report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=home)
+                autoreview = next(item for item in report["items"] if item["name"] == "autoreview")
+                self.assertFalse(autoreview["configured"])
+                script.chmod(0o755)
+
+            report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=home)
+            autoreview = next(item for item in report["items"] if item["name"] == "autoreview")
+            self.assertTrue(autoreview["configured"])
+            self.assertEqual(autoreview["status"], "ok")
+
+    def test_codex_login_probe_is_shared_with_clawpatch_dependency_status(self):
+        calls: dict[tuple[str, ...], int] = {}
+
+        def which(name: str) -> str | None:
+            if name in {"codex", "clawpatch"}:
+                return f"/usr/bin/{name}"
+            return None
+
+        def runner(argv: list[str], timeout_seconds: int = 30) -> dict:
+            key = tuple(Path(argv[0]).name if index == 0 else value for index, value in enumerate(argv))
+            calls[key] = calls.get(key, 0) + 1
+            if key == ("codex", "login", "status"):
+                return {"ok": True, "exit_code": 0, "output": "logged in"}
+            if key == ("clawpatch", "doctor"):
+                return {"ok": True, "exit_code": 0, "output": "healthy"}
+            return {"ok": False, "exit_code": 1, "output": "unexpected"}
+
+        with tempfile.TemporaryDirectory() as temp:
+            report = stack_doctor(which=which, runner=runner, home=Path(temp))
+
+        self.assertEqual(calls.get(("codex", "login", "status")), 1)
+        codex = next(item for item in report["items"] if item["name"] == "codex")
+        clawpatch = next(item for item in report["items"] if item["name"] == "clawpatch")
+        self.assertTrue(codex["configured"])
+        self.assertTrue(clawpatch["configured"])
+        self.assertTrue(clawpatch["probes"]["codex_provider"]["configured"])
 
     def test_format_stack_doctor_is_plain_and_actionable(self):
         text = format_stack_doctor(
