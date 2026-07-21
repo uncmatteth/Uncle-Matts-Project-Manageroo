@@ -1,3 +1,4 @@
+import math
 import unittest
 
 from manageroo.errors import ValidationError
@@ -23,6 +24,21 @@ class SchemaTests(unittest.TestCase):
                     },
                 },
             )
+
+    def test_extract_json_rejects_non_finite_constants_everywhere(self):
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant, shape="whole"):
+                with self.assertRaises(ValidationError):
+                    extract_json(f'{{"score": {constant}}}')
+            with self.subTest(constant=constant, shape="embedded"):
+                with self.assertRaises(ValidationError):
+                    extract_json(f'prefix text {{"score": {constant}}} trailing text')
+
+    def test_number_validation_rejects_non_finite_python_values(self):
+        for value in (math.nan, math.inf, -math.inf):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    validate(value, {"type": "number"})
 
 
 if __name__ == "__main__":
