@@ -178,16 +178,19 @@ def _source_root() -> Path | None:
 def _run_regression_patterns(patterns: tuple[str, ...]) -> dict[str, Any]:
     root = _source_root()
     if root is None:
-        return {"ok": False, "detail": "source checkout unavailable; adversarial regression suite cannot be proven"}
-    records = []
+        return {"ok": False, "detail": "source regression evidence is unavailable from this installation", "available": False, "patterns": list(patterns)}
+    runs: list[dict[str, Any]] = []
     for pattern in patterns:
-        result = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", pattern, "-v"], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=False)
-        records.append({"pattern": pattern, "exit_code": result.returncode, "output_tail": (result.stdout or "")[-4000:]})
-    return {"ok": all(item["exit_code"] == 0 for item in records), "detail": "adversarial source-level regression patterns executed", "records": records}
+        completed = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", pattern, "-v"], cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=False, timeout=600)
+        output = completed.stdout or ""
+        runs.append({"pattern": pattern, "exit_code": completed.returncode, "output_tail": output[-8000:]})
+        if completed.returncode != 0:
+            return {"ok": False, "detail": f"adversarial regression failed: {pattern}", "available": True, "patterns": list(patterns), "runs": runs}
+    return {"ok": True, "detail": "all mapped adversarial regressions passed", "available": True, "patterns": list(patterns), "runs": runs}
 
 
-def _regression_case() -> dict[str, Any]:
-    return _run_regression_patterns(("test_clawpatch_regressions.py", "test_remaining_audit_regressions.py", "test_worker_attempt_isolation.py", "test_release_ready_missing_executable.py"))
+def _regression_case(patterns: tuple[str, ...]) -> Callable[[], dict[str, Any]]:
+    return lambda: _run_regression_patterns(patterns)
 
 
 def run_product_proof(*, include_regression: bool = True, live_agent: str | None = None) -> dict[str, Any]:
@@ -197,25 +200,42 @@ def run_product_proof(*, include_regression: bool = True, live_agent: str | None
         _run_case("Scope and command enforcement", _scope_and_command_case),
         _run_case("Durable worker state and drift rejection", _durable_state_case),
     ]
+    regression_lanes = [
+        ("Context overflow, omission, and stale-packet defense", ("test_context.py",)),
+        ("Worker retry isolation and artifact integrity", ("test_job_runner.py", "test_jobs.py")),
+        ("Interrupted-run continuation and saved-queue replay", ("test_orchestrator_jobs.py",)),
+        ("Dishonest or insufficient acceptance evidence rejection", ("test_acceptance_evidence.py",)),
+        ("Optional-tool failure degrades without corrupting controller truth", ("test_external_intelligence.py",)),
+        ("Intent-lock adversarial regression", ("test_intent_lock.py",)),
+        ("Policy enforcement adversarial regression", ("test_policy.py",)),
+        ("Bounded retry, review, release, and truthful completion gates", ("test_job_runner.py", "test_orchestrator_jobs.py", "test_release_ready.py", "test_cli_release_ready.py", "test_truth_contract.py")),
+    ]
     if include_regression:
-        checks.append(_run_case("Source-level adversarial regression evidence", _regression_case))
+        for name, patterns in regression_lanes:
+            checks.append(_run_case(name, _regression_case(patterns)))
+        checks.append(_run_case("Full repository regression suite", _regression_case(("test_*.py",))))
     else:
-        checks.append(_proof("Source-level adversarial regression evidence", False, "not executed in this invocation"))
+        checks.append(_proof("Source-level adversarial regression evidence", False, "skipped by operator; COMPLETE certification is therefore forbidden", {"skipped": True}))
     if live_agent:
-        checks.append(_run_case("Live coding-agent integration", lambda: _live_agent_case(live_agent)))
+        checks.append(_run_case(f"Live coding-agent integration ({live_agent})", lambda: _live_agent_case(live_agent)))
     else:
-        checks.append(_proof("Live coding-agent integration", False, "no live coding-agent integration proof was executed"))
+        checks.append(_proof("Live coding-agent integration", False, "no live agent selected; run `manageroo prove --live-agent codex` (or claude-code/gemini)", {"skipped": True, "choices": list(LIVE_AGENT_CHOICES)}))
+    ok = all(item["ok"] for item in checks)
+    status = "COMPLETE" if ok else "PARTIAL"
     blockers = [item["name"] for item in checks if not item["ok"]]
-    ok = not blockers
-    return {"ok": ok, "status": "COMPLETE" if ok else "PARTIAL", "checks": checks, "blockers": blockers, "live_agent": live_agent or ""}
+    return {"ok": ok, "status": status, "proof_version": 1, "live_agent": live_agent or "", "checks": checks, "blockers": blockers, "completion_rule": "COMPLETE is emitted only when every required machine-checked proof lane passes, including one live coding-agent run."}
 
 
 def format_product_proof(report: dict[str, Any]) -> str:
     lines = ["MANAGEROO PRODUCT PROOF", ""]
     for item in report.get("checks", []):
-        lines.append(f"{'PASS' if item.get('ok') else 'FAIL'}  {item.get('name')}: {item.get('detail', '')}")
-    lines.append("")
-    lines.append(f"RESULT: {report.get('status', 'PARTIAL')}")
-    if report.get("blockers"):
-        lines.append("Blockers: " + ", ".join(report["blockers"]))
+        label = "PASS" if item.get("ok") else "FAIL"
+        lines.append(f"{label:<4}  {item.get('name')}")
+        detail = str(item.get("detail") or "").strip()
+        if detail:
+            lines.append(f"      {detail}")
+    lines.extend(["", f"RESULT: {report.get('status', 'PARTIAL')}"])
+    blockers = report.get("blockers") or []
+    if blockers:
+        lines.append("BLOCKERS: " + ", ".join(blockers))
     return "\n".join(lines) + "\n"
