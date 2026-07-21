@@ -20,7 +20,6 @@ _DANGER_FALLBACK_ENV = "MANAGEROO_CODEX_DANGER_FULL_ACCESS_FALLBACK"
 
 def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Return a Codex structured-output-compatible copy of a JSON schema."""
-
     normalized = deepcopy(schema)
 
     def visit(node: Any) -> None:
@@ -46,7 +45,12 @@ def _danger_fallback_enabled() -> bool:
 
 
 class CodexAdapter(AgentAdapter):
-    """Runs a fresh Codex process for each role with explicit sandbox boundaries."""
+    """Runs one fresh Codex process per role with an explicit pre-launch sandbox choice.
+
+    The historical fallback environment variable is retained for compatibility, but it now
+    chooses danger-full-access before the process starts. Child-controlled stderr can never
+    authorize a second, less-restricted retry.
+    """
 
     REQUIRED_FLAGS = ("--output-schema", "--output-last-message", "--sandbox")
 
@@ -65,9 +69,7 @@ class CodexAdapter(AgentAdapter):
                 "error": "Codex executable not found on PATH.",
             }
         version = self.runner.run([self.executable, "--version"], cwd=cwd, timeout_seconds=30)
-        help_result = self.runner.run(
-            [self.executable, "exec", "--help"], cwd=cwd, timeout_seconds=30
-        )
+        help_result = self.runner.run([self.executable, "exec", "--help"], cwd=cwd, timeout_seconds=30)
         missing = [flag for flag in self.REQUIRED_FLAGS if flag not in help_result.stdout]
         return {
             "ok": version.passed and help_result.passed and not missing,
@@ -75,16 +77,11 @@ class CodexAdapter(AgentAdapter):
             "path": found,
             "version": version.stdout.strip() or version.stderr.strip(),
             "missing_required_flags": missing,
-            "danger_full_access_fallback_enabled": _danger_fallback_enabled(),
+            "danger_full_access_preselected": _danger_fallback_enabled(),
+            "stderr_triggered_escalation": False,
         }
 
-    def _argv(
-        self,
-        request: AgentRequest,
-        codex_schema_path: Path,
-        *,
-        sandbox: str,
-    ) -> list[str]:
+    def _argv(self, request: AgentRequest, codex_schema_path: Path, *, sandbox: str) -> list[str]:
         argv = [
             self.executable,
             "exec",
@@ -103,32 +100,34 @@ class CodexAdapter(AgentAdapter):
         argv.append("-")
         return argv
 
-    def _run_codex(
-        self,
-        request: AgentRequest,
-        *,
-        prompt: str,
-        codex_schema_path: Path,
-        sandbox: str,
-        log_suffix: str = "",
-    ):
+    def _run_codex(self, request: AgentRequest, *, prompt: str, codex_schema_path: Path, sandbox: str):
         argv = self._argv(request, codex_schema_path, sandbox=sandbox)
         result = self.runner.run(
             argv,
             cwd=request.cwd,
             timeout_seconds=request.timeout_seconds,
             input_text=prompt,
-            log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}{log_suffix}",
+            log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}",
         )
         return argv, result
 
+    @staticmethod
+    def _clear_prior_outputs(request: AgentRequest) -> None:
+        for path in (request.output_path, request.output_path.with_suffix(".validated.json")):
+            try:
+                if path.is_file() or path.is_symlink():
+                    path.unlink()
+            except OSError as exc:
+                raise AgentExecutionError(f"Could not clear stale Codex output before launch: {path}: {exc}") from exc
+
     def run(self, request: AgentRequest) -> AgentResponse:
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._clear_prior_outputs(request)
         packet_text = request.prompt_path.read_text(encoding="utf-8", errors="replace")
         prompt = (
             f"You are a role inside {FULL_NAME}.\n"
-            "The following packet is complete and authoritative. Do not rely on prior chat "
-            "context. Follow it exactly. Return only JSON conforming to the supplied schema. "
+            "The following packet is complete and authoritative. Do not rely on prior chat context. "
+            "Follow it exactly. Return only JSON conforming to the supplied schema. "
             "Do not commit, push, switch branches, alter .git, or edit controller files.\n\n"
             + packet_text
         )
@@ -136,35 +135,28 @@ class CodexAdapter(AgentAdapter):
         codex_schema_path = request.output_path.with_suffix(".codex-schema.json")
         atomic_write_json(codex_schema_path, _codex_compatible_schema(source_schema))
 
+        selected_sandbox = request.sandbox
+        if request.sandbox == "workspace-write" and _danger_fallback_enabled():
+            selected_sandbox = "danger-full-access"
+
         argv, result = self._run_codex(
             request,
             prompt=prompt,
             codex_schema_path=codex_schema_path,
-            sandbox=request.sandbox,
+            sandbox=selected_sandbox,
         )
 
         diagnostics = (result.stdout or "") + "\n" + (result.stderr or "")
-        genuine_host_sandbox_failure = (
+        if (
             request.sandbox == "workspace-write"
+            and selected_sandbox == request.sandbox
             and not result.passed
             and _BWRAP_LOOPBACK_FAILURE in diagnostics
-        )
-        if genuine_host_sandbox_failure and _danger_fallback_enabled():
-            for path in (request.output_path, request.output_path.with_suffix(".validated.json")):
-                if path.is_file() or path.is_symlink():
-                    path.unlink()
-            argv, result = self._run_codex(
-                request,
-                prompt=prompt,
-                codex_schema_path=codex_schema_path,
-                sandbox="danger-full-access",
-                log_suffix="-explicit-host-sandbox-fallback",
-            )
-        elif genuine_host_sandbox_failure:
+        ):
             raise AgentExecutionError(
                 "Codex could not initialize its workspace-write bubblewrap sandbox on this host. "
-                f"Manageroo refused to escalate automatically. Set {_DANGER_FALLBACK_ENV}=1 only "
-                "when you explicitly accept unrestricted Codex filesystem/network access for this run."
+                "Manageroo will not authorize an unrestricted retry from child process output. "
+                f"To explicitly select unrestricted Codex before launch, set {_DANGER_FALLBACK_ENV}=1 for this run."
             )
 
         if not result.passed:
@@ -178,13 +170,10 @@ class CodexAdapter(AgentAdapter):
             if not details:
                 details.append("Codex produced no stdout or stderr diagnostics.")
             raise AgentExecutionError(
-                f"Codex role {request.role!r} failed with exit code {result.exit_code}:\n"
-                + "\n\n".join(details)
+                f"Codex role {request.role!r} failed with exit code {result.exit_code}:\n" + "\n\n".join(details)
             )
-        if not request.output_path.exists():
-            raise AgentExecutionError(
-                f"Codex did not create its output-last-message file for role {request.role}."
-            )
+        if not request.output_path.is_file() or request.output_path.is_symlink():
+            raise AgentExecutionError(f"Codex did not create a fresh regular output-last-message file for role {request.role}.")
         raw = request.output_path.read_text(encoding="utf-8", errors="replace")
         data = extract_json(raw)
         validate(data, source_schema)
