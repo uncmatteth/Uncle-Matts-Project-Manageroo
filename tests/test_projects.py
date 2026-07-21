@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.cli import main
-from manageroo.projects import default_project_roots, selected_project_paths
+from manageroo.projects import default_project_roots, selected_project_command, selected_project_paths
 
 
 class ProjectDiscoveryTests(unittest.TestCase):
@@ -86,6 +86,31 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertEqual(selected_project_paths(report, "1, 3"), [alpha.resolve(), gamma.resolve()])
             self.assertEqual(selected_project_paths(report, "1-2"), [alpha.resolve(), beta.resolve()])
             self.assertEqual(selected_project_paths(report, "all"), [alpha.resolve(), beta.resolve(), gamma.resolve()])
+
+    def test_selected_project_command_rejects_out_of_range_numeric_answers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            alpha = self._git_repo(root, "alpha")
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main(["projects", "--root", str(root), "--json"])
+            self.assertEqual(code, 0)
+            report = json.loads(stdout.getvalue())
+            self.assertEqual(selected_project_command(report, "1"), f"manageroo solo {alpha.resolve()}")
+            for answer in ("0", "2", "99"):
+                with self.subTest(answer=answer):
+                    with self.assertRaises(ValueError):
+                        selected_project_command(report, answer)
+
+    def test_selected_project_command_keeps_explicit_nonnumeric_path_behavior(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            report = {"projects": []}
+            new_path = root / "new-product"
+            self.assertEqual(
+                selected_project_command(report, str(new_path)),
+                f"manageroo solo {new_path.resolve()} --create",
+            )
 
     def test_projects_add_initializes_selected_found_projects_and_manual_paths(self):
         with tempfile.TemporaryDirectory() as temp:
