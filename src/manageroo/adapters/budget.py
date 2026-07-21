@@ -14,8 +14,9 @@ class BudgetedAdapter(AgentAdapter):
     """Enforce controller-owned worker-call and elapsed-runtime budgets.
 
     Worker-call usage can be persisted under the durable run controller directory.
-    The counter is consumed before launch so a killed process cannot erase an attempt.
-    Elapsed-runtime accounting remains local to the current process.
+    The counter is consumed before each concrete worker launch so a killed process cannot
+    erase an attempt. Worker pools install this adapter's reservation hook and therefore
+    consume one budget unit for every provider process they actually try.
     """
 
     def __init__(
@@ -33,6 +34,9 @@ class BudgetedAdapter(AgentAdapter):
         self.state_path = state_path
         self._lock = threading.RLock()
         self.calls = self._load_calls()
+        self._pool_manages_reservations = hasattr(inner, "set_before_worker_launch")
+        if self._pool_manages_reservations:
+            inner.set_before_worker_launch(self._reserve_and_bound)  # type: ignore[attr-defined]
 
     def _load_calls(self) -> int:
         if self.state_path is None or not self.state_path.is_file():
@@ -72,6 +76,7 @@ class BudgetedAdapter(AgentAdapter):
             ),
             "max_runtime_minutes": self.max_runtime_seconds / 60.0,
             "durable_call_ledger": str(self.state_path) if self.state_path else "",
+            "counts_concrete_pool_launches": True,
         }
         return result
 
@@ -95,12 +100,16 @@ class BudgetedAdapter(AgentAdapter):
             self._persist()
             return remaining
 
-    def run(self, request: AgentRequest) -> AgentResponse:
+    def _reserve_and_bound(self, request: AgentRequest) -> AgentRequest:
         remaining = self._reserve_call()
-        bounded_request = request
-        if remaining is not None:
-            bounded_request = replace(
-                request,
-                timeout_seconds=max(1, min(request.timeout_seconds, int(remaining))),
-            )
-        return self.inner.run(bounded_request)
+        if remaining is None:
+            return request
+        return replace(
+            request,
+            timeout_seconds=max(1, min(request.timeout_seconds, int(remaining))),
+        )
+
+    def run(self, request: AgentRequest) -> AgentResponse:
+        if self._pool_manages_reservations:
+            return self.inner.run(request)
+        return self.inner.run(self._reserve_and_bound(request))
