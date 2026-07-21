@@ -34,22 +34,13 @@ class RemainingAuditRegressionTests(unittest.TestCase):
 
     def test_missing_executable_returns_failed_result_instead_of_raising_oserror(self):
         with tempfile.TemporaryDirectory() as temp:
-            result = CommandRunner().run(
-                ["manageroo-command-that-does-not-exist-4f897f"],
-                cwd=Path(temp),
-                timeout_seconds=5,
-            )
+            result = CommandRunner().run(["manageroo-command-that-does-not-exist-4f897f"], cwd=Path(temp), timeout_seconds=5)
         self.assertFalse(result.passed)
         self.assertEqual(result.exit_code, 127)
         self.assertIn("Could not launch command", result.stderr)
 
     def test_top_level_and_nested_secret_and_credential_paths_are_forbidden(self):
-        sensitive = (
-            "client-secret.json",
-            "credentials.toml",
-            "config/client-secret.json",
-            "config/service-credential.txt",
-        )
+        sensitive = ("client-secret.json", "credentials.toml", "config/client-secret.json", "config/service-credential.txt")
         for path in sensitive:
             with self.subTest(path=path):
                 with self.assertRaises(SafetyError):
@@ -63,29 +54,14 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             store = JobStore(root / "run")
             for bad_id in ("../victim", "../../victim", "a/b"):
                 with self.subTest(job_id=bad_id), self.assertRaises(SafetyError):
-                    store.create_or_load_job(
-                        bad_id,
-                        role="test",
-                        schema="schema.json",
-                        instructions="test",
-                    )
-            job = store.create_or_load_job(
-                "safe-job",
-                role="test",
-                schema="schema.json",
-                instructions="test",
-            )
+                    store.create_or_load_job(bad_id, role="test", schema="schema.json", instructions="test")
+            job = store.create_or_load_job("safe-job", role="test", schema="schema.json", instructions="test")
             with self.assertRaises(SafetyError):
                 store._attempt_path(job.id, "../attempt")
             outside = root / "outside.json"
             outside.write_text("{}", encoding="utf-8")
             with self.assertRaises(SafetyError):
-                store.complete_job(
-                    job.id,
-                    output_artifact="../../outside.json",
-                    data={},
-                    artifact_path=outside,
-                )
+                store.complete_job(job.id, output_artifact="../../outside.json", data={}, artifact_path=outside)
 
     def test_readiness_terms_use_boundaries_while_real_document_terms_still_match(self):
         self.assertEqual(_mentions("Fix the bookkeeping calculation", ("book",)), [])
@@ -105,11 +81,11 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             prefix.mkdir()
             custom_launcher = root / "custom-bin" / "manageroo"
             custom_launcher.parent.mkdir()
-            custom_launcher.write_text("launcher", encoding="utf-8")
-            (prefix / "install-lock.json").write_text(
-                json.dumps({"launcher": str(custom_launcher), "external_tools": []}),
+            custom_launcher.write_text(
+                '#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n',
                 encoding="utf-8",
             )
+            (prefix / "install-lock.json").write_text(json.dumps({"launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
             plan = uninstall_plan(prefix=prefix)
             self.assertIn(str(custom_launcher), plan["core_paths"])
             self.assertTrue(plan["launcher_ownership_known"])
@@ -136,11 +112,7 @@ class RemainingAuditRegressionTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "posix", "Linux package ownership matrix is POSIX-specific")
     def test_obsidian_update_prefers_the_package_manager_that_owns_the_install(self):
         def which(name: str):
-            return {
-                "obsidian": "/snap/bin/obsidian",
-                "flatpak": "/usr/bin/flatpak",
-                "snap": "/usr/bin/snap",
-            }.get(name)
+            return {"obsidian": "/snap/bin/obsidian", "flatpak": "/usr/bin/flatpak", "snap": "/usr/bin/snap"}.get(name)
 
         def run(argv, **_kwargs):
             if argv[:3] == ["/usr/bin/flatpak", "info", "--user"]:
@@ -153,10 +125,7 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             "manageroo.stack_update.platform.system", return_value="Linux"
         ), patch("manageroo.stack_update._run", side_effect=run):
             plan = stack_update_plan(["obsidian"])
-        self.assertEqual(
-            plan["tools"][0]["commands"],
-            [["/usr/bin/snap", "refresh", "obsidian"]],
-        )
+        self.assertEqual(plan["tools"][0]["commands"], [["/usr/bin/snap", "refresh", "obsidian"]])
 
     def test_failed_skill_import_staging_leaves_active_destination_unchanged(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -171,11 +140,7 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             destination.mkdir(parents=True)
             (destination / "SKILL.md").write_text("old skill\n", encoding="utf-8")
             (destination / "keep.txt").write_text("keep\n", encoding="utf-8")
-            before = {
-                path.relative_to(destination).as_posix(): path.read_bytes()
-                for path in destination.rglob("*")
-                if path.is_file()
-            }
+            before = {path.relative_to(destination).as_posix(): path.read_bytes() for path in destination.rglob("*") if path.is_file()}
             real_copy2 = shutil.copy2
             calls = {"count": 0}
 
@@ -188,11 +153,7 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             with patch("manageroo.skill_pack.shutil.copy2", side_effect=fail_second):
                 with self.assertRaises(OSError):
                     import_skill_folder(source, skills_dir=target_root, apply=True)
-            after = {
-                path.relative_to(destination).as_posix(): path.read_bytes()
-                for path in destination.rglob("*")
-                if path.is_file()
-            }
+            after = {path.relative_to(destination).as_posix(): path.read_bytes() for path in destination.rglob("*") if path.is_file()}
             self.assertEqual(after, before)
 
 
