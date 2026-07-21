@@ -3,15 +3,22 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.chiptune import (
     FADE_SECONDS,
     MASTER_VOLUME,
     SAMPLE_RATE,
+    ThemePlayback,
     generate_theme,
     note_frequency,
     theme_duration_seconds,
 )
+
+
+class _Process:
+    def poll(self):
+        return 0
 
 
 class ChiptuneTests(unittest.TestCase):
@@ -56,6 +63,40 @@ class ChiptuneTests(unittest.TestCase):
             samples = struct.unpack(f"<{len(frames) // 2}h", frames)
             self.assertGreater(max(abs(sample) for sample in samples), 1000)
             self.assertLessEqual(max(abs(sample) for sample in samples), 7000)
+
+    def test_playback_rejects_absolute_and_parent_traversal_cues_without_touching_victim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            victim = Path(temp) / "victim"
+            victim.mkdir()
+            marker = victim / "marker.txt"
+            marker.write_text("keep me\n", encoding="utf-8")
+            cues = (str(victim / "tone"), "../victim/tone", "../../outside")
+            for cue in cues:
+                with self.subTest(cue=cue), patch("manageroo.chiptune.sys.stdout.isatty", return_value=True):
+                    playback = ThemePlayback(cue=cue)
+                    with self.assertRaises(ValueError):
+                        playback.start()
+                    playback.stop()
+                    self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
+                    self.assertTrue(victim.is_dir())
+
+    def test_stop_removes_only_the_recorded_temporary_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            victim = root / "victim"
+            victim.mkdir()
+            marker = victim / "marker.txt"
+            marker.write_text("keep me\n", encoding="utf-8")
+            owned = root / "manageroo-owned"
+            owned.mkdir()
+            (owned / "theme.wav").write_bytes(b"audio")
+            playback = ThemePlayback(cue="success")
+            playback.temp_root = owned
+            playback.path = owned / "theme.wav"
+            playback.process = _Process()
+            playback.stop()
+            self.assertFalse(owned.exists())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
 
 
 if __name__ == "__main__":
