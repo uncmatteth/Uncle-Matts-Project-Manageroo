@@ -26,6 +26,10 @@ def _snapshot(root: Path) -> dict[str, tuple]:
     return result
 
 
+def _launcher_text() -> str:
+    return '#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n'
+
+
 class InstallRepairTests(unittest.TestCase):
     def test_missing_lock_reports_reinstall_next_command(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -71,7 +75,7 @@ class InstallRepairTests(unittest.TestCase):
             launcher = bin_dir / "manageroo"
             prefix.mkdir()
             bin_dir.mkdir()
-            launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            launcher.write_text(_launcher_text(), encoding="utf-8")
             launcher.chmod(0o644)
             (prefix / "install-lock.json").write_text(
                 json.dumps({"launcher": str(launcher)}) + "\n",
@@ -93,7 +97,7 @@ class InstallRepairTests(unittest.TestCase):
             prefix.mkdir()
             bin_dir.mkdir()
             skills.mkdir()
-            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+            launcher.write_text(_launcher_text(), encoding="utf-8")
             if os.name != "nt":
                 launcher.chmod(0o755)
             (prefix / "sentinel.txt").write_text("prefix sentinel\n", encoding="utf-8")
@@ -126,7 +130,7 @@ class InstallRepairTests(unittest.TestCase):
             launcher = custom_bin / "manageroo"
             prefix.mkdir()
             custom_bin.mkdir()
-            launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+            launcher.write_text(_launcher_text(), encoding="utf-8")
             if os.name != "nt":
                 launcher.chmod(0o755)
             (prefix / "install-lock.json").write_text(
