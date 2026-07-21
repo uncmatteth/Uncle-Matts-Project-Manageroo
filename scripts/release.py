@@ -85,7 +85,7 @@ def main() -> int:
     )
     report = {
         "ok": package["exit_code"] == 0,
-        "stage": "complete" if package["exit_code"] == 0 else "package-release",
+        "stage": "complete" if package["exit_code"] == 0 else "packaging",
         "proof": proof_payload,
         "package": package,
         "release_created": package["exit_code"] == 0,
