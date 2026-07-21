@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -133,13 +134,30 @@ def repair_install(
                 next_commands.append("./install.sh")
         else:
             next_commands.append("manageroo repair-install")
-    launcher_ok = launcher.exists() and (os.name == "nt" or os.access(launcher, os.X_OK))
+    elif os.name != "nt" and launcher.is_file() and not launcher.is_symlink() and not os.access(launcher, os.X_OK):
+        if apply:
+            try:
+                current_mode = stat.S_IMODE(launcher.stat().st_mode)
+                launcher.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                actions.append({"name": "launcher", "status": "made executable", "path": str(launcher)})
+            except OSError as exc:
+                checks.append(_check("launcher-permissions", False, str(exc), "./install.sh"))
+                next_commands.append("./install.sh")
+        else:
+            next_commands.append("manageroo repair-install")
+    elif launcher.exists() and (launcher.is_symlink() or not launcher.is_file()):
+        checks.append(_check("launcher-shape", False, "launcher is not a regular file", "./install.sh"))
+        next_commands.append("./install.sh")
+
+    launcher_ok = launcher.exists() and launcher.is_file() and not launcher.is_symlink() and (
+        os.name == "nt" or os.access(launcher, os.X_OK)
+    )
     checks.append(
         _check(
             "launcher",
             launcher_ok,
-            str(launcher) if launcher_ok else "missing or not executable",
-            "manageroo repair-install",
+            str(launcher) if launcher_ok else "missing, unsafe, or not executable",
+            "manageroo repair-install" if launcher.exists() and launcher.is_file() else "./install.sh",
         )
     )
 
