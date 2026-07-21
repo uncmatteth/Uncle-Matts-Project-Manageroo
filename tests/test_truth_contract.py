@@ -68,7 +68,7 @@ class TruthContractTests(unittest.TestCase):
             ],
             "docs/00_START_HERE.md": [
                 "The controller, not the worker, decides whether the job is complete",
-                "GBrain for external durable knowledge and retrieval",
+                "external durable knowledge and retrieval",
                 "They do not replace Manageroo's controller authority",
             ],
             "docs/INSTALLATION.md": [
