@@ -80,6 +80,30 @@ def _consume_resolved_input(resolved_path: Path, markdown_path: Path) -> None:
         resolved_path.unlink()
 
 
+def _validated_answers(resolved: dict[str, Any], decision_ids: set[str]) -> dict[str, str]:
+    raw_answers = resolved.get("answers", [])
+    if not isinstance(raw_answers, list):
+        raise ValidationError("Resolved decisions answers must be a JSON array.")
+    answers: dict[str, str] = {}
+    seen: set[str] = set()
+    for index, item in enumerate(raw_answers, 1):
+        if not isinstance(item, dict):
+            raise ValidationError(f"Resolved decision answer {index} must be an object.")
+        decision_id = str(item.get("id") or "").strip()
+        chosen = str(item.get("chosen") or "").strip()
+        if not decision_id or not chosen:
+            raise ValidationError(f"Resolved decision answer {index} requires non-empty id and chosen values.")
+        if decision_id in seen:
+            raise ValidationError(f"Resolved decisions contain duplicate answer id: {decision_id}")
+        if decision_id not in decision_ids:
+            raise ValidationError(f"Resolved decisions contain unknown decision id: {decision_id}")
+        seen.add(decision_id)
+        answers[decision_id] = chosen
+    if not answers:
+        raise ValidationError("Resolved decisions file contains no answers.")
+    return answers
+
+
 def apply_resolved_decisions(
     run_root: Path,
     *,
@@ -95,16 +119,13 @@ def apply_resolved_decisions(
         raise ValidationError("Resolved decisions exist but the saved product model is missing.")
 
     resolved = read_json(resolved_path)
-    answers = {
-        str(item.get("id")): str(item.get("chosen"))
-        for item in resolved.get("answers", [])
-        if item.get("id") and item.get("chosen")
-    }
-    if not answers:
-        raise ValidationError("Resolved decisions file contains no answers.")
-
+    if not isinstance(resolved, dict):
+        raise ValidationError("Resolved decisions file must contain a JSON object.")
     product = read_json(product_path)
     decisions = list(product.get("blocking_decisions", []) or [])
+    decision_ids = {str(item.get("id") or "").strip() for item in decisions if str(item.get("id") or "").strip()}
+    answers = _validated_answers(resolved, decision_ids)
+
     unresolved: list[str] = []
     applied: list[dict[str, str]] = []
     product_changed = False
