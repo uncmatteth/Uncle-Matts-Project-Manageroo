@@ -18,6 +18,7 @@ def _install_controller_policies() -> None:
     from . import project as project_module
     from . import release_ready as release_ready_module
     from . import skill_pack as skill_pack_module
+    from . import stack_doctor as stack_doctor_module
     from . import stack_update as stack_update_module
     from .acceptance import build_acceptance_evidence
     from .chiptune_policy import install_chiptune_policy
@@ -34,6 +35,7 @@ def _install_controller_policies() -> None:
     from .release_proof_policy import install_release_proof_policy
     from .release_ready_policy import install_release_ready_policy
     from .skill_pack_policy import install_skill_pack_policy
+    from .stack_doctor_policy import install_stack_doctor_policy
     from .stack_update_policy import install_stack_update_policy
 
     install_chiptune_policy(chiptune_module)
@@ -43,6 +45,7 @@ def _install_controller_policies() -> None:
     install_intent_audit_policy(intent_lock_module)
     install_project_initialization_policy(project_module)
     install_skill_pack_policy(skill_pack_module)
+    install_stack_doctor_policy(stack_doctor_module)
     install_stack_update_policy(stack_update_module)
     orchestrator_module.build_acceptance_evidence = build_acceptance_evidence
     install_plan_proof_policy(orchestrator_module)
