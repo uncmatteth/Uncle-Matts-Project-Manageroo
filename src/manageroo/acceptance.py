@@ -13,8 +13,20 @@ DEMONSTRATION_TERMS = (
     "security",
     "auth",
     "authentication",
+    "authorization",
+    "authorize",
+    "authorized",
+    "unauthorized",
     "login",
     "permission",
+    "permissions",
+    "access control",
+    "access-control",
+    "privilege",
+    "privileges",
+    "role",
+    "roles",
+    "policy",
     "screenshot",
     "visual",
     "checkout",
@@ -122,8 +134,8 @@ def build_acceptance_evidence(
                     "status": "unknown",
                     "evidence": [f"gate:{gate_id}" for gate_id in sorted(required_gate_ids)],
                     "reason": (
-                        "This outcome describes observable, security, or user-journey behavior "
-                        "but none of its bound proof gates ran in the demonstration lane."
+                        "This outcome describes observable, security, authorization, access-control, "
+                        "or user-journey behavior but none of its bound proof gates ran in the demonstration lane."
                     ),
                 }
             )
