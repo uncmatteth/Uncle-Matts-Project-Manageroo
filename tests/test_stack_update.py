@@ -16,6 +16,14 @@ from manageroo.stack_update import (
 
 
 class StackUpdateTests(unittest.TestCase):
+    @staticmethod
+    def owned_run(argv, **_kwargs):
+        if argv[1:] == ["prefix", "-g"]:
+            return {"ok": True, "exit_code": 0, "argv": argv, "output": "/usr\n"}
+        if argv[1:] == ["bin", "-g"]:
+            return {"ok": True, "exit_code": 0, "argv": argv, "output": "/usr/bin\n"}
+        return {"ok": False, "exit_code": 1, "argv": argv, "output": "not installed"}
+
     def test_plan_is_dry_run_and_uses_release_pinned_update_paths(self):
         def which(name: str):
             return {
@@ -29,7 +37,7 @@ class StackUpdateTests(unittest.TestCase):
 
         with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
             "manageroo.stack_update.platform.system", return_value="Linux"
-        ), patch("manageroo.stack_update._run", return_value={"ok": False, "exit_code": 1, "output": "not owned"}):
+        ), patch("manageroo.stack_update._run", side_effect=self.owned_run):
             plan = stack_update_plan()
 
         self.assertTrue(plan["ok"])
@@ -52,7 +60,9 @@ class StackUpdateTests(unittest.TestCase):
     def test_plan_can_target_one_tool(self):
         def which(name: str):
             return {"npm": "/usr/bin/npm", "gitnexus": "/usr/bin/gitnexus"}.get(name)
-        with patch("manageroo.stack_update.shutil.which", side_effect=which):
+        with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+            "manageroo.stack_update._run", side_effect=self.owned_run
+        ):
             plan = stack_update_plan(["gitnexus"])
         self.assertEqual(plan["selected_tools"], ["gitnexus"])
         self.assertEqual([item["name"] for item in plan["tools"]], ["gitnexus"])
@@ -70,6 +80,8 @@ class StackUpdateTests(unittest.TestCase):
             }.get(name)
 
         def run(argv, **_kwargs):
+            if argv[1:] == ["prefix", "-g"]:
+                return {"ok": True, "exit_code": 0, "argv": list(argv), "output": "/usr\n"}
             calls.append(list(argv))
             return {"ok": True, "exit_code": 0, "argv": list(argv), "output": ""}
 
@@ -157,7 +169,7 @@ class StackUpdateTests(unittest.TestCase):
             original_rename = Path.rename
 
             def fail_stage_rename(path, target):
-                if path.name.endswith(".manageroo-stage"):
+                if ".manageroo-stage-" in path.name:
                     raise OSError("simulated swap failure")
                 return original_rename(path, target)
 
