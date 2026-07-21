@@ -1,5 +1,8 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from manageroo.stack_update import CLAWPATCH_PACKAGE, GITNEXUS_PACKAGE, stack_update_plan
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,16 +42,35 @@ class InstallStackContractTests(unittest.TestCase):
         self.assertIn("GitNexus is a first-class recommended integration", installation)
         self.assertIn("without becoming authorities over Manageroo completion", readme)
 
-    def test_stack_update_supports_targeted_tools(self):
-        entrypoint = (ROOT / "src" / "manageroo" / "entrypoint.py").read_text(encoding="utf-8")
-        updater = (ROOT / "src" / "manageroo" / "stack_update.py").read_text(encoding="utf-8")
+    def test_stack_update_targeting_is_behavioral_and_uses_pinned_packages(self):
+        def which(name: str):
+            return {
+                "npm": "/usr/bin/npm",
+                "gitnexus": "/usr/bin/gitnexus",
+                "pnpm": "/usr/bin/pnpm",
+                "clawpatch": "/usr/bin/clawpatch",
+                "gbrain": "/usr/bin/gbrain",
+            }.get(name)
 
-        self.assertIn("STACK_TOOL_NAMES", entrypoint)
-        self.assertIn('nargs="*"', entrypoint)
-        self.assertIn("def stack_update_plan(only:", updater)
-        self.assertIn("def apply_stack_updates(only:", updater)
-        self.assertIn('"gitnexus@latest"', updater)
-        self.assertIn('[gbrain, "doctor", "--json"]', updater)
+        with patch("manageroo.stack_update.shutil.which", side_effect=which):
+            gitnexus_only = stack_update_plan(["gitnexus"])
+            clawpatch_only = stack_update_plan(["clawpatch"])
+
+        self.assertEqual(gitnexus_only["selected_tools"], ["gitnexus"])
+        self.assertEqual([item["name"] for item in gitnexus_only["tools"]], ["gitnexus"])
+        self.assertEqual(
+            gitnexus_only["tools"][0]["commands"],
+            [["/usr/bin/npm", "install", "-g", GITNEXUS_PACKAGE]],
+        )
+        self.assertEqual(clawpatch_only["selected_tools"], ["clawpatch"])
+        self.assertEqual(
+            clawpatch_only["tools"][0]["commands"],
+            [
+                ["/usr/bin/pnpm", "add", "-g", CLAWPATCH_PACKAGE],
+                ["/usr/bin/clawpatch", "doctor"],
+            ],
+        )
+        self.assertNotIn("@latest", repr(gitnexus_only) + repr(clawpatch_only))
 
 
 if __name__ == "__main__":
