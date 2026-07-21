@@ -1,3 +1,4 @@
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,7 +30,9 @@ class ContextTests(unittest.TestCase):
             max_single_file_tokens=100,
         )
 
-    def test_manifest_contains_hashes_and_lines(self):
+    def test_manifest_contains_exact_source_hash_and_lines(self):
+        source = self.repo / "a.txt"
+        expected_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
         packet = self.compiler().compile(
             "p",
             instructions="do work",
@@ -38,7 +41,7 @@ class ContextTests(unittest.TestCase):
         manifest = read_json(packet / "manifest.json")
         self.assertEqual(manifest["entries"][0]["start_line"], 2)
         self.assertEqual(manifest["entries"][0]["end_line"], 3)
-        self.assertTrue(manifest["entries"][0]["source_sha256"])
+        self.assertEqual(manifest["entries"][0]["source_sha256"], expected_sha256)
 
     def test_instructions_alone_cannot_overflow(self):
         with self.assertRaises(ContextBudgetError):
@@ -77,16 +80,62 @@ class ContextTests(unittest.TestCase):
         self.assertIn("Generated file summary", prompt)
         self.assertNotIn("x" * 1000, prompt)
 
-    def test_stale_packet_is_rejected(self):
+    def test_stale_packet_is_rejected_for_same_size_content_change(self):
+        source = self.repo / "a.txt"
         packet = self.compiler().compile(
             "fresh",
             instructions="x",
             requests=[ContextRequest("a.txt", "required", required=True)],
         )
         manifest = read_json(packet / "manifest.json")
-        (self.repo / "a.txt").write_text("changed\n", encoding="utf-8")
+        original_size = source.stat().st_size
+        source.write_text("ONE\ntwo\nthree\n", encoding="utf-8")
+        self.assertEqual(source.stat().st_size, original_size)
         with self.assertRaises(SafetyError):
             self.compiler().validate_freshness(manifest)
+
+    def test_failed_compile_does_not_consume_packet_name(self):
+        compiler = self.compiler()
+        with self.assertRaises(ContextBudgetError):
+            compiler.compile(
+                "retryable",
+                instructions="x",
+                requests=[ContextRequest("missing.txt", "required", required=True)],
+            )
+        self.assertFalse((self.root / "packets" / "retryable").exists())
+
+        (self.repo / "missing.txt").write_text("now present\n", encoding="utf-8")
+        packet = compiler.compile(
+            "retryable",
+            instructions="x",
+            requests=[ContextRequest("missing.txt", "required", required=True)],
+        )
+        self.assertTrue((packet / "manifest.json").is_file())
+
+    def test_serialized_prompt_overhead_is_included_in_budget(self):
+        for index in range(10):
+            (self.repo / f"tiny-{index}.txt").write_text("x", encoding="utf-8")
+        compiler = ContextCompiler(
+            self.repo,
+            self.root / "packets",
+            max_input_tokens=260,
+            reserve_output_tokens=20,
+            chars_per_token=1.0,
+            max_single_file_tokens=100,
+        )
+        packet = compiler.compile(
+            "overhead",
+            instructions="x",
+            requests=[
+                ContextRequest(f"tiny-{index}.txt", "optional", required=False)
+                for index in range(10)
+            ],
+        )
+        manifest = read_json(packet / "manifest.json")
+        prompt = (packet / "prompt.md").read_text(encoding="utf-8")
+        self.assertLessEqual(len(prompt), manifest["usable_token_budget"])
+        self.assertEqual(manifest["estimated_tokens"], len(prompt))
+        self.assertTrue(manifest["omitted"])
 
     def test_partition_is_stable(self):
         files = [
