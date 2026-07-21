@@ -1,8 +1,10 @@
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.stack_update import CLAWPATCH_PACKAGE, GITNEXUS_PACKAGE, stack_update_plan
+from manageroo.token_modes import CORE_SKILL_NAMES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +21,7 @@ class InstallStackContractTests(unittest.TestCase):
         self.assertIn('record["configured"] = configured', finalizer)
         self.assertIn('lock["stack_summary"] = summarize_external_tools', finalizer)
 
-    def test_public_docs_match_portable_boundary_and_18_skill_core(self):
+    def test_public_docs_match_portable_boundary_and_exact_18_skill_core(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         installation = (ROOT / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
         public = readme + "\n" + installation
@@ -27,10 +29,21 @@ class InstallStackContractTests(unittest.TestCase):
         self.assertNotIn("HOST_AND_TOS_INTEGRATION", public)
         self.assertNotIn("host/tOS", public)
         self.assertIn("docs/HOST_SKILL_ECOSYSTEM.md", readme)
-        self.assertIn("18. `uncle-matts-caveman-curse`", readme)
-        self.assertIn("18. `uncle-matts-caveman-curse`", installation)
-        self.assertIn("`skill-vetter`", readme)
-        self.assertIn("`skill-vetter`", installation)
+
+        expected = list(CORE_SKILL_NAMES)
+        self.assertEqual(len(expected), 18)
+        self.assertEqual(len(expected), len(set(expected)))
+        for index, skill in enumerate(expected, 1):
+            with self.subTest(skill=skill):
+                marker = f"{index}. `{skill}`"
+                self.assertIn(marker, readme)
+                self.assertIn(marker, installation)
+
+        for text in (readme, installation):
+            numbered = re.findall(r"(?m)^\s*(\d+)\. `([^`]+)`\s*$", text)
+            core_block = [name for number, name in numbered if 1 <= int(number) <= 18]
+            self.assertGreaterEqual(len(core_block), 18)
+            self.assertEqual(core_block[:18], expected)
 
     def test_gitnexus_is_documented_as_first_class_but_non_authoritative(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
