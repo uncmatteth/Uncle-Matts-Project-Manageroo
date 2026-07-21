@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -83,28 +84,28 @@ def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
     sync = (
         summarize_sync_status(sync_probe.get("output", ""))
         if sync_probe.get("ok")
-        else {"ok": False, "error": redact_text(str(sync_probe.get("output") or "gbrain status failed"))}
+        else {"ok": False, "parsed": False, "healthy": False, "error": redact_text(str(sync_probe.get("output") or "gbrain status failed"))}
     )
     next_commands: list[str] = []
     if not config:
         next_commands.append("gbrain config show")
     if not doctor_probe.get("ok"):
         next_commands.append("gbrain doctor --json")
-    if not sync.get("ok"):
+    if not sync.get("healthy"):
         next_commands.append("gbrain status --json --section sync")
-    if sync.get("ok") and sync.get("source_count", 0) == 0:
+    if sync.get("parsed") and sync.get("source_count", 0) == 0:
         next_commands.extend([
             "gbrain sources list",
             "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
             "gbrain sync --source YOUR_SOURCE_ID --json --yes",
         ])
-    configured = bool(config and doctor_probe.get("ok") and sync.get("ok") and sync.get("source_count", 0) > 0)
+    configured = bool(config and doctor_probe.get("ok") and sync.get("healthy") and sync.get("source_count", 0) > 0)
     detail_bits = []
     if config.get("engine"):
         detail_bits.append(f"engine={config['engine']}")
     if config.get("embedding_model"):
         detail_bits.append(f"embedding={config['embedding_model']}")
-    if sync.get("ok"):
+    if sync.get("parsed"):
         detail_bits.append(f"sources={sync.get('source_count', 0)}")
     if not detail_bits:
         detail_bits.append("installed; setup probes need attention")
@@ -160,15 +161,19 @@ def _autoreview(home: Path) -> dict:
         home / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
         home / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
     ]
-    existing = next((path for path in candidates if path.exists()), None)
+    valid = [path for path in candidates if path.is_file() and (os.name == "nt" or os.access(path, os.X_OK))]
+    existing = valid[0] if valid else None
+    malformed = [path for path in candidates if path.exists() and path not in valid]
     if not existing:
+        detail = "AUTOREVIEW skill script not found in ~/.agents or ~/.codex."
+        if malformed:
+            detail = "AUTOREVIEW path exists but is not a runnable regular executable file: " + ", ".join(str(path) for path in malformed)
         return _missing(
             "autoreview",
-            "AUTOREVIEW skill script not found in ~/.agents or ~/.codex.",
+            detail,
             [
-                "git clone https://github.com/openclaw/agent-skills.git",
-                "mkdir -p ~/.agents/skills",
-                "cp -R agent-skills/skills/autoreview ~/.agents/skills/autoreview",
+                "Reinstall or repair AUTOREVIEW from the canonical OpenClaw agent-skills source.",
+                "manageroo stack-update autoreview --apply",
             ],
             reference="https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
         )
@@ -178,9 +183,9 @@ def _autoreview(home: Path) -> dict:
         "installed": True,
         "configured": True,
         "path": str(existing),
-        "detail": f"found at {existing}",
+        "detail": f"runnable script found at {existing}",
         "next_commands": [],
-        "detected_locations": [str(path) for path in candidates if path.exists()],
+        "detected_locations": [str(path) for path in valid],
         "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
     }
 
@@ -210,9 +215,8 @@ def _codex(which: WhichFn, runner: RunnerFn) -> dict:
     }
 
 
-def _clawpatch(which: WhichFn, runner: RunnerFn) -> dict:
+def _clawpatch(which: WhichFn, runner: RunnerFn, codex: dict) -> dict:
     path = which("clawpatch")
-    codex = _codex(which, runner)
     if not path:
         return _missing(
             "clawpatch",
@@ -269,13 +273,14 @@ def stack_doctor(
     home: Path | None = None,
 ) -> dict:
     home = (home or Path.home()).expanduser()
+    codex = _codex(which, runner)
     items = [
         _gbrain(which, runner),
         _gitnexus(which, runner),
         _autoreview(home),
-        _clawpatch(which, runner),
+        _clawpatch(which, runner, codex),
         _obsidian(which),
-        _codex(which, runner),
+        codex,
     ]
     needs_action = [
         item
