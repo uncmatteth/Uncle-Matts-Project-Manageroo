@@ -75,6 +75,28 @@ class ReleaseDriverTests(unittest.TestCase):
         self.assertTrue(payload["release_created"])
         self.assertEqual(payload["stage"], "complete")
 
+    def test_packaging_failure_never_claims_release_created(self):
+        proof = {
+            "argv": [sys.executable, "-m", "manageroo", "prove", "--json"],
+            "exit_code": 0,
+            "output": json.dumps({"ok": True, "status": "COMPLETE"}),
+        }
+        package = {
+            "argv": [sys.executable, "scripts/package_release.py"],
+            "exit_code": 1,
+            "output": "packaging failed\n",
+        }
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["release.py", "--json"]), patch.object(
+            release, "run", side_effect=[proof, package]
+        ), redirect_stdout(output):
+            code = release.main()
+        self.assertEqual(code, 1)
+        payload = json.loads(output.getvalue())
+        self.assertFalse(payload["release_created"])
+        self.assertEqual(payload["stage"], "packaging")
+        self.assertEqual(payload["package"]["exit_code"], 1)
+
     def test_live_agent_is_forwarded_only_to_product_proof(self):
         proof = {
             "argv": [],
