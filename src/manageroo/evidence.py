@@ -46,12 +46,22 @@ def _clamp(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
+def _safe_float(value: Any, fallback: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if parsed != parsed or parsed in {float("inf"), float("-inf")}:
+        return fallback
+    return parsed
+
+
 def _query_terms(query: str) -> set[str]:
     return {item.lower() for item in re.findall(r"[A-Za-z0-9_.:/-]{3,}", query)}
 
 
 def _read_bounded_text(path: Path, *, max_bytes: int = MAX_EVIDENCE_INPUT_BYTES) -> tuple[str, float] | None:
-    """Read only a bounded prefix and capture mtime in the same guarded operation."""
+    """Read a bounded UTF-8 prefix without rejecting a split trailing code point."""
     try:
         if path.is_symlink():
             return None
@@ -64,7 +74,14 @@ def _read_bounded_text(path: Path, *, max_bytes: int = MAX_EVIDENCE_INPUT_BYTES)
         payload = payload[:max_bytes]
     try:
         return payload.decode("utf-8"), stat.st_mtime
-    except UnicodeDecodeError:
+    except UnicodeDecodeError as exc:
+        # A valid UTF-8 file may be cut in the middle of the final code point. Only
+        # tolerate an incomplete sequence at the byte boundary; reject earlier corruption.
+        if exc.reason == "unexpected end of data" and exc.start >= max(0, len(payload) - 4):
+            try:
+                return payload[: exc.start].decode("utf-8"), stat.st_mtime
+            except UnicodeDecodeError:
+                return None
         return None
 
 
@@ -165,11 +182,7 @@ def rank_evidence(items: Iterable[EvidenceItem]) -> list[EvidenceItem]:
 
 
 def detect_contradictions(items: Iterable[EvidenceItem]) -> list[EvidenceContradiction]:
-    """Surface conflicting claims when providers supply a shared claim_key.
-
-    Manageroo never guesses semantic contradictions from arbitrary prose. Providers must
-    attach metadata.claim_key when two records are intended to describe the same fact.
-    """
+    """Surface conflicting claims when providers supply a shared claim_key."""
     grouped: dict[str, list[EvidenceItem]] = {}
     for item in items:
         claim_key = str(item.metadata.get("claim_key") or "").strip()
@@ -194,6 +207,16 @@ def detect_contradictions(items: Iterable[EvidenceItem]) -> list[EvidenceContrad
             )
         )
     return contradictions
+
+
+def _bounded_ranked_bundle(items: list[EvidenceItem], limit: int) -> tuple[list[EvidenceItem], list[EvidenceContradiction]]:
+    """Keep every evidence record referenced by a returned contradiction resolvable."""
+    ranked_all = rank_evidence(items)
+    selected = ranked_all[: max(0, limit)]
+    contradictions = detect_contradictions(selected)
+    # Contradictions are computed over exactly the returned item set. This deliberately
+    # avoids dangling hashes to evidence the bundle omitted.
+    return selected, contradictions
 
 
 class ProjectMemoryEvidenceProvider:
@@ -360,8 +383,10 @@ def normalize_external_payload(
     limit: int = 12,
 ) -> list[EvidenceItem]:
     """Normalize plain text or JSON provider output without inventing provenance."""
+    structured = False
     try:
         decoded = json.loads(payload)
+        structured = isinstance(decoded, (dict, list))
     except json.JSONDecodeError:
         decoded = None
 
@@ -371,7 +396,11 @@ def normalize_external_payload(
     elif isinstance(decoded, list):
         rows = [item for item in decoded if isinstance(item, dict)]
 
+    if structured and not rows:
+        return []
     if not rows:
+        if not payload.strip():
+            return []
         return [
             EvidenceItem(
                 content=payload[:MAX_EVIDENCE_CONTENT_CHARS],
@@ -392,18 +421,22 @@ def normalize_external_payload(
         if row.get("claim_key"):
             metadata["claim_key"] = str(row["claim_key"])
         metadata.setdefault("provider", provider)
-        items.append(
-            EvidenceItem(
-                content=content[:MAX_EVIDENCE_CONTENT_CHARS],
-                source=str(row.get("source") or provider),
-                location=str(row.get("location") or row.get("path") or ""),
-                authority=str(row.get("authority") or authority),
-                confidence=float(row.get("confidence", confidence)),
-                freshness=float(row.get("freshness", freshness)),
-                created_at=str(row.get("created_at")) if row.get("created_at") else None,
-                metadata=metadata,
+        try:
+            items.append(
+                EvidenceItem(
+                    content=content[:MAX_EVIDENCE_CONTENT_CHARS],
+                    source=str(row.get("source") or provider),
+                    location=str(row.get("location") or row.get("path") or ""),
+                    authority=str(row.get("authority") or authority),
+                    confidence=_safe_float(row.get("confidence", confidence), confidence),
+                    freshness=_safe_float(row.get("freshness", freshness), freshness),
+                    created_at=str(row.get("created_at")) if row.get("created_at") else None,
+                    metadata=metadata,
+                )
             )
-        )
+        except (TypeError, ValueError):
+            # One malformed provider row must never abort the complete evidence lane.
+            continue
     return items
 
 
@@ -427,10 +460,10 @@ class EvidenceRouter:
                         "error": str(exc),
                     }
                 )
-        ranked = rank_evidence(items)[:limit]
+        ranked, contradictions = _bounded_ranked_bundle(items, limit)
         return EvidenceBundle(
             query=query,
             items=ranked,
-            contradictions=detect_contradictions(items),
+            contradictions=contradictions,
             provider_errors=errors,
         )
