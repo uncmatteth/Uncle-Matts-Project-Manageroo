@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import tomllib
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-VERSION_TAG = "v2026.7.19.1"
+PROJECT_VERSION = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
+VERSION_TAG = f"v{PROJECT_VERSION}"
 ARTIFACT_BASENAME = f"uncle-matts-project-manageroo-{VERSION_TAG}"
 DROP_ROOT = ARTIFACT_BASENAME
 DEFAULT_DROP_DIR = ROOT.parent / DROP_ROOT
@@ -67,6 +71,8 @@ def release_file_allowed(path: Path) -> bool:
         return False
     lowered = path.name.lower()
     if lowered in SENSITIVE_FILENAMES or path.suffix.lower() in SENSITIVE_SUFFIXES:
+        return False
+    if "secret" in lowered or "credential" in lowered:
         return False
     if lowered.startswith(".env") and lowered not in SAFE_ENV_EXAMPLES:
         return False
@@ -149,24 +155,27 @@ def generate_manifest() -> None:
 
 
 def write_archive(output: Path, files: list[Path]) -> None:
-    if output.exists():
-        output.unlink()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for path in files:
-            if path.is_symlink() or not release_file_allowed(path):
-                raise RuntimeError(f"Refusing unsafe release file: {path}")
-            archive.write(
-                path,
-                arcname=f"{ARCHIVE_ROOT}/{path.relative_to(ROOT).as_posix()}",
-            )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".tmp", dir=str(output.parent))
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            for path in files:
+                if path.is_symlink() or not release_file_allowed(path):
+                    raise RuntimeError(f"Refusing unsafe release file: {path}")
+                archive.write(
+                    path,
+                    arcname=f"{ARCHIVE_ROOT}/{path.relative_to(ROOT).as_posix()}",
+                )
+        os.replace(temp_path, output)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
-def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: Path) -> None:
-    drop_dir.mkdir(parents=True, exist_ok=True)
-    for path in drop_dir.iterdir():
-        if path.is_file() and path.name.startswith(DROP_CLEANUP_PREFIXES):
-            path.unlink()
-    copies = {
+def _drop_copies(end_user_archive: Path, source_archive: Path) -> dict[str, Path]:
+    return {
         INSTALLER_ZIP: end_user_archive,
         SOURCE_ZIP: source_archive,
         "SOURCE-VALIDATION.json": ROOT / "BUILD-VALIDATION.json",
@@ -176,16 +185,53 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
         "GIVE-THIS-TO-YOUR-IDE-AGENT.md": ROOT / "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
         "GITHUB-DESCRIPTION.md": ROOT / "GITHUB_DESCRIPTION.md",
     }
-    for name, source in copies.items():
+
+
+def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: Path) -> None:
+    copies = _drop_copies(end_user_archive, source_archive)
+    for source in copies.values():
         if not source.is_file() or source.is_symlink():
             raise RuntimeError(f"Required release-drop file is missing or unsafe: {source}")
-        shutil.copy2(source, drop_dir / name)
-    checksum_lines = []
-    for name in copies:
-        path = drop_dir / name
-        checksum_lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
-    checksums = "\n".join(checksum_lines) + "\n"
-    (drop_dir / "SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
+
+    parent = drop_dir.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{drop_dir.name}.stage-", dir=str(parent)))
+    backup = drop_dir.with_name(drop_dir.name + ".manageroo-previous")
+    try:
+        # Preserve operator-owned unrelated files while replacing only release-owned outputs.
+        if drop_dir.is_dir():
+            for existing in drop_dir.iterdir():
+                if existing.name == "SHA256SUMS.txt":
+                    continue
+                if existing.is_file() and existing.name.startswith(DROP_CLEANUP_PREFIXES):
+                    continue
+                destination = stage / existing.name
+                if existing.is_dir():
+                    shutil.copytree(existing, destination)
+                elif existing.is_file() and not existing.is_symlink():
+                    shutil.copy2(existing, destination)
+        for name, source in copies.items():
+            shutil.copy2(source, stage / name)
+        checksum_lines = []
+        for name in copies:
+            path = stage / name
+            checksum_lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}")
+        (stage / "SHA256SUMS.txt").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
+
+        if backup.exists():
+            shutil.rmtree(backup)
+        if drop_dir.exists():
+            drop_dir.rename(backup)
+        stage.rename(drop_dir)
+        if backup.exists():
+            shutil.rmtree(backup)
+    except Exception:
+        if not drop_dir.exists() and backup.exists():
+            backup.rename(drop_dir)
+        raise
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage, ignore_errors=True)
 
 
 def main() -> int:
@@ -206,21 +252,29 @@ def main() -> int:
         checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative}")
     (ROOT / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="utf-8")
 
-    write_archive(OUTPUT, end_user_files())
-    write_archive(SOURCE_OUTPUT, included_files())
-    smoke = subprocess.run(
-        [
-            sys.executable,
-            "scripts/smoke_release_install.py",
-            "--archive",
-            str(OUTPUT),
-            "--skip-install-tests",
-        ],
-        cwd=ROOT,
-        shell=False,
-    )
-    if smoke.returncode:
-        return smoke.returncode
+    with tempfile.TemporaryDirectory(prefix="manageroo-release-candidate-", dir=str(ROOT.parent)) as temp:
+        candidate_root = Path(temp)
+        candidate_output = candidate_root / INSTALLER_ZIP
+        candidate_source = candidate_root / SOURCE_ZIP
+        write_archive(candidate_output, end_user_files())
+        write_archive(candidate_source, included_files())
+        smoke = subprocess.run(
+            [
+                sys.executable,
+                "scripts/smoke_release_install.py",
+                "--archive",
+                str(candidate_output),
+                "--skip-install-tests",
+            ],
+            cwd=ROOT,
+            shell=False,
+        )
+        if smoke.returncode:
+            return smoke.returncode
+        # Only a fully smoke-validated candidate replaces the previous published archives.
+        os.replace(candidate_output, OUTPUT)
+        os.replace(candidate_source, SOURCE_OUTPUT)
+
     refresh_drop_folder(DEFAULT_DROP_DIR, OUTPUT, SOURCE_OUTPUT)
     print(OUTPUT)
     print(SOURCE_OUTPUT)
