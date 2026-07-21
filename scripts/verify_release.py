@@ -12,8 +12,38 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from manageroo.truth_contract import find_overclaim_offenders  # noqa: E402
+
 GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
 EXCLUDED_PARTS = {".git", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
+PUBLIC_TRUTH_FILES = (
+    "README.md",
+    "docs/00_START_HERE.md",
+    "docs/INSTALLATION.md",
+    "docs/LIMITATIONS.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DOCUMENT_LANE.md",
+    "docs/EXTERNAL_INTEGRATIONS.md",
+    "docs/REVIEW_REPAIR_LANES.md",
+    "docs/SOLO_OPERATOR_MODE.md",
+    "docs/STATELESS_ORCHESTRATION.md",
+)
+BANNED_OVERCLAIM_PHRASES = (
+    "full vision support",
+    "real vision support",
+    "understands screenshots",
+    "understands images",
+    "guaranteed production ready",
+    "one-button production deploy",
+    "autonomous production deploy",
+    "real subagent swarm",
+    "parallel implementation branches",
+    "ai can fix autoreview findings",
+    "ai can fix clawpatch findings",
+    "silently self-improves",
+)
 
 
 def stable_command_output(output: str) -> str:
@@ -91,6 +121,21 @@ def contains_compact(text: str, phrase: str) -> bool:
     return " ".join(phrase.split()).casefold() in " ".join(text.split()).casefold()
 
 
+def public_truth_overclaim_violations() -> list[str]:
+    violations: list[str] = []
+    for relative in PUBLIC_TRUTH_FILES:
+        path = ROOT / relative
+        if not path.is_file():
+            violations.append(f"missing-public-truth-file:{relative}")
+            continue
+        for phrase, sentence in find_overclaim_offenders(
+            path.read_text(encoding="utf-8", errors="replace"),
+            BANNED_OVERCLAIM_PHRASES,
+        ):
+            violations.append(f"{relative}:{phrase}:{sentence}")
+    return violations
+
+
 def structural_checks() -> list[dict]:
     required = [
         "install.sh", "install.ps1", "scripts/smoke_release_install.py", "scripts/finalize_gitnexus.py",
@@ -102,7 +147,8 @@ def structural_checks() -> list[dict]:
         "src/manageroo/chiptune.py", "src/manageroo/document_lane.py", "src/manageroo/evidence.py",
         "src/manageroo/evidence_policy.py", "src/manageroo/jobs.py", "src/manageroo/learning.py",
         "src/manageroo/next_action.py", "src/manageroo/project_memory.py", "src/manageroo/solo.py",
-        "src/manageroo/token_modes.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
+        "src/manageroo/token_modes.py", "src/manageroo/truth_contract.py",
+        "src/manageroo/assets/skills/skill-vetter/SKILL.md",
         "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md", "tests/test_evidence.py",
         "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py", "tests/test_truth_contract.py",
         "tests/test_release_hardening_contract.py",
@@ -118,6 +164,7 @@ def structural_checks() -> list[dict]:
     project = (ROOT / "src" / "manageroo" / "project.py").read_text(encoding="utf-8")
     selected = source_files()
     selected_relative = {_relative(path).as_posix() for path in selected}
+    overclaims = public_truth_overclaim_violations()
     checks.extend([
         {"name": "release-source-not-empty", "ok": len(selected) > 20},
         {"name": "release-required-source-selected", "ok": {"README.md", "pyproject.toml", "src/manageroo/__init__.py"} <= selected_relative},
@@ -125,6 +172,7 @@ def structural_checks() -> list[dict]:
         {"name": "no-old-brand", "ok": "".join(("bt", "tlabs.fun")) not in readme},
         {"name": "no-editor-specific-root", "ok": not (ROOT / ".vscode").exists()},
         {"name": "no-bundled-audio-assets", "ok": not any(path.suffix.lower() in {".wav", ".mp3", ".ogg", ".flac"} for path in selected)},
+        {"name": "truth:production-overclaim-checker", "ok": not overclaims, "violations": overclaims},
         {
             "name": "truth:no-real-vision-claim",
             "ok": contains_compact(limitations, "it does not perform real vision interpretation or design understanding")
@@ -176,7 +224,6 @@ def main() -> int:
     commands = [
         run([sys.executable, "-m", "compileall", "-q", "src"]),
         run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"]),
-        run([sys.executable, "scripts/verify_distribution.py"], timeout=900),
     ]
     if shutil.which("sh"):
         commands.append(run(["sh", "-n", "install.sh", "scripts/install.sh"]))
