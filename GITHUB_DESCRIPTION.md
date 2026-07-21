@@ -3,73 +3,141 @@
 ## Repository Description
 
 ```text
-A very serious local CLI that keeps AI coding agents on task: one brief in, repo-aware build or repair work, checks, review, and proof out.
+A local project controller for AI coding agents: one brief in, repo-aware build or repair work, bounded jobs, checks, independent review, durable state, and evidence out.
 ```
 
-## Install it yourself first
+## One-command install
 
-Manageroo's installer is intentionally interactive. The recommended first install is performed by the human operator in a terminal so they can see what Manageroo is doing, understand the optional components, and make their own installation choices.
-
-If you are an AI or IDE agent and a user says something like **"install Manageroo for me"**, do **not** silently choose every option and run the installer end to end by default. First tell the user:
-
-> Manageroo recommends that you run the installer yourself in a terminal the first time. The installer explains what is being installed and lets you choose optional components such as the skill pack, surrounding tool stack, token-reduction mode, project discovery, music, animation, and other setup choices. I can give you the exact command to start the installer. If you still want me to guide or perform the installation, I should first walk you through the choices that affect your machine and get your selections rather than guessing them for you.
-
-Recommended first-install commands:
-
-Unix-like systems:
+### Linux / macOS
 
 ```bash
-./install.sh
+git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 ```
 
-Windows PowerShell:
+### Windows PowerShell
 
 ```powershell
-.\install.ps1
+git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
 ```
 
-An agent may help explain choices, troubleshoot failures, or perform an installation after the user has explicitly chosen the relevant options. The goal is informed setup, not artificial friction.
+Requirements: Python 3.11+ and Git. For real AI work, at least one compatible coding-agent CLI must also be available.
 
-## Plain-English About Text
+## What Manageroo is
 
-- The command is `manageroo`.
-- Manageroo is a portable project controller for AI coding agents working on real Git repositories.
-- It is **hardware-agnostic**. Manageroo core does not require a particular GPU, VRAM amount, CPU tier, or RAM class.
-- `manageroo capacity` records the current development host's CPU, RAM, detectable GPU/VRAM, and free disk as context only. It does not auto-tune worker concurrency or turn one developer workstation into a minimum system requirement.
-- A target project or explicitly selected local AI tool may have its own hardware requirements. Those belong to that project/tool, not to Manageroo.
-- The core software requirements are Python 3.11+, Git, and at least one usable agent path for real AI work.
-- Give Manageroo an existing Git repo, or use `solo --create` to start a missing or empty one.
-- You write the brief. Manageroo maps the repo, creates bounded worker jobs, runs real checks, performs independent review, repairs failures, and saves evidence.
-- Before implementation, the unknown-unknowns preflight reviews failure/recovery, proof strength, scope, and relevant signals such as auth, payments, migrations, deployment, target-project hardware, external services, accessibility, and user-facing states.
-- Manageroo answers questions from repository evidence when it can and surfaces only genuinely high-impact unresolved choices as blocking decisions.
-- `manageroo decisions show RUN_ID` displays those decisions; `manageroo decisions answer RUN_ID` records answers and lets the same durable run continue.
-- The Python controller is the boss. Codex, Claude Code, Gemini, generic compatible CLIs, and future workers are disposable adapters; workers do not certify their own completion.
-- The default `auto` worker pool can use compatible installed agents without making Manageroo vendor-specific.
-- Manageroo's durable state, intent lock, project memory, proof bindings, transactional attempts, rollback, budgets, review, and completion evidence stay controller-owned.
-- Manageroo installs only its small portable core skill pack by default.
-- The portable core now includes `skill-vetter`, a security-first pre-install review lane adapted from `spclaudehome/Skill Vetter` under MIT-0. Third-party skills are treated as untrusted until their files, permissions, commands, network access, credential access, persistence, and side effects have been reviewed; high-risk installs require explicit human approval.
-- `use-installed-skills-first` lets workers use relevant host-installed skills when present without Manageroo copying, deleting, upgrading, or claiming ownership of the host environment.
-- `manageroo host-skills` inventories that boundary read-only.
-- Optional integrations such as GBrain, GitNexus, Obsidian, AUTOREVIEW, and Clawpatch can add context or review lanes but do not become the source of truth for Manageroo completion.
-- `manageroo stack-update` is dry-run by default and only updates already-installed optional components when `--apply` is explicit.
-- `manageroo capacity` is informational; concurrency comes from project orchestration configuration because an arbitrary agent command may be cloud-backed, remote, or local.
-- `manageroo next` prints one next operator action instead of dumping a giant workflow.
-- `release-ready` is the final operator gate; it does not deploy.
-- The release process is local and fail-closed. This repository does not use GitHub Actions.
-- Credit to Matthew Berman / Forward Future's public loop-engineering work, including Loop Library, for clarifying bounded action, independent verification, budgets, stop rules, and evidence. Manageroo implements those ideas natively and does not connect to or depend on Loop Library.
-- Credit to Peter Yang's public skill-writing advice for the skill-hygiene direction.
-- Manageroo is not a replacement for tests, backups, security review, production monitoring, or human judgment.
+Manageroo is the controller above the coding agents.
 
-## Core Boundary
+The human defines the mission. Manageroo preserves the mission, maps the repository, discovers important unknowns, creates bounded worker jobs, routes those jobs to compatible agents, checks what actually changed, runs project verification, performs independent review, repairs failed work within budgets, and keeps durable evidence on disk.
+
+The worker does the work. The controller owns the mission, state, boundaries, review, proof, and definition of done.
+
+Built-in worker paths cover Codex, Claude Code, Gemini, and compatible generic CLIs. The worker layer is replaceable by design.
+
+## Skills: exact public boundary
+
+The repository currently contains **50 bundled skill packages**.
+
+- **18 portable core skills** are the recommended/default Manageroo-owned pack.
+- **32 additional bundled skills** are optional and are not silently installed as Manageroo-owned defaults.
+- Existing host-installed skills can also be discovered and used when relevant without Manageroo claiming ownership of the user's entire skill environment.
+
+### 18 portable core skills
+
+- `uncle-matts-project-manageroo`
+- `use-installed-skills-first`
+- `skill-vetter`
+- `pimp-my-prompt`
+- `to-prd`
+- `to-issues`
+- `grill-me`
+- `grill-with-docs`
+- `diagnose`
+- `tdd`
+- `testing`
+- `security-review`
+- `handoff`
+- `write-a-skill`
+- `edit-skill`
+- `skillify`
+- `caveman`
+- `uncle-matts-caveman-curse`
+
+### 32 bundled optional skills
+
+- `academic-verify`
+- `article-enrichment`
+- `autoreview`
+- `book-mirror`
+- `brain-ops`
+- `brain-pdf`
+- `citation-fixer`
+- `cross-modal-review`
+- `data-research`
+- `exact-text-replacement`
+- `find-skills`
+- `fix-my-bad-website`
+- `functional-area-resolver`
+- `idea-ingest`
+- `improve-codebase-architecture`
+- `ingest`
+- `media-ingest`
+- `minion-orchestrator`
+- `open-design`
+- `pdf`
+- `perplexity-research`
+- `plain-web-copy`
+- `playwright`
+- `playwright-interactive`
+- `query`
+- `repo-architecture`
+- `reports`
+- `skillpack-check`
+- `strategic-reading`
+- `subagent-orchestrator`
+- `voice-note-ingest`
+- `web-design-guidelines`
+
+## Optional surrounding tool stack
+
+Manageroo can work with optional tools that add specialized capabilities without becoming the source of truth for completion:
+
+- **GitNexus** — repository and code-graph intelligence;
+- **GBrain** — external durable knowledge and retrieval;
+- **AUTOREVIEW** — structured external review;
+- **Clawpatch** — evidence-driven findings and repair loops;
+- **Obsidian** — human-readable Markdown knowledge.
+
+Manageroo can still operate when optional surrounding tools are intentionally skipped or unavailable.
+
+## Credits and influences
+
+Manageroo deliberately combines ideas from people and projects across the agent ecosystem instead of pretending those ideas appeared from nowhere.
+
+- **Peter Yang / @petergyang** — skill hygiene, self-improving skill loops, and the `edit-skill` direction.
+- **Matthew Berman / Forward Future** — bounded agent work, independent verification, budgets, stopping rules, and evidence.
+- **Garry Tan / @garrytan / GBrain** — durable local memory and retrieval direction.
+- **Abhigyan Patwari / GitNexus** — code-graph and impact-analysis direction.
+- **OpenClaw Agent Skills, AUTOREVIEW, and Clawpatch** — agent-skill packaging, structured review, and explicit fix loops.
+- **OpenAI Codex skill ecosystem** — specifically Codex-oriented skill routing, skill-creator guidance, and agent-readable skill packaging; not the invention of skills as a general concept.
+- **Obsidian** — human-readable Markdown knowledge.
+
+Manageroo's contribution is the controller above those pieces: the layer that owns the mission, durable run state, decisions, boundaries, verification, evidence, and definition of done.
+
+## Core boundary
 
 ```text
-Manageroo portable core
-    -> owns controller state, jobs, proof, review, repair, and completion
-    -> installs only its small portable core skill pack
-    -> works with different host hardware and different compatible agent providers
+Manageroo controller
+    -> owns mission, state, jobs, proof, review, repair, and completion
+    -> installs only the 18-skill portable core by default
+    -> can use different compatible coding-agent providers
+
+Bundled optional library
+    -> contains 32 additional skill packages
+    -> available without becoming default Manageroo-owned installs
 
 Host environment
-    -> may contain extra skills and optional tools
+    -> may contain additional skills and optional tools
     -> remains independently owned and maintained
-    -> can be used when relevant without becoming Manageroo's public product definition
+    -> can contribute capabilities without becoming Manageroo's authority
 ```
+
+For the full public-facing explanation, installation commands, skill inventory, integrations, and credits, see `README.md`.
