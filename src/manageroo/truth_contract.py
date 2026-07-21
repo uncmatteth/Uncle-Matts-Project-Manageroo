@@ -6,11 +6,19 @@ from collections.abc import Iterable
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _CLAUSE_SPLIT_RE = re.compile(r"[;,.!?]\s*")
-_DENIAL_NEAR_END_RE = re.compile(
-    r"(?:\b(?:does|do|did|is|are|was|were|can|could|must|will|would|should)\s+not\b"
-    r"|\bcannot\b|\bnever\b|\bmust\s+not\b|\bno\b|\bwithout\b|\binstead\s+of\b)"
-    r"[^;,.!?]{0,80}$",
-    re.IGNORECASE,
+_DENIAL_SUFFIX_PATTERNS = (
+    re.compile(
+        r"\b(?:does|do|did|is|are|was|were|can|could|must|will|would|should)\s+not"
+        r"(?:\s+[a-z0-9_-]+){0,4}\s+$",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bcannot(?:\s+[a-z0-9_-]+){0,4}\s+$", re.IGNORECASE),
+    re.compile(r"\bnever(?:\s+[a-z0-9_-]+){0,4}\s+$", re.IGNORECASE),
+    # `no` and `without` must directly govern the prohibited capability. Broad
+    # windows such as "no setup for <claim>" are affirmative capability claims.
+    re.compile(r"\bno\s+$", re.IGNORECASE),
+    re.compile(r"\bwithout\s+$", re.IGNORECASE),
+    re.compile(r"\binstead\s+of\s+$", re.IGNORECASE),
 )
 
 
@@ -18,16 +26,20 @@ def sentences(text: str) -> list[str]:
     return [sentence.strip() for sentence in _SENTENCE_SPLIT_RE.split(text) if sentence.strip()]
 
 
+def _occurrence_is_denied(sentence: str, phrase: str, index: int) -> bool:
+    before = sentence.casefold()[:index]
+    clause_before = _CLAUSE_SPLIT_RE.split(before)[-1]
+    return any(pattern.search(clause_before) for pattern in _DENIAL_SUFFIX_PATTERNS)
+
+
 def claim_is_explicitly_denied(sentence: str, phrase: str) -> bool:
-    """Return true only when a denial in the same clause actually governs the claim phrase."""
+    """Return true only when every occurrence of a prohibited claim is explicitly denied."""
     lowered = sentence.casefold()
     needle = phrase.casefold()
-    index = lowered.find(needle)
-    if index < 0:
+    if not needle:
         return False
-    before = lowered[:index]
-    clause_before = _CLAUSE_SPLIT_RE.split(before)[-1]
-    return bool(_DENIAL_NEAR_END_RE.search(clause_before))
+    indexes = [match.start() for match in re.finditer(re.escape(needle), lowered)]
+    return bool(indexes) and all(_occurrence_is_denied(sentence, phrase, index) for index in indexes)
 
 
 def find_overclaim_offenders(text: str, banned_phrases: Iterable[str]) -> list[dict[str, str]]:
