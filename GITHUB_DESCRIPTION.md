@@ -32,6 +32,25 @@ The worker does the work. The controller owns the mission, state, boundaries, re
 
 Built-in worker paths cover Codex, Claude Code, Gemini, and compatible generic CLIs. The worker layer is replaceable by design.
 
+## Discovery, decisions, and hardware
+
+Manageroo runs an **unknown-unknowns preflight** before large implementation work. The point is not to dump internal process jargon on the user; it is to inspect the repository for important risks and requirements the original brief may have missed, answer what the repository can answer, and stop only for genuinely high-impact unresolved choices.
+
+When a run needs an operator decision:
+
+```bash
+manageroo decisions show RUN_ID --repo .
+manageroo decisions answer RUN_ID --repo .
+manageroo run --continue RUN_ID --repo . --apply
+```
+
+Manageroo core is **hardware-agnostic**. A target project or selected local AI tool may have its own hardware needs, but Manageroo itself does not auto-tune worker concurrency from one developer machine. Inspect the host as informational context with:
+
+```bash
+manageroo capacity
+manageroo capacity --json
+```
+
 ## Skills: exact public boundary
 
 The repository currently contains **50 bundled skill packages**.
