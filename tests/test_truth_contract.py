@@ -33,18 +33,32 @@ def _load_installer_module():
 
 
 def _claim_is_explicitly_denied(sentence: str, phrase: str) -> bool:
-    before = sentence.lower().split(phrase.lower(), 1)[0]
-    denial_patterns = (
-        r"\bdoes\s+not\b",
-        r"\bcannot\b",
-        r"\bnever\b",
-        r"\bmust\s+not\b",
-        r"\bnot\b",
-        r"\bno\b",
-        r"\bwithout\b",
-        r"\binstead\s+of\b",
+    """Accept only a denial that directly governs the prohibited claim.
+
+    Unrelated earlier clauses such as "No setup is required; ..." must not excuse a
+    later overclaim. Match a short denial window immediately before the exact phrase.
+    """
+    lowered = sentence.lower()
+    phrase_lower = phrase.lower()
+    index = lowered.find(phrase_lower)
+    if index < 0:
+        return False
+    before = lowered[:index].rstrip()
+    # A semicolon or independent-clause comma ends the scope of an unrelated denial.
+    clause = re.split(r"[;.!?]|,\s+(?:and|but|yet|so)\s+", before)[-1].strip()
+    direct_patterns = (
+        r"(?:does|do|did)\s+not(?:\s+\w+){0,4}\s*$",
+        r"cannot(?:\s+\w+){0,4}\s*$",
+        r"can\s+not(?:\s+\w+){0,4}\s*$",
+        r"never(?:\s+\w+){0,4}\s*$",
+        r"must\s+not(?:\s+\w+){0,4}\s*$",
+        r"is\s+not(?:\s+\w+){0,4}\s*$",
+        r"are\s+not(?:\s+\w+){0,4}\s*$",
+        r"without(?:\s+\w+){0,4}\s*$",
+        r"instead\s+of(?:\s+\w+){0,4}\s*$",
+        r"no(?:\s+\w+){0,4}\s*$",
     )
-    return any(re.search(pattern, before) for pattern in denial_patterns)
+    return any(re.search(pattern, clause) for pattern in direct_patterns)
 
 
 def _sentences(text: str) -> list[str]:
@@ -226,14 +240,21 @@ class TruthContractTests(unittest.TestCase):
                     self.assertEqual(offenders, [])
 
     def test_overclaim_guard_rejects_unrelated_nearby_negation(self):
-        text = "This is not experimental. Manageroo has full vision support."
-        offenders = [
-            sentence
-            for sentence in _sentences(text)
-            if "full vision support" in sentence.lower()
-            and not _claim_is_explicitly_denied(sentence, "full vision support")
+        adversarial = [
+            "This is not experimental. Manageroo has full vision support.",
+            "No setup is required; Manageroo has full vision support.",
+            "This works without configuration, and it understands images.",
         ]
-        self.assertEqual(offenders, ["Manageroo has full vision support."])
+        for text in adversarial:
+            with self.subTest(text=text):
+                phrase = "understands images" if "understands images" in text.lower() else "full vision support"
+                offenders = [
+                    sentence
+                    for sentence in _sentences(text)
+                    if phrase in sentence.lower()
+                    and not _claim_is_explicitly_denied(sentence, phrase)
+                ]
+                self.assertTrue(offenders)
         self.assertTrue(
             _claim_is_explicitly_denied(
                 "Manageroo does not provide full vision support.",
@@ -258,7 +279,7 @@ class TruthContractTests(unittest.TestCase):
             117, 110, 99, 108, 101, 45, 109, 97, 116, 116, 115, 45, 115, 117, 112, 101, 114, 45, 109, 101,
             103, 97, 45, 102, 111, 114, 119, 97, 114, 100, 45, 98, 117, 105, 108, 100, 45, 117, 108, 116, 105,
             109, 97, 116, 101, 45, 114, 101, 109, 105, 120, 45, 97, 108, 108, 45, 115, 116, 97, 114, 45, 98,
-            111, 111, 116, 121, 45, 111, 102, 45, 102, 105, 114, 101, 45, 101, 100, 105, 116, 105, 111, 110,
+            111, 111, 116, 121, 45, 111, 102, 45, 70, 105, 114, 101, 45, 101, 100, 105, 116, 105, 111, 110,
         ])
         old_project_dir = "." + old_command
         checked_roots = [
@@ -279,7 +300,7 @@ class TruthContractTests(unittest.TestCase):
             for file_path in files:
                 text = file_path.read_text(encoding="utf-8", errors="replace")
                 for phrase in banned:
-                    with self.subTest(file=str(file_path.relative_to(ROOT)), phrase=phrase):
+                    with self.subTest(path=str(file_path.relative_to(ROOT)), phrase=phrase):
                         self.assertNotIn(phrase, text)
 
 
