@@ -18,71 +18,75 @@ Requirements: Python 3.11+ and Git. For real AI work, install or connect at leas
 
 ---
 
-## What this is
+# What Manageroo is
 
 Manageroo is a local project controller for AI coding agents working on real Git repositories.
 
-The problem it is built for is simple: one giant AI chat should not be expected to remember an entire project, discover every hidden risk, write all the code, review itself, verify itself, and then decide that its own work is finished.
+The problem is simple: one giant AI chat should not be expected to remember an entire project, discover every hidden risk, write all the code, review itself, verify itself, repair itself, and then decide that its own work is finished.
 
 Manageroo puts a controller above the workers.
 
 ```text
-ONE PLAIN-ENGLISH BRIEF
+YOU DESCRIBE WHAT YOU WANT
         ↓
-PROJECT DISCOVERY + REPO MAPPING
+MANAGEROO CAPTURES THE MISSION
         ↓
-BOUNDED WORKER JOBS
+PROJECT DISCOVERY + REPOSITORY MAPPING
+        ↓
+BOUNDED JOBS FOR CODING AGENTS
         ↓
 REAL CHECKS + INDEPENDENT REVIEW
         ↓
-BOUNDED REPAIR WHEN NEEDED
+BOUNDED REPAIR WHEN SOMETHING FAILS
         ↓
 EVIDENCE + DELIVERY
 ```
 
-The coding agents do the work. The controller owns the mission, state, boundaries, review, proof, and definition of done.
+The coding agents do the work. Manageroo owns the mission, state, boundaries, review, proof, and definition of done.
 
-## Why it exists
+# Who it is for
 
 Manageroo is for people whose projects have outgrown the normal "paste everything into one chat and hope" workflow.
 
-It is designed to help with:
+It is especially useful for:
 
-- large or old repositories;
+- large, old, or messy repositories;
 - long-running AI-assisted projects;
 - work spread across multiple agent sessions;
 - requirements that cannot safely disappear during context compaction;
 - changes where blast radius matters;
-- projects that need review independent from the agent that wrote the code;
-- repair work that should be bounded instead of turning into endless autonomous thrashing;
-- teams or solo builders who want evidence instead of "trust me, it is done."
+- projects where the agent that wrote the code should not be the only thing reviewing it;
+- repair work that needs budgets and stop conditions instead of endless autonomous thrashing;
+- solo builders who are tired of manually saying "keep going, check the rest, test it, are you sure?";
+- teams that want evidence instead of "the model says it is done."
 
 Manageroo keeps important project truth outside the worker so a model change, terminal restart, failed run, or new chat does not erase the mission.
 
-## What Manageroo actually does
+# What Manageroo actually does
 
 Manageroo can:
 
 - read and inventory a Git repository;
 - capture the requested outcome, must-not rules, and proof expectations;
-- preserve an intent lock so important requirements survive long runs and compaction;
-- perform discovery before implementation and surface high-impact unknowns;
-- map the repository before assigning work;
-- split work into bounded jobs;
-- route work to compatible coding-agent CLIs;
+- preserve an intent lock so important requirements survive long runs and context compaction;
+- perform discovery before implementation and surface important unknowns;
+- map the repository before assigning implementation work;
+- split large work into bounded worker jobs;
+- route those jobs to compatible coding-agent CLIs;
 - keep job, attempt, retry, and run state on disk;
 - isolate worker attempts from the operator's source repository;
 - verify changed-file scope and repository state;
 - run deterministic project checks;
-- require proof bindings for claimed outcomes;
-- perform independent review;
-- run bounded repair loops when work fails review or verification;
-- resume interrupted runs from durable state;
+- bind requested outcomes to required proof;
+- perform review separately from implementation;
+- run bounded repair loops when work fails verification or review;
+- stop and surface high-impact decisions instead of guessing them;
+- resume interrupted work from durable state;
 - produce reports, evidence, and a patch for delivery.
 
-Manageroo is not an IDE, model host, deployment platform, cloud scheduler, memory database, or code-graph database. It can work with tools that provide those capabilities without giving them control over Manageroo completion.
+Manageroo is not an IDE, model host, deployment platform, cloud scheduler, memory database, or code-graph database. It can work with tools that provide those capabilities without handing them control over Manageroo's definition of done.
 
-## The controller is the boss
+# The controller is the boss
 
 Built-in worker paths cover:
 
@@ -99,17 +103,19 @@ manageroo agent list
 
 Workers are intentionally replaceable. The project truth is not.
 
-Manageroo keeps controller-owned state for the mission, jobs, attempts, decisions, review, evidence, and completion. A worker can help build the project, but it does not get to certify its own work just because it returned a confident answer.
+A worker can write code, investigate a problem, review a change, or repair a failure. It does not get to certify its own work just because it returned a confident answer.
 
-## Durable project truth
+# How Manageroo keeps a project from forgetting itself
 
-Every run stores controller-owned state under:
+Manageroo keeps controller-owned run state under:
 
 ```text
 .manageroo/runs/<run-id>/
 ```
 
-Project continuity also uses human-readable repository files such as:
+That run state includes the information needed to understand what happened, what is still pending, what failed, what was retried, and what evidence exists.
+
+Project continuity also uses repository-local files such as:
 
 ```text
 .manageroo/PROJECT-MEMORY.md
@@ -117,17 +123,11 @@ Project continuity also uses human-readable repository files such as:
 .manageroo/intent/INTENT-LOCK.md
 ```
 
-A run can be resumed from its saved state:
+The point is not to create another giant memory dump. The point is to preserve the pieces of project truth that must survive outside a temporary conversation.
 
-```bash
-manageroo run --continue RUN_ID --repo /path/to/repo --apply
-```
+# Discovery before implementation
 
-That is a real continuation from durable artifacts. Manageroo does not pretend a dead background process kept working after it stopped.
-
-## Discovery before implementation
-
-Before large implementation work, Manageroo's discovery preflight looks beyond the literal request and checks areas that commonly get missed, including:
+Before large implementation work, Manageroo looks beyond the literal request and checks areas that commonly get missed, including:
 
 - failure, interruption, rollback, and recovery;
 - proof strength;
@@ -140,42 +140,180 @@ Before large implementation work, Manageroo's discovery preflight looks beyond t
 - external services, rate limits, cost, and degraded modes;
 - accessibility and user-facing states.
 
-When repository evidence can answer a question, Manageroo uses the evidence. When a genuinely high-impact decision still requires the operator, it becomes explicit instead of being guessed.
+When repository evidence can answer a question, Manageroo uses the evidence. When a genuinely high-impact decision still requires the operator, Manageroo surfaces it explicitly instead of guessing.
 
-```bash
-manageroo decisions show RUN_ID --repo /path/to/repo
-manageroo decisions answer RUN_ID --repo /path/to/repo
-manageroo run --continue RUN_ID --repo /path/to/repo --apply
-```
+# Source isolation and bounded changes
 
-## Source isolation and bounded changes
+Manageroo performs worker activity in run-owned isolated repositories instead of giving every coding worker unrestricted access to the operator's source tree.
 
-Manageroo performs worker activity in run-owned isolated repositories rather than giving every coding worker unrestricted access to the operator's source tree.
+The purpose is simple: workers can work aggressively inside a bounded workspace without casually poisoning the original repository.
 
-Successful work is delivered back through a patch after Manageroo verifies the source repository has not drifted underneath the run.
+Successful work is delivered back through a patch after Manageroo checks that the source repository has not unexpectedly changed underneath the run.
 
-The goal is simple: workers can work aggressively inside the bounded workspace without casually poisoning the original repository.
-
-## Proof before "done"
+# Proof before "done"
 
 Manageroo reconciles completion against:
 
-- requested outcomes;
+- what the user actually requested;
 - required proof gates;
 - changed-file scope;
 - deterministic verification;
 - independent review;
 - required demonstration evidence.
 
-A passing unit test does not automatically prove a browser flow. A model saying something is deployed does not prove deployment. A worker claiming something is secure does not make it secure.
+A passing unit test does not automatically prove a browser flow. A worker saying something was deployed does not prove deployment. A model claiming something is secure does not make it secure.
 
-Claims that require observable evidence remain unproven until the matching evidence exists.
+Claims that require observable evidence remain unproven until matching evidence exists.
 
-## Hardware compatibility
+# How to actually use Manageroo
+
+## 1. Point Manageroo at a project
+
+To discover Git repositories on your machine and add them to Manageroo's project list:
+
+```bash
+manageroo projects --add
+```
+
+Use this when you already have projects and want Manageroo to help you find and register them.
+
+For one specific existing repository:
+
+```bash
+manageroo solo /absolute/path/to/product
+```
+
+`solo` prepares the repository for Manageroo. It sets up the project configuration, product brief, project memory, intent lock, readiness state, and tells you the next useful action.
+
+For a brand-new project that does not exist yet, or an empty directory:
+
+```bash
+manageroo solo /absolute/path/to/new-product \
+  --create \
+  --want "Describe what should be built first"
+```
+
+This creates the starting project structure and captures the initial mission instead of forcing you to hand-build Manageroo's project files first.
+
+## 2. Ask Manageroo what to do next
+
+```bash
+manageroo next
+```
+
+Use this when you do not remember the workflow or do not know what the current project needs next. Manageroo prints one useful next operator action instead of dumping an enormous checklist on you.
+
+## 3. Run a build or implementation job
+
+```bash
+manageroo run --apply
+```
+
+This starts a normal Manageroo work run for the current project.
+
+Manageroo reads the project truth, performs its discovery and planning work, creates bounded worker jobs, sends those jobs to compatible coding agents, checks the resulting changes, runs verification, performs review, and attempts bounded repair when necessary.
+
+`--apply` means Manageroo is allowed to apply a successfully verified delivery patch back to the source repository when its safety checks pass.
+
+Without permission to apply, Manageroo can still perform the run and produce delivery evidence without silently changing the source repository.
+
+## 4. Run an explicit repair job
+
+```bash
+manageroo run --mode repair --apply
+```
+
+Use repair mode when the mission is specifically to diagnose and fix an existing broken project or failed implementation rather than build a normal new change.
+
+Repair mode still uses the same basic rules: bounded work, verification, review, evidence, and controlled retries. It is not a command for endlessly changing files until something happens to pass.
+
+## 5. Check what a run is doing or what happened
+
+Every Manageroo run has a run ID.
+
+To see the current state of a run:
+
+```bash
+manageroo status RUN_ID --repo .
+```
+
+Use `status` for the concise operational view: where the run is, whether it is blocked, whether it failed, and what state it currently holds.
+
+To see the fuller human-readable result and evidence:
+
+```bash
+manageroo report RUN_ID --repo .
+```
+
+Use `report` when you want the explanation of what Manageroo did, what changed, what passed, what failed, what evidence was collected, and what still needs attention.
+
+`--repo .` means "use the repository in my current directory." You can replace `.` with an absolute repository path when you are running the command from somewhere else.
+
+## 6. Continue an interrupted or blocked run
+
+```bash
+manageroo run --continue RUN_ID --repo . --apply
+```
+
+Use this after a terminal closes, a worker fails, a run pauses for a decision, or another recoverable interruption occurs.
+
+Manageroo reloads the durable state for that exact run and continues from the recorded project truth. It does not pretend the old process kept running in the background.
+
+## 7. Answer a blocking decision
+
+When Manageroo reaches a genuinely high-impact choice that repository evidence cannot safely answer, it can stop instead of making up the answer.
+
+See the decision:
+
+```bash
+manageroo decisions show RUN_ID --repo .
+```
+
+Record the operator's answer:
+
+```bash
+manageroo decisions answer RUN_ID --repo .
+```
+
+Then continue the same run:
+
+```bash
+manageroo run --continue RUN_ID --repo . --apply
+```
+
+The point is to interrupt you only for decisions that actually matter, while letting evidence answer everything else it safely can.
+
+## 8. Inspect project memory and protected intent
+
+Show the current project memory:
+
+```bash
+manageroo memory show
+```
+
+This is the durable human-readable project continuity Manageroo keeps outside any one agent conversation.
+
+Show the current intent lock:
+
+```bash
+manageroo intent show
+```
+
+The intent lock protects the important outcomes, constraints, must-not rules, and proof expectations that should not quietly disappear during a long run.
+
+Audit whether a compacted or summarized project description still preserves the important intent:
+
+```bash
+manageroo compact audit --summary SUMMARY.md
+```
+
+This is useful when a long project history has been summarized and you want to check that the summary did not accidentally throw away something important.
+
+# Hardware compatibility
 
 Manageroo core is hardware-agnostic.
 
-It does not require a specific GPU, VRAM amount, CPU tier, or RAM class. A target project or an explicitly selected local AI tool may have its own requirements, but those belong to that project or tool.
+It does not require a specific GPU, VRAM amount, CPU tier, or RAM class. A target project or explicitly selected local AI tool may have its own hardware requirements, but those belong to that project or tool.
 
 Inspect the current host:
 
@@ -186,16 +324,16 @@ manageroo capacity --json
 
 The hardware profile is informational context. Manageroo does not silently rewrite worker concurrency based on one developer machine.
 
-# Skills: what is actually included
+# Skills: exactly what is included
 
 This repository currently contains **50 bundled skill packages**.
 
 That does **not** mean Manageroo installs all 50 by default.
 
-The public boundary is:
+The boundary is:
 
 - **18 portable core skills** are the recommended/default Manageroo-owned pack;
-- **32 additional bundled skills** are available in the repository as optional capabilities;
+- **32 additional bundled skills** ship in the repository as optional capabilities;
 - **host-installed skills** can also be discovered and used when relevant, but Manageroo does not claim ownership of the user's entire skill environment.
 
 ## 18 portable core skills installed by default
@@ -223,7 +361,7 @@ These are the small portable core Manageroo installs as its own default skill pa
 
 ## 32 additional bundled optional skills
 
-These are shipped in the repository but are **not installed as Manageroo-owned defaults**:
+These ship with the repository but are **not installed as Manageroo-owned defaults**:
 
 - `academic-verify`
 - `article-enrichment`
@@ -258,11 +396,11 @@ These are shipped in the repository but are **not installed as Manageroo-owned d
 - `voice-note-ingest`
 - `web-design-guidelines`
 
-Optional means exactly that: available, not silently installed as part of the portable core.
+Optional means exactly that: available in the bundled library, not silently installed as part of the portable core.
 
 ## Host skills are a separate boundary
 
-A user's machine may already contain other skills. Manageroo can inventory them without taking ownership of them:
+A user's machine may already contain additional skills. Manageroo can inventory them without taking ownership of them:
 
 ```bash
 manageroo host-skills
@@ -275,27 +413,32 @@ manageroo host-skills --json
 
 # Optional surrounding tool stack
 
-Manageroo is the controller. It can also work with a surrounding stack of optional tools:
+Manageroo is the controller. It can also work with optional tools that add specialized capabilities:
 
 ```text
 Manageroo
 ├── GitNexus   → repository and code-graph intelligence
 ├── GBrain     → external durable knowledge and retrieval
-├── AUTOREVIEW → structured external review lane
+├── AUTOREVIEW → structured external review
 ├── Clawpatch  → evidence-driven findings and repair loops
 └── Obsidian   → human-readable Markdown knowledge
 ```
 
 These integrations add capabilities. They do not become the authority over Manageroo completion.
 
-Inspect the current stack:
+Inspect what is installed and configured:
 
 ```bash
 manageroo stack-status
+```
+
+Check the surrounding stack for configuration or health problems:
+
+```bash
 manageroo stack-doctor
 ```
 
-Preview supported updates:
+Preview supported updates without changing anything:
 
 ```bash
 manageroo stack-update
@@ -308,55 +451,6 @@ manageroo stack-update --apply
 ```
 
 GitNexus is treated as a first-class recommended repository-intelligence integration when selected during installation. Manageroo can still operate when optional surrounding tools are intentionally skipped or unavailable.
-
-# First project
-
-Discover existing projects:
-
-```bash
-manageroo projects --add
-```
-
-Start in an existing repository:
-
-```bash
-manageroo solo /absolute/path/to/product
-```
-
-Create a new missing or empty repository:
-
-```bash
-manageroo solo /absolute/path/to/new-product \
-  --create \
-  --want "Describe what should be built first"
-```
-
-When you are not sure what comes next:
-
-```bash
-manageroo next
-```
-
-## Run work
-
-Build:
-
-```bash
-manageroo run --apply
-```
-
-Repair:
-
-```bash
-manageroo run --mode repair --apply
-```
-
-Inspect a run:
-
-```bash
-manageroo status RUN_ID --repo .
-manageroo report RUN_ID --repo .
-```
 
 # Credits and influences
 
