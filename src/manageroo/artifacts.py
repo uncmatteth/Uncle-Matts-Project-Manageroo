@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .errors import SafetyError
 from .util import atomic_write_json, atomic_write_text, read_json, sha256_file, utc_now
@@ -23,11 +26,52 @@ class ArtifactStore:
         self._lock = threading.RLock()
         self.root.mkdir(parents=True, exist_ok=True)
         self.ledger_path = self.root / "artifact-ledger.json"
-        if not self.ledger_path.exists():
-            atomic_write_json(self.ledger_path, {"artifacts": {}})
+        self.lock_path = self.root / ".artifact-ledger.lock"
+        with self._transaction_lock():
+            if not self.ledger_path.exists():
+                atomic_write_json(self.ledger_path, {"artifacts": {}})
+
+    @contextmanager
+    def _transaction_lock(self, *, timeout_seconds: float = 30.0) -> Iterator[None]:
+        """Cross-process lock implemented with an atomically-created lock directory."""
+        deadline = time.monotonic() + timeout_seconds
+        acquired = False
+        with self._lock:
+            while not acquired:
+                try:
+                    self.lock_path.mkdir()
+                    acquired = True
+                    try:
+                        (self.lock_path / "owner").write_text(
+                            f"pid={os.getpid()}\ncreated_at={utc_now()}\n",
+                            encoding="utf-8",
+                        )
+                    except OSError:
+                        pass
+                except FileExistsError:
+                    if time.monotonic() >= deadline:
+                        raise SafetyError(
+                            f"Timed out waiting for artifact-store transaction lock: {self.lock_path}"
+                        )
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                try:
+                    owner = self.lock_path / "owner"
+                    if owner.exists() or owner.is_symlink():
+                        owner.unlink()
+                    self.lock_path.rmdir()
+                except OSError as exc:
+                    raise SafetyError(
+                        f"Could not release artifact-store transaction lock: {self.lock_path}: {exc}"
+                    ) from exc
 
     def _ledger(self) -> dict:
-        return read_json(self.ledger_path)
+        data = read_json(self.ledger_path)
+        if not isinstance(data, dict) or not isinstance(data.get("artifacts"), dict):
+            raise SafetyError(f"Artifact ledger is malformed: {self.ledger_path}")
+        return data
 
     def _safe_path(self, relative: str) -> tuple[str, Path]:
         value = str(relative).strip()
@@ -46,42 +90,36 @@ class ArtifactStore:
             raise SafetyError(f"Artifact path escapes artifact root: {relative}") from exc
         return normalized, destination
 
-    def _record(self, relative: str, locked: bool) -> ArtifactRecord:
-        with self._lock:
+    def _record_locked_transaction(self, relative: str, locked: bool) -> ArtifactRecord:
+        normalized, path = self._safe_path(relative)
+        record = ArtifactRecord(
+            path=normalized,
+            sha256=sha256_file(path),
+            locked=locked,
+            created_at=utc_now(),
+        )
+        ledger = self._ledger()
+        ledger["artifacts"][normalized] = record.__dict__
+        atomic_write_json(self.ledger_path, ledger)
+        return record
+
+    def _write(self, relative: str, writer: Any, *, lock: bool) -> ArtifactRecord:
+        with self._transaction_lock():
             normalized, path = self._safe_path(relative)
-            record = ArtifactRecord(
-                path=normalized,
-                sha256=sha256_file(path),
-                locked=locked,
-                created_at=utc_now(),
-            )
-            ledger = self._ledger()
-            ledger["artifacts"][normalized] = record.__dict__
-            atomic_write_json(self.ledger_path, ledger)
-            return record
+            current = self._ledger().get("artifacts", {}).get(normalized)
+            if current and current.get("locked"):
+                raise SafetyError(f"Attempt to overwrite locked artifact: {normalized}")
+            writer(path)
+            return self._record_locked_transaction(normalized, lock)
 
     def write_json(self, relative: str, data: Any, *, lock: bool = False) -> ArtifactRecord:
-        with self._lock:
-            normalized, path = self._safe_path(relative)
-            if path.exists():
-                current = self._ledger().get("artifacts", {}).get(normalized)
-                if current and current.get("locked"):
-                    raise SafetyError(f"Attempt to overwrite locked artifact: {normalized}")
-            atomic_write_json(path, data)
-            return self._record(normalized, lock)
+        return self._write(relative, lambda path: atomic_write_json(path, data), lock=lock)
 
     def write_text(self, relative: str, text: str, *, lock: bool = False) -> ArtifactRecord:
-        with self._lock:
-            normalized, path = self._safe_path(relative)
-            if path.exists():
-                current = self._ledger().get("artifacts", {}).get(normalized)
-                if current and current.get("locked"):
-                    raise SafetyError(f"Attempt to overwrite locked artifact: {normalized}")
-            atomic_write_text(path, text)
-            return self._record(normalized, lock)
+        return self._write(relative, lambda path: atomic_write_text(path, text), lock=lock)
 
     def verify_locked(self) -> None:
-        with self._lock:
+        with self._transaction_lock():
             ledger = self._ledger()
             for relative, record in ledger.get("artifacts", {}).items():
                 if not record.get("locked"):
