@@ -32,6 +32,15 @@ $Root = $PSScriptRoot
 $PythonExe = $null
 $PythonPrefixArgs = @()
 
+# Manageroo's Windows launcher is a .cmd file. Literal percent signs are expanded by
+# cmd.exe and can silently redirect PYTHONPATH or MANAGEROO_PREFIX. Refuse such custom
+# destinations instead of writing a launcher that points somewhere different at runtime.
+foreach ($Candidate in @($Prefix, $BinDir)) {
+    if ($Candidate -and $Candidate.Contains("%")) {
+        throw "Manageroo cannot safely create a Windows .cmd launcher in a custom path containing a literal percent sign (%). Choose a path without % characters."
+    }
+}
+
 if (Get-Command py -ErrorAction SilentlyContinue) {
     & py -3.11 -c "import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)"
     if ($LASTEXITCODE -eq 0) {
