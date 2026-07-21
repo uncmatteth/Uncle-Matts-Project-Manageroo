@@ -42,6 +42,25 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.assertIn("gate:smoke", rows[0]["evidence"])
         self.assertNotIn("gate:unrelated", rows[0]["evidence"])
 
+    def test_existing_but_failing_bound_gate_fails_only_its_outcome(self):
+        rows = build_acceptance_evidence(
+            product={"acceptance_outcomes": ["Export remains correct.", "Import remains correct."]},
+            gate_results=[
+                {"gate": {"id": "export-regression"}, "result": {"exit_code": 1}},
+                {"gate": {"id": "import-regression"}, "result": {"exit_code": 0}},
+            ],
+            demonstration={
+                "gates": [],
+                "product_evidence": [
+                    {"outcome": "Export remains correct.", "gate_ids": ["export-regression"]},
+                    {"outcome": "Import remains correct.", "gate_ids": ["import-regression"]},
+                ],
+            },
+            review={"status": "approved", "findings": []},
+        )
+        self.assertEqual(rows[0]["status"], "failed")
+        self.assertEqual(rows[1]["status"], "passed")
+
     def test_user_journey_requires_bound_demonstration_gate(self):
         outcome = "User can complete the browser checkout journey."
         rows = build_acceptance_evidence(
@@ -79,6 +98,25 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             review={"status": "approved", "findings": []},
         )
         self.assertEqual(rows[0]["status"], "passed")
+
+    def test_failing_bound_demonstration_gate_fails_user_journey(self):
+        outcome = "User can complete the browser checkout journey."
+        rows = build_acceptance_evidence(
+            product={"acceptance_outcomes": [outcome]},
+            gate_results=[
+                {"gate": {"id": "checkout-unit"}, "result": {"exit_code": 0}},
+            ],
+            demonstration={
+                "gates": [
+                    {"gate": {"id": "checkout-e2e"}, "result": {"exit_code": 1}},
+                ],
+                "product_evidence": [
+                    {"outcome": outcome, "gate_ids": ["checkout-unit", "checkout-e2e"]},
+                ],
+            },
+            review={"status": "approved", "findings": []},
+        )
+        self.assertEqual(rows[0]["status"], "failed")
 
     def test_missing_bound_gate_fails_outcome(self):
         rows = build_acceptance_evidence(
