@@ -148,6 +148,52 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("agent-supervised", str(result.get("guidance", "")))
         self.assertNotIn("Paste this into your AI agent", text)
 
+    def test_executable_third_party_installer_sources_are_immutable(self):
+        install = load_install_script()
+        pinned = [
+            install.CODEX_NPM_PACKAGE,
+            install.GBRAIN_INSTALL_SOURCE,
+            install.GITNEXUS_NPM_PACKAGE,
+            install.PNPM_PACKAGE,
+            install.CLAWPATCH_PACKAGE,
+            f"{install.OPENCLAW_AGENT_SKILLS_REPO}#{install.OPENCLAW_AGENT_SKILLS_COMMIT}",
+        ]
+        for source in pinned:
+            with self.subTest(source=source):
+                self.assertTrue(install._source_is_immutable(source))
+                self.assertNotIn("@latest", source.lower())
+        self.assertEqual(len(install.GBRAIN_COMMIT), 40)
+        self.assertEqual(len(install.OPENCLAW_AGENT_SKILLS_COMMIT), 40)
+
+    def test_pinned_git_checkout_verifies_exact_commit(self):
+        install = load_install_script()
+        calls = []
+
+        class Result:
+            def __init__(self, stdout=""):
+                self.stdout = stdout
+
+        def fake_run(argv, *, cwd, timeout=300):
+            calls.append((argv, cwd, timeout))
+            if argv[1:3] == ["rev-parse", "HEAD"]:
+                return Result(install.OPENCLAW_AGENT_SKILLS_COMMIT + "\n")
+            return Result()
+
+        with patch.object(install, "_run_checked", side_effect=fake_run):
+            report = install._checkout_pinned_git_source(
+                git="git",
+                repository=install.OPENCLAW_AGENT_SKILLS_REPO,
+                commit=install.OPENCLAW_AGENT_SKILLS_COMMIT,
+                destination=Path("/tmp/pinned-agent-skills"),
+            )
+        self.assertEqual(report["resolved_commit"], install.OPENCLAW_AGENT_SKILLS_COMMIT)
+        commands = [call[0] for call in calls]
+        self.assertIn(
+            ["git", "checkout", "--detach", install.OPENCLAW_AGENT_SKILLS_COMMIT],
+            commands,
+        )
+        self.assertIn(["git", "rev-parse", "HEAD"], commands)
+
 
 if __name__ == "__main__":
     unittest.main()
