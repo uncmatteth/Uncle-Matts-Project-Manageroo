@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -61,6 +62,17 @@ class DiscoveryPreflightTests(unittest.TestCase):
             corpus = _repo_text(repo, max_files=2, max_chars=100_000)
             markers = [f"marker-{index}" for index in range(5) if f"marker-{index}" in corpus]
             self.assertEqual(len(markers), 2)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are not available on this platform")
+    def test_repo_text_skips_fifo_without_opening_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            fifo = repo / "payload.txt"
+            os.mkfifo(fifo)
+            (repo / "safe.txt").write_text("safe-marker\n", encoding="utf-8")
+            corpus = _repo_text(repo, max_files=10, max_chars=100_000)
+            self.assertIn("safe-marker", corpus)
+            self.assertNotIn("payload.txt", corpus)
 
     def test_preflight_always_reviews_recovery_observability_proof_and_scope(self):
         with tempfile.TemporaryDirectory() as temp:
