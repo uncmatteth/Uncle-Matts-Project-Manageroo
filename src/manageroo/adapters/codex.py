@@ -4,7 +4,7 @@ import os
 import shutil
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..branding import FULL_NAME
@@ -43,6 +43,19 @@ def _danger_fallback_enabled() -> bool:
     return os.environ.get(_DANGER_FALLBACK_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _is_exact_host_bwrap_failure(request: AgentRequest, result: Any) -> bool:
+    """Recognize only the pre-worker host sandbox bootstrap failure.
+
+    Agent-controlled output must not be able to request privilege escalation. The known
+    bubblewrap failure occurs before a worker output file exists, produces no stdout, and
+    emits only the exact host error line on stderr.
+    """
+    if result.passed or request.output_path.exists() or (result.stdout or "").strip():
+        return False
+    stderr_lines = [line.strip() for line in (result.stderr or "").splitlines() if line.strip()]
+    return stderr_lines == [_BWRAP_LOOPBACK_FAILURE]
+
+
 class CodexAdapter(AgentAdapter):
     """Runs one fresh Codex process per role.
 
@@ -58,6 +71,11 @@ class CodexAdapter(AgentAdapter):
         self.executable = executable
         self.runner = runner
         self.model = model
+        self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
+
+    def set_before_worker_launch(self, callback: Callable[[AgentRequest], AgentRequest]) -> None:
+        """Install a controller-owned hook that runs before every concrete Codex process."""
+        self._before_worker_launch = callback
 
     def doctor(self, cwd: Path) -> dict:
         found = shutil.which(self.executable)
@@ -101,15 +119,20 @@ class CodexAdapter(AgentAdapter):
         return argv
 
     def _run_codex(self, request: AgentRequest, *, prompt: str, codex_schema_path: Path, sandbox: str):
-        argv = self._argv(request, codex_schema_path, sandbox=sandbox)
+        bounded_request = (
+            self._before_worker_launch(request)
+            if self._before_worker_launch is not None
+            else request
+        )
+        argv = self._argv(bounded_request, codex_schema_path, sandbox=sandbox)
         result = self.runner.run(
             argv,
-            cwd=request.cwd,
-            timeout_seconds=request.timeout_seconds,
+            cwd=bounded_request.cwd,
+            timeout_seconds=bounded_request.timeout_seconds,
             input_text=prompt,
-            log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}",
+            log_name=f"agent-{bounded_request.output_path.parent.name}-{bounded_request.output_path.stem}",
         )
-        return argv, result
+        return bounded_request, argv, result
 
     @staticmethod
     def _clear_prior_outputs(request: AgentRequest) -> None:
@@ -135,18 +158,16 @@ class CodexAdapter(AgentAdapter):
         codex_schema_path = request.output_path.with_suffix(".codex-schema.json")
         atomic_write_json(codex_schema_path, _codex_compatible_schema(source_schema))
 
-        argv, result = self._run_codex(
+        active_request, argv, result = self._run_codex(
             request,
             prompt=prompt,
             codex_schema_path=codex_schema_path,
             sandbox=request.sandbox,
         )
 
-        diagnostics = (result.stdout or "") + "\n" + (result.stderr or "")
         if (
             request.sandbox == "workspace-write"
-            and not result.passed
-            and _BWRAP_LOOPBACK_FAILURE in diagnostics
+            and _is_exact_host_bwrap_failure(active_request, result)
         ):
             if not _danger_fallback_enabled():
                 raise AgentExecutionError(
@@ -155,7 +176,7 @@ class CodexAdapter(AgentAdapter):
                     f"retry after this exact host-sandbox initialization failure, set {_DANGER_FALLBACK_ENV}=1 for this run."
                 )
             self._clear_prior_outputs(request)
-            argv, result = self._run_codex(
+            active_request, argv, result = self._run_codex(
                 request,
                 prompt=prompt,
                 codex_schema_path=codex_schema_path,
