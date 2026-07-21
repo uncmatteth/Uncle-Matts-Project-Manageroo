@@ -16,21 +16,19 @@ from .errors import SafetyError
 _SECRET_KEY_RE = re.compile(
     r"(?i)(?:^|[_-])(?:api[_-]?key|token|password|secret|authorization)(?:$|[_-])"
 )
-_SECRET_PATTERNS = [
-    re.compile(
-        r'''(?ix)
-        (?P<prefix>["']?(?:api[_-]?key|token|password|secret|authorization)["']?\s*[:=]\s*)
-        (?P<value>
-            "(?:\\.|[^"\\])*"
-            |
-            '(?:\\.|[^'\\])*'
-            |
-            [^\s,;}] +
-        )
-        '''.replace("[^\\s,;}] +", "[^\\s,;}]+")
-    ),
-    re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+"),
-]
+_BEARER_RE = re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+")
+_SECRET_PAIR_RE = re.compile(
+    r'''(?ix)
+    (?P<prefix>["']?(?:api[_-]?key|token|password|secret|authorization)["']?\s*[:=]\s*)
+    (?P<value>
+        "(?:\\.|[^"\\])*"
+        |
+        '(?:\\.|[^'\\])*'
+        |
+        [^\s,;}]+
+    )
+    '''
+)
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
 
@@ -84,8 +82,6 @@ def _redact_json_value(value: Any) -> Any:
 
 
 def redact_text(text: str) -> str:
-    # Structurally redact complete JSON payloads first so quoted keys and values are
-    # handled correctly. Fall back to conservative text patterns for logs and prose.
     stripped = text.strip()
     if stripped:
         try:
@@ -103,12 +99,10 @@ def redact_text(text: str) -> str:
             suffix = text[len(text.rstrip()) :]
             return prefix + redacted_json + suffix
 
-    redacted = text
-    for pattern in _SECRET_PATTERNS:
-        if "bearer" in pattern.pattern.lower():
-            redacted = pattern.sub("Bearer <REDACTED>", redacted)
-        else:
-            redacted = pattern.sub(lambda m: f"{m.group('prefix')}<REDACTED>", redacted)
+    # Redact bearer values first. Otherwise a generic `Authorization:` match would consume
+    # only the word `Bearer` and leave the actual credential behind.
+    redacted = _BEARER_RE.sub("Bearer <REDACTED>", text)
+    redacted = _SECRET_PAIR_RE.sub(lambda match: f"{match.group('prefix')}<REDACTED>", redacted)
     return redacted
 
 
