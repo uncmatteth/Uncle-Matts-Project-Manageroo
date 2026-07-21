@@ -56,6 +56,7 @@ class WorkspaceTests(unittest.TestCase):
             repo, runner = self._repo(root)
             mirror = WorkspaceMirror(repo, root / "run", runner)
             mirror.create()
+
             outside = root / "unrelated"
             outside.mkdir()
             sentinel = outside / "sentinel.txt"
@@ -63,6 +64,12 @@ class WorkspaceTests(unittest.TestCase):
             with self.assertRaises(SafetyError):
                 mirror.clone_for_review(outside)
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep\n")
+
+            fresh_outside = root / "fresh-unrelated"
+            self.assertFalse(fresh_outside.exists())
+            with self.assertRaises(SafetyError):
+                mirror.clone_for_review(fresh_outside)
+            self.assertFalse(fresh_outside.exists())
 
             existing_inside = mirror.run_root / "review-existing"
             existing_inside.mkdir()
