@@ -124,10 +124,12 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
         self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
 
-    def test_package_release_runs_end_user_zip_smoke_and_canonical_version(self):
+    def test_package_release_requires_distribution_and_end_user_smoke_proofs(self):
         project_version = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
         package_text = (ROOT / "scripts" / "package_release.py").read_text(encoding="utf-8")
+        distribution_text = (ROOT / "scripts" / "verify_distribution.py").read_text(encoding="utf-8")
         smoke_text = (ROOT / "scripts" / "smoke_release_install.py").read_text(encoding="utf-8")
+        self.assertIn("scripts/verify_distribution.py", package_text)
         self.assertIn("scripts/smoke_release_install.py", package_text)
         self.assertIn("--skip-install-tests", package_text)
         self.assertIn('PROJECT_VERSION = str(tomllib.loads(', package_text)
@@ -135,6 +137,9 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertEqual(package_release.PROJECT_VERSION, project_version)
         self.assertIn("if version != EXPECTED_VERSION", smoke_text)
         self.assertIn("EXPECTED_SKILL_COUNT = 18", smoke_text)
+        self.assertIn("EXPECTED_CORE_SKILLS = 18", distribution_text)
+        self.assertIn("EXPECTED_OPTIONAL_SKILLS = 32", distribution_text)
+        self.assertIn("Installed wheel did not create the manageroo console entry point", distribution_text)
 
     def test_write_archive_failure_preserves_existing_published_archive(self):
         with tempfile.TemporaryDirectory() as temp:
