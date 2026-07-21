@@ -276,6 +276,17 @@ def run_external_review_repair_lanes(
             cwd=self.workspace,
             timeout_seconds=600,
         )
+        if not isinstance(record, dict):
+            record = {
+                "name": name,
+                "enabled": True,
+                "ok": False,
+                "error": "External review/repair command returned a malformed result.",
+            }
+        else:
+            record = dict(record)
+            record.setdefault("name", name)
+            record.setdefault("enabled", True)
         changed_paths = self.mirror.changed_paths(before_command)
         record.update(
             {
@@ -336,7 +347,7 @@ def run_external_review_repair_lanes(
     payload = {
         "summary": {
             "enabled": [name for name, _ in commands],
-            "passed": [item["name"] for item in records if item.get("ok")],
+            "passed": [str(item.get("name") or "unknown") for item in records if item.get("ok")],
             "failed": failed,
             "changed_paths": changed_total,
             "command_owned_repair_lanes": True,
@@ -355,19 +366,12 @@ def run_external_review_repair_lanes(
     if failed:
         if not rollback_verified:
             raise SafetyError(
-                "Configured external review/repair lane failed and its workspace rollback could not be verified. "
-                "Manual inspection is required before continuation."
+                "Configured external review/repair lane failed and rollback could not be verified. "
+                "Manageroo refuses to continue from an uncertain workspace."
             )
         raise ValidationError(
-            "Configured external review/repair lane failed: "
+            "Configured external review/repair lane failed and was rolled back: "
             + ", ".join(failed)
-            + ". See review/external-review-repair.json. "
-            "Rejected mutations were rolled back before the run stopped."
+            + ". See review/external-review-repair.json."
         )
     return payload
-
-
-def install_external_repair_policy(orchestrator_module: Any) -> None:
-    orchestrator_module.Orchestrator._run_external_review_repair_lanes = (
-        run_external_review_repair_lanes
-    )
