@@ -11,6 +11,7 @@ from typing import Any
 
 from .evidence import (
     EvidenceBundle,
+    EvidenceItem,
     ProjectMemoryEvidenceProvider,
     RunArtifactEvidenceProvider,
     detect_contradictions,
@@ -29,8 +30,46 @@ PLANNING_EVIDENCE_LIMIT = 8
 PLANNING_EVIDENCE_CONTENT_CHARS = 4_000
 
 
+def _controller_classified_items(
+    *,
+    provider: str,
+    stdout: str,
+    authority: str,
+    confidence: float,
+    freshness: float,
+) -> list[EvidenceItem]:
+    """Normalize provider content while keeping ranking authority controller-owned."""
+    normalized = normalize_external_payload(
+        provider=provider,
+        payload=stdout,
+        authority=authority,
+        confidence=confidence,
+        freshness=freshness,
+        limit=12,
+    )
+    classified: list[EvidenceItem] = []
+    for item in normalized:
+        metadata = dict(item.metadata)
+        metadata["provider_claimed_authority"] = item.authority
+        metadata["provider_claimed_confidence"] = item.confidence
+        metadata["provider_claimed_freshness"] = item.freshness
+        classified.append(
+            EvidenceItem(
+                content=item.content,
+                source=item.source,
+                location=item.location,
+                authority=authority,
+                confidence=confidence,
+                freshness=freshness,
+                created_at=item.created_at,
+                metadata=metadata,
+            )
+        )
+    return classified
+
+
 def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) -> EvidenceBundle:
-    items = []
+    items: list[EvidenceItem] = []
     provider_errors: list[dict[str, str]] = []
     items.extend(ProjectMemoryEvidenceProvider(orchestrator.source_repo).retrieve(brief, limit=4))
     items.extend(RunArtifactEvidenceProvider(orchestrator.run_root).retrieve(brief, limit=8))
@@ -63,22 +102,31 @@ def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) ->
             authority = "external_knowledge"
             confidence = 0.70
             freshness = 0.70
-        items.extend(
-            normalize_external_payload(
-                provider=name,
-                payload=stdout,
-                authority=authority,
-                confidence=confidence,
-                freshness=freshness,
-                limit=12,
+        try:
+            items.extend(
+                _controller_classified_items(
+                    provider=name,
+                    stdout=stdout,
+                    authority=authority,
+                    confidence=confidence,
+                    freshness=freshness,
+                )
             )
-        )
+        except Exception as exc:
+            provider_errors.append(
+                {
+                    "provider": name,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:2000],
+                }
+            )
 
     ranked = rank_evidence(items)[:24]
     return EvidenceBundle(
         query=brief,
         items=ranked,
-        contradictions=detect_contradictions(items),
+        # Keep contradiction hashes resolvable from the returned bundle.
+        contradictions=detect_contradictions(ranked),
         provider_errors=provider_errors,
     )
 
