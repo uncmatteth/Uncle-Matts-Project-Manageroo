@@ -15,9 +15,17 @@ from pathlib import Path
 SAMPLE_RATE = 11_025
 FADE_SECONDS = 3.0
 MASTER_VOLUME = 0.2
+SAFE_CUES = frozenset({"install", "success", "build"})
 
 _NOTE_OFFSETS = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 _NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+def _validate_cue(cue: str) -> str:
+    value = str(cue).strip().lower()
+    if value not in SAFE_CUES:
+        raise ValueError(f"Unknown Manageroo music cue: {cue!r}")
+    return value
 
 
 def note_frequency(note: str) -> float:
@@ -99,6 +107,7 @@ def _install_patterns() -> tuple[list[str], list[str], int, int]:
 
 
 def _patterns(cue: str) -> tuple[list[str], list[str], int, int]:
+    cue = _validate_cue(cue)
     if cue == "success":
         melody = [
             "E5", "G5", "B5", "E6", "D6", "B5", "G5", "B5", "F#5", "A5", "C#6", "F#6", "E6", "C#6", "A5", "C#6",
@@ -120,6 +129,7 @@ def theme_duration_seconds(cue: str = "install") -> float:
 
 
 def generate_theme(path: Path, *, cue: str = "install", variant: int = 0) -> Path:
+    cue = _validate_cue(cue)
     melody, bass, bpm, repeats = _patterns(cue)
     rng = random.Random(0xB77 + variant + sum(ord(ch) for ch in cue))
     seconds_per_step = 60.0 / bpm / 2.0
@@ -184,25 +194,29 @@ class ThemePlayback:
     variant: int = 0
     process: subprocess.Popen[bytes] | None = None
     path: Path | None = None
+    temp_root: Path | None = None
 
     def start(self) -> bool:
         disabled = os.environ.get("MANAGEROO_MUSIC", "1").lower() in {"0", "false", "no", "off"}
         if not self.enabled or disabled or os.environ.get("CI") or not sys.stdout.isatty():
             return False
-        temp_root = Path(tempfile.mkdtemp(prefix="manageroo-music-"))
+        cue = _validate_cue(self.cue)
+        command_probe = _player_command(Path("manageroo-theme.wav"))
+        if not command_probe:
+            return False
+        self.temp_root = Path(tempfile.mkdtemp(prefix="manageroo-music-")).resolve()
         try:
-            self.path = generate_theme(temp_root / f"{self.cue}.wav", cue=self.cue, variant=self.variant)
+            candidate = (self.temp_root / f"{cue}.wav").resolve()
+            candidate.relative_to(self.temp_root)
+            self.path = generate_theme(candidate, cue=cue, variant=self.variant)
             command = _player_command(self.path)
             if not command:
-                shutil.rmtree(temp_root, ignore_errors=True)
-                self.path = None
+                self.stop()
                 return False
             self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=False)
             return True
         except Exception:
-            shutil.rmtree(temp_root, ignore_errors=True)
-            self.path = None
-            self.process = None
+            self.stop()
             raise
 
     def stop(self) -> None:
@@ -212,9 +226,10 @@ class ThemePlayback:
                 self.process.wait(timeout=1.5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-        if self.path:
-            shutil.rmtree(self.path.parent, ignore_errors=True)
+        if self.temp_root:
+            shutil.rmtree(self.temp_root, ignore_errors=True)
         self.path = None
+        self.temp_root = None
         self.process = None
 
     def __enter__(self) -> "ThemePlayback":
@@ -226,7 +241,7 @@ class ThemePlayback:
 
 
 def play_once(*, cue: str = "install", variant: int = 0) -> bool:
-    playback = ThemePlayback(cue=cue, enabled=True, variant=variant)
+    playback = ThemePlayback(cue=_validate_cue(cue), enabled=True, variant=variant)
     if not playback.start():
         playback.stop()
         return False
