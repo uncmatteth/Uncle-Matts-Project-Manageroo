@@ -1,37 +1,45 @@
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
 
-from .branding import PROJECT_DIR
 from .adapters.factory import build_adapter
+from .branding import PROJECT_DIR
 from .config import load_config
 from .gates import gates_from_config
 from .policy import CommandPolicy
 from .runner import CommandRunner
 
 
+def _resolve_gate_executable(repo: Path, value: str) -> str | None:
+    candidate = str(value)
+    if os.sep in candidate or (os.altsep and os.altsep in candidate):
+        path = Path(candidate).expanduser()
+        if not path.is_absolute():
+            path = repo / path
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            return None
+        return str(resolved) if resolved.is_file() and os.access(resolved, os.X_OK) else None
+    return shutil.which(candidate)
+
+
 def doctor(repo: Path) -> dict:
+    repo = repo.expanduser().resolve()
     config = load_config(repo)
     runner = CommandRunner(repo / PROJECT_DIR / "doctor-logs")
     adapter = build_adapter(config, runner)
     checks: list[dict] = []
 
-    checks.append({
-        "name": "python",
-        "ok": sys.version_info >= (3, 11),
-        "detail": sys.version,
-    })
+    checks.append({"name": "python", "ok": sys.version_info >= (3, 11), "detail": sys.version})
     git = shutil.which("git")
     checks.append({"name": "git", "ok": bool(git), "detail": git or "not found"})
 
     adapter_check = adapter.doctor(repo)
-    checks.append({
-        "name": "agent-adapter",
-        "ok": bool(adapter_check.get("ok")),
-        "detail": adapter_check,
-    })
+    checks.append({"name": "agent-adapter", "ok": bool(adapter_check.get("ok")), "detail": adapter_check})
 
     gates = gates_from_config(config)
     checks.append({
@@ -44,7 +52,7 @@ def doctor(repo: Path) -> dict:
     for gate in gates:
         try:
             command_policy.validate(gate.argv)
-            executable = shutil.which(gate.argv[0])
+            executable = _resolve_gate_executable(repo, gate.argv[0])
             checks.append({
                 "name": f"gate:{gate.id}",
                 "ok": executable is not None,
