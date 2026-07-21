@@ -87,6 +87,17 @@ class CommandRunner:
                 stderr=redact_text(exc.stderr or ""),
                 timed_out=True,
             )
+        except OSError as exc:
+            result = CommandResult(
+                argv=list(argv),
+                cwd=str(cwd),
+                started_at=started_at,
+                finished_at=utc_now(),
+                exit_code=127,
+                stdout="",
+                stderr=redact_text(f"Could not launch command: {exc}"),
+                timed_out=False,
+            )
         if self.log_root and log_name:
             atomic_write_json(self.log_root / f"{log_name}.json", result.to_dict())
         if check and not result.passed:
