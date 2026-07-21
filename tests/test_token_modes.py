@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.token_modes import (
     CORE_HELPER_SKILLS,
@@ -56,6 +57,17 @@ class TokenModeTests(unittest.TestCase):
             self.assertTrue((skills / "caveman" / "SKILL.md").exists())
             self.assertTrue((skills / "uncle-matts-caveman-curse" / "SKILL.md").exists())
 
+    def test_failed_atomic_token_mode_write_preserves_previous_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp) / "token-mode.json"
+            set_token_mode("off", state_path=state, install_skills=False)
+            before = state.read_bytes()
+            with patch("manageroo.token_modes.atomic_write_json", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    set_token_mode("curse", state_path=state, install_skills=False)
+            self.assertEqual(state.read_bytes(), before)
+            self.assertEqual(read_token_mode(state)["mode"], "off")
+
     def test_existing_user_skill_is_backed_up_before_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:
             skills = Path(temp)
@@ -91,6 +103,21 @@ class TokenModeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 install_core_helper_skills(skills)
             self.assertEqual(outside.read_text(encoding="utf-8"), "do not overwrite\n")
+
+    def test_refuses_symlinked_skill_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            skills = base / "skills"
+            skills.mkdir()
+            outside = base / "outside-skill"
+            outside.mkdir()
+            marker = outside / "SKILL.md"
+            marker.write_text("do not overwrite\n", encoding="utf-8")
+            os.symlink(outside, skills / "pimp-my-prompt")
+            with self.assertRaises(ValueError):
+                install_core_helper_skills(skills)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "do not overwrite\n")
+            self.assertEqual(sorted(path.name for path in outside.iterdir()), ["SKILL.md"])
 
     def test_refuses_symlinked_skills_root(self):
         with tempfile.TemporaryDirectory() as temp:
