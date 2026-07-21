@@ -14,7 +14,7 @@ def run_probe(argv: list[str], timeout_seconds: int = 60) -> dict[str, Any]:
             argv,
             text=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             shell=False,
             timeout=timeout_seconds,
         )
@@ -23,9 +23,18 @@ def run_probe(argv: list[str], timeout_seconds: int = 60) -> dict[str, Any]:
             "exit_code": result.returncode,
             "argv": argv,
             "output": (result.stdout or "").strip(),
+            "stdout": (result.stdout or "").strip(),
+            "stderr": (result.stderr or "").strip(),
         }
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"ok": False, "argv": argv, "error": str(exc), "output": ""}
+        return {
+            "ok": False,
+            "argv": argv,
+            "error": str(exc),
+            "output": "",
+            "stdout": "",
+            "stderr": "",
+        }
 
 
 def safe_probe_record(probe: dict[str, Any]) -> dict[str, Any]:
@@ -34,9 +43,11 @@ def safe_probe_record(probe: dict[str, Any]) -> dict[str, Any]:
         "exit_code": probe.get("exit_code"),
         "argv": probe.get("argv", []),
     }
+    if probe.get("stderr"):
+        record["stderr"] = probe.get("stderr", "")
     if not probe.get("ok"):
         record["error"] = probe.get("error")
-        record["output"] = probe.get("output", "")
+        record["output"] = probe.get("stdout", probe.get("output", ""))
     return record
 
 
@@ -44,48 +55,66 @@ def summarize_sync_status(output: str) -> dict[str, Any]:
     try:
         payload = json.loads(output)
     except json.JSONDecodeError:
-        return {"ok": False, "error": "gbrain status did not return JSON"}
+        return {"ok": False, "parsed": False, "healthy": False, "error": "gbrain status did not return JSON"}
     if not isinstance(payload, dict):
-        return {"ok": False, "error": "gbrain status returned non-object JSON"}
+        return {"ok": False, "parsed": False, "healthy": False, "error": "gbrain status returned non-object JSON"}
     sync = payload.get("sync")
     if not isinstance(sync, dict):
-        return {"ok": False, "error": "gbrain status did not include sync data"}
+        return {"ok": False, "parsed": False, "healthy": False, "error": "gbrain status did not include sync data"}
     sources = sync.get("sources")
     if not isinstance(sources, list):
-        return {"ok": False, "error": "gbrain sync data did not include sources"}
-    coverages = [
-        float(source["embedding_coverage_pct"])
+        return {"ok": False, "parsed": False, "healthy": False, "error": "gbrain sync data did not include sources"}
+    coverages: list[float] = []
+    for source in sources:
+        if not isinstance(source, dict) or source.get("embedding_coverage_pct") is None:
+            continue
+        try:
+            coverages.append(float(source["embedding_coverage_pct"]))
+        except (TypeError, ValueError):
+            continue
+    try:
+        unacknowledged_failures = int(sync.get("unacknowledged_failures") or 0)
+    except (TypeError, ValueError):
+        unacknowledged_failures = 1
+    normalized_sources = [
+        {
+            "id": source.get("source_id"),
+            "name": source.get("name"),
+            "path": source.get("local_path"),
+            "pages": source.get("pages"),
+            "chunks_total": source.get("chunks_total"),
+            "chunks_unembedded": source.get("chunks_unembedded"),
+            "embedding_coverage_pct": source.get("embedding_coverage_pct"),
+        }
         for source in sources
-        if isinstance(source, dict) and source.get("embedding_coverage_pct") is not None
+        if isinstance(source, dict)
     ]
+    chunks_total = sum(
+        int(source.get("chunks_total") or 0)
+        for source in sources
+        if isinstance(source, dict) and str(source.get("chunks_total") or "0").lstrip("-").isdigit()
+    )
+    chunks_unembedded = sum(
+        int(source.get("chunks_unembedded") or 0)
+        for source in sources
+        if isinstance(source, dict) and str(source.get("chunks_unembedded") or "0").lstrip("-").isdigit()
+    )
+    healthy = unacknowledged_failures == 0
     return {
-        "ok": True,
-        "sources": [
-            {
-                "id": source.get("source_id"),
-                "name": source.get("name"),
-                "path": source.get("local_path"),
-                "pages": source.get("pages"),
-                "chunks_total": source.get("chunks_total"),
-                "chunks_unembedded": source.get("chunks_unembedded"),
-                "embedding_coverage_pct": source.get("embedding_coverage_pct"),
-            }
-            for source in sources
-            if isinstance(source, dict)
-        ],
-        "source_count": len(sources),
-        "chunks_total": sum(
-            int(source.get("chunks_total") or 0)
-            for source in sources
-            if isinstance(source, dict)
-        ),
-        "chunks_unembedded": sum(
-            int(source.get("chunks_unembedded") or 0)
-            for source in sources
-            if isinstance(source, dict)
-        ),
+        "ok": healthy,
+        "parsed": True,
+        "healthy": healthy,
+        "sources": normalized_sources,
+        "source_count": len(normalized_sources),
+        "chunks_total": chunks_total,
+        "chunks_unembedded": chunks_unembedded,
         "embedding_coverage_min_pct": min(coverages) if coverages else None,
-        "unacknowledged_failures": sync.get("unacknowledged_failures"),
+        "unacknowledged_failures": unacknowledged_failures,
+        "health_problem": (
+            "GBrain reports unacknowledged synchronization failures."
+            if unacknowledged_failures
+            else ""
+        ),
     }
 
 
@@ -141,32 +170,37 @@ def gbrain_setup_status(
                 next_commands.append(shlex.join(sync_argv))
 
     config_probe = run_probe([gbrain, "config", "show"])
-    config_summary = summarize_gbrain_config(config_probe.get("output", "")) if config_probe.get("ok") else {}
+    config_summary = summarize_gbrain_config(config_probe.get("stdout", "")) if config_probe.get("ok") else {}
     if add_failed:
         status_probe = {
             "ok": False,
             "argv": [],
             "error": "GBrain source add failed; status and sync probes were not attempted.",
             "output": "",
+            "stdout": "",
+            "stderr": "",
         }
-        summary = {"ok": False, "error": status_probe["error"]}
+        summary = {"ok": False, "parsed": False, "healthy": False, "error": status_probe["error"]}
     else:
         status_probe = run_probe([gbrain, "status", "--json", "--section", "sync"])
         summary = (
-            summarize_sync_status(status_probe.get("output", ""))
+            summarize_sync_status(status_probe.get("stdout", ""))
             if status_probe.get("ok")
             else {
                 "ok": False,
-                "error": status_probe.get("error") or status_probe.get("output") or "gbrain status failed",
+                "parsed": False,
+                "healthy": False,
+                "error": status_probe.get("error") or status_probe.get("stderr") or status_probe.get("stdout") or "gbrain status failed",
             }
         )
-    if summary.get("ok") and summary.get("source_count") == 0:
+    if summary.get("parsed") and summary.get("source_count") == 0:
         next_commands.append("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder")
         next_commands.append("gbrain sync --source YOUR_SOURCE_ID --json --yes")
     actions_ok = all(action.get("ok") for action in actions)
-    has_sources = bool(summary.get("ok") and summary.get("source_count", 0) > 0)
+    has_sources = bool(summary.get("parsed") and summary.get("source_count", 0) > 0)
+    healthy = bool(summary.get("healthy"))
     return {
-        "ok": bool(summary.get("ok")) and has_sources and actions_ok,
+        "ok": healthy and has_sources and actions_ok,
         "installed": True,
         "path": gbrain,
         "config": config_summary,
@@ -184,7 +218,7 @@ def format_gbrain_setup(report: dict[str, Any]) -> str:
         return "GBRAIN: NOT INSTALLED\nNext: " + report["next_commands"][0] + "\n"
     status = report.get("status", {})
     lines = [f"GBRAIN: {'OK' if report.get('ok') else 'ACTION'}"]
-    if status.get("ok"):
+    if status.get("parsed"):
         config = report.get("config", {})
         for key in ("engine", "embedding_model", "embedding_dimensions", "schema_pack"):
             if config.get(key):
@@ -198,13 +232,19 @@ def format_gbrain_setup(report: dict[str, Any]) -> str:
         lines.append(f"Unembedded chunks: {status.get('chunks_unembedded', 0)}")
         if status.get("embedding_coverage_min_pct") is not None:
             lines.append(f"Minimum embedding coverage: {status['embedding_coverage_min_pct']}%")
+        if not status.get("healthy"):
+            lines.append(
+                f"Problem: {status.get('health_problem') or 'GBrain synchronization status is not healthy.'}"
+            )
     else:
         lines.append(f"Problem: {status.get('error', 'status unavailable')}")
     for action in report.get("actions", []):
         label = "OK" if action.get("ok") else "FAILED"
         lines.append(f"{label}: {shlex.join(action.get('argv', []))}")
-        if not action.get("ok") and action.get("output"):
-            lines.append(action["output"])
+        if not action.get("ok"):
+            diagnostic = action.get("stderr") or action.get("stdout") or action.get("output")
+            if diagnostic:
+                lines.append(str(diagnostic))
     for command in report.get("next_commands", []):
         lines.append(f"Next: {command}")
     lines.append(report.get("rule", ""))
