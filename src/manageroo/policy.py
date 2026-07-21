@@ -20,7 +20,9 @@ FORBIDDEN_SCOPE_PATTERNS = (
     ".env.*",
     "**/.env",
     "**/.env.*",
+    "*secret*",
     "**/*secret*",
+    "*credential*",
     "**/*credential*",
 )
 PYTHON_EXECUTABLE_RE = re.compile(r"^python(?:3(?:\.\d+)?)?(?:\.exe)?$", re.IGNORECASE)
