@@ -117,6 +117,8 @@ class InstallScriptTests(unittest.TestCase):
 
     def test_public_installer_and_docs_do_not_hardcode_private_skill_import_paths(self):
         public_files = [
+            ROOT / "install.sh",
+            ROOT / "install.ps1",
             ROOT / "scripts" / "install.py",
             ROOT / "README.md",
             ROOT / "LOCAL_SETUP.md",
@@ -130,7 +132,7 @@ class InstallScriptTests(unittest.TestCase):
             "Tommy's tOS",
         )
         for path in public_files:
-            with self.subTest(path=path.name):
+            with self.subTest(path=str(path.relative_to(ROOT))):
                 text = path.read_text(encoding="utf-8")
                 for fragment in private_fragments:
                     self.assertNotIn(fragment, text)
