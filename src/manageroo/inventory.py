@@ -85,9 +85,10 @@ def _cached_inventory_file(
 ) -> InventoryFile | None:
     if not cached:
         return None
-    if cached.get("sha256") != sha256 or int(cached.get("bytes", -1)) != size:
-        return None
     try:
+        cached_bytes = int(cached.get("bytes", -1))
+        if cached.get("sha256") != sha256 or cached_bytes != size:
+            return None
         return InventoryFile(
             path=relative,
             bytes=size,
@@ -98,7 +99,7 @@ def _cached_inventory_file(
             line_count=int(cached["line_count"]),
             summary=str(cached["summary"]),
         )
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, OverflowError):
         return None
 
 
