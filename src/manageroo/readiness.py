@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
+import re
 import shutil
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -99,9 +102,20 @@ def _read_text_if_present(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def _term_pattern(term: str) -> re.Pattern[str]:
+    """Match a signal as a phrase/token instead of as an arbitrary substring.
+
+    This keeps `book` from matching `bookkeeping` while still matching punctuation,
+    plural prose around phrases, and case-insensitive user text.
+    """
+    escaped = re.escape(term)
+    left = r"(?<![A-Za-z0-9_])" if term and term[0].isalnum() else ""
+    right = r"(?![A-Za-z0-9_])" if term and term[-1].isalnum() else ""
+    return re.compile(left + escaped + right, re.IGNORECASE)
+
+
 def _mentions(text: str, terms: tuple[str, ...]) -> list[str]:
-    lowered = text.lower()
-    return [term for term in terms if term in lowered]
+    return [term for term in terms if _term_pattern(term).search(text)]
 
 
 def _repo_document_examples(
@@ -112,29 +126,41 @@ def _repo_document_examples(
 ) -> list[str]:
     examples: list[str] = []
     scanned = 0
-    for path in repo.rglob("*"):
-        if scanned >= scan_limit or len(examples) >= limit:
-            break
-        try:
-            relative = path.relative_to(repo)
-        except ValueError:
-            continue
-        if any(part in SCAN_SKIP_PARTS for part in relative.parts):
-            continue
-        if not path.is_file():
-            continue
-        scanned += 1
-        suffix = path.suffix.lower()
-        if suffix in DOCUMENT_SUFFIXES:
-            examples.append(relative.as_posix())
-            continue
-        if suffix in PROSE_SUFFIXES:
+    repo = repo.resolve()
+    for current, dirs, files in os.walk(repo, topdown=True, followlinks=False):
+        dirs[:] = sorted(
+            name
+            for name in dirs
+            if name not in SCAN_SKIP_PARTS and not (Path(current) / name).is_symlink()
+        )
+        for name in sorted(files):
+            if scanned >= scan_limit or len(examples) >= limit:
+                return examples
+            path = Path(current) / name
+            if path.is_symlink():
+                continue
             try:
-                size = path.stat().st_size
+                mode = path.stat(follow_symlinks=False).st_mode
             except OSError:
                 continue
-            if size >= 100_000:
+            if not stat.S_ISREG(mode):
+                continue
+            try:
+                relative = path.relative_to(repo)
+            except ValueError:
+                continue
+            scanned += 1
+            suffix = path.suffix.lower()
+            if suffix in DOCUMENT_SUFFIXES:
                 examples.append(relative.as_posix())
+                continue
+            if suffix in PROSE_SUFFIXES:
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                if size >= 100_000:
+                    examples.append(relative.as_posix())
     return examples
 
 
@@ -158,10 +184,7 @@ def _document_lane_items(
                 _item(
                     "document/prose lane",
                     True,
-                    (
-                        "brief asks for document/prose/media/exact-text handling and "
-                        "document_analysis_command is configured"
-                    ),
+                    "brief asks for document/prose/media/exact-text handling and document_analysis_command is configured",
                 )
             ]
         return [
@@ -170,8 +193,7 @@ def _document_lane_items(
                 False,
                 (
                     "brief asks for document/prose/media/exact-text handling "
-                    f"({', '.join(requested_terms[:4])}), but document_analysis_command "
-                    "is empty"
+                    f"({', '.join(requested_terms[:4])}), but document_analysis_command is empty"
                 ),
                 next_command,
                 required=True,
@@ -184,8 +206,7 @@ def _document_lane_items(
                 False,
                 (
                     "repo contains document/media files "
-                    f"({', '.join(repo_examples[:3])}); configure document_analysis_command "
-                    "if this run needs to understand them"
+                    f"({', '.join(repo_examples[:3])}); configure document_analysis_command if this run needs to understand them"
                 ),
                 next_command,
                 required=False,
@@ -196,7 +217,7 @@ def _document_lane_items(
 
 
 def helper_skill_items() -> list[dict[str, Any]]:
-    roots = []
+    roots: list[Path] = []
     for root in [
         token_mode_skills_dir(),
         Path.home() / ".codex" / "skills",
@@ -205,7 +226,7 @@ def helper_skill_items() -> list[dict[str, Any]]:
         expanded = root.expanduser()
         if expanded not in roots:
             roots.append(expanded)
-    items = []
+    items: list[dict[str, Any]] = []
     for skill in sorted(CORE_HELPER_SKILLS):
         candidates = [root / skill / "SKILL.md" for root in roots]
         existing = [path for path in candidates if path.is_file()]
@@ -335,18 +356,12 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             try:
                 config = load_config(repo)
             except Exception as exc:
-                items.append(
-                    _item("config parse", False, str(exc), "Fix .manageroo/config.toml")
-                )
+                items.append(_item("config parse", False, str(exc), "Fix .manageroo/config.toml"))
         items.append(
             _item(
                 "product brief",
                 brief_path.is_file() and not brief_is_template(brief_path),
-                (
-                    "ready"
-                    if brief_path.exists() and not brief_is_template(brief_path)
-                    else "missing or still template"
-                ),
+                "ready" if brief_path.exists() and not brief_is_template(brief_path) else "missing or still template",
                 "manageroo brief --want \"Describe the result\" --force",
             )
         )
@@ -367,11 +382,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             _item(
                 "checks",
                 bool(gates),
-                (
-                    ", ".join(gate.id for gate in gates)
-                    if gates
-                    else "no verification gates configured"
-                ),
+                ", ".join(gate.id for gate in gates) if gates else "no verification gates configured",
                 "manageroo checks suggest --apply-first",
             )
         )
@@ -381,16 +392,11 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
         items.extend(_document_lane_items(repo, config, brief_text))
 
     gbrain = gbrain_setup_status()
-    gbrain_ok = bool(
-        gbrain.get("ok") and gbrain.get("status", {}).get("source_count", 0) > 0
-    )
-    external_memory_requested = bool(
-        _mentions(brief_text, EXPLICIT_EXTERNAL_MEMORY_TERMS)
-    )
+    gbrain_ok = bool(gbrain.get("ok") and gbrain.get("status", {}).get("source_count", 0) > 0)
+    external_memory_requested = bool(_mentions(brief_text, EXPLICIT_EXTERNAL_MEMORY_TERMS))
     gbrain_required = require_gbrain or external_memory_requested
     gbrain_next = (
-        "manageroo gbrain-setup --source-id my-project "
-        "--path /absolute/path/to/repo --apply --sync"
+        "manageroo gbrain-setup --source-id my-project --path /absolute/path/to/repo --apply --sync"
         if not gbrain_ok
         else "Connect `gbrain serve` to the selected agent if not already wired."
     )
@@ -399,15 +405,11 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             "gbrain",
             gbrain_ok,
             (
-                "brief explicitly asks for external GBrain/knowledge-base context and sources "
-                "are mapped"
+                "brief explicitly asks for external GBrain/knowledge-base context and sources are mapped"
                 if external_memory_requested and gbrain_ok
                 else "sources mapped"
                 if gbrain_ok
-                else (
-                    "brief explicitly asks for external GBrain/knowledge-base context, but "
-                    "GBrain is not installed, unhealthy, or has no mapped sources"
-                )
+                else "brief explicitly asks for external GBrain/knowledge-base context, but GBrain is not installed, unhealthy, or has no mapped sources"
                 if external_memory_requested
                 else "not installed, unhealthy, or no mapped sources"
             ),
@@ -418,11 +420,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
 
     required_items = [item for item in items if item.get("required", True)]
     ok = all(item["ok"] for item in required_items)
-    next_commands = [
-        item["next"]
-        for item in items
-        if not item["ok"] and item.get("next")
-    ]
+    next_commands = [item["next"] for item in items if not item["ok"] and item.get("next")]
     return {
         "ok": ok,
         "status": "READY TO RUN" if ok else "NOT READY",
