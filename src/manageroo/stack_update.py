@@ -10,9 +10,16 @@ from typing import Any, Iterable
 
 
 GBRAIN_REFERENCE = "https://github.com/garrytan/gbrain"
-GITNEXUS_REFERENCE = "https://github.com/nxpatterns/gitnexus"
+GBRAIN_COMMIT = "3cc34c92eec2540ef36d2513eff8d4e4bf73bad9"
+GITNEXUS_REFERENCE = "https://github.com/abhigyanpatwari/GitNexus"
+GITNEXUS_PACKAGE = "gitnexus@1.6.9"
 AUTOREVIEW_REPO = "https://github.com/openclaw/agent-skills.git"
-AUTOREVIEW_REFERENCE = "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview"
+AUTOREVIEW_COMMIT = "c4ab5e7f999cf504890986322473d3e7afd373af"
+AUTOREVIEW_REFERENCE = (
+    "https://github.com/openclaw/agent-skills/tree/"
+    f"{AUTOREVIEW_COMMIT}/skills/autoreview"
+)
+CLAWPATCH_PACKAGE = "clawpatch@0.7.1"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
 STACK_TOOL_NAMES = ("gbrain", "gitnexus", "autoreview", "clawpatch", "obsidian")
@@ -134,13 +141,13 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
 
     gitnexus_commands: list[list[str]] = []
     gitnexus_note = (
-        "Manageroo's recommended stack installs a persistent GitNexus CLI and runs `gitnexus setup`. "
+        f"Updates only to the Manageroo-release pin {GITNEXUS_PACKAGE}. "
         "Repository indexing remains project-specific and is performed with `gitnexus analyze` from a target repo."
     )
     if gitnexus and npm:
-        gitnexus_commands.append([npm, "install", "-g", "gitnexus@latest"])
+        gitnexus_commands.append([npm, "install", "-g", GITNEXUS_PACKAGE])
     elif gitnexus and pnpm:
-        gitnexus_commands.append([pnpm, "add", "-g", "gitnexus@latest"])
+        gitnexus_commands.append([pnpm, "add", "-g", GITNEXUS_PACKAGE])
     elif not gitnexus:
         gitnexus_note += " No persistent GitNexus installation was detected, so stack-update will not install one implicitly."
 
@@ -150,9 +157,12 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
         _tool(
             "gbrain",
             bool(gbrain),
-            [[gbrain, "upgrade"], [gbrain, "doctor", "--json"]] if gbrain else [],
+            [[gbrain, "doctor", "--json"]] if gbrain else [],
             GBRAIN_REFERENCE,
-            "Uses GBrain's supported upgrade command and verifies the result with `gbrain doctor --json`.",
+            (
+                "Manageroo does not run GBrain's mutable self-upgrade command. "
+                f"The installer pin for this Manageroo release is commit {GBRAIN_COMMIT}; stack-update only verifies the existing installation."
+            ),
         ),
         _tool(
             "gitnexus",
@@ -167,19 +177,19 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
             [],
             AUTOREVIEW_REFERENCE,
             (
-                "Updates each unique resolved AUTOREVIEW installation in place. Skill-root symlinks "
-                "remain symlinks and aliases to the same target are updated only once."
+                f"Updates each unique resolved AUTOREVIEW installation from pinned commit {AUTOREVIEW_COMMIT}. "
+                "Skill-root symlinks remain symlinks and aliases to the same target are updated only once."
             ),
             install_paths=[str(path) for path in autoreview_paths],
         ),
         _tool(
             "clawpatch",
             bool(clawpatch),
-            [[pnpm, "add", "-g", "clawpatch@latest"], [clawpatch, "doctor"]]
+            [[pnpm, "add", "-g", CLAWPATCH_PACKAGE], [clawpatch, "doctor"]]
             if clawpatch and pnpm
             else [],
             CLAWPATCH_REFERENCE,
-            "Uses the existing pnpm-based package lane and reruns `clawpatch doctor` after update.",
+            f"Updates only to the Manageroo-release pin {CLAWPATCH_PACKAGE} and reruns `clawpatch doctor`.",
         ),
         _tool(
             "obsidian",
@@ -269,18 +279,29 @@ def _update_autoreview(destinations: Iterable[Path]) -> dict[str, Any]:
         return {"ok": False, "name": "autoreview", "error": "git is required to update AUTOREVIEW"}
     with tempfile.TemporaryDirectory(prefix="manageroo-autoreview-update-") as temp:
         checkout = Path(temp) / "agent-skills"
-        clone = _run([git, "clone", "--depth", "1", AUTOREVIEW_REPO, str(checkout)], cwd=Path(temp))
+        clone = _run([git, "clone", "--no-checkout", AUTOREVIEW_REPO, str(checkout)], cwd=Path(temp))
         if not clone["ok"]:
             return {"name": "autoreview", **clone}
+        checkout_result = _run([git, "checkout", "--detach", AUTOREVIEW_COMMIT], cwd=checkout)
+        if not checkout_result["ok"]:
+            return {"name": "autoreview", **checkout_result}
+        resolved = _run([git, "rev-parse", "HEAD"], cwd=checkout)
+        if not resolved["ok"] or resolved.get("output", "").strip().lower() != AUTOREVIEW_COMMIT.lower():
+            return {
+                "ok": False,
+                "name": "autoreview",
+                "error": "pinned AUTOREVIEW commit verification failed",
+            }
         source = checkout / "skills" / "autoreview"
         if not (source / "SKILL.md").is_file():
-            return {"ok": False, "name": "autoreview", "error": "canonical autoreview skill was not found"}
+            return {"ok": False, "name": "autoreview", "error": "pinned autoreview skill was not found"}
         if source.is_symlink() or any(path.is_symlink() for path in source.rglob("*")):
-            return {"ok": False, "name": "autoreview", "error": "canonical autoreview tree contains symlinks"}
+            return {"ok": False, "name": "autoreview", "error": "pinned autoreview tree contains symlinks"}
         results = [_replace_autoreview(source, destination) for destination in targets]
         return {
             "ok": all(item.get("ok") for item in results),
             "name": "autoreview",
+            "pinned_commit": AUTOREVIEW_COMMIT,
             "installations": results,
         }
 
@@ -294,19 +315,23 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
             continue
         commands = tool.get("commands", [])
         if not commands:
-            results.append({
-                "name": tool["name"],
-                "ok": True,
-                "skipped": True,
-                "reason": "no safe automatic update command for the detected installation",
-            })
+            results.append(
+                {
+                    "name": tool["name"],
+                    "ok": True,
+                    "skipped": True,
+                    "reason": "no safe automatic update command for the detected installation",
+                }
+            )
             continue
         command_results = [_run(list(command)) for command in commands]
-        results.append({
-            "name": tool["name"],
-            "ok": all(item.get("ok") for item in command_results),
-            "commands": command_results,
-        })
+        results.append(
+            {
+                "name": tool["name"],
+                "ok": all(item.get("ok") for item in command_results),
+                "commands": command_results,
+            }
+        )
     return {
         "ok": all(item.get("ok") for item in results),
         "executes_changes": True,
