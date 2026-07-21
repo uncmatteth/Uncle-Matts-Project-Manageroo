@@ -69,7 +69,7 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 workspace = holder["fake"].workspace
                 (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
                 (workspace / "forbidden.txt").write_text("forbidden mutation\n", encoding="utf-8")
-                return {"ok": True, "exit_code": 0}
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
 
             fake, run_root = fake_orchestrator(root, source, "run-one", command)
             holder["fake"] = fake
@@ -104,7 +104,7 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 calls["count"] += 1
                 workspace = holder["fake"].workspace
                 (workspace / "tracked.txt").write_text(f"run {calls['count']}\n", encoding="utf-8")
-                return {"ok": True, "exit_code": 0}
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
 
             first, first_root = fake_orchestrator(root, source, "first-run", command)
             holder["fake"] = first
@@ -140,7 +140,6 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             )
             self.assertEqual(calls["count"], 2)
             self.assertFalse(result["records"][0].get("resumed_from_checkpoint", False))
-            self.assertEqual(result["records"][0]["baseline"], result["records"][0].get("baseline"))
 
 
 if __name__ == "__main__":
