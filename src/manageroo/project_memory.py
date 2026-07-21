@@ -7,6 +7,12 @@ from .branding import PROJECT_DIR
 from .util import atomic_write_text, utc_now
 
 PROJECT_MEMORY_FILENAME = "PROJECT-MEMORY.md"
+PLACEHOLDERS = {
+    "What This Project Is": "- Describe what this project is for.",
+    "What Has Shipped": "- Nothing shipped through MANAGEROO yet.",
+    "What Must Not Break": "- Add product promises, workflows, files, or behaviors that must stay intact.",
+    "Current Proof": "- Add the commands or manual checks that prove the current state.",
+}
 
 
 def project_memory_path(repo: Path) -> Path:
@@ -87,9 +93,20 @@ def _append_items(text: str, heading: str, values: list[str]) -> tuple[str, bool
     insert_at = len(text.rstrip()) if next_heading == -1 else next_heading
     section = text[start:insert_at]
     existing = {line.strip() for line in section.splitlines()}
+    placeholder = PLACEHOLDERS.get(heading)
+    section_changed = False
+    if placeholder and placeholder in existing:
+        filtered_lines = [line for line in section.splitlines() if line.strip() != placeholder]
+        replacement = "\n".join(filtered_lines)
+        text = text[:start] + replacement + text[insert_at:]
+        next_heading = text.find("\n## ", start)
+        insert_at = len(text.rstrip()) if next_heading == -1 else next_heading
+        section = text[start:insert_at]
+        existing = {line.strip() for line in section.splitlines()}
+        section_changed = True
     new_lines = [f"- {item}" for item in cleaned if f"- {item}" not in existing]
     if not new_lines:
-        return text, False
+        return text, section_changed
     prefix = text[:insert_at].rstrip()
     suffix = text[insert_at:]
     return prefix + "\n" + "\n".join(new_lines) + "\n" + suffix.lstrip("\n"), True
