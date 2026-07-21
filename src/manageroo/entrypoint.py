@@ -153,6 +153,26 @@ def _blocking_decisions(run_root: Path) -> list[dict]:
     return list(payload.get("decisions", []) or [])
 
 
+def _validated_decisions(decisions: list[dict]) -> tuple[list[dict], str | None]:
+    validated: list[dict] = []
+    for index, decision in enumerate(decisions, 1):
+        if not isinstance(decision, dict):
+            return [], f"Decision {index} is not an object."
+        decision_id = str(decision.get("id") or "").strip()
+        options_value = decision.get("options")
+        if not decision_id:
+            return [], f"Decision {index} has no id."
+        if not isinstance(options_value, list) or not options_value:
+            return [], f"Decision {decision_id!r} has no selectable options."
+        options = [str(item).strip() for item in options_value if str(item).strip()]
+        if not options:
+            return [], f"Decision {decision_id!r} has no selectable options."
+        item = dict(decision)
+        item["options"] = options
+        validated.append(item)
+    return validated, None
+
+
 def _decisions_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo decisions",
@@ -172,7 +192,10 @@ def _decisions_main(argv: list[str]) -> int:
         parser.error(str(exc))
     decisions = _blocking_decisions(run_root)
     if not decisions:
-        print("No unresolved blocking decisions were found for that run.")
+        if args.command == "show" and args.json:
+            print(json.dumps({"run_id": args.run_id, "decisions": []}, indent=2))
+        else:
+            print("No unresolved blocking decisions were found for that run.")
         return 1
 
     if args.command == "show":
@@ -184,11 +207,16 @@ def _decisions_main(argv: list[str]) -> int:
             print(text, end="")
         return 0
 
+    decisions, validation_error = _validated_decisions(decisions)
+    if validation_error:
+        print(f"Cannot answer blocking decisions: {validation_error}", file=sys.stderr)
+        return 2
+
     answers: list[dict[str, str]] = []
     for index, decision in enumerate(decisions, 1):
         question = str(decision.get("question") or f"Decision {index}")
         why = str(decision.get("why") or "")
-        options = [str(item) for item in decision.get("options", [])]
+        options = [str(item) for item in decision["options"]]
         recommended = str(decision.get("recommended") or "")
         print(f"\n{index}. {question}")
         if why:
