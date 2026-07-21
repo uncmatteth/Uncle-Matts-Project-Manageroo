@@ -75,7 +75,51 @@ def _autoreview_installations() -> list[Path]:
         Path.home() / ".agents" / "skills" / "autoreview",
         Path.home() / ".codex" / "skills" / "autoreview",
     ]
-    return [path for path in candidates if (path / "SKILL.md").is_file()]
+    resolved: list[Path] = []
+    for path in candidates:
+        if not (path / "SKILL.md").is_file():
+            continue
+        try:
+            target = path.resolve(strict=True)
+        except OSError:
+            continue
+        if target not in resolved:
+            resolved.append(target)
+    return resolved
+
+
+def _obsidian_update_commands(obsidian: str | None) -> tuple[list[list[str]], str]:
+    if not obsidian:
+        return [], "Obsidian was not detected."
+    system = platform.system().lower()
+    if system == "windows" and shutil.which("winget"):
+        return [[
+            shutil.which("winget") or "winget",
+            "upgrade",
+            "--id",
+            "Obsidian.Obsidian",
+            "-e",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+        ]], "Detected Windows installation; using the Obsidian Winget package id."
+    if system == "darwin" and shutil.which("brew"):
+        probe = _run([shutil.which("brew") or "brew", "list", "--cask", "obsidian"], timeout=30)
+        if probe.get("ok"):
+            return [[shutil.which("brew") or "brew", "upgrade", "--cask", "obsidian"]], "Homebrew owns the detected Obsidian installation."
+        return [], "Could not prove that Homebrew owns the detected Obsidian installation."
+    if system == "linux":
+        flatpak = shutil.which("flatpak")
+        if flatpak:
+            probe = _run([flatpak, "info", "--user", "md.obsidian.Obsidian"], timeout=30)
+            if probe.get("ok"):
+                return [[flatpak, "update", "--user", "-y", "md.obsidian.Obsidian"]], "Flatpak owns the detected Obsidian installation."
+        snap = shutil.which("snap")
+        if snap:
+            probe = _run([snap, "list", "obsidian"], timeout=30)
+            if probe.get("ok"):
+                return [[snap, "refresh", "obsidian"]], "Snap owns the detected Obsidian installation."
+        return [], "Could not safely identify which Linux package manager owns the detected Obsidian installation."
+    return [], "No supported automatic update lane was identified for the detected Obsidian installation."
 
 
 def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
@@ -100,30 +144,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     elif not gitnexus:
         gitnexus_note += " No persistent GitNexus installation was detected, so stack-update will not install one implicitly."
 
-    obsidian_commands: list[list[str]] = []
-    system = platform.system().lower()
-    if system == "windows" and shutil.which("winget"):
-        obsidian_commands.append([
-            shutil.which("winget") or "winget",
-            "upgrade",
-            "--id",
-            "Obsidian.Obsidian",
-            "-e",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-        ])
-    elif system == "darwin" and shutil.which("brew"):
-        obsidian_commands.append([shutil.which("brew") or "brew", "upgrade", "--cask", "obsidian"])
-    elif system == "linux" and shutil.which("flatpak"):
-        obsidian_commands.append([
-            shutil.which("flatpak") or "flatpak",
-            "update",
-            "--user",
-            "-y",
-            "md.obsidian.Obsidian",
-        ])
-    elif system == "linux" and shutil.which("snap"):
-        obsidian_commands.append([shutil.which("snap") or "snap", "refresh", "obsidian"])
+    obsidian_commands, obsidian_note = _obsidian_update_commands(obsidian)
 
     tools = [
         _tool(
@@ -146,8 +167,8 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
             [],
             AUTOREVIEW_REFERENCE,
             (
-                "Updates each detected AUTOREVIEW installation in place from the canonical source; "
-                "Manageroo does not create a second installation in a different skill root."
+                "Updates each unique resolved AUTOREVIEW installation in place. Skill-root symlinks "
+                "remain symlinks and aliases to the same target are updated only once."
             ),
             install_paths=[str(path) for path in autoreview_paths],
         ),
@@ -165,7 +186,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
             bool(obsidian),
             obsidian_commands,
             OBSIDIAN_REFERENCE,
-            "Uses the detected operating-system package manager when a safe update command is available.",
+            obsidian_note,
         ),
     ]
     if selected is not None:
@@ -190,6 +211,13 @@ def _unique_backup(destination: Path) -> Path:
 
 def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
     destination = destination.expanduser()
+    if destination.is_symlink():
+        return {
+            "ok": False,
+            "name": "autoreview",
+            "path": str(destination),
+            "error": "Refusing to replace a symlink alias directly; update its resolved target instead.",
+        }
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = destination.with_name(destination.name + ".manageroo-stage")
     if stage.exists():
@@ -229,7 +257,11 @@ def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
 
 
 def _update_autoreview(destinations: Iterable[Path]) -> dict[str, Any]:
-    targets = [Path(path) for path in destinations]
+    targets: list[Path] = []
+    for path in destinations:
+        target = Path(path).expanduser().resolve()
+        if target not in targets:
+            targets.append(target)
     if not targets:
         return {"ok": True, "name": "autoreview", "skipped": True, "reason": "not installed"}
     git = shutil.which("git")
