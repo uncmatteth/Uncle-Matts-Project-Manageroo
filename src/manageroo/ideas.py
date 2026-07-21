@@ -10,6 +10,52 @@ from .branding import PROJECT_DIR
 from .util import atomic_write_json, new_run_id, read_json, slugify, utc_now
 
 
+def _lock_owner_pid(path: Path) -> int | None:
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text.startswith("pid="):
+        return None
+    try:
+        pid = int(text.split("=", 1)[1])
+    except ValueError:
+        return None
+    return pid if pid > 0 else None
+
+
+def _pid_is_live(pid: int) -> bool:
+    if pid == os.getpid():
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def _reclaim_abandoned_lock(path: Path) -> bool:
+    pid = _lock_owner_pid(path)
+    if pid is not None and _pid_is_live(pid):
+        return False
+    # Re-read the owner immediately before unlinking so we do not remove a lock that
+    # was replaced by a live contender between inspection and takeover.
+    before = _lock_owner_pid(path)
+    if before is not None and _pid_is_live(before):
+        return False
+    try:
+        path.unlink()
+        return True
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+
 @contextmanager
 def _exclusive_lock(path: Path, *, timeout_seconds: float = 10.0) -> Iterator[None]:
     deadline = time.monotonic() + timeout_seconds
@@ -18,6 +64,7 @@ def _exclusive_lock(path: Path, *, timeout_seconds: float = 10.0) -> Iterator[No
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
+            _reclaim_abandoned_lock(path)
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"Timed out waiting for idea-inbox lock: {path}")
             time.sleep(0.02)
@@ -28,7 +75,8 @@ def _exclusive_lock(path: Path, *, timeout_seconds: float = 10.0) -> Iterator[No
     finally:
         os.close(fd)
         try:
-            path.unlink()
+            if _lock_owner_pid(path) == os.getpid():
+                path.unlink()
         except FileNotFoundError:
             pass
 
@@ -65,8 +113,6 @@ class IdeaInbox:
 
     def attach_pending(self, run_id: str) -> list[dict]:
         attached: list[dict] = []
-        # One process owns the read-check-write claim transaction at a time. Re-read
-        # durable state while holding the lock so an idea can be attached to one run only.
         with _exclusive_lock(self.lock_path):
             for path in sorted(self.root.glob("*.json")):
                 item = read_json(path)
