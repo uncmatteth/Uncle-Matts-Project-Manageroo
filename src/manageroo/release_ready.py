@@ -11,8 +11,9 @@ from .gates import GateRunner, gates_from_config
 from .policy import CommandPolicy
 from .project import git_root
 from .readiness import readiness
+from .release_proof_policy import source_tree_digest
 from .runner import CommandRunner
-from .util import atomic_write_json, atomic_write_text, read_json, utc_now
+from .util import atomic_write_json, atomic_write_text, read_json, sha256_file, utc_now
 
 
 def _item(name: str, ok: bool, detail: str, next_command: str = "") -> dict[str, Any]:
@@ -40,13 +41,23 @@ def _load_metadata(repo: Path) -> dict[str, Any]:
 
 def _release_metadata_command() -> str:
     return shlex.join([
-        PUBLIC_COMMAND, "release-ready", "--target", "Production URL or deploy command",
-        "--rollback", "Rollback command or steps", "--approved-by", "Your name",
+        PUBLIC_COMMAND,
+        "release-ready",
+        "--target",
+        "Production URL or deploy command",
+        "--rollback",
+        "Rollback command or steps",
+        "--approved-by",
+        "Your name",
     ])
 
 
 def _git_status(repo: Path) -> tuple[bool, str]:
-    result = CommandRunner().run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo, timeout_seconds=60)
+    result = CommandRunner().run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=repo,
+        timeout_seconds=60,
+    )
     if not result.passed:
         return False, result.stderr or "git status failed"
     text = result.stdout.strip()
@@ -62,7 +73,7 @@ def _git_head_summary(repo: Path) -> dict[str, Any]:
     files_text = _git_output(repo, ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"])
     return {
         "branch": _git_output(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"]),
-        "commit": _git_output(repo, ["git", "rev-parse", "--short=12", "HEAD"]),
+        "commit": _git_output(repo, ["git", "rev-parse", "HEAD"]),
         "subject": _git_output(repo, ["git", "log", "-1", "--pretty=%s"]),
         "files": [line for line in files_text.splitlines() if line.strip()],
     }
@@ -75,7 +86,11 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         reverse=True,
     )
     if not results:
-        return {"ok": False, "detail": "no completed Manageroo run proof found", "next": shlex.join([PUBLIC_COMMAND, "run", "--repo", str(repo), "--apply"])}
+        return {
+            "ok": False,
+            "detail": "no completed Manageroo run proof found",
+            "next": shlex.join([PUBLIC_COMMAND, "run", "--repo", str(repo), "--apply"]),
+        }
     result_path = results[0]
     run_root = result_path.parents[1]
     run_id = run_root.name
@@ -83,7 +98,8 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         data = read_json(result_path)
     except Exception as exc:
         return {
-            "ok": False, "run_id": run_id,
+            "ok": False,
+            "run_id": run_id,
             "detail": f"latest run final-result.json is unreadable: {exc}",
             "next": shlex.join([PUBLIC_COMMAND, "run", "--continue", run_id, "--repo", str(repo), "--apply"]),
         }
@@ -93,6 +109,9 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
     patch_path = Path(patch_value) if patch_value else delivery / "final.patch"
     review_status = data.get("review", {}).get("status")
     applied = bool(data.get("applied_to_source"))
+    expected_tree_digest = str(data.get("verified_source_tree_sha256") or "").strip()
+    expected_patch_digest = str(data.get("final_patch_sha256") or "").strip()
+    runner = CommandRunner()
     failures: list[str] = []
     if data.get("status") != "COMPLETE":
         failures.append(f"status is {data.get('status', 'missing')}")
@@ -104,6 +123,20 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         failures.append("final patch is missing")
     if not applied:
         failures.append("final patch is not applied to source")
+    if not expected_tree_digest:
+        failures.append("run proof is not bound to a verified source-tree digest")
+    else:
+        try:
+            current_tree_digest = source_tree_digest(repo, runner)
+        except Exception as exc:
+            failures.append(f"current source-tree digest could not be computed: {exc}")
+        else:
+            if current_tree_digest != expected_tree_digest:
+                failures.append("current source tree does not match the tree verified by the completed run")
+    if not expected_patch_digest:
+        failures.append("run proof does not record the final patch digest")
+    elif patch_path.is_file() and sha256_file(patch_path) != expected_patch_digest:
+        failures.append("final patch bytes do not match the digest recorded by the completed run")
     return {
         "ok": not failures,
         "run_id": run_id,
@@ -112,9 +145,12 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         "final_patch": str(patch_path),
         "review_status": review_status or "",
         "applied_to_source": applied,
+        "verified_source_tree_sha256": expected_tree_digest,
+        "final_patch_sha256": expected_patch_digest,
         "detail": (
-            f"run {run_id}; report={report_path}; patch={patch_path}; review={review_status}; applied={applied}"
-            if not failures else f"run {run_id} incomplete: " + "; ".join(failures)
+            f"run {run_id}; report={report_path}; patch={patch_path}; review={review_status}; applied={applied}; tree={expected_tree_digest}"
+            if not failures
+            else f"run {run_id} incomplete or stale: " + "; ".join(failures)
         ),
         "next": shlex.join([PUBLIC_COMMAND, "run", "--continue", run_id, "--repo", str(repo), "--apply"]),
     }
@@ -130,27 +166,49 @@ def _production_handoff_markdown(report: dict[str, Any]) -> str:
     gate_runs = report.get("gate_runs", [])
     failed_items = [item for item in report.get("items", []) if not item.get("ok")]
     lines = [
-        "# Production Handoff", "", f"Status: {report['status']}", f"Repo: `{report['repo']}`", "",
-        "## Operator Decision", "", "Ship when the human operator is ready." if report.get("ok") else "Do not ship yet.", "",
-        "## Ship Target", "", metadata.get("target") or "Missing deployment target.", "",
-        "## Rollback Plan", "", metadata.get("rollback") or "Missing rollback notes.", "",
-        "## Human Approval", "", metadata.get("approved_by") or "Missing approver.", "", "## Current Code", "",
-    ]
-    lines.extend([
+        "# Production Handoff",
+        "",
+        f"Status: {report['status']}",
+        f"Repo: `{report['repo']}`",
+        "",
+        "## Operator Decision",
+        "",
+        "Ship when the human operator is ready." if report.get("ok") else "Do not ship yet.",
+        "",
+        "## Ship Target",
+        "",
+        metadata.get("target") or "Missing deployment target.",
+        "",
+        "## Rollback Plan",
+        "",
+        metadata.get("rollback") or "Missing rollback notes.",
+        "",
+        "## Human Approval",
+        "",
+        metadata.get("approved_by") or "Missing approver.",
+        "",
+        "## Current Code",
+        "",
         f"- Branch: `{git_head.get('branch') or 'unknown'}`",
         f"- Commit: `{git_head.get('commit') or 'unknown'}`",
         f"- Commit message: {git_head.get('subject') or 'unknown'}",
-        "", "## Manageroo Run Proof", "",
-    ])
+        "",
+        "## Manageroo Run Proof",
+        "",
+    ]
     run_proof = report.get("manageroo_run", {})
     if run_proof.get("ok"):
         lines.extend([
-            f"- Manageroo run: `{run_proof.get('run_id')}`", f"- Final report: `{run_proof.get('final_report')}`",
-            f"- Final patch: `{run_proof.get('final_patch')}`", f"- Review status: `{run_proof.get('review_status')}`",
+            f"- Manageroo run: `{run_proof.get('run_id')}`",
+            f"- Final report: `{run_proof.get('final_report')}`",
+            f"- Final patch: `{run_proof.get('final_patch')}`",
+            f"- Review status: `{run_proof.get('review_status')}`",
             f"- Applied to source: `{run_proof.get('applied_to_source')}`",
+            f"- Verified source tree: `{run_proof.get('verified_source_tree_sha256')}`",
+            f"- Final patch SHA-256: `{run_proof.get('final_patch_sha256')}`",
         ])
     else:
-        lines.append(f"- Missing or incomplete: {run_proof.get('detail', 'no Manageroo run proof')}")
+        lines.append(f"- Missing, stale, or incomplete: {run_proof.get('detail', 'no Manageroo run proof')}")
     lines.extend(["", "## What Changed", ""])
     files = git_head.get("files") or []
     lines.extend(f"- `{item}`" for item in files) if files else lines.append("- No latest-commit file list was available.")
@@ -172,7 +230,15 @@ def _production_handoff_markdown(report: dict[str, Any]) -> str:
             lines.append(line)
     else:
         lines.append("- None detected by `release-ready`.")
-    lines.extend(["", "## Project Memory", "", "- Not mutated by `release-ready`; release proof must not dirty a repo after its final cleanliness check.", "", "## Next Operator Action", ""])
+    lines.extend([
+        "",
+        "## Project Memory",
+        "",
+        "- Not mutated by `release-ready`; release proof must not dirty a repo after its final cleanliness check.",
+        "",
+        "## Next Operator Action",
+        "",
+    ])
     if report.get("ok"):
         lines.append("Use the ship target above, keep the rollback plan open, and watch production after release.")
     elif report.get("next_commands"):
@@ -240,8 +306,6 @@ def release_ready(
         _item("human approval", bool(approved_by), approved_by or "missing", _release_metadata_command()),
     ])
 
-    # All intentionally generated evidence above lives under .manageroo/cache. Perform
-    # cleanliness last so READY describes the repository state at function return.
     clean, status_text = _git_status(repo)
     items.append(_item("git clean", clean, "clean" if clean else status_text, "git status --short"))
     for item in items:
@@ -268,7 +332,6 @@ def release_ready(
     handoff_markdown = _production_handoff_markdown(report)
     atomic_write_text(handoff_path, handoff_markdown)
     report["handoff_markdown"] = handoff_markdown
-    # Defensive final recheck in case a future handoff path leaves the ignored cache boundary.
     final_clean, final_status = _git_status(repo)
     if ok and not final_clean:
         report["ok"] = False
