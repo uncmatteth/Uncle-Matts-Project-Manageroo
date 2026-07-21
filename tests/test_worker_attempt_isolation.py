@@ -33,12 +33,7 @@ class _DirtySuccess(AgentAdapter):
 
     def run(self, request: AgentRequest):
         (request.cwd / "tracked.txt").write_text("poisoned\n", encoding="utf-8")
-        return AgentResponse(
-            role=request.role,
-            data={"ok": True},
-            raw_text='{"ok": true}',
-            command=["dirty-worker"],
-        )
+        return AgentResponse(role=request.role, data={"ok": True}, raw_text='{"ok": true}', command=["dirty-worker"])
 
 
 class _IgnoredSuccess(AgentAdapter):
@@ -49,26 +44,12 @@ class _IgnoredSuccess(AgentAdapter):
         ignored = request.cwd / "ignored-cache" / "hidden.txt"
         ignored.parent.mkdir()
         ignored.write_text("hidden mutation\n", encoding="utf-8")
-        return AgentResponse(
-            role=request.role,
-            data={"ok": True},
-            raw_text='{"ok": true}',
-            command=["ignored-worker"],
-        )
+        return AgentResponse(role=request.role, data={"ok": True}, raw_text='{"ok": true}', command=["ignored-worker"])
 
 
 def _git(repo: Path, *args: str) -> str:
     result = subprocess.run(
-        [
-            "git",
-            "-c",
-            "commit.gpgSign=false",
-            "-c",
-            "tag.gpgSign=false",
-            "-c",
-            "core.hooksPath=/dev/null",
-            *args,
-        ],
+        ["git", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", "-c", "core.hooksPath=/dev/null", *args],
         cwd=repo,
         check=True,
         text=True,
@@ -102,15 +83,7 @@ def _request(repo: Path, *, sandbox: str = "workspace-write") -> AgentRequest:
     output = packet / "output.json"
     prompt.write_text("job", encoding="utf-8")
     schema.write_text('{"type":"object"}', encoding="utf-8")
-    return AgentRequest(
-        role="implementer",
-        prompt_path=prompt,
-        schema_path=schema,
-        output_path=output,
-        cwd=repo,
-        sandbox=sandbox,
-        timeout_seconds=60,
-    )
+    return AgentRequest(role="implementer", prompt_path=prompt, schema_path=schema, output_path=output, cwd=repo, sandbox=sandbox, timeout_seconds=60)
 
 
 def _run_request(run_root: Path, workspace: Path) -> AgentRequest:
@@ -122,54 +95,22 @@ def _run_request(run_root: Path, workspace: Path) -> AgentRequest:
     output.parent.mkdir(parents=True, exist_ok=True)
     prompt.write_text("job", encoding="utf-8")
     schema.write_text('{"type":"object"}', encoding="utf-8")
-    return AgentRequest(
-        role="implementer",
-        prompt_path=prompt,
-        schema_path=schema,
-        output_path=output,
-        cwd=workspace,
-        sandbox="workspace-write",
-        timeout_seconds=60,
-    )
+    return AgentRequest(role="implementer", prompt_path=prompt, schema_path=schema, output_path=output, cwd=workspace, sandbox="workspace-write", timeout_seconds=60)
 
 
-def _record_completed_write_job(run_root: Path) -> None:
+def _record_completed_write_job(run_root: Path) -> str:
     store = JobStore(run_root)
-    job = store.create_or_load_job(
-        "001-implementer",
-        role="implementer",
-        schema="agent-result.schema.json",
-        instructions="bounded write",
-        sandbox="workspace-write",
-    )
+    job = store.create_or_load_job("001-implementer", role="implementer", schema="agent-result.schema.json", instructions="bounded write", sandbox="workspace-write")
     attempt = store.begin_attempt(job.id)
     output = run_root / "worker-output.json"
     data = {"status": "implemented"}
     atomic_write_json(output, data)
-    store.complete_attempt(
-        job.id,
-        attempt.attempt_id,
-        output_path=output,
-        data=data,
-        command=["worker"],
-    )
+    store.complete_attempt(job.id, attempt.attempt_id, output_path=output, data=data, command=["worker"])
     artifact = run_root / "artifacts" / "agent" / "001-implementer.json"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(artifact, data)
-    store.complete_job(
-        job.id,
-        output_artifact="agent/001-implementer.json",
-        data=data,
-        artifact_path=artifact,
-    )
-    atomic_write_json(
-        run_root / "controller" / "pending-workspace-validation.json",
-        {
-            "job_id": job.id,
-            "role": "implementer",
-            "sandbox": "workspace-write",
-        },
-    )
+    store.complete_job(job.id, output_artifact="agent/001-implementer.json", data=data, artifact_path=artifact)
+    return job.id
 
 
 class WorkerAttemptIsolationTests(unittest.TestCase):
@@ -219,14 +160,14 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
             mirror = WorkspaceMirror(source, run_root, CommandRunner())
             workspace = mirror.create()
             request = _run_request(run_root, workspace)
-
             TransactionalAdapter(_DirtySuccess(), CommandRunner()).run(request)
-
             marker = run_root / "controller" / "pending-workspace-validation.json"
             self.assertTrue(marker.is_file())
             payload = __import__("json").loads(marker.read_text(encoding="utf-8"))
             self.assertEqual(payload["job_id"], "001-implementer")
             self.assertEqual(payload["sandbox"], "workspace-write")
+            self.assertTrue(payload["workspace_state_sha256"])
+            self.assertTrue(payload["pre_attempt_head"])
 
     def test_resume_discards_unowned_uncheckpointed_workspace_changes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -236,7 +177,6 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
             run_root.mkdir(parents=True)
             mirror = WorkspaceMirror(source, run_root, CommandRunner())
             workspace = mirror.create()
-
             (workspace / "verified.txt").write_text("verified\n", encoding="utf-8")
             mirror.checkpoint("verified controller checkpoint")
             (workspace / "tracked.txt").write_text("unverified\n", encoding="utf-8")
@@ -244,7 +184,6 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
             ignored = workspace / "ignored-cache" / "resume.txt"
             ignored.parent.mkdir()
             ignored.write_text("unverified\n", encoding="utf-8")
-
             resumed = WorkspaceMirror(source, run_root, CommandRunner())
             resumed.load_existing()
             self.assertTrue((workspace / "verified.txt").is_file())
@@ -260,20 +199,33 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
             run_root.mkdir(parents=True)
             mirror = WorkspaceMirror(source, run_root, CommandRunner())
             workspace = mirror.create()
-            _record_completed_write_job(run_root)
-
+            pre_attempt_head = mirror.head()
+            job_id = _record_completed_write_job(run_root)
             (workspace / "tracked.txt").write_text("worker-result-awaiting-validation\n", encoding="utf-8")
             (workspace / "new-result.txt").write_text("worker-result\n", encoding="utf-8")
             ignored = workspace / "ignored-cache" / "hidden.txt"
             ignored.parent.mkdir()
             ignored.write_text("hidden\n", encoding="utf-8")
-
+            # The ignored residue is intentionally outside the pending-state digest because
+            # resume removes ignored state before validating the durable write window.
+            mirror._discard_ignored_state()
+            atomic_write_json(
+                run_root / "controller" / "pending-workspace-validation.json",
+                {
+                    "job_id": job_id,
+                    "role": "implementer",
+                    "sandbox": "workspace-write",
+                    "pre_attempt_head": pre_attempt_head,
+                    "workspace_state_sha256": mirror._workspace_state_digest(pre_attempt_head),
+                },
+            )
+            # Recreate ignored residue after the digest to prove resume cleans it without
+            # discarding the bound tracked/untracked worker result.
+            ignored.parent.mkdir()
+            ignored.write_text("hidden\n", encoding="utf-8")
             resumed = WorkspaceMirror(source, run_root, CommandRunner())
             resumed.load_existing()
-            self.assertEqual(
-                (workspace / "tracked.txt").read_text(encoding="utf-8"),
-                "worker-result-awaiting-validation\n",
-            )
+            self.assertEqual((workspace / "tracked.txt").read_text(encoding="utf-8"), "worker-result-awaiting-validation\n")
             self.assertTrue((workspace / "new-result.txt").is_file())
             self.assertFalse((workspace / "ignored-cache").exists())
 
@@ -286,12 +238,8 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
             mirror = WorkspaceMirror(source, run_root, CommandRunner())
             workspace = mirror.create()
             marker = run_root / "controller" / "pending-workspace-validation.json"
-            atomic_write_json(
-                marker,
-                {"job_id": "001-implementer", "sandbox": "workspace-write"},
-            )
+            atomic_write_json(marker, {"job_id": "001-implementer", "sandbox": "workspace-write"})
             (workspace / "tracked.txt").write_text("validated\n", encoding="utf-8")
-
             mirror.checkpoint("validated controller checkpoint")
             self.assertFalse(marker.exists())
 
