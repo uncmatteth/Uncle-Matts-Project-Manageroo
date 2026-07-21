@@ -33,8 +33,6 @@ def _invalid_lock(lock_path: Path, detail: str) -> dict[str, Any]:
 
 
 def _validate_command_list(value: Any, field: str) -> str | None:
-    if value is None:
-        return None
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         return f"{field} must be a list of strings"
     return None
@@ -48,12 +46,18 @@ def _validate_lock_payload(payload: dict[str, Any]) -> str | None:
         if not isinstance(tool, dict):
             return f"external_tools[{index}] must be an object"
         for field in ("next_commands", "guidance_commands"):
-            problem = _validate_command_list(tool.get(field), f"external_tools[{index}].{field}")
+            if field not in tool:
+                continue
+            problem = _validate_command_list(tool[field], f"external_tools[{index}].{field}")
             if problem:
                 return problem
     stack_summary = payload.get("stack_summary")
     if stack_summary is not None and not isinstance(stack_summary, dict):
         return "stack_summary must be an object when present"
+    if isinstance(stack_summary, dict):
+        items = stack_summary.get("items", [])
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            return "stack_summary.items must be a list of objects"
     return None
 
 
