@@ -8,13 +8,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import zipfile
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_TAG = "v2026.7.19.1"
+EXPECTED_VERSION = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
+VERSION_TAG = f"v{EXPECTED_VERSION}"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 EXPECTED_SKILL_COUNT = 18
@@ -177,6 +179,10 @@ def smoke(
         install = run(install_args, cwd=extracted, env=env, timeout=240)
 
         version = run(["manageroo", "--version"], cwd=extracted, env=env).stdout.strip()
+        if version != EXPECTED_VERSION:
+            raise RuntimeError(
+                f"Installed Manageroo version mismatch: expected {EXPECTED_VERSION!r}, received {version!r}"
+            )
         self_test = parse_json_command(["manageroo", "self-test"], cwd=extracted, env=env)
         if self_test.get("ok") is not True or self_test.get("status") != "COMPLETE":
             raise RuntimeError(f"self-test did not complete: {self_test}")
@@ -290,6 +296,7 @@ def smoke(
             "ok": True,
             "archive": str(archive),
             "version": version,
+            "expected_version": EXPECTED_VERSION,
             "platform": sys.platform,
             "installer": Path(install_args[0]).name,
             "temp_root": str(temp_root) if keep_temp else "",
