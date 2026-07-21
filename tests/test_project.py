@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from manageroo.project import create_project_repo, initialize_project
+from manageroo.project_memory import ensure_project_memory
 
 
 class ProjectInitializationTests(unittest.TestCase):
@@ -38,6 +39,33 @@ class ProjectInitializationTests(unittest.TestCase):
             )
             self.assertFalse((repo / ".vscode").exists())
             self.assertFalse((repo / "CLAUDE.md").exists())
+
+    def test_real_memory_values_replace_generated_placeholder_bullets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            ensure_project_memory(repo)
+            ensure_project_memory(
+                repo,
+                project_summary="A real project summary.",
+                shipped=["Version 1 released."],
+                must_not=["Never delete customer data."],
+                proof=["Run the end-to-end smoke test."],
+            )
+            text = (repo / ".manageroo" / "PROJECT-MEMORY.md").read_text(encoding="utf-8")
+            for value in (
+                "A real project summary.",
+                "Version 1 released.",
+                "Never delete customer data.",
+                "Run the end-to-end smoke test.",
+            ):
+                self.assertIn(value, text)
+            for placeholder in (
+                "Describe the durable identity and purpose of this project.",
+                "Nothing shipped through MANAGEROO yet.",
+                "Add the invariants that future work must preserve.",
+                "Record the strongest reliable proof commands and user journeys here.",
+            ):
+                self.assertNotIn(placeholder, text)
 
     def test_create_project_repo_initializes_missing_folder_with_first_commit(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -95,7 +123,7 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertTrue((repo / "index.html").is_file())
             self.assertTrue((repo / "styles.css").is_file())
 
-    def test_initialization_refuses_to_rewrite_non_utf8_instruction_file(self):
+    def test_initialization_preflights_non_utf8_instruction_file_before_mutating_repo(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
@@ -103,9 +131,15 @@ class ProjectInitializationTests(unittest.TestCase):
             agents = repo / "AGENTS.md"
             original = b"prefix\xffsuffix"
             agents.write_bytes(original)
+            before = {path.relative_to(repo).as_posix(): path.read_bytes() for path in repo.iterdir() if path.is_file()}
             with self.assertRaises(ValueError):
                 initialize_project(repo, agent="mock")
+            after = {path.relative_to(repo).as_posix(): path.read_bytes() for path in repo.iterdir() if path.is_file()}
+            self.assertEqual(after, before)
             self.assertEqual(agents.read_bytes(), original)
+            self.assertFalse((repo / ".manageroo").exists())
+            self.assertFalse((repo / ".agents").exists())
+            self.assertFalse((repo / "CONTEXT.md").exists())
 
     def test_create_project_repo_refuses_non_empty_non_git_folder(self):
         with tempfile.TemporaryDirectory() as temp:
