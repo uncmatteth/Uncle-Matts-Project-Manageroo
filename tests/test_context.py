@@ -20,7 +20,7 @@ class ContextTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def compiler(self, max_tokens=200):
+    def compiler(self, max_tokens=1000):
         return ContextCompiler(
             self.repo,
             self.root / "packets",
@@ -118,7 +118,7 @@ class ContextTests(unittest.TestCase):
         compiler = ContextCompiler(
             self.repo,
             self.root / "packets",
-            max_input_tokens=260,
+            max_input_tokens=420,
             reserve_output_tokens=20,
             chars_per_token=1.0,
             max_single_file_tokens=100,
