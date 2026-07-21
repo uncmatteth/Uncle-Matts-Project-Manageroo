@@ -8,8 +8,10 @@ from unittest.mock import patch
 
 from manageroo.checks import add_check_gate
 from manageroo.project import initialize_project
+from manageroo.release_proof_policy import source_tree_digest
 from manageroo.release_ready import format_release_ready, release_ready
-from manageroo.util import atomic_write_json
+from manageroo.runner import CommandRunner
+from manageroo.util import atomic_write_json, sha256_file
 
 
 class ReleaseReadyTests(unittest.TestCase):
@@ -64,22 +66,27 @@ class ReleaseReadyTests(unittest.TestCase):
                     "run_root": str(run_root),
                 },
                 "applied_to_source": True,
+                "verified_source_tree_sha256": source_tree_digest(repo, CommandRunner()),
+                "final_patch_sha256": sha256_file(patch_path),
             },
         )
         return run_root
+
+    def _release_ready(self, repo: Path) -> dict:
+        helper_patch, gbrain_patch = self._release_patches()
+        with helper_patch, gbrain_patch:
+            return release_ready(
+                repo,
+                target="manual production deploy",
+                rollback="revert the release commit and redeploy",
+                approved_by="Operator",
+            )
 
     def test_release_ready_passes_with_clean_repo_passing_gates_and_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             run_root = self._completed_run(repo)
-            helper_patch, gbrain_patch = self._release_patches()
-            with helper_patch, gbrain_patch:
-                report = release_ready(
-                    repo,
-                    target="manual production deploy",
-                    rollback="revert the release commit and redeploy",
-                    approved_by="Operator",
-                )
+            report = self._release_ready(repo)
             self.assertTrue(report["ok"], report)
             self.assertEqual(report["status"], "READY FOR OPERATOR RELEASE")
             self.assertEqual(report["next_commands"], [])
@@ -113,6 +120,33 @@ class ReleaseReadyTests(unittest.TestCase):
             formatted = format_release_ready(report)
             self.assertIn("Production handoff:", formatted)
             self.assertIn(str(handoff), formatted)
+
+    def test_release_ready_rejects_completed_proof_from_previous_source_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            self._completed_run(repo)
+            (repo / "README.md").write_text("fixture changed after proof\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "change after proof"], cwd=repo, check=True)
+
+            report = self._release_ready(repo)
+            self.assertFalse(report["ok"])
+            run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
+            self.assertFalse(run_item["ok"])
+            self.assertIn("does not match", run_item["detail"])
+
+    def test_release_ready_rejects_tampered_final_patch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = self._completed_run(repo)
+            patch_path = run_root / "delivery" / "final.patch"
+            patch_path.write_text(patch_path.read_text(encoding="utf-8") + "tampered\n", encoding="utf-8")
+
+            report = self._release_ready(repo)
+            self.assertFalse(report["ok"])
+            run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
+            self.assertFalse(run_item["ok"])
+            self.assertIn("patch bytes", run_item["detail"])
 
     def test_release_ready_fails_without_completed_manageroo_run(self):
         with tempfile.TemporaryDirectory() as temp:
