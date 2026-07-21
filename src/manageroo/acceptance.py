@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -11,6 +12,7 @@ DEMONSTRATION_TERMS = (
     "deployment",
     "security",
     "auth",
+    "authentication",
     "login",
     "permission",
     "screenshot",
@@ -39,9 +41,16 @@ def _passed_gate_ids(gates: list[dict]) -> set[str]:
     return passed
 
 
+def _term_present(text: str, term: str) -> bool:
+    normalized = _normalized(text)
+    term_normalized = _normalized(term)
+    if " " in term_normalized:
+        return term_normalized in normalized
+    return bool(re.search(rf"(?<![\w-]){re.escape(term_normalized)}(?![\w-])", normalized))
+
+
 def _needs_demonstration(description: str) -> bool:
-    lowered = description.casefold()
-    return any(term in lowered for term in DEMONSTRATION_TERMS)
+    return any(_term_present(description, term) for term in DEMONSTRATION_TERMS)
 
 
 def _bindings(demonstration: dict) -> dict[str, list[dict[str, Any]]]:
