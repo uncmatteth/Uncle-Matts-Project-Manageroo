@@ -41,8 +41,10 @@ def _toml_value(value: Any) -> str:
 
 def _integrations_block(values: dict[str, Any]) -> str:
     lines = ["[integrations]"]
-    for key in INTEGRATION_ORDER:
-        lines.append(f"{key} = {_toml_value(values.get(key, []))}")
+    ordered_keys = [key for key in INTEGRATION_ORDER if key in values]
+    ordered_keys.extend(sorted(key for key in values if key not in INTEGRATION_ORDER))
+    for key in ordered_keys:
+        lines.append(f"{key} = {_toml_value(values[key])}")
     return "\n".join(lines)
 
 
@@ -81,6 +83,8 @@ def configure_integrations(
         raise ConfigurationError(f"Missing {config_path}. Run `{PUBLIC_COMMAND} init` first.")
     config = load_config(repo)
     values = dict(DEFAULT_CONFIG["integrations"])
+    # Preserve every existing key, including custom and forward-version integration
+    # settings Manageroo does not currently know how to configure itself.
     values.update(config.get("integrations", {}))
     records: list[dict[str, Any]] = []
 
