@@ -31,6 +31,23 @@ class IntegrationTests(unittest.TestCase):
                 integration.export(str(outside.resolve()), "x")
             self.assertFalse(outside.exists())
 
+    def test_obsidian_export_rejects_symlink_parent_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            vault = root / "vault"
+            outside = root / "outside"
+            (vault / "exports").mkdir(parents=True)
+            outside.mkdir()
+            try:
+                (vault / "exports" / "link").symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable on this platform")
+
+            integration = ObsidianIntegration(str(vault), "exports")
+            with self.assertRaises(SafetyError):
+                integration.export("link/report.md", "x")
+            self.assertFalse((outside / "report.md").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
