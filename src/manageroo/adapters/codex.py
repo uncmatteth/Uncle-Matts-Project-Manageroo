@@ -19,7 +19,6 @@ _DANGER_FALLBACK_ENV = "MANAGEROO_CODEX_DANGER_FULL_ACCESS_FALLBACK"
 
 
 def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Return a Codex structured-output-compatible copy of a JSON schema."""
     normalized = deepcopy(schema)
 
     def visit(node: Any) -> None:
@@ -45,11 +44,12 @@ def _danger_fallback_enabled() -> bool:
 
 
 class CodexAdapter(AgentAdapter):
-    """Runs one fresh Codex process per role with an explicit pre-launch sandbox choice.
+    """Runs one fresh Codex process per role.
 
-    The historical fallback environment variable is retained for compatibility, but it now
-    chooses danger-full-access before the process starts. Child-controlled stderr can never
-    authorize a second, less-restricted retry.
+    Workspace-write is always attempted first. A second danger-full-access launch is permitted
+    only when the operator explicitly opted in before launch *and* the first process failed with
+    the exact known host bubblewrap initialization error. Successful or unrelated worker output
+    can never authorize escalation.
     """
 
     REQUIRED_FLAGS = ("--output-schema", "--output-last-message", "--sandbox")
@@ -77,7 +77,7 @@ class CodexAdapter(AgentAdapter):
             "path": found,
             "version": version.stdout.strip() or version.stderr.strip(),
             "missing_required_flags": missing,
-            "danger_full_access_preselected": _danger_fallback_enabled(),
+            "danger_full_access_fallback_opted_in": _danger_fallback_enabled(),
             "stderr_triggered_escalation": False,
         }
 
@@ -135,28 +135,31 @@ class CodexAdapter(AgentAdapter):
         codex_schema_path = request.output_path.with_suffix(".codex-schema.json")
         atomic_write_json(codex_schema_path, _codex_compatible_schema(source_schema))
 
-        selected_sandbox = request.sandbox
-        if request.sandbox == "workspace-write" and _danger_fallback_enabled():
-            selected_sandbox = "danger-full-access"
-
         argv, result = self._run_codex(
             request,
             prompt=prompt,
             codex_schema_path=codex_schema_path,
-            sandbox=selected_sandbox,
+            sandbox=request.sandbox,
         )
 
         diagnostics = (result.stdout or "") + "\n" + (result.stderr or "")
         if (
             request.sandbox == "workspace-write"
-            and selected_sandbox == request.sandbox
             and not result.passed
             and _BWRAP_LOOPBACK_FAILURE in diagnostics
         ):
-            raise AgentExecutionError(
-                "Codex could not initialize its workspace-write bubblewrap sandbox on this host. "
-                "Manageroo will not authorize an unrestricted retry from child process output. "
-                f"To explicitly select unrestricted Codex before launch, set {_DANGER_FALLBACK_ENV}=1 for this run."
+            if not _danger_fallback_enabled():
+                raise AgentExecutionError(
+                    "Codex could not initialize its workspace-write bubblewrap sandbox on this host. "
+                    "Manageroo refused to escalate automatically. To explicitly allow one unrestricted "
+                    f"retry after this exact host-sandbox initialization failure, set {_DANGER_FALLBACK_ENV}=1 for this run."
+                )
+            self._clear_prior_outputs(request)
+            argv, result = self._run_codex(
+                request,
+                prompt=prompt,
+                codex_schema_path=codex_schema_path,
+                sandbox="danger-full-access",
             )
 
         if not result.passed:
