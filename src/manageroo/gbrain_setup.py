@@ -99,22 +99,29 @@ def summarize_sync_status(output: str) -> dict[str, Any]:
         for source in sources
         if isinstance(source, dict) and str(source.get("chunks_unembedded") or "0").lstrip("-").isdigit()
     )
-    healthy = unacknowledged_failures == 0
+    sync_healthy = unacknowledged_failures == 0
+    embeddings_ready = chunks_unembedded == 0 and all(coverage >= 100.0 for coverage in coverages)
+    healthy = sync_healthy and embeddings_ready
+    problems: list[str] = []
+    if unacknowledged_failures:
+        problems.append("GBrain reports unacknowledged synchronization failures.")
+    if chunks_unembedded:
+        problems.append(f"GBrain still has {chunks_unembedded} unembedded chunk(s).")
+    if coverages and min(coverages) < 100.0:
+        problems.append(f"Minimum embedding coverage is {min(coverages)}%, not 100%.")
     return {
         "ok": healthy,
         "parsed": True,
         "healthy": healthy,
+        "sync_healthy": sync_healthy,
+        "embeddings_ready": embeddings_ready,
         "sources": normalized_sources,
         "source_count": len(normalized_sources),
         "chunks_total": chunks_total,
         "chunks_unembedded": chunks_unembedded,
         "embedding_coverage_min_pct": min(coverages) if coverages else None,
         "unacknowledged_failures": unacknowledged_failures,
-        "health_problem": (
-            "GBrain reports unacknowledged synchronization failures."
-            if unacknowledged_failures
-            else ""
-        ),
+        "health_problem": " ".join(problems),
     }
 
 
@@ -144,7 +151,6 @@ def gbrain_setup_status(
             "installed": False,
             "next_commands": ["Install GBrain first, then rerun `manageroo gbrain-setup`."],
         }
-
     actions: list[dict[str, Any]] = []
     next_commands: list[str] = []
     add_failed = False
@@ -161,9 +167,7 @@ def gbrain_setup_status(
             if sync and not add_failed:
                 actions.append(run_probe(sync_argv, timeout_seconds=300))
             elif sync:
-                next_commands.append(
-                    "Source add failed, so sync was not attempted. Fix the add failure and rerun the setup command."
-                )
+                next_commands.append("Source add failed, so sync was not attempted. Fix the add failure and rerun the setup command.")
         else:
             next_commands.append(shlex.join(add_argv))
             if sync:
@@ -183,19 +187,19 @@ def gbrain_setup_status(
         summary = {"ok": False, "parsed": False, "healthy": False, "error": status_probe["error"]}
     else:
         status_probe = run_probe([gbrain, "status", "--json", "--section", "sync"])
-        summary = (
-            summarize_sync_status(status_probe.get("stdout", ""))
-            if status_probe.get("ok")
-            else {
-                "ok": False,
-                "parsed": False,
-                "healthy": False,
-                "error": status_probe.get("error") or status_probe.get("stderr") or status_probe.get("stdout") or "gbrain status failed",
-            }
-        )
+        summary = summarize_sync_status(status_probe.get("stdout", "")) if status_probe.get("ok") else {
+            "ok": False,
+            "parsed": False,
+            "healthy": False,
+            "error": status_probe.get("error") or status_probe.get("stderr") or status_probe.get("stdout") or "gbrain status failed",
+        }
     if summary.get("parsed") and summary.get("source_count") == 0:
-        next_commands.append("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder")
-        next_commands.append("gbrain sync --source YOUR_SOURCE_ID --json --yes")
+        next_commands.extend([
+            "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
+            "gbrain sync --source YOUR_SOURCE_ID --json --yes",
+        ])
+    elif summary.get("parsed") and not summary.get("embeddings_ready"):
+        next_commands.append("Run `gbrain sync --source YOUR_SOURCE_ID --json --yes` until all indexed chunks are embedded.")
     actions_ok = all(action.get("ok") for action in actions)
     has_sources = bool(summary.get("parsed") and summary.get("source_count", 0) > 0)
     healthy = bool(summary.get("healthy"))
@@ -209,7 +213,7 @@ def gbrain_setup_status(
         "status_probe": safe_probe_record(status_probe),
         "actions": actions,
         "next_commands": next_commands,
-        "rule": "No broad scan. Add only folders the operator chooses.",
+        "rule": "No broad scan. Add only folders the operator chooses. OK means sources are synchronized and fully embedded for semantic retrieval.",
     }
 
 
@@ -233,9 +237,7 @@ def format_gbrain_setup(report: dict[str, Any]) -> str:
         if status.get("embedding_coverage_min_pct") is not None:
             lines.append(f"Minimum embedding coverage: {status['embedding_coverage_min_pct']}%")
         if not status.get("healthy"):
-            lines.append(
-                f"Problem: {status.get('health_problem') or 'GBrain synchronization status is not healthy.'}"
-            )
+            lines.append(f"Problem: {status.get('health_problem') or 'GBrain synchronization or embedding readiness is incomplete.'}")
     else:
         lines.append(f"Problem: {status.get('error', 'status unavailable')}")
     for action in report.get("actions", []):
