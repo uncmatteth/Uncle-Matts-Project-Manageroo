@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import re
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -19,6 +20,20 @@ def load_install_script():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _powershell_forwarding_map(text: str) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    pattern = re.compile(
+        r'^if \(\$(?P<parameter>[A-Za-z0-9]+)\) \{ \$InstallArgs \+= @\("(?P<flag>--[a-z0-9-]+)", \$(?P=parameter)\) \}$',
+        re.MULTILINE,
+    )
+    for match in pattern.finditer(text):
+        parameter = match.group("parameter")
+        if parameter in mapping:
+            raise AssertionError(f"PowerShell installer forwards {parameter} more than once")
+        mapping[parameter] = match.group("flag")
+    return mapping
 
 
 class InstallScriptTests(unittest.TestCase):
@@ -89,22 +104,25 @@ class InstallScriptTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()):
                     self.assertEqual(install.choose_stack_doctor_mode("ask"), "run")
 
-    def test_powershell_installer_exposes_important_python_flags(self):
+    def test_powershell_installer_forwards_each_important_value_to_the_exact_python_flag(self):
         ps1 = (ROOT / "install.ps1").read_text(encoding="utf-8")
-        py = INSTALL_SCRIPT.read_text(encoding="utf-8")
-        important = [
-            ("Prefix", "--prefix"),
-            ("BinDir", "--bin-dir"),
-            ("GBrainLane", "--gbrain-lane"),
-            ("ProjectDiscovery", "--project-discovery"),
-            ("StackDoctor", "--stack-doctor"),
-            ("ClawpatchCodexLogin", "--clawpatch-codex-login"),
-        ]
-        for parameter, flag in important:
-            with self.subTest(flag=flag):
-                self.assertIn(flag, py)
-                self.assertIn(f"${parameter}", ps1)
-                self.assertIn(flag, ps1)
+        mapping = _powershell_forwarding_map(ps1)
+        expected = {
+            "Prefix": "--prefix",
+            "BinDir": "--bin-dir",
+            "TokenMode": "--token-mode",
+            "SkillPack": "--skill-pack",
+            "Stack": "--stack",
+            "GBrainLane": "--gbrain-lane",
+            "ProjectDiscovery": "--project-discovery",
+            "StackDoctor": "--stack-doctor",
+            "ClawpatchCodexLogin": "--clawpatch-codex-login",
+            "ObsidianMethod": "--obsidian-method",
+        }
+        for parameter, flag in expected.items():
+            with self.subTest(parameter=parameter):
+                self.assertEqual(mapping.get(parameter), flag)
+        self.assertEqual({key: mapping[key] for key in expected}, expected)
 
     def test_installer_has_no_external_loop_library_surface(self):
         py = INSTALL_SCRIPT.read_text(encoding="utf-8")
