@@ -60,10 +60,10 @@ class ProjectInitializationTests(unittest.TestCase):
             ):
                 self.assertIn(value, text)
             for placeholder in (
-                "Describe the durable identity and purpose of this project.",
+                "Describe what this project is for.",
                 "Nothing shipped through MANAGEROO yet.",
-                "Add the invariants that future work must preserve.",
-                "Record the strongest reliable proof commands and user journeys here.",
+                "Add product promises, workflows, files, or behaviors that must stay intact.",
+                "Add the commands or manual checks that prove the current state.",
             ):
                 self.assertNotIn(placeholder, text)
 
