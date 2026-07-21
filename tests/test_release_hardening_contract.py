@@ -17,54 +17,87 @@ def _load_package_release():
     return module
 
 
+HARDENING_MODULES = {
+    "src/manageroo/acceptance.py",
+    "src/manageroo/chiptune_policy.py",
+    "src/manageroo/config_mutation_policy.py",
+    "src/manageroo/context_hardening.py",
+    "src/manageroo/discovery_policy.py",
+    "src/manageroo/discovery_preflight.py",
+    "src/manageroo/entrypoint_policy.py",
+    "src/manageroo/evidence.py",
+    "src/manageroo/evidence_artifact_guard.py",
+    "src/manageroo/evidence_hardening.py",
+    "src/manageroo/evidence_policy.py",
+    "src/manageroo/external_repair_policy.py",
+    "src/manageroo/intent_audit_policy.py",
+    "src/manageroo/plan_proof_policy.py",
+    "src/manageroo/project_initialization_policy.py",
+    "src/manageroo/release_proof_policy.py",
+    "src/manageroo/release_ready_policy.py",
+    "src/manageroo/skill_pack_policy.py",
+    "src/manageroo/stack_doctor_policy.py",
+    "src/manageroo/stack_update_policy.py",
+    "src/manageroo/adapters/budget.py",
+    "src/manageroo/adapters/pool.py",
+    "src/manageroo/adapters/transactional.py",
+}
+
+BEHAVIORAL_REGRESSION_TESTS = {
+    "tests/test_acceptance_evidence.py",
+    "tests/test_clawpatch_regressions.py",
+    "tests/test_clawpatch_remaining_regressions.py",
+    "tests/test_cli_smoke.py",
+    "tests/test_decision_regressions.py",
+    "tests/test_decision_workflow.py",
+    "tests/test_discovery_cli.py",
+    "tests/test_discovery_policy.py",
+    "tests/test_discovery_preflight.py",
+    "tests/test_entrypoint_safety.py",
+    "tests/test_evidence.py",
+    "tests/test_evidence_policy.py",
+    "tests/test_external_repair_policy.py",
+    "tests/test_external_repair_resume.py",
+    "tests/test_final_clawpatch_regressions.py",
+    "tests/test_install_repair.py",
+    "tests/test_integration_config_regressions.py",
+    "tests/test_integrations.py",
+    "tests/test_jobs.py",
+    "tests/test_parallel_worker_logging.py",
+    "tests/test_plan_proof_policy.py",
+    "tests/test_release_driver.py",
+    "tests/test_release_ready_missing_executable.py",
+    "tests/test_remaining_audit_regressions.py",
+    "tests/test_scope_and_skill_path_hardening.py",
+    "tests/test_skill_pack_transaction.py",
+    "tests/test_stack_doctor.py",
+    "tests/test_stack_update.py",
+    "tests/test_transactional_adapter_hardening.py",
+    "tests/test_transactional_history_and_pristine.py",
+    "tests/test_truth_contract_production.py",
+    "tests/test_worker_attempt_isolation.py",
+    "tests/test_worker_pool.py",
+    "tests/test_workspace.py",
+}
+
+
 class ReleaseHardeningContractTests(unittest.TestCase):
     def test_hardened_controller_modules_and_behavioral_regressions_are_packaged(self):
         package_release = _load_package_release()
         source = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}
         required = {
+            "sitecustomize.py",
             "docs/DISCOVERY_AND_CAPACITY.md",
             "docs/EVIDENCE_RETRIEVAL.md",
             "docs/HOST_INTEGRATION.md",
             "scripts/finalize_gitnexus.py",
             "scripts/release.py",
-            "src/manageroo/acceptance.py",
-            "src/manageroo/discovery_policy.py",
-            "src/manageroo/discovery_preflight.py",
-            "src/manageroo/evidence.py",
-            "src/manageroo/evidence_policy.py",
             "src/manageroo/host_skills.py",
             "src/manageroo/system_capacity.py",
             "src/manageroo/stack_update.py",
-            "src/manageroo/external_repair_policy.py",
-            "src/manageroo/plan_proof_policy.py",
-            "src/manageroo/adapters/budget.py",
-            "src/manageroo/adapters/pool.py",
-            "src/manageroo/adapters/transactional.py",
-            "tests/test_acceptance_evidence.py",
-            "tests/test_capacity_public_surface.py",
-            "tests/test_cli_smoke.py",
-            "tests/test_decision_workflow.py",
-            "tests/test_discovery_cli.py",
-            "tests/test_discovery_policy.py",
-            "tests/test_discovery_preflight.py",
-            "tests/test_entrypoint_safety.py",
-            "tests/test_evidence.py",
-            "tests/test_evidence_policy.py",
-            "tests/test_external_loop_library_removed.py",
-            "tests/test_external_repair_resume.py",
-            "tests/test_host_skills.py",
-            "tests/test_install_stack_contract.py",
-            "tests/test_integrations.py",
-            "tests/test_jobs.py",
-            "tests/test_parallel_worker_logging.py",
-            "tests/test_plan_proof_policy.py",
-            "tests/test_release_driver.py",
-            "tests/test_stack_doctor.py",
-            "tests/test_stack_update.py",
-            "tests/test_system_capacity.py",
-            "tests/test_worker_attempt_isolation.py",
-            "tests/test_worker_pool.py",
+            *HARDENING_MODULES,
+            *BEHAVIORAL_REGRESSION_TESTS,
         }
         self.assertTrue(required <= source, sorted(required - source))
         end_user_required = {
@@ -72,32 +105,16 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             for item in required
             if item.startswith("src/")
             or item.startswith("docs/")
-            or item in {"scripts/release.py", "scripts/finalize_gitnexus.py"}
+            or item in {"scripts/release.py", "scripts/finalize_gitnexus.py", "sitecustomize.py"}
         }
         self.assertTrue(end_user_required <= end_user, sorted(end_user_required - end_user))
 
     def test_behavior_critical_hardening_is_covered_by_executable_tests(self):
-        expected_behavioral_tests = {
-            "tests/test_acceptance_evidence.py",
-            "tests/test_cli_smoke.py",
-            "tests/test_decision_workflow.py",
-            "tests/test_discovery_preflight.py",
-            "tests/test_entrypoint_safety.py",
-            "tests/test_evidence.py",
-            "tests/test_evidence_policy.py",
-            "tests/test_external_repair_resume.py",
-            "tests/test_integrations.py",
-            "tests/test_jobs.py",
-            "tests/test_parallel_worker_logging.py",
-            "tests/test_plan_proof_policy.py",
-            "tests/test_release_driver.py",
-            "tests/test_stack_doctor.py",
-            "tests/test_stack_update.py",
-            "tests/test_system_capacity.py",
-            "tests/test_worker_attempt_isolation.py",
-            "tests/test_worker_pool.py",
-        }
-        missing = [relative for relative in sorted(expected_behavioral_tests) if not (ROOT / relative).is_file()]
+        missing = [
+            relative
+            for relative in sorted(BEHAVIORAL_REGRESSION_TESTS)
+            if not (ROOT / relative).is_file()
+        ]
         self.assertEqual(missing, [])
 
     def test_public_boundary_is_generic_and_current(self):
@@ -106,6 +123,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
             ROOT / "GITHUB_DESCRIPTION.md",
             ROOT / "LOCAL_SETUP.md",
             ROOT / "PUBLISH_TO_GITHUB.md",
+            ROOT / "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
             *sorted((ROOT / "docs").glob("*.md")),
         ]
         combined = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in public_files if path.is_file())
