@@ -8,7 +8,7 @@ from .errors import SafetyError, ValidationError
 from .inventory import build_inventory
 from .policy import ScopePolicy
 from .runner import CommandRunner
-from .util import atomic_write_json, sha256_file
+from .util import atomic_write_json
 
 
 def _normalized(value: str) -> str:
@@ -40,24 +40,18 @@ def validate_review_evidence(
         start = int(finding.get("start_line", 0))
         end = int(finding.get("end_line", 0))
         if start < 1 or end < start or end > len(lines):
-            raise ValidationError(
-                f"Reviewer cited invalid line range {path_value}:{start}-{end}"
-            )
+            raise ValidationError(f"Reviewer cited invalid line range {path_value}:{start}-{end}")
         quote = _normalized(finding.get("quote", ""))
         if finding.get("blocking") and not quote:
             raise ValidationError("Blocking finding must include a non-empty quote.")
         evidence = _normalized("\n".join(lines[start - 1 : end]))
         if quote and quote not in evidence:
-            raise ValidationError(
-                f"Reviewer quote does not match {path_value}:{start}-{end}"
-            )
+            raise ValidationError(f"Reviewer quote does not match {path_value}:{start}-{end}")
         if scope is not None and finding.get("blocking"):
             try:
                 scope.validate_paths([path_value])
             except SafetyError as exc:
-                raise ValidationError(
-                    f"Blocking reviewer finding is outside locked scope: {path_value}"
-                ) from exc
+                raise ValidationError(f"Blocking reviewer finding is outside locked scope: {path_value}") from exc
         accepted.append(finding)
     return accepted
 
@@ -66,12 +60,7 @@ def inventory_hashes(repo: Path, runner: CommandRunner) -> dict[str, str]:
     return {item.path: item.sha256 for item in build_inventory(repo, runner)}
 
 
-def run_isolated_review(
-    *,
-    adapter: AgentAdapter,
-    request: AgentRequest,
-    runner: CommandRunner,
-) -> dict:
+def run_isolated_review(*, adapter: AgentAdapter, request: AgentRequest, runner: CommandRunner) -> dict:
     before = inventory_hashes(request.cwd, runner)
     response = adapter.run(request)
     after = inventory_hashes(request.cwd, runner)
@@ -79,6 +68,9 @@ def run_isolated_review(
         changed = sorted(set(before) | set(after))
         changed = [item for item in changed if before.get(item) != after.get(item)]
         raise SafetyError("Reviewer mutated its isolated repository: " + ", ".join(changed))
-    validate_review_evidence(response.data, request.cwd)
+    metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    raw_allowed = metadata.get("allowed_paths", [])
+    allowed_paths = [str(item) for item in raw_allowed] if isinstance(raw_allowed, (list, tuple)) else []
+    validate_review_evidence(response.data, request.cwd, allowed_paths=allowed_paths)
     atomic_write_json(request.output_path.with_name("review-validated.json"), response.data)
     return response.data
