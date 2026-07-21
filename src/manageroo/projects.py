@@ -1,160 +1,95 @@
 from __future__ import annotations
 
+import os
 import shlex
 from pathlib import Path
+from typing import Iterable
 
-from .branding import PUBLIC_COMMAND
-
-SKIP_DIRS = {
-    ".cache",
-    ".git",
-    ".hg",
-    ".next",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pycache__",
-    "dist",
-    "node_modules",
-    "site-packages",
-    "vendor",
-    "venv",
-}
+from .branding import PROJECT_DIR, PUBLIC_COMMAND
+from .project import git_root
 
 
-def default_project_roots(*, home: Path | None = None, cwd: Path | None = None) -> list[Path]:
-    home = (home or Path.home()).expanduser()
-    cwd = (cwd or Path.cwd()).expanduser()
-    candidates = []
-    if cwd.resolve() != home.resolve():
-        candidates.append(cwd)
-    candidates.extend([home / "Documents" / "GitHub", home / "Projects", home / "Developer"])
-    roots: list[Path] = []
+DEFAULT_DISCOVERY_ROOTS = (
+    Path.home() / "Documents" / "GitHub",
+    Path.home() / "GitHub",
+    Path.home() / "Projects",
+    Path.home() / "src",
+)
+
+
+def _candidate_roots(roots: Iterable[Path] | None = None) -> list[Path]:
+    selected = list(roots or DEFAULT_DISCOVERY_ROOTS)
     seen: set[Path] = set()
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved in seen or not resolved.exists() or not resolved.is_dir():
+    result: list[Path] = []
+    for root in selected:
+        path = root.expanduser().resolve()
+        if path in seen or not path.is_dir():
             continue
-        seen.add(resolved)
-        roots.append(resolved)
-    return roots
+        seen.add(path)
+        result.append(path)
+    return result
 
 
-def _iter_project_dirs(root: Path, *, max_depth: int) -> list[Path]:
-    root = root.expanduser().resolve()
-    if not root.exists() or not root.is_dir():
-        return []
-    found: list[Path] = []
-    stack = [(root, 0)]
-    seen: set[Path] = set()
-    while stack:
-        current, depth = stack.pop()
-        try:
-            resolved = current.resolve()
-        except OSError:
-            continue
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if (resolved / ".git").exists():
-            found.append(resolved)
-            continue
-        if depth >= max_depth:
-            continue
-        try:
-            children = sorted(current.iterdir(), key=lambda item: item.name.lower())
-        except OSError:
-            continue
-        for child in reversed(children):
-            if not child.is_dir():
-                continue
-            if child.name in SKIP_DIRS:
-                continue
-            if child.name.startswith(".") and child.name != ".manageroo":
-                continue
-            stack.append((child, depth + 1))
-    return found
-
-
-def _project_record(path: Path, *, agent: str | None) -> dict:
-    initialized = (path / ".manageroo").is_dir()
-    argv = [PUBLIC_COMMAND, "next" if initialized else "solo", str(path)]
-    if agent and not initialized:
-        argv.extend(["--agent", str(agent)])
+def _project_record(path: Path, agent: str | None = None) -> dict:
+    path = path.expanduser().resolve()
+    configured = (path / PROJECT_DIR / "config.toml").is_file()
+    brief = (path / PROJECT_DIR / "PRODUCT-BRIEF.md").is_file()
+    if configured and brief:
+        status = "manageroo-ready"
+        next_command = shlex.join([PUBLIC_COMMAND, "next", "--repo", str(path)])
+    elif configured:
+        status = "manageroo-configured"
+        next_command = shlex.join([PUBLIC_COMMAND, "solo", str(path)])
+    else:
+        status = "git-project"
+        command = [PUBLIC_COMMAND, "solo", str(path)]
+        if agent:
+            command.extend(["--agent", agent])
+        next_command = shlex.join(command)
     return {
         "name": path.name,
         "path": str(path),
-        "status": "initialized" if initialized else "git repo",
-        "initialized": initialized,
-        "next_command": shlex.join(argv),
+        "status": status,
+        "manageroo_configured": configured,
+        "product_brief_present": brief,
+        "next_command": next_command,
     }
 
 
 def discover_projects(
+    roots: Iterable[Path] | None = None,
     *,
-    roots: list[Path] | None = None,
-    limit: int = 40,
     max_depth: int = 4,
     agent: str | None = None,
 ) -> dict:
-    selected_roots = roots or default_project_roots()
-    projects: list[dict] = []
-    seen: set[Path] = set()
+    discovered: dict[Path, dict] = {}
+    selected_roots = _candidate_roots(roots)
     for root in selected_roots:
-        for project_dir in _iter_project_dirs(root, max_depth=max_depth):
-            if project_dir in seen:
-                continue
-            seen.add(project_dir)
-            projects.append(_project_record(project_dir, agent=agent))
-    projects.sort(key=lambda item: (item["status"] != "initialized", item["name"].lower(), item["path"]))
-    if limit > 0:
-        projects = projects[:limit]
+        root_depth = len(root.parts)
+        for current, dirs, files in os.walk(root):
+            current_path = Path(current)
+            depth = len(current_path.parts) - root_depth
+            if depth >= max_depth:
+                dirs[:] = []
+            if ".git" in dirs:
+                try:
+                    repo = git_root(current_path)
+                except Exception:
+                    repo = current_path.resolve()
+                discovered.setdefault(repo, _project_record(repo, agent=agent))
+                dirs[:] = [name for name in dirs if name != ".git"]
+    projects = sorted(discovered.values(), key=lambda item: (item["name"].lower(), item["path"]))
     return {
         "ok": True,
-        "roots": [str(root.expanduser().resolve()) for root in selected_roots],
-        "count": len(projects),
+        "roots": [str(path) for path in selected_roots],
         "projects": projects,
-        "new_project_command": shlex.join([PUBLIC_COMMAND, "solo", "/path/to/new-project", "--create"]),
+        "count": len(projects),
     }
 
 
 def format_project_discovery(report: dict) -> str:
     lines = [
-        "PROJECT PICKER",
-        "",
-        "This is read-only. Pick a repo, then run the printed command.",
-        "",
-        "Roots checked:",
-    ]
-    for root in report.get("roots", []):
-        lines.append(f"  - {root}")
-    projects = report.get("projects", [])
-    lines.extend(["", f"Found {len(projects)} project folder(s)."])
-    for index, project in enumerate(projects, start=1):
-        lines.extend([
-            "",
-            f"{index}. {project['name']}",
-            f"   Path: {project['path']}",
-            f"   Status: {project['status']}",
-            f"   Next: {project['next_command']}",
-        ])
-    lines.extend([
-        "",
-        "New project:",
-        f"  {report.get('new_project_command', shlex.join([PUBLIC_COMMAND, 'solo', '/path/to/new-project', '--create']))}",
-        "",
-        "Guided picker:",
-        f"  {shlex.join([PUBLIC_COMMAND, 'projects', '--pick'])}",
-    ])
-    return "\n".join(lines) + "\n"
-
-
-def format_project_add_checklist(report: dict) -> str:
-    lines = [
-        "PROJECT SETUP CHECKLIST",
-        "",
-        "This is bounded and explicit. Pick only the projects you want to add.",
-        "Type numbers separated by commas, a range like 1-3, all, or press Enter to skip discovered projects.",
+        "MANAGEROO PROJECT DISCOVERY",
         "",
         "Roots checked:",
     ]
@@ -216,8 +151,9 @@ def selected_project_command(report: dict, answer: str) -> str | None:
     projects = report.get("projects", [])
     if answer.isdigit():
         index = int(answer)
-        if 1 <= index <= len(projects):
-            return projects[index - 1]["next_command"]
+        if index < 1 or index > len(projects):
+            raise ValueError(f"Project number {index} is outside the displayed list.")
+        return projects[index - 1]["next_command"]
     path = Path(answer).expanduser().resolve()
     if (path / ".git").exists():
         return _project_record(path, agent=None)["next_command"]
