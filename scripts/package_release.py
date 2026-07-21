@@ -243,6 +243,14 @@ def main() -> int:
     if result.returncode:
         return result.returncode
 
+    distribution = subprocess.run(
+        [sys.executable, "scripts/verify_distribution.py"],
+        cwd=ROOT,
+        shell=False,
+    )
+    if distribution.returncode:
+        return distribution.returncode
+
     generate_manifest()
     checksums = []
     for path in included_files():
