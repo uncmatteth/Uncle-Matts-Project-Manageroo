@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
 
 from .errors import ValidationError
+
+
+def _reject_nonfinite_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON numeric constant is forbidden: {value}")
 
 
 def extract_json(text: str) -> Any:
@@ -14,27 +19,32 @@ def extract_json(text: str) -> Any:
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
         stripped = re.sub(r"\s*```$", "", stripped)
     try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        decoder = json.JSONDecoder()
+        return json.loads(stripped, parse_constant=_reject_nonfinite_constant)
+    except (json.JSONDecodeError, ValueError):
+        decoder = json.JSONDecoder(parse_constant=_reject_nonfinite_constant)
         for index, char in enumerate(stripped):
             if char not in "[{":
                 continue
             try:
                 value, _ = decoder.raw_decode(stripped[index:])
                 return value
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, ValueError):
                 continue
-    raise ValidationError("Agent output did not contain valid JSON.")
+    raise ValidationError("Agent output did not contain valid strict JSON.")
 
 
 def _is_type(value: Any, expected: str) -> bool:
+    if expected == "number":
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and not (isinstance(value, float) and not math.isfinite(value))
+        )
     return {
         "object": isinstance(value, dict),
         "array": isinstance(value, list),
         "string": isinstance(value, str),
         "integer": isinstance(value, int) and not isinstance(value, bool),
-        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
         "boolean": isinstance(value, bool),
         "null": value is None,
     }.get(expected, True)
@@ -79,4 +89,4 @@ def validate(value: Any, schema: dict[str, Any], location: str = "$") -> None:
 
 def load_schema(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+        return json.load(handle, parse_constant=_reject_nonfinite_constant)
