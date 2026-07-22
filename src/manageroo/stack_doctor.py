@@ -8,10 +8,21 @@ from pathlib import Path
 from typing import Callable
 
 from .gbrain_setup import summarize_gbrain_config, summarize_sync_status
+from .stack_update import (
+    AUTOREVIEW_COMMIT,
+    AUTOREVIEW_REFERENCE,
+    CLAWPATCH_PACKAGE,
+    CLAWPATCH_REFERENCE,
+    GBRAIN_COMMIT,
+    GBRAIN_REFERENCE,
+    GITNEXUS_PACKAGE,
+    GITNEXUS_REFERENCE,
+)
 from .util import redact_text
 
 WhichFn = Callable[[str], str | None]
 RunnerFn = Callable[[list[str], int], dict]
+GBRAIN_PINNED_SOURCE = f"github:garrytan/gbrain#{GBRAIN_COMMIT}"
 
 
 def run_probe(argv: list[str], timeout_seconds: int = 30) -> dict:
@@ -70,11 +81,11 @@ def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
             "GBrain command not found.",
             [
                 "Install Bun from https://bun.sh/",
-                "bun install -g github:garrytan/gbrain",
+                f"bun install -g {GBRAIN_PINNED_SOURCE}",
                 "gbrain init --pglite",
                 "gbrain doctor --json",
             ],
-            reference="https://github.com/garrytan/gbrain",
+            reference=GBRAIN_REFERENCE,
         )
 
     config_probe = runner([path, "config", "show"], 30)
@@ -124,7 +135,8 @@ def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
             "sync": _safe_probe_record(sync_probe),
             "doctor": _safe_probe_record(doctor_probe),
         },
-        "reference": "https://github.com/garrytan/gbrain",
+        "reference": GBRAIN_REFERENCE,
+        "pinned_commit": GBRAIN_COMMIT,
     }
 
 
@@ -134,8 +146,8 @@ def _gitnexus(which: WhichFn, runner: RunnerFn) -> dict:
         return _missing(
             "gitnexus",
             "GitNexus command not found.",
-            ["Install Node.js 18+", "npm install -g gitnexus", "gitnexus setup"],
-            reference="https://github.com/nxpatterns/gitnexus",
+            ["Install Node.js 22.18+", f"npm install -g {GITNEXUS_PACKAGE}", "gitnexus setup"],
+            reference=GITNEXUS_REFERENCE,
         )
     version_probe = runner([path, "--version"], 30)
     configured = bool(version_probe.get("ok"))
@@ -152,7 +164,8 @@ def _gitnexus(which: WhichFn, runner: RunnerFn) -> dict:
         ),
         "next_commands": ["gitnexus setup"] if not configured else [],
         "probes": {"version": _safe_probe_record(version_probe)},
-        "reference": "https://github.com/nxpatterns/gitnexus",
+        "reference": GITNEXUS_REFERENCE,
+        "pinned_package": GITNEXUS_PACKAGE,
     }
 
 
@@ -172,10 +185,10 @@ def _autoreview(home: Path) -> dict:
             "autoreview",
             detail,
             [
-                "Reinstall or repair AUTOREVIEW from the canonical OpenClaw agent-skills source.",
+                f"Reinstall or repair AUTOREVIEW from the pinned OpenClaw agent-skills commit {AUTOREVIEW_COMMIT}.",
                 "manageroo stack-update autoreview --apply",
             ],
-            reference="https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
+            reference=AUTOREVIEW_REFERENCE,
         )
     return {
         "name": "autoreview",
@@ -186,7 +199,8 @@ def _autoreview(home: Path) -> dict:
         "detail": f"runnable script found at {existing}",
         "next_commands": [],
         "detected_locations": [str(path) for path in valid],
-        "reference": "https://github.com/openclaw/agent-skills/tree/main/skills/autoreview",
+        "reference": AUTOREVIEW_REFERENCE,
+        "pinned_commit": AUTOREVIEW_COMMIT,
     }
 
 
@@ -221,8 +235,8 @@ def _clawpatch(which: WhichFn, runner: RunnerFn, codex: dict) -> dict:
         return _missing(
             "clawpatch",
             "Clawpatch command not found.",
-            ["npm install -g pnpm", "pnpm add -g clawpatch", "clawpatch doctor"],
-            reference="https://github.com/openclaw/clawpatch",
+            ["Install pnpm 11.1.2", f"pnpm add -g {CLAWPATCH_PACKAGE}", "clawpatch doctor"],
+            reference=CLAWPATCH_REFERENCE,
         )
     doctor_probe = runner([path, "doctor"], 60)
     next_commands: list[str] = []
@@ -241,7 +255,8 @@ def _clawpatch(which: WhichFn, runner: RunnerFn, codex: dict) -> dict:
         "next_commands": next_commands,
         "probes": {"doctor": _safe_probe_record(doctor_probe), "codex_provider": codex},
         "project_commands": ["clawpatch init", "clawpatch map", "clawpatch review --limit 3 --jobs 3"],
-        "reference": "https://github.com/openclaw/clawpatch",
+        "reference": CLAWPATCH_REFERENCE,
+        "pinned_package": CLAWPATCH_PACKAGE,
     }
 
 
