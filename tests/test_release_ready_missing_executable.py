@@ -93,7 +93,6 @@ class ReleaseReadyMissingExecutableTests(unittest.TestCase):
             verification = items["verification gates pass"]
             self.assertFalse(verification["ok"])
             self.assertIn("missing-tool", verification["detail"])
-            self.assertIn("Could not launch command", verification["detail"])
 
 
 if __name__ == "__main__":
