@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import tomllib
@@ -9,7 +11,7 @@ from unittest.mock import patch
 
 from manageroo.config import config_template
 from manageroo.discovery_policy import apply_resolved_decisions
-from manageroo.entrypoint import _validated_decisions
+from manageroo.entrypoint import _decisions_main, _validated_decisions
 from manageroo.errors import ValidationError
 from manageroo.integration_config import configure_integrations
 
@@ -74,12 +76,44 @@ class ClawpatchCompletionContracts(unittest.TestCase):
                 apply_resolved_decisions(run_root)
             self.assertEqual(resolved.read_bytes(), before)
 
+    def test_decisions_show_json_emits_json_when_no_decisions_exist(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / ".manageroo" / "runs" / "empty-run").mkdir(parents=True)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = _decisions_main(["show", "empty-run", "--repo", str(repo), "--json"])
+            payload = json.loads(output.getvalue())
+            self.assertEqual(code, 1)
+            self.assertEqual(payload, {"run_id": "empty-run", "decisions": []})
+
     def test_optionless_decision_is_rejected_before_interactive_prompt(self):
         decisions, error = _validated_decisions(
             [{"id": "broken", "question": "Impossible", "options": []}]
         )
         self.assertEqual(decisions, [])
         self.assertIn("no selectable options", error or "")
+
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            planning = repo / ".manageroo" / "runs" / "broken-run" / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            (planning / "blocking-decisions.json").write_text(
+                json.dumps(
+                    {
+                        "decisions": [
+                            {"id": "broken", "question": "Impossible", "options": []}
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            with patch("builtins.input", side_effect=AssertionError("input must not be called")):
+                with contextlib.redirect_stderr(stderr):
+                    code = _decisions_main(["answer", "broken-run", "--repo", str(repo)])
+            self.assertEqual(code, 2)
+            self.assertIn("no selectable options", stderr.getvalue())
 
     def test_configure_integrations_preserves_unknown_existing_keys(self):
         with tempfile.TemporaryDirectory() as temp:
