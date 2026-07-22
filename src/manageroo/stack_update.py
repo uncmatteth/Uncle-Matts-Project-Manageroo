@@ -95,6 +95,28 @@ def _autoreview_installations() -> list[Path]:
     return resolved
 
 
+def _pinned_package_commands(
+    *,
+    executable: str | None,
+    npm: str | None,
+    pnpm: str | None,
+    package: str,
+) -> list[list[str]]:
+    """Return deterministic update commands for an already-detected CLI.
+
+    PATH discovery is the installation boundary for npm/pnpm-managed CLIs. Ownership
+    probes are intentionally not required here: they made dry-run planning dependent on
+    host-specific package-manager output and could suppress a valid pinned update.
+    """
+    if not executable:
+        return []
+    if npm:
+        return [[npm, "install", "-g", package]]
+    if pnpm:
+        return [[pnpm, "add", "-g", package]]
+    return []
+
+
 def _obsidian_update_commands(obsidian: str | None) -> tuple[list[list[str]], str]:
     if not obsidian:
         return [], "Obsidian was not detected."
@@ -116,11 +138,15 @@ def _obsidian_update_commands(obsidian: str | None) -> tuple[list[list[str]], st
         return [], "Could not prove that Homebrew owns the detected Obsidian installation."
     if system == "linux":
         flatpak = shutil.which("flatpak")
+        snap = shutil.which("snap")
+        normalized = str(obsidian).replace("\\", "/").lower()
+        # The resolved executable path is strong ownership evidence for a Snap install.
+        if snap and (normalized.startswith("/snap/") or "/snap/bin/" in normalized):
+            return [[snap, "refresh", "obsidian"]], "Detected Snap-owned Obsidian installation."
         if flatpak:
             probe = _run([flatpak, "info", "--user", "md.obsidian.Obsidian"], timeout=30)
             if probe.get("ok"):
                 return [[flatpak, "update", "--user", "-y", "md.obsidian.Obsidian"]], "Flatpak owns the detected Obsidian installation."
-        snap = shutil.which("snap")
         if snap:
             probe = _run([snap, "list", "obsidian"], timeout=30)
             if probe.get("ok"):
@@ -139,17 +165,27 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     obsidian = shutil.which("obsidian")
     autoreview_paths = _autoreview_installations()
 
-    gitnexus_commands: list[list[str]] = []
+    gitnexus_commands = _pinned_package_commands(
+        executable=gitnexus,
+        npm=npm,
+        pnpm=pnpm,
+        package=GITNEXUS_PACKAGE,
+    )
     gitnexus_note = (
         f"Updates only to the Manageroo-release pin {GITNEXUS_PACKAGE}. "
         "Repository indexing remains project-specific and is performed with `gitnexus analyze` from a target repo."
     )
-    if gitnexus and npm:
-        gitnexus_commands.append([npm, "install", "-g", GITNEXUS_PACKAGE])
-    elif gitnexus and pnpm:
-        gitnexus_commands.append([pnpm, "add", "-g", GITNEXUS_PACKAGE])
-    elif not gitnexus:
+    if not gitnexus:
         gitnexus_note += " No persistent GitNexus installation was detected, so stack-update will not install one implicitly."
+
+    clawpatch_commands = _pinned_package_commands(
+        executable=clawpatch,
+        npm=None,
+        pnpm=pnpm,
+        package=CLAWPATCH_PACKAGE,
+    )
+    if clawpatch_commands and clawpatch:
+        clawpatch_commands.append([clawpatch, "doctor"])
 
     obsidian_commands, obsidian_note = _obsidian_update_commands(obsidian)
 
@@ -185,9 +221,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
         _tool(
             "clawpatch",
             bool(clawpatch),
-            [[pnpm, "add", "-g", CLAWPATCH_PACKAGE], [clawpatch, "doctor"]]
-            if clawpatch and pnpm
-            else [],
+            clawpatch_commands,
             CLAWPATCH_REFERENCE,
             f"Updates only to the Manageroo-release pin {CLAWPATCH_PACKAGE} and reruns `clawpatch doctor`.",
         ),
