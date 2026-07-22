@@ -28,7 +28,7 @@ def _install_controller_policies() -> None:
     from .evidence_artifact_guard import install_evidence_artifact_guard
     from .evidence_hardening import install_evidence_hardening
     from .evidence_policy import install_evidence_policy
-    from .external_repair_policy import install_external_repair_policy
+    from .external_repair_install import install_external_repair_policy
     from .intent_audit_policy import install_intent_audit_policy
     from .plan_proof_policy import install_plan_proof_policy
     from .project_initialization_policy import install_project_initialization_policy
