@@ -169,7 +169,7 @@ class StackUpdateTests(unittest.TestCase):
             original_rename = Path.rename
 
             def fail_stage_rename(path, target):
-                if ".manageroo-stage-" in path.name:
+                if ".manageroo-stage" in path.name:
                     raise OSError("simulated swap failure")
                 return original_rename(path, target)
 
