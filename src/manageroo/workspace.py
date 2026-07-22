@@ -150,7 +150,19 @@ class WorkspaceMirror:
     def _git(self, args: list[str], *, hooks: bool = True):
         argv = ["git"]
         if not hooks:
-            argv.extend(["-c", "core.hooksPath=/dev/null"])
+            # Controller-owned commits must be deterministic and must not inherit user-level
+            # signing or hook configuration. This keeps isolated workspaces usable on hosts
+            # that globally require GPG/SSH signatures or define custom hook/template paths.
+            argv.extend(
+                [
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "-c",
+                    "tag.gpgSign=false",
+                ]
+            )
         argv.extend(args)
         result = self.runner.run(argv, cwd=self.workspace, timeout_seconds=300)
         if not result.passed:
