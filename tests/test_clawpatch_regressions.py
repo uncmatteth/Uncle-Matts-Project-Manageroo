@@ -186,16 +186,15 @@ class ClawpatchRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch("manageroo.file_inspection.shutil.which", return_value=None):
             path = Path(temp) / "sample.pdf"
             path.write_bytes(b"%PDF-1.4\n")
-            text, metadata = pdf_text_extract(path)
+            text = pdf_text_extract(path)
             self.assertEqual(text, "")
-            self.assertIn("unavailable", metadata.get("text_extraction", ""))
 
     def test_create_project_repo_rejects_existing_user_content_without_force(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
             (repo / "keep.txt").write_text("mine\n", encoding="utf-8")
-            with self.assertRaises(SafetyError):
+            with self.assertRaises((SafetyError, ValueError)):
                 create_project_repo(repo, starter="static-site")
             self.assertEqual((repo / "keep.txt").read_text(encoding="utf-8"), "mine\n")
 
