@@ -9,6 +9,13 @@ from unittest.mock import patch
 
 from manageroo.cli import main
 from manageroo.stack_doctor import _safe_probe_record, format_stack_doctor, stack_doctor
+from manageroo.stack_update import (
+    AUTOREVIEW_COMMIT,
+    CLAWPATCH_PACKAGE,
+    GBRAIN_COMMIT,
+    GITNEXUS_PACKAGE,
+    GITNEXUS_REFERENCE,
+)
 
 
 class StackDoctorTests(unittest.TestCase):
@@ -43,7 +50,20 @@ class StackDoctorTests(unittest.TestCase):
         self.assertEqual(gbrain["status"], "needs_action")
         self.assertIn("ollama:nomic-embed-text", gbrain["detail"])
         self.assertIn("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder", gbrain["next_commands"])
+        self.assertEqual(gbrain["pinned_commit"], GBRAIN_COMMIT)
         self.assertFalse(report["ready"])
+
+    def test_missing_tool_guidance_uses_release_pins_and_current_gitnexus_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=Path(temp))
+        by_name = {item["name"]: item for item in report["items"]}
+        self.assertTrue(any(GBRAIN_COMMIT in command for command in by_name["gbrain"]["next_commands"]))
+        self.assertIn(f"npm install -g {GITNEXUS_PACKAGE}", by_name["gitnexus"]["next_commands"])
+        self.assertEqual(by_name["gitnexus"]["reference"], GITNEXUS_REFERENCE)
+        self.assertTrue(any(CLAWPATCH_PACKAGE in command for command in by_name["clawpatch"]["next_commands"]))
+        self.assertTrue(any(AUTOREVIEW_COMMIT in command for command in by_name["autoreview"]["next_commands"]))
+        self.assertNotIn("@latest", repr(report))
+        self.assertNotIn("nxpatterns/gitnexus", repr(report))
 
     def test_failed_probe_output_and_argv_are_redacted(self):
         record = _safe_probe_record(
@@ -164,7 +184,7 @@ class StackDoctorTests(unittest.TestCase):
 
         def runner(argv: list[str], timeout_seconds: int = 30) -> dict:
             if Path(argv[0]).name == "gitnexus" and argv[1:] == ["--version"]:
-                return {"ok": True, "exit_code": 0, "output": "gitnexus 1.0.0"}
+                return {"ok": True, "exit_code": 0, "output": "gitnexus 1.6.9"}
             return {"ok": False, "exit_code": 1, "output": "unexpected"}
 
         with tempfile.TemporaryDirectory() as temp:
