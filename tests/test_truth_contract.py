@@ -1,9 +1,10 @@
 import importlib.util
 import io
-import re
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+
+from manageroo.truth_contract import claim_is_explicitly_denied, find_overclaim_offenders
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,16 +27,6 @@ def _load_installer_module():
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
-
-
-def _claim_is_explicitly_denied(sentence: str, phrase: str) -> bool:
-    before = sentence.lower().split(phrase.lower(), 1)[0]
-    denial_patterns = (r"\bdoes\s+not\b", r"\bcannot\b", r"\bnever\b", r"\bmust\s+not\b", r"\bnot\b", r"\bno\b", r"\bwithout\b", r"\binstead\s+of\b")
-    return any(re.search(pattern, before) for pattern in denial_patterns)
-
-
-def _sentences(text: str) -> list[str]:
-    return [sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+|\n+", text) if sentence.strip()]
 
 
 class TruthContractTests(unittest.TestCase):
@@ -118,30 +109,48 @@ class TruthContractTests(unittest.TestCase):
         self.assertContainsAll(_read("scripts/verify_release.py"), [
             '"docs/LIMITATIONS.md"', '"tests/test_truth_contract.py"', '"truth:no-real-vision-claim"', '"truth:no-fake-subagent-claim"',
             '"truth:no-ai-freehand-external-repair"', '"truth:no-release-ready-deploy-claim"', '"truth:no-silent-self-mutation"', '"truth:stateless-worker-orchestration"',
+            '"truth:production-overclaim-checker"',
         ], "scripts/verify_release.py")
 
     def test_public_markdown_avoids_specific_overclaim_phrases(self):
         public_files = ["README.md", "docs/00_START_HERE.md", "docs/INSTALLATION.md", "docs/LIMITATIONS.md", "docs/ARCHITECTURE.md", "docs/DOCUMENT_LANE.md", "docs/EXTERNAL_INTEGRATIONS.md", "docs/REVIEW_REPAIR_LANES.md", "docs/SOLO_OPERATOR_MODE.md", "docs/STATELESS_ORCHESTRATION.md"]
         banned_phrases = ["full vision support", "real vision support", "understands screenshots", "understands images", "guaranteed production ready", "one-button production deploy", "autonomous production deploy", "real subagent swarm", "parallel implementation branches", "ai can fix autoreview findings", "ai can fix clawpatch findings", "silently self-improves"]
         for surface in public_files:
-            sentences = _sentences(_read(surface).lower())
-            for phrase in banned_phrases:
-                with self.subTest(surface=surface, phrase=phrase):
-                    offenders = [sentence for sentence in sentences if phrase in sentence and not _claim_is_explicitly_denied(sentence, phrase)]
-                    self.assertEqual(offenders, [])
+            offenders = find_overclaim_offenders(_read(surface), banned_phrases)
+            with self.subTest(surface=surface):
+                self.assertEqual(offenders, [])
 
-    def test_overclaim_guard_rejects_unrelated_nearby_negation(self):
-        text = "This is not experimental. Manageroo has full vision support."
-        offenders = [sentence for sentence in _sentences(text) if "full vision support" in sentence.lower() and not _claim_is_explicitly_denied(sentence, "full vision support")]
-        self.assertEqual(offenders, ["Manageroo has full vision support."])
-        self.assertTrue(_claim_is_explicitly_denied("Manageroo does not provide full vision support.", "full vision support"))
+    def test_overclaim_guard_rejects_unrelated_nearby_and_same_clause_negation(self):
+        self.assertFalse(
+            claim_is_explicitly_denied(
+                "No setup is required; Manageroo has full vision support.",
+                "full vision support",
+            )
+        )
+        self.assertFalse(
+            claim_is_explicitly_denied(
+                "This works without configuration, and it understands images.",
+                "understands images",
+            )
+        )
+        self.assertTrue(
+            claim_is_explicitly_denied(
+                "Manageroo does not provide full vision support.",
+                "full vision support",
+            )
+        )
+        offenders = find_overclaim_offenders(
+            "No setup is required; Manageroo has full vision support.",
+            ["full vision support"],
+        )
+        self.assertEqual(len(offenders), 1)
 
     def test_project_manageroo_rename_has_no_old_public_brand_surface(self):
         old_title = _fixture([85,110,99,108,101,32,77,97,116,116,39,115,32,83,117,112,101,114,32,77,101,103,97,32,70,111,114,119,97,114,100,32,66,117,105,108,100,32,85,108,116,105,109,97,116,101,32,82,101,109,105,120,32,65,108,108,45,83,116,97,114,32,66,111,111,116,121,32,111,102,32,70,105,114,101,32,69,100,105,116,105,111,110])
         old_short = _fixture([83,117,112,101,114,32,77,101,103,97,32,70,111,114,119,97,114,100,32,66,117,105,108,100])
         old_acronym = _fixture([85,77,83,77,70,66,85,82,65,83,66,79,70,69])
         old_command = _fixture([117,109,115,109,102,98,117,114,97,115,98,111,102,101])
-        old_slug = _fixture([117,110,99,108,101,45,109,97,116,116,115,45,115,117,112,101,114,45,109,101,103,97,45,102,111,114,119,97,114,100,45,98,117,105,108,100,45,117,108,116,105,109,97,116,101,45,114,101,109,105,120,45,97,108,108,45,115,116,97,114,45,98,111,111,116,121,45,111,102,45,102,105,114,101,45,101,100,105,116,105,111,110])
+        old_slug = _fixture([117,110,99,108,101,45,109,97,116,116,115,45,115,117,112,101,114,45,109,101,103,97,45,102,111,114,119,97,114,100,45,98,117,105,108,100,45,117,108,116,105,109,97,116,101,45,114,101,109,105,120,45,97,108,108,45,115,116,97,114,45,98,111,111,116,121,45,111,102,45,70,105,114,101,45,101,100,105,116,105,111,110])
         banned = [old_title, old_short, old_acronym, old_command, old_slug, "." + old_command]
         for root in ["README.md", "LOCAL_SETUP.md", "GITHUB_DESCRIPTION.md", "GIVE-THIS-TO-YOUR-IDE-AGENT.md", "PUBLISH_TO_GITHUB.md", "pyproject.toml", "scripts", "src", "docs"]:
             path = ROOT / root
