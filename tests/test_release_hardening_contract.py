@@ -78,6 +78,7 @@ BEHAVIORAL_REGRESSION_TESTS = {
     "tests/test_worker_attempt_isolation.py",
     "tests/test_worker_pool.py",
     "tests/test_workspace.py",
+    "tests/test_workspace_hostile_git_config.py",
 }
 
 
