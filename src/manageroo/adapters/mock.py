@@ -127,7 +127,11 @@ class MockAdapter(AgentAdapter):
         elif role == "reviewer":
             data = {"status": "approved", "summary": "No blocking defects found.", "findings": []}
         else:
-            raise RuntimeError(f"Mock adapter does not implement role {role!r}")
+            # The mock is also used as a schema/output-path test double. For an unknown
+            # role, emit the smallest generic JSON object and let the requested schema be
+            # the authority. This keeps the adapter deterministic without writing anywhere
+            # except request.output_path.
+            data = {}
         validate(data, load_schema(request.schema_path))
         atomic_write_json(request.output_path, data)
         return AgentResponse(role=role, data=data, raw_text="", command=["mock"])
