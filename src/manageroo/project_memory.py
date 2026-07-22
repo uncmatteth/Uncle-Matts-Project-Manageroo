@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .branding import PROJECT_DIR
+from .errors import SafetyError
 from .util import atomic_write_text, utc_now
 
 PROJECT_MEMORY_FILENAME = "PROJECT-MEMORY.md"
@@ -37,16 +38,16 @@ def _safe_repo_regular_file(repo: Path, path: Path, *, allow_missing: bool = Fal
     repo = repo.expanduser().resolve()
     lexical = path.expanduser()
     if lexical.is_symlink():
-        raise ValueError(f"Refusing to read symlinked repository memory source: {lexical}")
+        raise SafetyError(f"Refusing to read symlinked repository memory source: {lexical}")
     if not lexical.exists():
         return None if allow_missing else lexical
     if not lexical.is_file():
-        raise ValueError(f"Repository memory source must be a regular file: {lexical}")
+        raise SafetyError(f"Repository memory source must be a regular file: {lexical}")
     try:
         resolved = lexical.resolve(strict=True)
         resolved.relative_to(repo)
     except (OSError, ValueError) as exc:
-        raise ValueError(f"Repository memory source escapes repository root: {lexical}") from exc
+        raise SafetyError(f"Repository memory source escapes repository root: {lexical}") from exc
     return resolved
 
 
@@ -63,10 +64,7 @@ def _read_utf8(path: Path, *, repo: Path | None = None) -> str:
 
 def _readme_summary(repo: Path) -> str:
     readme = repo / "README.md"
-    try:
-        target = _safe_repo_regular_file(repo, readme, allow_missing=True)
-    except ValueError:
-        raise
+    target = _safe_repo_regular_file(repo, readme, allow_missing=True)
     if target is None:
         return ""
     try:
@@ -152,7 +150,7 @@ def ensure_project_memory(
 ) -> dict[str, Any]:
     path = project_memory_path(repo)
     if path.is_symlink():
-        raise ValueError(f"Refusing to rewrite symlinked project memory file: {path}")
+        raise SafetyError(f"Refusing to rewrite symlinked project memory file: {path}")
     created = not path.exists()
     updated_sections: list[str] = []
     if created:
@@ -191,7 +189,7 @@ def read_project_memory(repo: Path) -> dict[str, Any]:
         return {"ok": False, "path": str(path), "content": "", "next_command": "manageroo memory init"}
     try:
         content = _read_utf8(path, repo=repo)
-    except ValueError as exc:
+    except (ValueError, SafetyError) as exc:
         return {"ok": False, "path": str(path), "content": "", "error": str(exc)}
     return {"ok": True, "path": str(path), "content": content}
 
