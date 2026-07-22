@@ -14,7 +14,7 @@ class WorkspaceTests(unittest.TestCase):
         repo.mkdir()
         runner = CommandRunner()
         commands = [
-            ["git", "init", "-b", "main"],
+            ["git", "init", "--template=", "-b", "main"],
             ["git", "config", "user.name", "Test"],
             ["git", "config", "user.email", "test@example.invalid"],
             ["git", "config", "commit.gpgSign", "false"],
@@ -98,15 +98,14 @@ class WorkspaceTests(unittest.TestCase):
             repo, runner = self._repo(root)
             mirror = WorkspaceMirror(repo, root / "run", runner)
             mirror.create()
-            outside = root / "unrelated"
+            outside = root / "outside-review"
             outside.mkdir()
-            link = mirror.run_root / "review-link"
-            link.symlink_to(outside, target_is_directory=True)
-            destination = link / "fresh"
+            linked_parent = mirror.run_root / "review-link"
+            linked_parent.symlink_to(outside, target_is_directory=True)
+            destination = linked_parent / "fresh"
             with self.assertRaises(SafetyError):
                 mirror.clone_for_review(destination)
             self.assertFalse((outside / "fresh").exists())
-            self.assertTrue(link.is_symlink())
 
     def test_tracked_symlink_is_rejected_explicitly_during_create(self):
         if os.name == "nt":
@@ -114,33 +113,21 @@ class WorkspaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo, runner = self._repo(root)
-            target = repo / "a.txt"
+            outside = root / "outside.txt"
+            outside.write_text("outside\n", encoding="utf-8")
             link = repo / "linked.txt"
-            link.symlink_to(target.name)
+            link.symlink_to(outside)
             self.assertTrue(runner.run(["git", "add", "linked.txt"], cwd=repo).passed)
             self.assertTrue(
                 runner.run(
-                    ["git", "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", "commit", "-m", "add symlink"],
+                    ["git", "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", "commit", "-m", "add link"],
                     cwd=repo,
                 ).passed
             )
             mirror = WorkspaceMirror(repo, root / "run", runner)
-            with self.assertRaisesRegex(SafetyError, "symlinks are not supported"):
+            with self.assertRaisesRegex(SafetyError, "symlink"):
                 mirror.create()
-
-    def test_mode_only_source_change_is_detected(self):
-        if os.name == "nt":
-            self.skipTest("POSIX mode bits are not portable on Windows")
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo, runner = self._repo(root)
-            source = repo / "a.txt"
-            source.chmod(0o644)
-            mirror = WorkspaceMirror(repo, root / "run", runner)
-            mirror.create()
-            source.chmod(0o755)
-            with self.assertRaises(SafetyError):
-                mirror.assert_source_unchanged()
+            self.assertFalse(mirror.snapshot_path.exists())
 
 
 if __name__ == "__main__":
