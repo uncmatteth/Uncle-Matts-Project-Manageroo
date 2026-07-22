@@ -45,6 +45,7 @@ HARDENING_MODULES = {
 
 BEHAVIORAL_REGRESSION_TESTS = {
     "tests/test_acceptance_evidence.py",
+    "tests/test_artifact_concurrency.py",
     "tests/test_clawpatch_regressions.py",
     "tests/test_clawpatch_remaining_regressions.py",
     "tests/test_cli_smoke.py",
