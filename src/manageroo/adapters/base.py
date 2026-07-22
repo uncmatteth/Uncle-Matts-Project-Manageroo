@@ -14,7 +14,7 @@ class AgentRequest:
     output_path: Path
     cwd: Path
     sandbox: str
-    timeout_seconds: int
+    timeout_seconds: int = 300
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
