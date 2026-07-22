@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from manageroo.token_modes import (
     CORE_HELPER_SKILLS,
+    _copy_skill_tree,
     install_core_helper_skills,
     install_token_skills,
     read_token_mode,
@@ -129,6 +130,26 @@ class TokenModeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 install_core_helper_skills(linked)
             self.assertEqual(list(outside.iterdir()), [])
+
+    @unittest.skipIf(os.name == "nt", "symlink setup is platform-dependent on Windows")
+    def test_refuses_symlinked_intermediate_directory_in_skill_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            source = base / "source"
+            (source / "references").mkdir(parents=True)
+            (source / "SKILL.md").write_text("skill\n", encoding="utf-8")
+            (source / "references" / "guide.md").write_text("guide\n", encoding="utf-8")
+
+            skills_root = base / "skills"
+            target = skills_root / "sample"
+            target.mkdir(parents=True)
+            outside = base / "outside"
+            outside.mkdir()
+            (target / "references").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(ValueError):
+                _copy_skill_tree(source, target, root_real=skills_root.resolve())
+            self.assertFalse((outside / "guide.md").exists())
 
 
 if __name__ == "__main__":
