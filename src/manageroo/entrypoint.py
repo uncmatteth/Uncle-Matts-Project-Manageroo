@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .branding import PROJECT_DIR
+from .clawpatch_batch import batch_fix_open_findings, format_batch_fix
 from .cli import main as cli_main
 from .cli import parser as cli_parser
 from .config import AGENT_PRESETS
@@ -126,6 +127,52 @@ def _stack_update_main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(format_stack_update(report), end="")
+    return 0 if report.get("ok") else 2
+
+
+def _clawpatch_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="manageroo clawpatch",
+        description=(
+            "Run Manageroo-owned cross-platform Clawpatch workflows without shell or PowerShell parsing loops."
+        ),
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    fix_open = sub.add_parser(
+        "fix-open",
+        description=(
+            "Read only Clawpatch findings with status=open, fix them one at a time, and stop fail-closed on the first failure."
+        ),
+    )
+    fix_open.add_argument("--repo", default=".")
+    fix_open.add_argument("--limit", type=int, default=0, help="Maximum findings to process; 0 means all open findings.")
+    fix_open.add_argument("--apply", action="store_true", help="Actually run fixes. Without this flag, print the plan only.")
+    fix_open.add_argument("--no-commit", action="store_true", help="Do not create one Git commit per successful finding.")
+    fix_open.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    if args.command != "fix-open":
+        parser.error("Unknown Clawpatch command.")
+    if args.limit < 0:
+        parser.error("--limit must be 0 or greater.")
+    try:
+        report = batch_fix_open_findings(
+            Path(args.repo),
+            apply=args.apply,
+            limit=args.limit,
+            commit_each=not args.no_commit,
+        )
+    except SafetyError as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
+        else:
+            print(f"CLAWPATCH OPEN-FINDING REPAIR: STOPPED\n{exc}")
+        return 2
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(format_batch_fix(report), end="")
     return 0 if report.get("ok") else 2
 
 
@@ -266,6 +313,9 @@ def _root_help() -> str:
         + "  capacity              Inspect host CPU, RAM, GPU/VRAM, and disk as context only.\n"
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
         + "  host-skills           Inspect host skills without modifying or owning them.\n"
+        + "\nCommand-owned repair automation:\n"
+        + "  clawpatch fix-open    Plan or apply every currently open Clawpatch finding serially.\n"
+        + "                        Cross-platform; one commit per successful fix by default.\n"
         + "\nRecommended stack maintenance:\n"
         + "  stack-update          Dry-run upstream-supported updates; optionally name tools; pass --apply explicitly.\n"
     )
@@ -281,6 +331,8 @@ def main() -> int:
         return _host_skills_main(argv[1:])
     if argv and argv[0] == "decisions":
         return _decisions_main(argv[1:])
+    if argv and argv[0] == "clawpatch":
+        return _clawpatch_main(argv[1:])
     if argv and argv[0] == "stack-update":
         return _stack_update_main(argv[1:])
     if argv in (["--help"], ["-h"]):
