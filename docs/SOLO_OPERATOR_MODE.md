@@ -232,8 +232,18 @@ manageroo solo --mode repair
 
 Before a real release, run the final operator gate:
 
+If this project uses Clawpatch as its final code-repair pass, preview and then execute the strict sweep first:
+
+```bash
+manageroo clawpatch release-sweep --repo .
+manageroo clawpatch release-sweep --repo . --apply
+```
+
+The default is read-only. Applied runs create a dedicated branch when starting from `main` or `master`; pushing still requires `--push each` or `--push final`. Require its zero-open, final-HEAD proof in the release gate with `--require-clawpatch` or `require_clawpatch_release_sweep = true` in project config.
+
 ```bash
 manageroo release-ready \
+  --require-clawpatch \
   --target "Production deploy path" \
   --rollback "Rollback steps" \
   --approved-by "Your name"
@@ -249,10 +259,8 @@ That file says whether to ship or not, what commit is being released, which
 Manageroo run proved the work, where the final report and patch are, whether
 review approved it, whether the patch was applied to source, which proof
 commands passed, which blockers remain, the release target, the rollback plan,
-and the next operator action. On a ready release, `release-ready` also updates
-`.manageroo/PROJECT-MEMORY.md` with the shipped target, Manageroo run ID,
-passing proof, handoff path, rollback plan, and approver. Commit that memory
-update if you want future agents to see it from Git.
+and the next operator action. The handoff is cache evidence; `release-ready`
+does not mutate tracked project memory or deploy production.
 
 Wire optional local context tools if they are installed:
 

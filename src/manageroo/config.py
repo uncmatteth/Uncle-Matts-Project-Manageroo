@@ -18,6 +18,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_repair_cycles": 2,
         "max_plan_review_cycles": 4,
         "require_demonstration": True,
+        "require_clawpatch_release_sweep": False,
     },
     "agent": {
         "adapter": "auto",
@@ -174,6 +175,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "max_repair_cycles = 2",
         "max_plan_review_cycles = 4",
         "require_demonstration = true",
+        "require_clawpatch_release_sweep = false",
         "",
         _agent_block(agent),
         "",

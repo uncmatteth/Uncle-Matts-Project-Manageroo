@@ -348,6 +348,11 @@ def parser() -> argparse.ArgumentParser:
     release.add_argument("--approved-by", default="")
     release.add_argument("--save", action="store_true", help="Save release metadata in the repo.")
     release.add_argument("--no-run-checks", action="store_true")
+    release.add_argument(
+        "--require-clawpatch",
+        action="store_true",
+        help="Require a zero-open Clawpatch release-sweep proof tied to the current Git HEAD.",
+    )
     release.add_argument("--json", action="store_true")
 
     checks = sub.add_parser("checks", help="List or add real verification commands.")
@@ -933,6 +938,7 @@ def main(argv: list[str] | None = None) -> int:
                 approved_by=args.approved_by,
                 run_checks=not args.no_run_checks,
                 save=args.save,
+                require_clawpatch=args.require_clawpatch,
             )
             if args.json:
                 print(json.dumps(result, indent=2))

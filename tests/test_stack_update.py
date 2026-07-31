@@ -37,7 +37,9 @@ class StackUpdateTests(unittest.TestCase):
 
         with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
             "manageroo.stack_update.platform.system", return_value="Linux"
-        ), patch("manageroo.stack_update._run", side_effect=self.owned_run):
+        ), patch("manageroo.stack_update._run", side_effect=self.owned_run), patch(
+            "manageroo.stack_update_policy._owned_by_manager", return_value=True
+        ):
             plan = stack_update_plan()
 
         self.assertTrue(plan["ok"])
@@ -62,6 +64,8 @@ class StackUpdateTests(unittest.TestCase):
             return {"npm": "/usr/bin/npm", "gitnexus": "/usr/bin/gitnexus"}.get(name)
         with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
             "manageroo.stack_update._run", side_effect=self.owned_run
+        ), patch(
+            "manageroo.stack_update_policy._owned_by_manager", return_value=True
         ):
             plan = stack_update_plan(["gitnexus"])
         self.assertEqual(plan["selected_tools"], ["gitnexus"])
@@ -87,11 +91,28 @@ class StackUpdateTests(unittest.TestCase):
 
         with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
             "manageroo.stack_update._run", side_effect=run
+        ), patch(
+            "manageroo.stack_update_policy._owned_by_manager", return_value=True
         ):
             result = apply_stack_updates(["gitnexus"])
         self.assertTrue(result["ok"])
         self.assertEqual(result["selected_tools"], ["gitnexus"])
         self.assertEqual(calls, [["/usr/bin/npm", "install", "-g", GITNEXUS_PACKAGE]])
+
+    def test_plan_drops_update_when_package_manager_ownership_is_not_proven(self):
+        def which(name: str):
+            return {"npm": "/usr/bin/npm", "gitnexus": "/usr/bin/gitnexus"}.get(name)
+
+        with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+            "manageroo.stack_update._run", side_effect=self.owned_run
+        ), patch(
+            "manageroo.stack_update_policy._owned_by_manager", return_value=False
+        ):
+            plan = stack_update_plan(["gitnexus"])
+
+        tool = plan["tools"][0]
+        self.assertEqual(tool["commands"], [])
+        self.assertIn("ownership", tool["note"])
 
     def test_codex_only_autoreview_is_updated_in_place(self):
         with tempfile.TemporaryDirectory() as temp:

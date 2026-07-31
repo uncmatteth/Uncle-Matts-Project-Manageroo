@@ -123,7 +123,9 @@ class RemainingAuditRegressionTests(unittest.TestCase):
 
         with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
             "manageroo.stack_update.platform.system", return_value="Linux"
-        ), patch("manageroo.stack_update._run", side_effect=run):
+        ), patch("manageroo.stack_update._run", side_effect=run), patch(
+            "manageroo.stack_update_policy._owned_by_manager", return_value=True
+        ):
             plan = stack_update_plan(["obsidian"])
         self.assertEqual(plan["tools"][0]["commands"], [["/usr/bin/snap", "refresh", "obsidian"]])
 

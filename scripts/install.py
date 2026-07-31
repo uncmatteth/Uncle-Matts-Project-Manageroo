@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 import venv
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +50,13 @@ CLAWPATCH_VERSION = "0.7.1"
 CLAWPATCH_PACKAGE = f"clawpatch@{CLAWPATCH_VERSION}"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"
+CODING_AGENT_CLIS = (
+    {"preset": "codex", "name": "Codex", "executable": "codex"},
+    {"preset": "claude-code", "name": "Claude Code", "executable": "claude"},
+    {"preset": "gemini", "name": "Gemini CLI", "executable": "gemini"},
+)
+NODE_MACOS_PACKAGE_URL = "https://nodejs.org/dist/v22.14.0/node-v22.14.0.pkg"
+NODE_MACOS_PACKAGE_SHA256 = "3931585e6af0785f01af897d31d67b7318e724af07845ffb04d432ab1a4532b4"
 
 
 def run(
@@ -184,6 +192,66 @@ def _ensure_node_npm() -> str | None:
         prepend_tool_paths()
         common_npm = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs" / "npm.cmd"
         return shutil.which("npm") or (str(common_npm) if common_npm.exists() else None)
+    if os.name != "nt":
+        prefix: list[str] = []
+        if hasattr(os, "geteuid") and os.geteuid() != 0:
+            sudo = shutil.which("sudo")
+            if not sudo:
+                return None
+            prefix = [sudo]
+        brew = shutil.which("brew")
+        apt_get = shutil.which("apt-get")
+        dnf = shutil.which("dnf")
+        yum = shutil.which("yum")
+        pacman = shutil.which("pacman")
+        zypper = shutil.which("zypper")
+        if platform.system().lower() == "darwin" and not brew:
+            status_line("NODE", "Node.js/npm is missing; installing the release-pinned Node.js package.")
+            with tempfile.TemporaryDirectory(prefix="manageroo-node-install-") as temp:
+                package = Path(temp) / "node.pkg"
+                try:
+                    with urllib.request.urlopen(NODE_MACOS_PACKAGE_URL, timeout=120) as response:
+                        package.write_bytes(response.read())
+                except (OSError, TimeoutError) as exc:
+                    raise SystemExit(f"Could not download the pinned Node.js package: {exc}") from exc
+                actual = hashlib.sha256(package.read_bytes()).hexdigest()
+                if actual != NODE_MACOS_PACKAGE_SHA256:
+                    raise SystemExit("The downloaded Node.js package failed checksum verification.")
+                installer = shutil.which("installer") or "/usr/sbin/installer"
+                run(
+                    [*prefix, installer, "-pkg", str(package), "-target", "/"],
+                    cwd=Path.home(),
+                    capture=False,
+                )
+        elif brew:
+            status_line("NODE", "Node.js/npm is missing; installing it with Homebrew.")
+            run([brew, "install", "node"], cwd=Path.home(), capture=False)
+        elif apt_get:
+            status_line("NODE", "Node.js/npm is missing; installing it with apt.")
+            run([*prefix, apt_get, "update"], cwd=Path.home(), capture=False)
+            run([*prefix, apt_get, "install", "-y", "nodejs", "npm"], cwd=Path.home(), capture=False)
+        elif dnf:
+            status_line("NODE", "Node.js/npm is missing; installing it with dnf.")
+            run([*prefix, dnf, "install", "-y", "nodejs", "npm"], cwd=Path.home(), capture=False)
+        elif yum:
+            status_line("NODE", "Node.js/npm is missing; installing it with yum.")
+            run([*prefix, yum, "install", "-y", "nodejs", "npm"], cwd=Path.home(), capture=False)
+        elif pacman:
+            status_line("NODE", "Node.js/npm is missing; installing it with pacman.")
+            run(
+                [*prefix, pacman, "-Sy", "--needed", "--noconfirm", "nodejs", "npm"],
+                cwd=Path.home(),
+                capture=False,
+            )
+        elif zypper:
+            status_line("NODE", "Node.js/npm is missing; installing it with zypper.")
+            run(
+                [*prefix, zypper, "--non-interactive", "install", "nodejs", "npm"],
+                cwd=Path.home(),
+                capture=False,
+            )
+        prepend_tool_paths()
+        return shutil.which("npm")
     return None
 
 
@@ -841,6 +909,68 @@ def choose_token_mode(selection: str) -> str:
     return {"2": "caveman", "3": "curse"}.get(input("Choose 1, 2, or 3 [1]: ").strip(), "off")
 
 
+def detect_coding_agents() -> list[dict[str, str]]:
+    detected: list[dict[str, str]] = []
+    for spec in CODING_AGENT_CLIS:
+        path = shutil.which(spec["executable"])
+        if path:
+            detected.append({**spec, "path": path})
+    return detected
+
+
+def choose_agent_setup(
+    selection: str,
+    install_codex_flag: bool,
+    skip_codex_flag: bool,
+    detected: list[dict[str, str]] | None = None,
+) -> dict[str, str | bool]:
+    detected = detect_coding_agents() if detected is None else detected
+    print("\nCoding agent setup:")
+    print("  Manageroo controls the job. Your coding agent performs the AI coding work.")
+    if detected:
+        names = ", ".join(item["name"] for item in detected)
+        print(f"  Found {names} on this computer.")
+
+    if install_codex_flag and not skip_codex_flag:
+        preference = "codex" if selection == "ask" else selection
+        return {"preference": preference, "install_codex": True}
+
+    if selection != "ask":
+        selected = next((item for item in detected if item["preset"] == selection), None)
+        if selection != "auto" and not selected:
+            print(f"  {selection} was selected but is not currently available on PATH.")
+        return {"preference": selection, "install_codex": False}
+
+    if not sys.stdin.isatty():
+        return {"preference": "auto", "install_codex": False}
+
+    if len(detected) == 1:
+        print(f"  Manageroo will use it automatically. You can change this per project later.")
+        return {"preference": "auto", "install_codex": False}
+
+    if len(detected) > 1:
+        print("  1) Automatic selection (recommended)")
+        for index, item in enumerate(detected, start=2):
+            print(f"  {index}) Always use {item['name']}")
+        answer = input(f"Choose 1-{len(detected) + 1} [1]: ").strip()
+        try:
+            index = int(answer) - 2
+        except ValueError:
+            index = -1
+        preference = detected[index]["preset"] if 0 <= index < len(detected) else "auto"
+        return {"preference": preference, "install_codex": False}
+
+    print("  Manageroo did not find a supported coding-agent CLI on this computer.")
+    if skip_codex_flag:
+        print("  Coding-agent setup was skipped. You can connect one later with `manageroo agent list`.")
+        return {"preference": "auto", "install_codex": False}
+    install_codex = input("Install Codex, Manageroo's recommended starting option, now? [Y/n]: ").strip().lower()
+    if install_codex not in {"n", "no", "skip"}:
+        return {"preference": "codex", "install_codex": True}
+    print("  No problem. Install or configure a supported coding agent before starting real AI work.")
+    return {"preference": "auto", "install_codex": False}
+
+
 def choose_skill_pack_mode(selection: str, skip_flag: bool) -> str:
     if skip_flag:
         return "skip"
@@ -959,6 +1089,12 @@ def main() -> int:
     parser.add_argument("--skip-self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--install-codex", action="store_true")
     parser.add_argument("--skip-codex", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--agent",
+        choices=["ask", "auto", "codex", "claude-code", "gemini"],
+        default="ask",
+        help="Detect and choose the coding-agent CLI Manageroo should use.",
+    )
     parser.add_argument("--stack", choices=["ask", "skip", "install"], default="ask")
     parser.add_argument("--install-stack", action="store_true")
     parser.add_argument("--skip-stack", action="store_true")
@@ -980,6 +1116,8 @@ def main() -> int:
 
     if args.install_stack and args.skip_stack:
         raise SystemExit("--install-stack and --skip-stack conflict. Choose one.")
+    if args.install_codex and args.skip_codex:
+        raise SystemExit("--install-codex and --skip-codex conflict. Choose one.")
     if args.skip_skill_pack and args.skill_pack == "install":
         raise SystemExit("--skip-skill-pack conflicts with --skill-pack install.")
 
@@ -991,6 +1129,7 @@ def main() -> int:
         raise SystemExit("Python 3.11 or newer is required.")
     if shutil.which("git") is None:
         raise SystemExit("Git is required.")
+    prepend_tool_paths()
 
     downloads: list[dict] = []
     external_tools: list[dict] = []
@@ -999,6 +1138,11 @@ def main() -> int:
         venv_root = prefix / "venv"
         app_root = prefix / "app"
         prefix.mkdir(parents=True, exist_ok=True)
+        agent_setup = choose_agent_setup(
+            args.agent,
+            args.install_codex,
+            args.skip_codex,
+        )
         token_mode = choose_token_mode(args.token_mode)
         source_env = {"PYTHONPATH": str(ROOT / "src")}
         if not args.skip_tests:
@@ -1018,18 +1162,30 @@ def main() -> int:
             else install_core_helper_skills()
         )
 
-        if args.install_codex and not args.skip_codex:
+        if agent_setup["install_codex"]:
             external_tools.append({"name": "codex", **install_codex_latest(downloads)})
         else:
-            external_tools.append(
-                {
-                    "name": "codex",
-                    "path": shutil.which("codex"),
-                    "version": command_version("codex"),
-                    "skipped": True,
-                    "reason": "Codex is an adapter choice, not a core requirement.",
-                }
-            )
+            detected_agents = detect_coding_agents()
+            if detected_agents:
+                external_tools.extend(
+                    {
+                        "name": item["preset"],
+                        "display_name": item["name"],
+                        "path": item["path"],
+                        "version": command_version(item["executable"]),
+                        "detected": True,
+                    }
+                    for item in detected_agents
+                )
+            else:
+                external_tools.append(
+                    {
+                        "name": "coding-agent",
+                        "skipped": True,
+                        "reason": "No supported coding-agent CLI was detected or installed.",
+                        "next_commands": ["manageroo agent list"],
+                    }
+                )
 
         stack_mode = choose_stack_mode(args.stack, args.install_stack, args.skip_stack)
         if stack_mode == "install":
@@ -1089,6 +1245,8 @@ def main() -> int:
             "manageroo_version_output": version.stdout.strip(),
             "self_test_output": self_test_output,
             "token_mode": token_mode_record,
+            "agent_preference": agent_setup["preference"],
+            "detected_coding_agents": detect_coding_agents(),
             "helper_skills": helper_skills_record,
             "external_tools": external_tools,
             "stack_summary": stack_summary,
@@ -1123,6 +1281,8 @@ def main() -> int:
                 "manageroo",
                 "projects",
                 "--add" if project_mode == "add" else "--pick",
+                "--agent",
+                str(agent_setup["preference"]),
             ],
             downloads,
             "project-discovery",

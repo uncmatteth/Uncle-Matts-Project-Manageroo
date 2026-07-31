@@ -123,6 +123,14 @@ AUTOREVIEW and Clawpatch are command-owned lanes. Run the configured command, ca
 
 Do not convert their findings into untracked AI freehand fixes. If a configured external repair command fails or cannot repair its own finding, preserve the exact evidence and let Manageroo's controller policy decide the next state.
 
+For a final Clawpatch closeout, preview the native cross-platform workflow first:
+
+```bash
+manageroo clawpatch release-sweep --repo .
+```
+
+Only run it with `--apply` when the operator has authorized repository changes. The controller must select one fresh open finding at a time, revalidate it as `fixed` before staging, stage only that finding's exact paths, commit it separately, and stop on any ambiguous result. Pushing requires the separate explicit choice `--push each` or `--push final`. A valid final proof requires zero open findings, passing configured gates, clean Git state, and an exact final-HEAD binding.
+
 ## Role separation
 
 Planning, implementation, verification, and review run in fresh processes. A reviewer is not an implementer and must not mutate the reviewed repository.

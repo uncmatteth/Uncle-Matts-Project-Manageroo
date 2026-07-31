@@ -181,6 +181,42 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn("Do not ship yet.", Path(report["handoff_path"]).read_text(encoding="utf-8"))
             self.assertEqual(report["project_memory_update"], None)
 
+    def test_required_clawpatch_sweep_must_prove_zero_open_at_current_head(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            self._completed_run(repo)
+            helper_patch, gbrain_patch = self._release_patches()
+            with helper_patch, gbrain_patch:
+                missing = release_ready(
+                    repo,
+                    target="manual production deploy",
+                    rollback="revert and redeploy",
+                    approved_by="Operator",
+                    require_clawpatch=True,
+                )
+            item = {value["name"]: value for value in missing["items"]}["Clawpatch release sweep"]
+            self.assertFalse(item["ok"])
+            self.assertIn("clawpatch release-sweep", item["next"])
+
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, stdout=subprocess.PIPE
+            ).stdout.strip()
+            atomic_write_json(
+                repo / ".manageroo" / "cache" / "clawpatch-release-proof.json",
+                {"status": "COMPLETE", "git_head": head, "open_findings": 0},
+            )
+            helper_patch, gbrain_patch = self._release_patches()
+            with helper_patch, gbrain_patch:
+                proven = release_ready(
+                    repo,
+                    target="manual production deploy",
+                    rollback="revert and redeploy",
+                    approved_by="Operator",
+                    require_clawpatch=True,
+                )
+            item = {value["name"]: value for value in proven["items"]}["Clawpatch release sweep"]
+            self.assertTrue(item["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

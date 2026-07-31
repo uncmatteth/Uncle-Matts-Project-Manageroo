@@ -71,6 +71,8 @@ class InstallStackContractTests(unittest.TestCase):
 
         with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
             "manageroo.stack_update._run", side_effect=owned_run
+        ), patch(
+            "manageroo.stack_update_policy._owned_by_manager", return_value=True
         ):
             gitnexus_only = stack_update_plan(["gitnexus"])
             clawpatch_only = stack_update_plan(["clawpatch"])

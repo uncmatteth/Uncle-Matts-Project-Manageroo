@@ -37,6 +37,139 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_agent_detection_reports_supported_coding_tools_already_on_the_machine(self):
+        install = load_install_script()
+        paths = {
+            "codex": "/tools/codex",
+            "claude": "/tools/claude",
+            "gemini": None,
+        }
+        with patch.object(install.shutil, "which", side_effect=lambda name: paths.get(name)):
+            self.assertEqual(
+                install.detect_coding_agents(),
+                [
+                    {
+                        "preset": "codex",
+                        "name": "Codex",
+                        "executable": "codex",
+                        "path": "/tools/codex",
+                    },
+                    {
+                        "preset": "claude-code",
+                        "name": "Claude Code",
+                        "executable": "claude",
+                        "path": "/tools/claude",
+                    },
+                ],
+            )
+
+    def test_agent_setup_uses_the_only_detected_tool_without_an_extra_question(self):
+        install = load_install_script()
+        detected = [
+            {
+                "preset": "gemini",
+                "name": "Gemini CLI",
+                "executable": "gemini",
+                "path": "/tools/gemini",
+            }
+        ]
+        output = io.StringIO()
+        with patch.object(install.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input") as prompt:
+                with redirect_stdout(output):
+                    result = install.choose_agent_setup("ask", False, False, detected)
+        self.assertEqual(result, {"preference": "auto", "install_codex": False})
+        prompt.assert_not_called()
+        self.assertIn("Found Gemini CLI", output.getvalue())
+        self.assertIn("use it automatically", output.getvalue())
+
+    def test_agent_setup_lets_people_choose_when_multiple_tools_are_detected(self):
+        install = load_install_script()
+        detected = [
+            {"preset": "codex", "name": "Codex", "executable": "codex", "path": "/tools/codex"},
+            {
+                "preset": "claude-code",
+                "name": "Claude Code",
+                "executable": "claude",
+                "path": "/tools/claude",
+            },
+        ]
+        output = io.StringIO()
+        with patch.object(install.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input", return_value="3"):
+                with redirect_stdout(output):
+                    result = install.choose_agent_setup("ask", False, False, detected)
+        self.assertEqual(result, {"preference": "claude-code", "install_codex": False})
+        self.assertIn("Automatic selection (recommended)", output.getvalue())
+        self.assertIn("Claude Code", output.getvalue())
+
+    def test_agent_setup_offers_codex_when_no_supported_tool_is_found(self):
+        install = load_install_script()
+        output = io.StringIO()
+        with patch.object(install.sys.stdin, "isatty", return_value=True):
+            with patch("builtins.input", return_value=""):
+                with redirect_stdout(output):
+                    result = install.choose_agent_setup("ask", False, False, [])
+        self.assertEqual(result, {"preference": "codex", "install_codex": True})
+        self.assertIn("did not find a supported coding-agent CLI", output.getvalue())
+
+    def test_agent_setup_noninteractive_does_not_silently_install_codex(self):
+        install = load_install_script()
+        with patch.object(install.sys.stdin, "isatty", return_value=False):
+            result = install.choose_agent_setup("ask", False, False, [])
+        self.assertEqual(result, {"preference": "auto", "install_codex": False})
+
+    def test_agent_setup_honors_explicit_agent_and_codex_flags(self):
+        install = load_install_script()
+        self.assertEqual(
+            install.choose_agent_setup("gemini", False, False, []),
+            {"preference": "gemini", "install_codex": False},
+        )
+        self.assertEqual(
+            install.choose_agent_setup("codex", True, False, []),
+            {"preference": "codex", "install_codex": True},
+        )
+
+    def test_existing_agent_is_recorded_as_detected_instead_of_skipped(self):
+        source = INSTALL_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"detected": True', source)
+        self.assertIn('"name": "coding-agent"', source)
+        self.assertIn("No supported coding-agent CLI was detected or installed", source)
+        self.assertNotIn("Codex is an adapter choice, not a core requirement", source)
+
+    def test_unix_launcher_offers_guided_core_requirement_install(self):
+        launcher = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("install_core_requirements", launcher)
+        self.assertIn("Install the missing requirements now? [Y/n]", launcher)
+        for package_manager in ("brew", "apt-get", "dnf", "yum", "pacman", "zypper"):
+            with self.subTest(package_manager=package_manager):
+                self.assertIn(package_manager, launcher)
+        self.assertIn('"$(uname -s)" = "Darwin"', launcher)
+        self.assertIn("MACOS_PYTHON_URL", launcher)
+        self.assertIn("MACOS_PYTHON_SHA256", launcher)
+        self.assertIn("xcode-select --install", launcher)
+
+    def test_codex_setup_can_install_node_with_common_platform_package_managers(self):
+        source = INSTALL_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("Node.js/npm is missing", source)
+        self.assertIn("NODE_MACOS_PACKAGE_URL", source)
+        self.assertIn("NODE_MACOS_PACKAGE_SHA256", source)
+        for package_manager in ("winget", "brew", "apt-get", "dnf", "yum", "pacman", "zypper"):
+            with self.subTest(package_manager=package_manager):
+                self.assertIn(f'shutil.which("{package_manager}")', source)
+
+    def test_quick_start_explains_cross_platform_requirements_and_agent_detection(self):
+        for relative in ("README.md", "GITHUB_DESCRIPTION.md"):
+            with self.subTest(relative=relative):
+                text = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("Download ZIP", text)
+                self.assertIn("macOS", text)
+                self.assertIn("Linux", text)
+                self.assertIn("Windows", text)
+                self.assertIn("Codex, Claude Code, and Gemini CLI", text)
+                self.assertIn("If it finds several", text)
+                self.assertIn("If it finds none", text)
+
     def test_skill_pack_is_recommended_default_but_can_be_skipped(self):
         install = load_install_script()
         self.assertEqual(install.choose_skill_pack_mode("install", False), "install")
@@ -118,6 +251,7 @@ class InstallScriptTests(unittest.TestCase):
             "StackDoctor": "--stack-doctor",
             "ClawpatchCodexLogin": "--clawpatch-codex-login",
             "ObsidianMethod": "--obsidian-method",
+            "Agent": "--agent",
         }
         for parameter, flag in expected.items():
             with self.subTest(parameter=parameter):

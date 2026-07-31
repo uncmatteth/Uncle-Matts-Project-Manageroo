@@ -135,13 +135,30 @@ Clawpatch is a command-owned review and repair lane.
 For an existing pnpm-managed installation, Manageroo's supported update path is:
 
 ```bash
-pnpm add -g clawpatch@latest
+pnpm add -g clawpatch@0.7.1
 clawpatch doctor
 ```
 
 Manageroo does not claim Clawpatch is healthy merely because the executable exists. The post-update doctor remains part of the update result.
 
 Clawpatch findings remain command-owned. Manageroo must not hand them to a worker for unconstrained freehand repair.
+
+For final project closeout, use Manageroo's cross-platform native sweep instead of manually copying one finding at a time:
+
+```bash
+# Read-only plan
+manageroo clawpatch release-sweep --repo .
+
+# Execute locally on an automatically created branch when starting from main/master
+manageroo clawpatch release-sweep --repo . --apply
+
+# Push only when explicitly requested
+manageroo clawpatch release-sweep --repo . --apply --push final
+```
+
+The sweep follows Clawpatch's own lifecycle: doctor, init when needed, map, review, fresh `next`, show, fix, and revalidate. Existing Clawpatch projects retain their state choice; a first-time sweep keeps new Clawpatch state under Git's private directory so initialization does not dirty source. Manageroo adds fail-closed Git boundaries, configured project gates, one exact-path commit per finding, a repository-private resume checkpoint, final all-open revalidation, a zero-open report, and proof bound to the final Git HEAD. A finding that remains `open`, `uncertain`, or otherwise fails to revalidate as `fixed` is left uncommitted for inspection.
+
+The proof can be made mandatory for the final operator gate with `manageroo release-ready --require-clawpatch` or the `[project]` setting `require_clawpatch_release_sweep = true`.
 
 Project: https://github.com/openclaw/clawpatch
 

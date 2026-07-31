@@ -29,7 +29,7 @@ git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd 
 git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
 ```
 
-Requirements: Python 3.11+ and Git. Real AI work also requires at least one compatible coding-agent CLI.
+The installer checks Python 3.11+ and Git and offers platform-appropriate setup when either is missing. It also detects Codex, Claude Code, and Gemini CLI, uses a single detected tool automatically, asks for a preference only when several are present, and offers Codex setup when none is found.
 
 Useful checks after installation:
 

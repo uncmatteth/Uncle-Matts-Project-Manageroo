@@ -14,6 +14,7 @@ Agents are forbidden from editing it during a run.
 - `max_repair_cycles`: maximum review-triggered repair loops.
 - `max_plan_review_cycles`: maximum pre-code plan repair loops.
 - `require_demonstration`: require demonstration evidence when the plan marks it required.
+- `require_clawpatch_release_sweep`: require `release-ready` to find a complete zero-open Clawpatch sweep proof tied to the current Git HEAD. Default: `false`.
 
 ## `[agent]`
 

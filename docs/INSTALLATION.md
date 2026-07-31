@@ -2,13 +2,17 @@
 
 ## Core requirements
 
-Manageroo core requires:
+Manageroo core uses:
 
 - Python 3.11 or newer;
 - Git;
 - a normal terminal or PowerShell environment.
 
-For real AI work, at least one compatible agent path must also be available, such as Codex, Claude Code, Gemini, or a configured generic CLI.
+The platform launcher checks these requirements and, in an interactive terminal, offers to install missing ones using a normal platform path. Windows uses winget. Linux supports Homebrew, apt, dnf, yum, pacman, and zypper. macOS uses an integrity-checked, release-pinned Python installer; if Git is missing, it uses Homebrew when available or opens Apple's Command Line Tools installer and tells the operator to rerun after Apple finishes.
+
+For real AI work, at least one compatible agent path must also be available, such as Codex, Claude Code, Gemini, or a configured generic CLI. The installer detects the three built-in CLI paths. One detected tool requires no question; several detected tools produce a short preference choice; no detected tool produces an optional Codex install offer. Installing Codex also installs Node.js/npm through a supported platform package path when needed.
+
+Manageroo detects coding-agent command-line tools, not the person's subscription or private account details. The selected coding tool keeps control of its own login and model configuration.
 
 Manageroo does **not** require a particular GPU, VRAM amount, CPU tier, or RAM class. A selected target project or explicitly chosen local AI tool may have separate requirements.
 
@@ -137,6 +141,10 @@ Common options include:
 ./install.sh --no-music
 ./install.sh --no-animation
 ./install.sh --install-codex
+./install.sh --agent auto
+./install.sh --agent codex
+./install.sh --agent claude-code
+./install.sh --agent gemini
 ./install.sh --install-stack
 ./install.sh --skip-stack
 ./install.sh --skill-pack install

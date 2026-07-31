@@ -1,20 +1,39 @@
 # Uncle Matt's Project Manageroo
 
-## Install in one command
-
-**Linux / macOS**
-
-```bash
-git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
-```
-
-**Windows PowerShell**
-
-```powershell
-git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
-```
-
-Requirements: Python 3.11+ and Git. For real AI work, install or connect at least one compatible coding-agent CLI.
+> [!TIP]
+> ## Quick Start
+>
+> **1. Install Manageroo**
+>
+> Linux / macOS:
+>
+> ```bash
+> git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
+> ```
+>
+> Windows PowerShell:
+>
+> ```powershell
+> git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
+> ```
+>
+> If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
+>
+> **2. Follow the guided setup**
+>
+> Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, optional supporting tools, token style, project discovery, and a read-only stack check.
+>
+> **3. Point Manageroo at a project**
+>
+> Open a new terminal and run:
+>
+> ```bash
+> manageroo solo /absolute/path/to/your-project
+> ```
+>
+> Answer the questions in plain English: what you want built or fixed, who it is for, what must not change, and what proof should count. If you are ever unsure what comes next, run `manageroo next`.
+>
+> **Manageroo for beginners:** Think of Manageroo as the project foreman above your coding agent. You describe the result you want; Manageroo records the mission, maps the repository, gives the coding agent bounded jobs in an isolated workspace, runs the project's checks, performs separate review, and produces evidence and a patch. It does not treat the worker saying “done” as proof. Use `manageroo run --apply` when you want a successfully verified patch applied to your project. Use `manageroo status RUN_ID --repo .` to check a run and `manageroo report RUN_ID --repo .` to read what happened.
 
 ---
 
@@ -306,6 +325,32 @@ manageroo compact audit --summary SUMMARY.md
 ```
 
 This is useful when a long project history has been summarized and you want to check that the summary did not accidentally throw away something important.
+
+## 9. Run the final Clawpatch release sweep
+
+Preview the complete closeout lifecycle without changing the repository:
+
+```bash
+manageroo clawpatch release-sweep --repo .
+```
+
+Execute it on a dedicated branch:
+
+```bash
+manageroo clawpatch release-sweep --repo . --apply
+```
+
+The applied sweep runs Clawpatch doctor, initialization when needed, map, and review. For a project without existing Clawpatch state, Manageroo keeps that new state under Git's private directory so setup does not dirty the source tree. It then asks Clawpatch for one fresh open finding at a time, shows and applies that finding, runs the project's Manageroo verification gates, requires Clawpatch to revalidate the finding as fixed, stages only the exact changed paths, and creates one commit. It checkpoints between findings so a validated partial sweep can resume. At the end it revalidates every open finding, requires a zero-open report, reruns the gates, requires clean Git state, and writes proof tied to the exact final commit.
+
+Dry-run is the default. `--apply` is required for local changes. Nothing is pushed unless you explicitly add `--push each` or `--push final`. On `main` or `master`, the default `--branch auto` creates a timestamped `clawpatch/release-sweep-*` branch; use `--branch current` only when you deliberately want the current branch.
+
+To make the normal release gate require that proof, use:
+
+```bash
+manageroo release-ready --require-clawpatch
+```
+
+Or set `require_clawpatch_release_sweep = true` under `[project]` in `.manageroo/config.toml`.
 
 # Hardware compatibility
 

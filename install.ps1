@@ -12,6 +12,8 @@ param(
     [string]$BinDir = "",
     [ValidateSet("ask", "off", "caveman", "curse")]
     [string]$TokenMode = "ask",
+    [ValidateSet("ask", "auto", "codex", "claude-code", "gemini")]
+    [string]$Agent = "ask",
     [ValidateSet("ask", "install", "skip")]
     [string]$SkillPack = "ask",
     [ValidateSet("ask", "skip", "install")]
@@ -42,10 +44,10 @@ foreach ($Candidate in @($Prefix, $BinDir)) {
 }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {
-    & py -3.11 -c "import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)"
+    & py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3,11) else 1)"
     if ($LASTEXITCODE -eq 0) {
         $PythonExe = "py"
-        $PythonPrefixArgs = @("-3.11")
+        $PythonPrefixArgs = @("-3")
     }
 }
 if (-not $PythonExe -and (Get-Command python -ErrorAction SilentlyContinue)) {
@@ -94,6 +96,7 @@ if ($SkipSkillPack) { $InstallArgs += "--skip-skill-pack" }
 if ($Prefix) { $InstallArgs += @("--prefix", $Prefix) }
 if ($BinDir) { $InstallArgs += @("--bin-dir", $BinDir) }
 if ($TokenMode) { $InstallArgs += @("--token-mode", $TokenMode) }
+if ($Agent) { $InstallArgs += @("--agent", $Agent) }
 if ($SkillPack) { $InstallArgs += @("--skill-pack", $SkillPack) }
 if ($Stack) { $InstallArgs += @("--stack", $Stack) }
 if ($GBrainLane) { $InstallArgs += @("--gbrain-lane", $GBrainLane) }

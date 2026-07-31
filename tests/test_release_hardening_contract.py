@@ -20,6 +20,7 @@ def _load_package_release():
 HARDENING_MODULES = {
     "src/manageroo/acceptance.py",
     "src/manageroo/chiptune_policy.py",
+    "src/manageroo/clawpatch_release.py",
     "src/manageroo/config_mutation_policy.py",
     "src/manageroo/context_hardening.py",
     "src/manageroo/discovery_policy.py",
@@ -47,6 +48,7 @@ BEHAVIORAL_REGRESSION_TESTS = {
     "tests/test_acceptance_evidence.py",
     "tests/test_artifact_concurrency.py",
     "tests/test_clawpatch_regressions.py",
+    "tests/test_clawpatch_release_sweep.py",
     "tests/test_clawpatch_remaining_regressions.py",
     "tests/test_cli_smoke.py",
     "tests/test_decision_regressions.py",

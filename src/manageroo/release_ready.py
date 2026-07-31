@@ -79,6 +79,30 @@ def _git_head_summary(repo: Path) -> dict[str, Any]:
     }
 
 
+def _clawpatch_release_proof(repo: Path) -> dict[str, Any]:
+    path = repo / PROJECT_DIR / "cache" / "clawpatch-release-proof.json"
+    next_command = shlex.join([PUBLIC_COMMAND, "clawpatch", "release-sweep", "--repo", str(repo), "--apply"])
+    if not path.is_file():
+        return {"ok": False, "detail": "no Clawpatch release-sweep proof exists", "next": next_command}
+    try:
+        proof = read_json(path)
+    except Exception:
+        return {"ok": False, "detail": "Clawpatch release-sweep proof is unreadable", "next": next_command}
+    head = _git_output(repo, ["git", "rev-parse", "HEAD"])
+    ok = (
+        isinstance(proof, dict)
+        and proof.get("status") == "COMPLETE"
+        and proof.get("git_head") == head
+        and int(proof.get("open_findings", -1)) == 0
+    )
+    detail = (
+        f"zero open findings proven at {head}"
+        if ok
+        else "proof is missing, stale, incomplete, or does not prove zero open findings at current HEAD"
+    )
+    return {"ok": ok, "detail": detail, "next": "" if ok else next_command, "proof": proof}
+
+
 def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
     results = sorted(
         (repo / PROJECT_DIR / "runs").glob("*/delivery/final-result.json"),
@@ -257,6 +281,7 @@ def release_ready(
     approved_by: str = "",
     run_checks: bool = True,
     save: bool = False,
+    require_clawpatch: bool = False,
 ) -> dict[str, Any]:
     repo = git_root(repo_path)
     metadata = _load_metadata(repo)
@@ -282,6 +307,19 @@ def release_ready(
         config = None
         gates = []
         items.append(_item("project config", False, str(exc), f"{PUBLIC_COMMAND} init"))
+    clawpatch_required = require_clawpatch or bool(
+        config and config.get("project", {}).get("require_clawpatch_release_sweep", False)
+    )
+    if clawpatch_required:
+        clawpatch_proof = _clawpatch_release_proof(repo)
+        items.append(_item(
+            "Clawpatch release sweep",
+            bool(clawpatch_proof["ok"]),
+            str(clawpatch_proof["detail"]),
+            str(clawpatch_proof["next"]),
+        ))
+    else:
+        clawpatch_proof = {"required": False, "ok": True, "detail": "not required by this project"}
     items.append(_item("verification gates", bool(gates), ", ".join(gate.id for gate in gates) if gates else "no verification gates configured", f"{PUBLIC_COMMAND} checks suggest"))
     if gates and run_checks and config is not None:
         runner = GateRunner(
@@ -322,6 +360,7 @@ def release_ready(
         "readiness": ready_report,
         "manageroo_run": run_proof,
         "gate_runs": gate_runs,
+        "clawpatch_release_sweep": clawpatch_proof,
         "git_head": _git_head_summary(repo),
         "git_status": status_text,
         "next_commands": [] if ok else next_commands,
