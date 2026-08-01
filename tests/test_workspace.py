@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -128,6 +129,45 @@ class WorkspaceTests(unittest.TestCase):
             with self.assertRaisesRegex(SafetyError, "symlink"):
                 mirror.create()
             self.assertFalse(mirror.snapshot_path.exists())
+
+    @unittest.skipIf(os.name == "nt", "executable mode is platform-dependent on Windows")
+    def test_pending_state_rejects_untracked_executable_mode_change(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            script = workspace / "script.sh"
+            script.write_text("#!/bin/sh\n", encoding="utf-8")
+            script.chmod(0o644)
+
+            head = mirror.head()
+            original_digest = mirror._workspace_state_digest(head)
+            job_id = "write-job"
+            job_path = mirror.run_root / "jobs" / f"{job_id}.json"
+            job_path.parent.mkdir(parents=True)
+            job_path.write_text(
+                json.dumps({"status": "complete", "sandbox": "workspace-write"}),
+                encoding="utf-8",
+            )
+            mirror.pending_validation_path.parent.mkdir(parents=True)
+            mirror.pending_validation_path.write_text(
+                json.dumps(
+                    {
+                        "sandbox": "workspace-write",
+                        "job_id": job_id,
+                        "workspace_state_sha256": original_digest,
+                        "pre_attempt_head": head,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(mirror._completed_write_job_owns_pending_state())
+
+            script.chmod(0o755)
+
+            self.assertNotEqual(mirror._workspace_state_digest(head), original_digest)
+            self.assertFalse(mirror._completed_write_job_owns_pending_state())
 
 
 if __name__ == "__main__":
