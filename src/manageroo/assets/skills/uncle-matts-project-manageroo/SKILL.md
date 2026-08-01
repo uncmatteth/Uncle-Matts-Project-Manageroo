@@ -130,7 +130,15 @@ For a final Clawpatch closeout, preview the native cross-platform workflow first
 manageroo clawpatch release-sweep --repo .
 ```
 
-Only run it with `--apply` when the operator has authorized repository changes. The controller must select one fresh open finding at a time, revalidate it as `fixed` before staging, stage only that finding's exact paths, commit it separately, and stop on any ambiguous result. Pushing requires the separate explicit choice `--push each` or `--push final`. A valid final proof requires zero open findings, passing configured gates, clean Git state, and an exact final-HEAD binding.
+Only run it with `--apply` when the operator has authorized repository changes.
+Clawpatch owns the workflow: execute its exact printed `next:` command, process
+one current finding, and stop on the first nonzero command or failed gate. Exit
+code 6 is terminal. Never build a report-derived queue, retry, triage, or
+hand-repair a finding. After exit 0, require the matching patch attempt, complete
+project validation, and exact `fixed` revalidation before staging only that
+attempt's source paths. Pushing requires `--push each` or `--push final`. A valid
+final proof requires zero open findings, zero locks, passing gates, clean Git
+state, and an exact final-HEAD binding.
 
 ## Role separation
 

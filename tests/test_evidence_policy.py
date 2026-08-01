@@ -1,3 +1,4 @@
+import hashlib
 import json
 import subprocess
 import sys
@@ -7,7 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from manageroo.adapters.mock import MockAdapter
-from manageroo.evidence_artifact_guard import install_evidence_artifact_guard
+from manageroo.errors import SafetyError
+from manageroo.evidence_artifact_guard import (
+    _validate_existing_evidence,
+    install_evidence_artifact_guard,
+)
 from manageroo.evidence_policy import _bundle_from_discovery, install_evidence_policy
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
@@ -102,6 +107,58 @@ class EvidencePolicyTests(unittest.TestCase):
             instance._external_intelligence("relevant project", {})
             result = instance._call(role="implementer", metadata={})
             self.assertNotIn("_evidence_items", result["metadata"])
+
+    def test_persisted_contradictions_require_valid_distinct_referenced_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "evidence.json"
+            first = "first evidence"
+            second = "second evidence"
+            first_hash = hashlib.sha256(first.encode("utf-8")).hexdigest()
+            second_hash = hashlib.sha256(second.encode("utf-8")).hexdigest()
+            payload = {
+                "schema_version": 1,
+                "query": "brief",
+                "controller_authority": True,
+                "items": [
+                    {
+                        "content": first,
+                        "content_sha256": first_hash,
+                        "authority": "current_repo",
+                    },
+                    {
+                        "content": second,
+                        "content_sha256": second_hash,
+                        "authority": "historical",
+                    },
+                ],
+                "contradictions": [],
+            }
+            valid = {
+                "claim_key": "shared-claim",
+                "evidence_hashes": [first_hash, second_hash],
+                "preferred_hash": first_hash,
+                "reason": "Current repository evidence is preferred.",
+            }
+            malformed = {
+                "empty": {**valid, "evidence_hashes": []},
+                "singleton": {**valid, "evidence_hashes": [first_hash]},
+                "duplicate": {**valid, "evidence_hashes": [first_hash, first_hash]},
+                "missing": {**valid, "evidence_hashes": [first_hash, "0" * 64]},
+                "preferred-out-of-set": {**valid, "preferred_hash": "0" * 64},
+                "claim-key-type": {**valid, "claim_key": []},
+                "reason-type": {**valid, "reason": []},
+            }
+
+            payload["contradictions"] = [valid]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            _validate_existing_evidence(path, "brief")
+
+            for name, contradiction in malformed.items():
+                with self.subTest(name=name):
+                    payload["contradictions"] = [contradiction]
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    with self.assertRaises(SafetyError):
+                        _validate_existing_evidence(path, "brief")
 
     def test_provider_display_names_cannot_grant_current_repository_authority(self):
         with tempfile.TemporaryDirectory() as temp:

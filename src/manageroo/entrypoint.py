@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from .branding import PROJECT_DIR
-from .clawpatch_batch import batch_fix_open_findings, format_batch_fix
 from .clawpatch_release import format_release_sweep, release_sweep
 from .cli import main as cli_main
 from .cli import parser as cli_parser
@@ -139,21 +138,10 @@ def _clawpatch_main(argv: list[str]) -> int:
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    fix_open = sub.add_parser(
-        "fix-open",
-        description=(
-            "Read only Clawpatch findings with status=open, fix them one at a time, and stop fail-closed on the first failure."
-        ),
-    )
-    fix_open.add_argument("--repo", default=".")
-    fix_open.add_argument("--limit", type=int, default=0, help="Maximum findings to process; 0 means all open findings.")
-    fix_open.add_argument("--apply", action="store_true", help="Actually run fixes. Without this flag, print the plan only.")
-    fix_open.add_argument("--no-commit", action="store_true", help="Do not create one Git commit per successful finding.")
-    fix_open.add_argument("--json", action="store_true")
     release = sub.add_parser(
         "release-sweep",
         description=(
-            "Run the full Clawpatch final-release lifecycle with validation before one exact-path commit per finding."
+            "Follow Clawpatch's printed next commands exactly, stopping on the first failed gate."
         ),
     )
     release.add_argument("--repo", default=".")
@@ -164,10 +152,11 @@ def _clawpatch_main(argv: list[str]) -> int:
         help="auto creates a release-sweep branch from main/master; current stays on the current branch; any other value creates that branch.",
     )
     release.add_argument("--push", choices=("none", "each", "final"), default="none")
-    release.add_argument("--review-limit", type=int, default=100)
-    release.add_argument("--jobs", type=int, default=3)
-    release.add_argument("--max-findings", type=int, default=0, help="0 processes every open finding.")
-    release.add_argument("--skip-review", action="store_true", help="Use existing findings after map instead of running a new review.")
+    release.add_argument(
+        "--publish-clawpatch-state",
+        action="store_true",
+        help="Create the separately gated final .clawpatch-only state commit; requires --push each or --push final.",
+    )
     release.add_argument(
         "--trusted-host-codex-sandbox-bypass",
         action="store_true",
@@ -186,23 +175,10 @@ def _clawpatch_main(argv: list[str]) -> int:
                 apply=args.apply,
                 branch=args.branch,
                 push_mode=args.push,
-                review_limit=args.review_limit,
-                jobs=args.jobs,
-                max_findings=args.max_findings,
-                skip_review=args.skip_review,
+                publish_clawpatch_state=args.publish_clawpatch_state,
                 trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
             )
             formatter = format_release_sweep
-        elif args.command == "fix-open":
-            if args.limit < 0:
-                parser.error("--limit must be 0 or greater.")
-            report = batch_fix_open_findings(
-                Path(args.repo),
-                apply=args.apply,
-                limit=args.limit,
-                commit_each=not args.no_commit,
-            )
-            formatter = format_batch_fix
         else:
             parser.error("Unknown Clawpatch command.")
     except SafetyError as exc:
@@ -378,9 +354,8 @@ def _root_help() -> str:
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
         + "  host-skills           Inspect host skills without modifying or owning them.\n"
         + "\nCommand-owned repair automation:\n"
-        + "  clawpatch release-sweep  Strict final-release loop: map, review, fix, validate, exact-path commit, and prove zero open.\n"
+        + "  clawpatch release-sweep  Follow Clawpatch's printed next commands; stop on the first failed gate.\n"
         + "                            Dry-run by default; --apply mutates; --push is always explicit.\n"
-        + "  clawpatch fix-open    Plan or apply every currently open Clawpatch finding serially.\n"
         + "                        Cross-platform; one commit per successful fix by default.\n"
         + "\nRecommended stack maintenance:\n"
         + "  stack-update          Dry-run upstream-supported updates; optionally name tools; pass --apply explicitly.\n"

@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from .branding import PROJECT_DIR
@@ -15,27 +16,23 @@ from .errors import MANAGEROOError, SafetyError
 from .gates import GateRunner, gates_from_config
 from .policy import CommandPolicy
 from .runner import CommandRunner
-from .util import atomic_write_json, read_json, sha256_file, utc_now
+from .util import atomic_write_json, utc_now
 
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
 CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 1_800_000
-CONTROLLER_GATE_ARTIFACTS = frozenset({"BUILD-VALIDATION.json"})
-MAX_REPAIR_ATTEMPTS_PER_FINDING = 3
 LIFECYCLE = (
-    "clawpatch doctor -> init (when needed) -> map -> review -> "
-    "clawpatch next --status open -> show -> fix -> Manageroo gates -> revalidate -> exact-path commit; "
-    "repeat -> revalidate --all --status open -> zero-open report -> final gates -> clean Git"
+    "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
+    "clawpatch map -> execute only each printed next command -> one fix -> complete project gates -> "
+    "exact fixed revalidation -> exact-path commit/push when authorized -> clawpatch next -> final closure"
 )
+_NEXT_LINE = re.compile(r"(?mi)^\s*(?:[-*]\s*)?next:\s*(.+?)\s*$")
+_FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
 
 
 def _release_clawpatch_env(*, trusted_host_codex_sandbox_bypass: bool) -> dict[str, str]:
-    """Build child-only environment for Clawpatch's long release operations."""
     child_env = dict(os.environ)
-    child_env.setdefault(
-        "CLAWPATCH_CODEX_TIMEOUT_MS",
-        str(CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS),
-    )
+    child_env.setdefault("CLAWPATCH_CODEX_TIMEOUT_MS", str(CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS))
     if trusted_host_codex_sandbox_bypass:
         child_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
     return child_env
@@ -75,22 +72,11 @@ def _must_run(
 ) -> str:
     result = _run(argv, cwd=cwd, timeout=timeout, env=env)
     if result.returncode:
-        raise SafetyError(f"Command failed ({' '.join(argv)}):\n{result.stdout[-6000:]}")
+        raise SafetyError(
+            f"command: {shlex.join(argv)}\nexit code: {result.returncode}\n"
+            f"failed requirement: command must exit 0\noutput:\n{result.stdout[-6000:]}"
+        )
     return result.stdout
-
-
-def _json_command(
-    repo: Path,
-    command: str,
-    *args: str,
-    timeout: int = 1800,
-    state_dir: Path | None = None,
-    clawpatch_env: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    state_args = ["--state-dir", str(state_dir)] if state_dir is not None else []
-    argv = ["clawpatch", "--json", "--no-input", *state_args, command, *args]
-    output = _must_run(argv, cwd=repo, timeout=timeout, env=clawpatch_env)
-    return _parse_json_output(output, command=command)
 
 
 def _parse_json_output(output: str, *, command: str) -> dict[str, Any]:
@@ -100,9 +86,8 @@ def _parse_json_output(output: str, *, command: str) -> dict[str, Any]:
         value = None
         decoder = json.JSONDecoder()
         for match in re.finditer(r"(?m)^[ \t]*(\{)", output):
-            start = match.start(1)
             try:
-                candidate, end = decoder.raw_decode(output, start)
+                candidate, end = decoder.raw_decode(output, match.start(1))
             except json.JSONDecodeError:
                 continue
             if isinstance(candidate, dict) and not output[end:].strip():
@@ -115,43 +100,42 @@ def _parse_json_output(output: str, *, command: str) -> dict[str, Any]:
     return value
 
 
-def _required_count(payload: dict[str, Any], *, command: str, field: str) -> int:
-    value = payload.get(field)
-    if field not in payload or isinstance(value, bool) or not isinstance(value, int):
-        raise SafetyError(
-            f"Clawpatch {command} returned a missing or malformed {field!r} count."
-        )
-    return value
+def _next_from_output(output: str) -> str:
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError:
+        value = None
+    if isinstance(value, dict) and isinstance(value.get("next"), str):
+        return str(value["next"]).strip()
+    matches = _NEXT_LINE.findall(output)
+    if not matches:
+        return ""
+    command = matches[-1].strip()
+    if len(command) >= 2 and command[0] == command[-1] and command[0] in {"`", "'", '"'}:
+        command = command[1:-1].strip()
+    return command
 
 
-def _fix_command(
-    repo: Path,
-    finding_id: str,
-    *,
-    state_dir: Path | None,
-    clawpatch_env: dict[str, str] | None,
-) -> dict[str, Any]:
-    """Apply one finding, preserving Clawpatch's exit-6 revalidation transition."""
-    state_args = ["--state-dir", str(state_dir)] if state_dir is not None else []
-    argv = [
-        "clawpatch",
-        "--json",
-        "--no-input",
-        *state_args,
-        "fix",
-        "--finding",
-        finding_id,
-    ]
-    result = _run(argv, cwd=repo, timeout=3600, env=clawpatch_env)
-    if result.returncode == 6:
-        return {
-            "status": "validation-pending",
-            "exit_code": 6,
-            "next": f"clawpatch revalidate --finding {finding_id}",
-        }
-    if result.returncode:
-        raise SafetyError(f"Command failed ({' '.join(argv)}):\n{result.stdout[-6000:]}")
-    return _parse_json_output(result.stdout, command="fix")
+def _command_from_next(command: str) -> list[str]:
+    raw = command.strip()
+    if not raw:
+        raise SafetyError("Clawpatch printed an empty next command.")
+    if "<" in raw or ">" in raw:
+        raise SafetyError(f"Clawpatch next command contains an unresolved placeholder: {raw}")
+    if any(token in raw for token in ("\n", "\r", "\x00", "&&", "||", ";", "|", "$(", "`")):
+        raise SafetyError(f"Clawpatch next command is not a single executable command: {raw}")
+    try:
+        argv = shlex.split(raw, posix=os.name != "nt")
+    except ValueError as exc:
+        raise SafetyError(f"Clawpatch next command could not be parsed exactly: {raw}") from exc
+    if not argv or Path(argv[0].strip('"')).name.lower() not in {"clawpatch", "clawpatch.exe"}:
+        raise SafetyError(f"Clawpatch next command is not a Clawpatch command: {raw}")
+    argv[0] = argv[0].strip('"')
+    if len(argv) < 2:
+        raise SafetyError(f"Clawpatch next command has no command verb: {raw}")
+    if argv[1] == "triage":
+        raise SafetyError("Clawpatch directed triage; Manageroo will not alter a finding status.")
+    return argv
 
 
 def _git_root(repo: Path) -> Path:
@@ -162,29 +146,68 @@ def _git_root(repo: Path) -> Path:
 
 
 def _git_text(repo: Path, argv: list[str]) -> str:
-    return _must_run(argv, cwd=repo, timeout=120).strip()
+    return _must_run(argv, cwd=repo, timeout=600).strip()
 
 
-def _git_status(repo: Path) -> str:
-    return _must_run(
-        ["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo, timeout=60
-    )
-
-
-def _require_current_branch(
-    repo: Path,
-    expected: str,
-    *,
-    operation: str,
-    actual: str | None = None,
-) -> None:
-    current = actual or _git_text(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+def _require_branch(repo: Path, expected: str, *, phase: str) -> None:
+    current = _git_text(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
     if current != expected:
         raise SafetyError(
-            f"Clawpatch release sweep cannot {operation} on branch {current!r}; "
-            f"the checkpoint branch is {expected!r}. Switch back to {expected!r} "
-            "while preserving the saved fix, then rerun the release sweep."
+            f"Git branch changed during Clawpatch {phase}; expected {expected!r}, found {current!r}."
         )
+
+
+def _status_paths(repo: Path) -> list[str]:
+    output = _must_run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z"],
+        cwd=repo,
+        timeout=120,
+    )
+    paths: list[str] = []
+    for record in output.split("\0"):
+        if not record:
+            continue
+        if len(record) < 4:
+            raise SafetyError("Git returned malformed status output.")
+        paths.append(record[3:])
+    return sorted(set(paths))
+
+
+def _source_paths(repo: Path) -> list[str]:
+    return [path for path in _status_paths(repo) if path != ".clawpatch" and not path.startswith(".clawpatch/")]
+
+
+def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
+    root = repo.resolve()
+    found: list[dict[str, Any]] = []
+    proc = Path("/proc")
+    if proc.is_dir():
+        for entry in proc.iterdir():
+            if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                continue
+            try:
+                cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+                if "clawpatch" not in cmdline.lower():
+                    continue
+                cwd = (entry / "cwd").resolve()
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            if cwd == root:
+                found.append({"pid": int(entry.name), "cwd": str(cwd), "command": cmdline.strip()})
+        return found
+    result = _run(["ps", "-eo", "pid=,command="], cwd=root, timeout=30)
+    if result.returncode:
+        raise SafetyError("Could not prove that no other Clawpatch process is active.")
+    for line in result.stdout.splitlines():
+        if "clawpatch" in line.lower():
+            found.append({"pid": line.strip().split(maxsplit=1)[0], "cwd": "unknown", "command": line.strip()})
+    return found
+
+
+def _require_no_process(repo: Path) -> None:
+    active = _active_clawpatch_processes(repo)
+    if active:
+        raise SafetyError(f"A Clawpatch process is already active for this repository: {active}")
 
 
 def _version_tuple(text: str) -> tuple[int, int, int]:
@@ -199,72 +222,131 @@ def _clawpatch_version(repo: Path) -> str:
         raise SafetyError("Clawpatch is not installed or is not available on PATH.")
     text = _must_run(["clawpatch", "--version"], cwd=repo, timeout=30).strip()
     if _version_tuple(text) < MINIMUM_CLAWPATCH_VERSION:
-        raise SafetyError("Clawpatch 0.7.1 or newer is required for the JSON release-sweep contract.")
+        raise SafetyError("Clawpatch 0.7.1 or newer is required.")
     return text
 
 
-def _changed_paths(repo: Path) -> list[str]:
-    commands = (
-        ["git", "diff", "--name-only", "--no-renames", "-z"],
-        ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"],
-        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-    )
-    paths: set[str] = set()
-    for argv in commands:
-        output = _must_run(argv, cwd=repo, timeout=120)
-        paths.update(value for value in output.split("\0") if value)
-    return sorted(paths)
+def _run_clawpatch(
+    repo: Path,
+    argv: list[str],
+    *,
+    env: dict[str, str],
+    timeout: int = 7200,
+) -> subprocess.CompletedProcess[str]:
+    _require_no_process(repo)
+    return _run(argv, cwd=repo, timeout=timeout, env=env)
 
 
-def _validate_fix_paths(paths: list[str]) -> None:
-    if not paths:
-        raise SafetyError("Clawpatch reported a fix but produced no Git-visible source change.")
-    forbidden = (".git/", f"{PROJECT_DIR}/", ".clawpatch/")
-    invalid = [path for path in paths if path in {".git", PROJECT_DIR, ".clawpatch"} or path.startswith(forbidden)]
+def _must_clawpatch(repo: Path, argv: list[str], *, env: dict[str, str], timeout: int = 7200) -> str:
+    result = _run_clawpatch(repo, argv, env=env, timeout=timeout)
+    if result.returncode:
+        raise SafetyError(
+            f"phase: Clawpatch command\ncommand: {shlex.join(argv)}\nfinding ID: N/A\n"
+            f"exit code: {result.returncode}\nfailed requirement: command must exit 0\n"
+            f"changed source paths: {_source_paths(repo)}\noutput:\n{result.stdout[-6000:]}"
+        )
+    return result.stdout
+
+
+def _json_clawpatch(repo: Path, argv: list[str], *, env: dict[str, str], timeout: int = 7200) -> dict[str, Any]:
+    output = _must_clawpatch(repo, argv, env=env, timeout=timeout)
+    return _parse_json_output(output, command=" ".join(argv[1:]))
+
+
+def _finding_from_fix_argv(argv: list[str]) -> str:
+    if len(argv) < 2 or argv[1] != "fix":
+        raise SafetyError("Expected Clawpatch to direct a fix command.")
+    try:
+        value = argv[argv.index("--finding") + 1]
+    except (ValueError, IndexError) as exc:
+        raise SafetyError("Clawpatch fix command did not name a finding.") from exc
+    if not _FINDING_ID.fullmatch(value):
+        raise SafetyError(f"Clawpatch fix command returned an invalid finding ID: {value!r}")
+    return value
+
+
+def _with_json(argv: list[str]) -> list[str]:
+    return list(argv) if "--json" in argv else [*argv, "--json"]
+
+
+def _fix_command(repo: Path, argv: list[str], *, env: dict[str, str] | None = None) -> dict[str, Any]:
+    finding_id = _finding_from_fix_argv(argv)
+    command = _with_json(argv)
+    result = _run(command, cwd=repo, timeout=3600, env=env)
+    if result.returncode:
+        requirement = "clawpatch fix validation passed" if result.returncode == 6 else "clawpatch fix exited 0"
+        raise SafetyError(
+            f"phase: fix\ncommand: {shlex.join(command)}\nfinding ID: {finding_id}\n"
+            f"exit code: {result.returncode}\nfailed requirement: {requirement}\n"
+            f"changed source paths: {_source_paths(repo) if repo.exists() else []}\n"
+            f"output:\n{result.stdout[-6000:]}"
+        )
+    payload = _parse_json_output(result.stdout, command="fix")
+    if payload.get("finding") != finding_id:
+        raise SafetyError(f"Clawpatch fix returned the wrong finding; expected {finding_id!r}.")
+    patch_attempt = payload.get("patchAttempt")
+    if not isinstance(patch_attempt, str) or not patch_attempt.strip():
+        raise SafetyError("Clawpatch fix returned no valid patch-attempt ID.")
+    payload["patchAttempt"] = patch_attempt.strip()
+    return payload
+
+
+def _patch_attempt(repo: Path, patch_attempt_id: str, finding_id: str) -> dict[str, Any]:
+    candidates = [
+        repo / ".clawpatch" / "patches" / f"{patch_attempt_id}.json",
+        repo / ".git" / "manageroo" / "clawpatch-state" / "patches" / f"{patch_attempt_id}.json",
+    ]
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
+        raise SafetyError(f"Could not read Clawpatch patch-attempt record {patch_attempt_id}.")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SafetyError(f"Clawpatch patch-attempt record {patch_attempt_id} is malformed.") from exc
+    if not isinstance(value, dict) or value.get("patchAttemptId") != patch_attempt_id:
+        raise SafetyError(f"Clawpatch patch-attempt record does not match {patch_attempt_id}.")
+    finding_ids = value.get("findingIds")
+    if not isinstance(finding_ids, list) or finding_id not in finding_ids:
+        raise SafetyError(f"Clawpatch patch-attempt record does not belong to {finding_id}.")
+    files = value.get("filesChanged")
+    if not isinstance(files, list) or any(not isinstance(path, str) or not path for path in files):
+        raise SafetyError("Clawpatch patch-attempt filesChanged is malformed.")
+    return value
+
+
+def _validate_attempt_paths(repo: Path, files: list[str]) -> None:
+    invalid = []
+    for path in files:
+        posix = PurePosixPath(path)
+        windows = PureWindowsPath(path)
+        if (
+            posix.is_absolute()
+            or windows.is_absolute()
+            or ".." in posix.parts
+            or ".." in windows.parts
+            or path == ".clawpatch"
+            or path.startswith(".clawpatch/")
+        ):
+            invalid.append(path)
     if invalid:
-        raise SafetyError("Clawpatch attempted to modify controller state: " + ", ".join(invalid))
-
-
-def _path_digests(repo: Path, paths: list[str]) -> dict[str, str]:
-    digests: dict[str, str] = {}
-    for relative in paths:
-        path = repo / relative
-        if path.is_symlink():
-            digests[relative] = "symlink:" + str(path.readlink())
-        elif path.is_file():
-            digests[relative] = sha256_file(path)
-        elif not path.exists():
-            digests[relative] = "deleted"
-        else:
-            raise SafetyError(f"Clawpatch changed path is not a regular file: {relative}")
-    return digests
-
-
-def _paths_after_gates(repo: Path, fix_paths: list[str]) -> list[str]:
-    """Include only known controller-generated proof beside the exact repair paths."""
-    current = _changed_paths(repo)
-    missing = sorted(set(fix_paths) - set(current))
-    unexpected = sorted(set(current) - set(fix_paths) - CONTROLLER_GATE_ARTIFACTS)
-    if missing:
+        raise SafetyError("Clawpatch patch attempt contains unsafe or state-only paths: " + ", ".join(invalid))
+    current = _source_paths(repo)
+    if sorted(files) != current:
         raise SafetyError(
-            "Manageroo gates unexpectedly removed Clawpatch fix paths: " + ", ".join(missing)
+            "Changed source paths do not exactly match the current Clawpatch patch attempt; "
+            f"attempt={sorted(files)!r}, current={current!r}."
         )
-    if unexpected:
-        raise SafetyError(
-            "Manageroo gates changed unexpected paths: " + ", ".join(unexpected)
-        )
-    return current
 
 
-def _run_manageroo_gates(repo: Path, *, label: str) -> list[dict[str, Any]]:
+def _run_project_gates(repo: Path, *, finding_id: str) -> list[dict[str, Any]]:
     config_path = repo / PROJECT_DIR / "config.toml"
     if not config_path.is_file():
-        return []
+        raise SafetyError("The repository has no Manageroo gate configuration; complete validation is ambiguous.")
     try:
         config = load_config(repo)
         gates = gates_from_config(config)
         if not gates:
-            raise SafetyError("Manageroo is initialized but has no verification gates configured.")
+            raise SafetyError("The repository has no configured validation gates; complete validation is ambiguous.")
         log_root = repo / PROJECT_DIR / "cache" / "clawpatch-release-logs"
         runner = GateRunner(
             CommandRunner(log_root=log_root),
@@ -273,129 +355,177 @@ def _run_manageroo_gates(repo: Path, *, label: str) -> list[dict[str, Any]]:
         )
         return [item.to_dict() for item in runner.run(gates, repo, require_one=True)]
     except MANAGEROOError as exc:
-        raise SafetyError(f"Manageroo gates failed during {label}: {exc}") from exc
-
-
-def _checkpoint_path(repo: Path) -> Path:
-    dot_git = repo / ".git"
-    if dot_git.is_file():
-        marker = dot_git.read_text(encoding="utf-8", errors="replace").strip()
-        if marker.lower().startswith("gitdir:"):
-            git_dir = Path(marker.split(":", 1)[1].strip())
-            if not git_dir.is_absolute():
-                git_dir = (repo / git_dir).resolve()
-            return git_dir / "manageroo" / "clawpatch-release-sweep.json"
-    return dot_git / "manageroo" / "clawpatch-release-sweep.json"
-
-
-def _proof_path(repo: Path) -> Path:
-    if (repo / PROJECT_DIR).is_dir():
-        return repo / PROJECT_DIR / "cache" / "clawpatch-release-proof.json"
-    return _checkpoint_path(repo).with_name("clawpatch-release-proof.json")
-
-
-def _load_checkpoint(repo: Path) -> dict[str, Any]:
-    path = _checkpoint_path(repo)
-    if not path.is_file():
-        return {}
-    try:
-        value = read_json(path)
-    except Exception:
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
-def _finding_id(payload: dict[str, Any]) -> str:
-    finding = payload.get("finding")
-    if finding is None:
-        return ""
-    if isinstance(finding, str):
-        return finding.strip()
-    if isinstance(finding, dict):
-        return str(finding.get("findingId") or finding.get("id") or "").strip()
-    return ""
-
-
-def _push(repo: Path, branch: str, *, first: bool) -> None:
-    if first:
-        _must_run(["git", "push", "-u", "origin", branch], cwd=repo, timeout=600)
-    else:
-        _must_run(["git", "push", "origin", branch], cwd=repo, timeout=600)
-
-
-def _clawpatch_state_dir(repo: Path) -> Path | None:
-    """Keep first-run Clawpatch state outside the source worktree.
-
-    Existing standard or project-configured Clawpatch projects retain their own
-    state choice. New projects use a Git-private directory so initialization and
-    mapping cannot dirty the release branch before the first finding.
-    """
-    if (repo / ".clawpatch" / "config.json").is_file() or (repo / "clawpatch.config.json").is_file():
-        return None
-    return _checkpoint_path(repo).parent / "clawpatch-state"
-
-
-def _finish_finding(
-    repo: Path,
-    *,
-    finding_id: str,
-    paths: list[str],
-    checkpoint: dict[str, Any],
-    push_mode: str,
-    branch: str,
-    state_dir: Path | None,
-    clawpatch_env: dict[str, str] | None,
-) -> dict[str, Any]:
-    gate_runs = _run_manageroo_gates(repo, label=finding_id)
-    paths = _paths_after_gates(repo, paths)
-    validation = _json_command(
-        repo,
-        "revalidate",
-        "--finding",
-        finding_id,
-        state_dir=state_dir,
-        clawpatch_env=clawpatch_env,
-    )
-    outcome = str(validation.get("outcome") or "")
-    if outcome not in {"fixed", "open"}:
         raise SafetyError(
-            f"Clawpatch finding {finding_id} did not clear after validation "
-            f"(outcome={validation.get('outcome', 'unknown')}). No commit was created."
+            f"phase: project validation\ncommand: configured Manageroo gates\nfinding ID: {finding_id}\n"
+            f"exit code: nonzero\nfailed requirement: complete repository validation must pass\n"
+            f"changed source paths: {_source_paths(repo)}\noutput:\n{exc}"
+        ) from exc
+
+
+def _revalidate(repo: Path, finding_id: str, *, env: dict[str, str]) -> dict[str, Any]:
+    argv = ["clawpatch", "revalidate", "--finding", finding_id, "--json"]
+    payload = _json_clawpatch(repo, argv, env=env, timeout=3600)
+    if payload.get("finding") != finding_id or payload.get("outcome") != "fixed":
+        raise SafetyError(
+            f"phase: revalidation\ncommand: {shlex.join(argv)}\nfinding ID: {finding_id}\n"
+            "exit code: 0\nfailed requirement: matching finding and exact lowercase outcome fixed\n"
+            f"changed source paths: {_source_paths(repo)}\noutput:\n{json.dumps(payload, sort_keys=True)}"
         )
-    _must_run(["git", "add", "--", *paths], cwd=repo, timeout=120)
+    return payload
+
+
+def _commit_attempt(repo: Path, finding_id: str, files: list[str], *, branch: str) -> str:
+    if not files:
+        return ""
+    _require_branch(repo, branch, phase="source commit")
+    _validate_attempt_paths(repo, files)
+    _must_run(["git", "add", "--", *files], cwd=repo, timeout=120)
     staged = _must_run(
-        ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"],
-        cwd=repo,
-        timeout=120,
+        ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"], cwd=repo, timeout=120
     )
     staged_paths = sorted(path for path in staged.split("\0") if path)
-    if staged_paths != sorted(paths):
-        raise SafetyError("The staged paths did not exactly match the Clawpatch fix; refusing to commit.")
-    commit_kind = "fix" if outcome == "fixed" else "partial"
-    _require_current_branch(repo, branch, operation="commit the finding")
-    _must_run(
-        ["git", "commit", "-m", f"clawpatch {commit_kind}: {finding_id}"],
-        cwd=repo,
-        timeout=300,
-    )
+    if staged_paths != sorted(files) or any(path.startswith(".clawpatch/") for path in staged_paths):
+        raise SafetyError("The staged paths do not exactly match the current Clawpatch patch attempt.")
+    _must_run(["git", "diff", "--cached", "--check"], cwd=repo, timeout=120)
+    _require_branch(repo, branch, phase="source commit")
+    _must_run(["git", "commit", "-m", f"clawpatch fix: {finding_id}"], cwd=repo, timeout=300)
     commit = _git_text(repo, ["git", "rev-parse", "HEAD"])
-    record = {
+    committed = _git_text(repo, ["git", "show", "--pretty=", "--name-only", "--no-renames", commit]).splitlines()
+    if sorted(path for path in committed if path) != sorted(files):
+        raise SafetyError("The resulting commit does not contain exactly the verified source repair.")
+    return commit
+
+
+def _push_and_verify(repo: Path, branch: str, *, first: bool) -> None:
+    _require_branch(repo, branch, phase="push")
+    argv = ["git", "push", "-u", "origin", branch] if first else ["git", "push", "origin", branch]
+    _must_run(argv, cwd=repo, timeout=600)
+    local = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    remote_line = _git_text(repo, ["git", "ls-remote", "origin", f"refs/heads/{branch}"])
+    remote = remote_line.split()[0] if remote_line else ""
+    if remote != local:
+        raise SafetyError(f"Live remote branch SHA {remote!r} does not equal local HEAD {local!r}.")
+
+
+def _publish_final_state(repo: Path, *, branch: str) -> str:
+    state_paths = [path for path in _status_paths(repo) if path == ".clawpatch" or path.startswith(".clawpatch/")]
+    if not state_paths:
+        return ""
+    _require_branch(repo, branch, phase="state publication")
+    tracked = set(
+        path
+        for path in _must_run(["git", "ls-files", "-z", "--", ".clawpatch"], cwd=repo, timeout=120).split("\0")
+        if path
+    )
+    untracked = sorted(set(state_paths) - tracked)
+    if untracked:
+        raise SafetyError(
+            "Final Clawpatch state includes untracked paths; state publication covers tracked state only: "
+            + ", ".join(untracked)
+        )
+    _must_run(["git", "add", "--", *state_paths], cwd=repo, timeout=120)
+    staged = sorted(
+        path
+        for path in _must_run(
+            ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"], cwd=repo, timeout=120
+        ).split("\0")
+        if path
+    )
+    if staged != sorted(state_paths) or any(not path.startswith(".clawpatch/") for path in staged):
+        raise SafetyError("Final state commit is not exactly limited to tracked .clawpatch paths.")
+    _must_run(["git", "commit", "-m", "clawpatch state: final closure"], cwd=repo, timeout=300)
+    return _git_text(repo, ["git", "rev-parse", "HEAD"])
+
+
+def _execute_fix(
+    repo: Path,
+    argv: list[str],
+    *,
+    env: dict[str, str],
+    push_mode: str,
+    branch: str,
+    pushed: bool,
+) -> tuple[dict[str, Any], bool]:
+    if _source_paths(repo):
+        raise SafetyError("Pre-existing source changes block the current Clawpatch fix.")
+    finding_id = _finding_from_fix_argv(argv)
+    head_before = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    _require_no_process(repo)
+    fixed = _fix_command(repo, argv, env=env)
+    patch = _patch_attempt(repo, str(fixed["patchAttempt"]), finding_id)
+    files = [str(path) for path in patch["filesChanged"]]
+    _validate_attempt_paths(repo, files)
+    gate_runs = _run_project_gates(repo, finding_id=finding_id)
+    _validate_attempt_paths(repo, files)
+    validation = _revalidate(repo, finding_id, env=env)
+    commit = _commit_attempt(repo, finding_id, files, branch=branch)
+    if push_mode == "each" and commit:
+        _push_and_verify(repo, branch, first=not pushed)
+        pushed = True
+    return {
         "finding_id": finding_id,
-        "paths": paths,
-        "commit": commit,
-        "validation": validation,
+        "head_before": head_before,
+        "patch_attempt": fixed["patchAttempt"],
+        "files_changed": files,
         "gate_runs": gate_runs,
-        "cleared": outcome == "fixed",
+        "revalidation": validation,
+        "commit": commit,
+    }, pushed
+
+
+def _required_int(payload: dict[str, Any], field: str) -> int:
+    value = payload.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SafetyError(f"Clawpatch status returned a missing or malformed {field!r} value.")
+    return value
+
+
+def _final_closure(
+    repo: Path,
+    *,
+    env: dict[str, str],
+    push_mode: str,
+    branch: str,
+    pushed: bool,
+    publish_clawpatch_state: bool,
+) -> dict[str, Any]:
+    _require_no_process(repo)
+    all_validation = _json_clawpatch(
+        repo, ["clawpatch", "revalidate", "--all", "--status", "open", "--json"], env=env, timeout=3600
+    )
+    report = _json_clawpatch(repo, ["clawpatch", "report", "--status", "open", "--json"], env=env)
+    if report.get("total") != 0 or report.get("items") != []:
+        raise SafetyError("Final Clawpatch report is not exactly total=0 and items=[].")
+    status = _json_clawpatch(repo, ["clawpatch", "status", "--json"], env=env)
+    for field in ("openFindings", "activeLocks", "lockFiles"):
+        if _required_int(status, field) != 0:
+            raise SafetyError(f"Final Clawpatch status requires {field}=0.")
+    final_gates = _run_project_gates(repo, finding_id="N/A")
+    if _source_paths(repo):
+        raise SafetyError(f"Final closure found uncommitted source changes: {_source_paths(repo)}")
+    state_commit = ""
+    state_paths = [path for path in _status_paths(repo) if path == ".clawpatch" or path.startswith(".clawpatch/")]
+    if state_paths and publish_clawpatch_state:
+        if push_mode == "none":
+            raise SafetyError("Publishing final Clawpatch state requires explicit --push each or --push final authorization.")
+        state_commit = _publish_final_state(repo, branch=branch)
+    if push_mode == "final" or state_commit:
+        _push_and_verify(repo, branch, first=not pushed)
+        pushed = True
+    if _status_paths(repo):
+        raise SafetyError(
+            "Final authorized Git worktree is not clean. Manageroo will not auto-publish or discard Clawpatch state: "
+            + ", ".join(_status_paths(repo))
+        )
+    _require_no_process(repo)
+    return {
+        "all_revalidation": all_validation,
+        "report": report,
+        "status": status,
+        "gate_runs": final_gates,
+        "pushed": pushed,
+        "state_commit": state_commit,
     }
-    checkpoint.setdefault("completed" if outcome == "fixed" else "partial", []).append(record)
-    checkpoint.update({"phase": "idle", "active_finding": "", "paths": [], "path_digests": {}, "head": commit})
-    atomic_write_json(_checkpoint_path(repo), checkpoint)
-    if push_mode == "each":
-        _require_current_branch(repo, branch, operation="push the release branch")
-        _push(repo, branch, first=not bool(checkpoint.get("pushed")))
-        checkpoint["pushed"] = True
-        atomic_write_json(_checkpoint_path(repo), checkpoint)
-    return record
 
 
 def release_sweep(
@@ -404,277 +534,127 @@ def release_sweep(
     apply: bool = False,
     branch: str = "auto",
     push_mode: str = "none",
-    review_limit: int = 100,
-    jobs: int = 3,
-    max_findings: int = 0,
-    skip_review: bool = False,
+    publish_clawpatch_state: bool = False,
     trusted_host_codex_sandbox_bypass: bool = False,
 ) -> dict[str, Any]:
-    """Run the strict, serial Clawpatch final-release lifecycle.
-
-    Dry-run is the default. Apply mode uses fresh `next` selection, validates each
-    fix before an exact-path commit, persists a repository-private checkpoint, and
-    proves zero open findings against the final HEAD.
-    """
+    """Run Clawpatch as a fail-closed interpreter of its own printed next commands."""
     root = _git_root(repo)
     version = _clawpatch_version(root)
     current_branch = _git_text(root, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    head = _git_text(root, ["git", "rev-parse", "HEAD"])
-    status = _git_status(root)
-    clawpatch_env = _release_clawpatch_env(
-        trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass
-    )
+    head_before = _git_text(root, ["git", "rev-parse", "HEAD"])
     if push_mode not in {"none", "each", "final"}:
         raise SafetyError("push_mode must be one of: none, each, final.")
-    if review_limit < 1 or jobs < 1 or max_findings < 0:
-        raise SafetyError("review_limit and jobs must be positive; max_findings must be zero or greater.")
-
     report: dict[str, Any] = {
         "ok": True,
         "apply": apply,
         "repo": str(root),
-        "clawpatch_version": version,
         "branch": current_branch,
-        "git_head_before": head,
+        "git_head_before": head_before,
+        "clawpatch_version": version,
         "lifecycle": LIFECYCLE,
         "push_mode": push_mode,
-        "trusted_host_codex_sandbox_bypass": trusted_host_codex_sandbox_bypass,
+        "publish_clawpatch_state": publish_clawpatch_state,
         "results": [],
     }
     if not apply:
-        report["clean"] = not bool(status.strip())
         report["planned_branch"] = branch
         return report
 
-    state_dir = _clawpatch_state_dir(root)
-
-    checkpoint = _load_checkpoint(root)
-    resume_candidate = (
-        checkpoint.get("phase") == "fixed"
-        and checkpoint.get("head") == head
-        and bool(checkpoint.get("branch"))
-        and bool(checkpoint.get("active_finding"))
-        and bool(checkpoint.get("paths"))
-        and isinstance(checkpoint.get("path_digests"), dict)
-    )
-    resume_contents_match = False
-    checkpoint_branch = str(checkpoint.get("branch") or "")
-    if resume_candidate:
-        saved_paths = [str(path) for path in checkpoint["paths"]]
-        resume_contents_match = (
-            _changed_paths(root) == sorted(saved_paths)
-            and _path_digests(root, saved_paths) == checkpoint.get("path_digests")
-        )
-        if resume_contents_match:
-            _require_current_branch(
-                root,
-                checkpoint_branch,
-                operation="resume the checkpoint",
-                actual=current_branch,
-            )
-    resumable = (
-        resume_candidate
-        and resume_contents_match
-        and checkpoint_branch == current_branch
-    )
-    if status.strip() and not resumable:
-        raise SafetyError("Clawpatch release sweep requires a clean working tree before it starts.")
+    _require_no_process(root)
+    preexisting_source = _source_paths(root)
+    if preexisting_source:
+        raise SafetyError("Clawpatch release sweep found pre-existing source changes: " + ", ".join(preexisting_source))
 
     selected_branch = current_branch
-    if not resumable:
-        if branch == "auto" and current_branch in {"main", "master", "HEAD"}:
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-            selected_branch = f"clawpatch/release-sweep-{stamp}"
-            _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
-        elif branch not in {"auto", "current"}:
-            selected_branch = branch
-            _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
-        elif branch == "current" and current_branch == "HEAD":
-            raise SafetyError("--branch current cannot be used from a detached HEAD; name a new branch or use auto.")
-        if push_mode != "none":
-            _must_run(["git", "remote", "get-url", "origin"], cwd=root, timeout=60)
+    if branch == "auto" and current_branch in {"main", "master", "HEAD"}:
+        selected_branch = "clawpatch/release-sweep-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
+    elif branch not in {"auto", "current"}:
+        selected_branch = branch
+        _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
+    elif branch == "current" and current_branch == "HEAD":
+        raise SafetyError("--branch current cannot be used from a detached HEAD.")
+    if push_mode != "none":
+        _must_run(["git", "remote", "get-url", "origin"], cwd=root, timeout=60)
 
-        _json_command(
-            root, "doctor", timeout=300, state_dir=state_dir, clawpatch_env=clawpatch_env
-        )
-        state_project = (state_dir / "project.json") if state_dir is not None else (root / ".clawpatch" / "project.json")
-        if not state_project.is_file():
-            _json_command(
-                root, "init", timeout=300, state_dir=state_dir, clawpatch_env=clawpatch_env
-            )
-        _json_command(
-            root, "map", timeout=1800, state_dir=state_dir, clawpatch_env=clawpatch_env
-        )
-        if not skip_review:
-            _json_command(
+    env = _release_clawpatch_env(
+        trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass
+    )
+    status = _json_clawpatch(root, ["clawpatch", "status", "--json"], env=env)
+    if _required_int(status, "activeLocks") or _required_int(status, "lockFiles"):
+        _require_no_process(root)
+        _json_clawpatch(root, ["clawpatch", "clean-locks", "--json"], env=env)
+
+    output = _must_clawpatch(root, ["clawpatch", "map"], env=env, timeout=1800)
+    next_text = _next_from_output(output)
+    if not next_text:
+        next_text = "clawpatch next"
+
+    review_seen = False
+    pushed = False
+    while True:
+        argv = _command_from_next(next_text)
+        verb = argv[1]
+        if verb == "review":
+            if review_seen:
+                raise SafetyError("Clawpatch directed a second review; Manageroo will not independently restart review.")
+            review_seen = True
+            output = _must_clawpatch(root, argv, env=env, timeout=7200)
+        elif verb == "fix":
+            record, pushed = _execute_fix(
                 root,
-                "review",
-                "--limit",
-                str(review_limit),
-                "--jobs",
-                str(jobs),
-                timeout=7200,
-                state_dir=state_dir,
-                clawpatch_env=clawpatch_env,
-            )
-        checkpoint = {
-            "version": 1,
-            "repo": str(root),
-            "branch": selected_branch,
-            "base_head": head,
-            "head": _git_text(root, ["git", "rev-parse", "HEAD"]),
-            "phase": "idle",
-            "active_finding": "",
-            "paths": [],
-            "path_digests": {},
-            "completed": [],
-            "pushed": False,
-        }
-        atomic_write_json(_checkpoint_path(root), checkpoint)
-    else:
-        selected_branch = str(checkpoint.get("branch") or current_branch)
-        paths = [str(path) for path in checkpoint["paths"]]
-        _validate_fix_paths(paths)
-        report["results"].append(
-            _finish_finding(
-                root,
-                finding_id=str(checkpoint["active_finding"]),
-                paths=paths,
-                checkpoint=checkpoint,
+                argv,
+                env=env,
                 push_mode=push_mode,
                 branch=selected_branch,
-                state_dir=state_dir,
-                clawpatch_env=clawpatch_env,
+                pushed=pushed,
             )
-        )
+            report["results"].append(record)
+            output = json.dumps(record["revalidation"])
+        elif verb in {"next", "show", "report", "status", "map"}:
+            output = _must_clawpatch(root, argv, env=env, timeout=1800)
+        else:
+            raise SafetyError(f"Clawpatch directed unsupported command {shlex.join(argv)}; stopping without substitution.")
 
-    attempt_counts: dict[str, int] = {}
-    while max_findings == 0 or len(report["results"]) < max_findings:
-        next_payload = _json_command(
-            root,
-            "next",
-            "--status",
-            "open",
-            timeout=300,
-            state_dir=state_dir,
-            clawpatch_env=clawpatch_env,
-        )
-        finding_id = _finding_id(next_payload)
-        if not finding_id:
-            break
-        attempt_counts[finding_id] = attempt_counts.get(finding_id, 0) + 1
-        if attempt_counts[finding_id] > MAX_REPAIR_ATTEMPTS_PER_FINDING:
-            raise SafetyError(
-                f"Clawpatch did not clear {finding_id} after "
-                f"{MAX_REPAIR_ATTEMPTS_PER_FINDING} gated repair attempts; stopping."
-            )
-        _json_command(
-            root,
-            "show",
-            "--finding",
-            finding_id,
-            timeout=300,
-            state_dir=state_dir,
-            clawpatch_env=clawpatch_env,
-        )
-        if _git_status(root).strip():
-            raise SafetyError(f"Working tree became dirty before fixing {finding_id}.")
-        checkpoint.update({
-            "phase": "starting",
-            "active_finding": finding_id,
-            "paths": [],
-            "path_digests": {},
-            "head": _git_text(root, ["git", "rev-parse", "HEAD"]),
-        })
-        atomic_write_json(_checkpoint_path(root), checkpoint)
-        fix = _fix_command(
-            root,
-            finding_id,
-            state_dir=state_dir,
-            clawpatch_env=clawpatch_env,
-        )
-        if str(fix.get("status") or "") not in {"applied", "validation-pending"}:
-            raise SafetyError(f"Clawpatch did not apply finding {finding_id}.")
-        paths = _changed_paths(root)
-        _validate_fix_paths(paths)
-        checkpoint.update({"phase": "fixed", "paths": paths, "path_digests": _path_digests(root, paths)})
-        atomic_write_json(_checkpoint_path(root), checkpoint)
-        report["results"].append(
-            _finish_finding(
+        printed = _next_from_output(output)
+        if printed:
+            next_text = printed
+            continue
+        if verb == "report" and "--status" in argv and "open" in argv:
+            closure = _final_closure(
                 root,
-                finding_id=finding_id,
-                paths=paths,
-                checkpoint=checkpoint,
+                env=env,
                 push_mode=push_mode,
                 branch=selected_branch,
-                state_dir=state_dir,
-                clawpatch_env=clawpatch_env,
+                pushed=pushed,
+                publish_clawpatch_state=publish_clawpatch_state,
             )
-        )
-
-    final_validation = _json_command(
-        root,
-        "revalidate",
-        "--all",
-        "--status",
-        "open",
-        timeout=3600,
-        state_dir=state_dir,
-        clawpatch_env=clawpatch_env,
-    )
-    open_count = _required_count(final_validation, command="revalidate", field="open")
-    uncertain_count = _required_count(
-        final_validation, command="revalidate", field="uncertain"
-    )
-    if open_count or uncertain_count:
-        raise SafetyError("Final Clawpatch revalidation still reports open or uncertain findings.")
-    final_report = _json_command(
-        root,
-        "report",
-        "--status",
-        "open",
-        timeout=300,
-        state_dir=state_dir,
-        clawpatch_env=clawpatch_env,
-    )
-    if _required_count(final_report, command="report", field="total") != 0:
-        raise SafetyError("Clawpatch still reports open findings after the release sweep.")
-    final_gates = _run_manageroo_gates(root, label="final proof")
-    if _git_status(root).strip():
-        raise SafetyError("The working tree is not clean after the final Clawpatch proof.")
-    final_head = _git_text(root, ["git", "rev-parse", "HEAD"])
-    if push_mode == "final":
-        _require_current_branch(root, selected_branch, operation="push the release branch")
-        _push(root, selected_branch, first=not bool(checkpoint.get("pushed")))
-        checkpoint["pushed"] = True
-    proof = {
-        "status": "COMPLETE",
-        "completed_at": utc_now(),
-        "repo": str(root),
-        "branch": selected_branch,
-        "git_head": final_head,
-        "clawpatch_version": version,
-        "open_findings": 0,
-        "completed_findings": checkpoint.get("completed", []),
-        "final_revalidation": final_validation,
-        "final_report": final_report,
-        "final_gate_runs": final_gates,
-        "pushed": bool(checkpoint.get("pushed")),
-        "state_dir": str(state_dir) if state_dir is not None else str(root / ".clawpatch"),
-    }
-    atomic_write_json(_proof_path(root), proof)
-    checkpoint.update({"phase": "complete", "head": final_head, "proof_path": str(_proof_path(root))})
-    atomic_write_json(_checkpoint_path(root), checkpoint)
-    report.update({
-        "branch": selected_branch,
-        "git_head": final_head,
-        "finding_count": len(report["results"]),
-        "open_findings": 0,
-        "final_revalidation": final_validation,
-        "final_gate_runs": final_gates,
-        "proof_path": str(_proof_path(root)),
-    })
-    return report
+            final_head = _git_text(root, ["git", "rev-parse", "HEAD"])
+            proof = {
+                "status": "COMPLETE",
+                "completed_at": utc_now(),
+                "repo": str(root),
+                "branch": selected_branch,
+                "git_head": final_head,
+                "clawpatch_version": version,
+                "open_findings": 0,
+                "completed_findings": report["results"],
+                "final_closure": closure,
+            }
+            proof_path = root / PROJECT_DIR / "cache" / "clawpatch-release-proof.json"
+            atomic_write_json(proof_path, proof)
+            report.update(
+                {
+                    "branch": selected_branch,
+                    "git_head": final_head,
+                    "finding_count": len(report["results"]),
+                    "open_findings": 0,
+                    "final_closure": closure,
+                    "proof_path": str(proof_path),
+                }
+            )
+            return report
+        next_text = "clawpatch next"
 
 
 def format_release_sweep(report: dict[str, Any]) -> str:
@@ -686,11 +666,10 @@ def format_release_sweep(report: dict[str, Any]) -> str:
             f"Lifecycle: {report['lifecycle']}\n"
             "No repository changes were made. Run again with --apply to execute.\n"
         )
-    lines = [
-        "CLAWPATCH RELEASE SWEEP: COMPLETE",
-        f"Findings fixed and committed: {report.get('finding_count', 0)}",
-        f"Open findings: {report.get('open_findings', 0)}",
-        f"Final HEAD: {report.get('git_head', '')}",
-        f"Proof: {report.get('proof_path', '')}",
-    ]
-    return "\n".join(lines) + "\n"
+    return (
+        "CLAWPATCH RELEASE SWEEP: COMPLETE\n"
+        f"Findings fixed and committed: {report.get('finding_count', 0)}\n"
+        f"Open findings: {report.get('open_findings', 0)}\n"
+        f"Final HEAD: {report.get('git_head', '')}\n"
+        f"Proof: {report.get('proof_path', '')}\n"
+    )

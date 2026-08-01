@@ -358,27 +358,41 @@ as a global setting. Do not use it for untrusted code. Manageroo still runs the
 project's configured verification gates, requires Clawpatch revalidation, stages
 only the exact changed paths, and commits one cleared finding at a time.
 
-Clawpatch exit code 6 means its fix was applied but its immediate validator did
-not clear. Manageroo treats that as a revalidation transition, not success: it
-runs the project gates, revalidates that same finding, and commits only when the
-gates pass and Clawpatch reports the finding fixed.
+Clawpatch owns the queue. Manageroo runs `clawpatch status --json`, clears only
+proven-stale locks, runs `clawpatch map`, and then executes only the exact command
+Clawpatch prints after `next:`. It does not build a finding list from a report,
+change review flags, retry a finding, triage it away, or hand-repair source.
 
-When a configured gate refreshes the tracked `BUILD-VALIDATION.json` proof,
-Manageroo includes that known controller artifact in the same exact repair
-commit. Any other unexpected gate-created source change still stops the sweep.
+Exit code 6 is a hard stop. Manageroo preserves the patch and evidence, but does
+not run project gates, revalidate, commit, push, or advance to another finding.
+Every other nonzero result also stops the workflow immediately.
 
-If revalidation says a gate-passing repair is still `open`, Manageroo records an
-explicit partial commit and asks Clawpatch to repair that same finding again.
-This is bounded to three gated attempts per finding; `uncertain` still stops
-without a commit, and only `fixed` counts as cleared.
+After a successful fix, Manageroo requires the matching patch-attempt record,
+runs every configured project gate, requires revalidation for the same finding
+with the exact outcome `fixed`, and stages only source files recorded by that
+patch attempt. It never creates a partial or metadata-only repair commit.
+
+Current Clawpatch 0.7.1 has one upstream command-chain gap: `clawpatch next`
+selects `clawpatch show`, while `show` ends with a triage placeholder rather than
+an executable fix command. Manageroo stops there instead of inventing a fix
+transition or changing finding status. When Clawpatch prints an executable next
+command, Manageroo continues automatically.
 
 Release sweeps also give Clawpatch's Codex worker up to 30 minutes by default,
 instead of Clawpatch's shorter interactive default. An existing
 `CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins.
 
-The applied sweep runs Clawpatch doctor, initialization when needed, map, and review. For a project without existing Clawpatch state, Manageroo keeps that new state under Git's private directory so setup does not dirty the source tree. It then asks Clawpatch for one fresh open finding at a time, shows and applies that finding, runs the project's Manageroo verification gates, requires Clawpatch to revalidate the finding as fixed, stages only the exact changed paths, and creates one commit. It checkpoints between findings so a validated partial sweep can resume. At the end it revalidates every open finding, requires a zero-open report, reruns the gates, requires clean Git state, and writes proof tied to the exact final commit.
+At closure, Manageroo revalidates all open findings, requires an empty open
+report, requires zero findings and locks in status, reruns every project gate,
+and requires a clean Git worktree. Tracked `.clawpatch/**` state is never mixed
+into a source-repair commit. To publish tracked state after closure, explicitly
+add `--publish-clawpatch-state` together with a push mode; Manageroo creates one
+separate final state-only commit and verifies the live remote SHA.
 
-Dry-run is the default. `--apply` is required for local changes. Nothing is pushed unless you explicitly add `--push each` or `--push final`. On `main` or `master`, the default `--branch auto` creates a timestamped `clawpatch/release-sweep-*` branch; use `--branch current` only when you deliberately want the current branch.
+Dry-run is the default. `--apply` explicitly authorizes fixes and exact-path
+source commits. Nothing is pushed unless you add `--push each` or `--push final`.
+On `main` or `master`, `--branch auto` creates a timestamped
+`clawpatch/release-sweep-*` branch; use `--branch current` only deliberately.
 
 To make the normal release gate require that proof, use:
 

@@ -239,7 +239,12 @@ manageroo clawpatch release-sweep --repo .
 manageroo clawpatch release-sweep --repo . --apply
 ```
 
-The default is read-only. Applied runs create a dedicated branch when starting from `main` or `master`; pushing still requires `--push each` or `--push final`. Require its zero-open, final-HEAD proof in the release gate with `--require-clawpatch` or `require_clawpatch_release_sweep = true` in project config.
+The default is read-only. Applied runs follow only Clawpatch's printed `next:`
+commands and stop on the first failed command or gate. Exit code 6 is terminal.
+Applied runs create a dedicated branch when starting from `main` or `master`;
+pushing still requires `--push each` or `--push final`. Require its zero-open,
+final-HEAD proof in the release gate with `--require-clawpatch` or
+`require_clawpatch_release_sweep = true` in project config.
 
 If trusted code is already isolated by the host and nested Codex sandboxing
 prevents Clawpatch from applying its own finding, add
