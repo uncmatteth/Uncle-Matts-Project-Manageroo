@@ -7,7 +7,8 @@ from collections.abc import Iterable
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _CLAUSE_SPLIT_RE = re.compile(r"[;,.!?]\s*")
 _DENIAL_SAFE_TOKEN = (
-    r"(?!(?:lack(?:s|ed|ing)?|fail(?:s|ed|ing)?|only)\b)[a-z0-9_-]+"
+    r"(?!(?:lack(?:s|ed|ing)?|fail(?:s|ed|ing)?|den(?:y|ies|ied|ying)|no|not|never|only)\b)"
+    r"[a-z0-9_-]+"
 )
 _DENIAL_SUFFIX_PATTERNS = (
     re.compile(
