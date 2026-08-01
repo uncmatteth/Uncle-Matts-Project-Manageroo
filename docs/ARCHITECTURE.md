@@ -102,6 +102,7 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
 Clawpatch batch commits snapshot exact NUL-delimited repair paths and blob identities, stage only those paths, and refuse to commit if the staged paths or content differ from that snapshot.
+Clawpatch release-sweep checkpoints also bind the symbolic branch and recheck it before every commit or push, so a resumed fix cannot be committed on or reported for a different branch.
 
 ## Parallel mapping and review, sequential implementation
 

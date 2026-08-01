@@ -112,6 +112,8 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         def fake(argv, **_kwargs):
             if argv[:3] == ["git", "diff", "--cached"]:
                 return "src/app.py\0"
+            if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                return "feature/release\n"
             if argv[:3] == ["git", "rev-parse", "HEAD"]:
                 return "abc123\n"
             return ""
@@ -133,6 +135,81 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(checkpoint["partial"][0]["finding_id"], "fnd_one")
         self.assertIn(
             ["git", "commit", "-m", "clawpatch partial: fnd_one"],
+            [call.args[0] for call in must_run.call_args_list],
+        )
+
+    @patch("manageroo.clawpatch_release.atomic_write_json")
+    @patch("manageroo.clawpatch_release._paths_after_gates", return_value=["src/app.py"])
+    @patch("manageroo.clawpatch_release._run_manageroo_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._json_command", return_value={"outcome": "fixed"})
+    @patch("manageroo.clawpatch_release._must_run")
+    def test_finish_finding_rechecks_branch_before_commit(
+        self, must_run, _json, _gates, _paths, _write
+    ):
+        def fake(argv, **_kwargs):
+            if argv[:3] == ["git", "diff", "--cached"]:
+                return "src/app.py\0"
+            if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                return "feature/other\n"
+            return ""
+
+        must_run.side_effect = fake
+
+        with self.assertRaisesRegex(SafetyError, "cannot commit the finding"):
+            _finish_finding(
+                Path("/repo"),
+                finding_id="fnd_one",
+                paths=["src/app.py"],
+                checkpoint={"completed": []},
+                push_mode="none",
+                branch="feature/release",
+                state_dir=None,
+                clawpatch_env=None,
+            )
+
+        commands = [call.args[0] for call in must_run.call_args_list]
+        self.assertNotIn(
+            ["git", "commit", "-m", "clawpatch fix: fnd_one"],
+            commands,
+        )
+
+    @patch("manageroo.clawpatch_release.atomic_write_json")
+    @patch("manageroo.clawpatch_release._paths_after_gates", return_value=["src/app.py"])
+    @patch("manageroo.clawpatch_release._run_manageroo_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._json_command", return_value={"outcome": "fixed"})
+    @patch("manageroo.clawpatch_release._must_run")
+    def test_finish_finding_rechecks_branch_before_each_push(
+        self, must_run, _json, _gates, _paths, _write
+    ):
+        branch_checks = iter(["feature/release\n", "feature/other\n"])
+
+        def fake(argv, **_kwargs):
+            if argv[:3] == ["git", "diff", "--cached"]:
+                return "src/app.py\0"
+            if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                return next(branch_checks)
+            if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                return "abc123\n"
+            return ""
+
+        must_run.side_effect = fake
+
+        with patch("manageroo.clawpatch_release._push") as push:
+            with self.assertRaisesRegex(SafetyError, "cannot push the release branch"):
+                _finish_finding(
+                    Path("/repo"),
+                    finding_id="fnd_one",
+                    paths=["src/app.py"],
+                    checkpoint={"completed": [], "pushed": False},
+                    push_mode="each",
+                    branch="feature/release",
+                    state_dir=None,
+                    clawpatch_env=None,
+                )
+
+        push.assert_not_called()
+        self.assertIn(
+            ["git", "commit", "-m", "clawpatch fix: fnd_one"],
             [call.args[0] for call in must_run.call_args_list],
         )
 
@@ -393,6 +470,53 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         commands = [call.args[0] for call in run.call_args_list]
         self.assertFalse(any("fix" in command for command in commands))
         self.assertTrue(any(command[:2] == ["git", "commit"] for command in commands))
+
+    @patch("manageroo.clawpatch_release._run_manageroo_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._path_digests", return_value={"src/app.py": "digest"})
+    @patch("manageroo.clawpatch_release._changed_paths", return_value=["src/app.py"])
+    @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
+    @patch("manageroo.clawpatch_release._run")
+    def test_resume_rejects_checkpoint_from_another_same_head_branch(
+        self, run, _which, _changed, _digests, gates
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            state = repo / ".git" / "manageroo"
+            state.mkdir(parents=True)
+            (repo / ".clawpatch").mkdir()
+            (repo / ".clawpatch" / "config.json").write_text("{}", encoding="utf-8")
+            (state / "clawpatch-release-sweep.json").write_text(json.dumps({
+                "phase": "fixed",
+                "head": "abc123",
+                "branch": "feature/release",
+                "active_finding": "fnd_resume",
+                "paths": ["src/app.py"],
+                "path_digests": {"src/app.py": "digest"},
+                "completed": [],
+                "pushed": False,
+            }), encoding="utf-8")
+
+            def fake(argv, **_kwargs):
+                if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                    return self.completed(argv, str(repo) + "\n")
+                if argv[:2] == ["clawpatch", "--version"]:
+                    return self.completed(argv, "clawpatch 0.7.1\n")
+                if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                    return self.completed(argv, "feature/other\n")
+                if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                    return self.completed(argv, "abc123\n")
+                if argv[:2] == ["git", "status"]:
+                    return self.completed(argv, " M src/app.py\n")
+                raise AssertionError(argv)
+
+            run.side_effect = fake
+            with self.assertRaisesRegex(SafetyError, "cannot resume the checkpoint"):
+                release_sweep(repo, apply=True, branch="current", push_mode="each")
+
+        gates.assert_not_called()
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertFalse(any(command[:2] == ["git", "commit"] for command in commands))
+        self.assertFalse(any(command[:2] == ["git", "push"] for command in commands))
 
 
 if __name__ == "__main__":

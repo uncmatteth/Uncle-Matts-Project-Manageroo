@@ -162,6 +162,22 @@ def _git_status(repo: Path) -> str:
     )
 
 
+def _require_current_branch(
+    repo: Path,
+    expected: str,
+    *,
+    operation: str,
+    actual: str | None = None,
+) -> None:
+    current = actual or _git_text(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    if current != expected:
+        raise SafetyError(
+            f"Clawpatch release sweep cannot {operation} on branch {current!r}; "
+            f"the checkpoint branch is {expected!r}. Switch back to {expected!r} "
+            "while preserving the saved fix, then rerun the release sweep."
+        )
+
+
 def _version_tuple(text: str) -> tuple[int, int, int]:
     match = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
     if not match:
@@ -347,6 +363,7 @@ def _finish_finding(
     if staged_paths != sorted(paths):
         raise SafetyError("The staged paths did not exactly match the Clawpatch fix; refusing to commit.")
     commit_kind = "fix" if outcome == "fixed" else "partial"
+    _require_current_branch(repo, branch, operation="commit the finding")
     _must_run(
         ["git", "commit", "-m", f"clawpatch {commit_kind}: {finding_id}"],
         cwd=repo,
@@ -365,6 +382,7 @@ def _finish_finding(
     checkpoint.update({"phase": "idle", "active_finding": "", "paths": [], "path_digests": {}, "head": commit})
     atomic_write_json(_checkpoint_path(repo), checkpoint)
     if push_mode == "each":
+        _require_current_branch(repo, branch, operation="push the release branch")
         _push(repo, branch, first=not bool(checkpoint.get("pushed")))
         checkpoint["pushed"] = True
         atomic_write_json(_checkpoint_path(repo), checkpoint)
@@ -422,19 +440,34 @@ def release_sweep(
     state_dir = _clawpatch_state_dir(root)
 
     checkpoint = _load_checkpoint(root)
-    resumable = (
+    resume_candidate = (
         checkpoint.get("phase") == "fixed"
         and checkpoint.get("head") == head
+        and bool(checkpoint.get("branch"))
         and bool(checkpoint.get("active_finding"))
         and bool(checkpoint.get("paths"))
         and isinstance(checkpoint.get("path_digests"), dict)
     )
-    if resumable:
+    resume_contents_match = False
+    checkpoint_branch = str(checkpoint.get("branch") or "")
+    if resume_candidate:
         saved_paths = [str(path) for path in checkpoint["paths"]]
-        resumable = (
+        resume_contents_match = (
             _changed_paths(root) == sorted(saved_paths)
             and _path_digests(root, saved_paths) == checkpoint.get("path_digests")
         )
+        if resume_contents_match:
+            _require_current_branch(
+                root,
+                checkpoint_branch,
+                operation="resume the checkpoint",
+                actual=current_branch,
+            )
+    resumable = (
+        resume_candidate
+        and resume_contents_match
+        and checkpoint_branch == current_branch
+    )
     if status.strip() and not resumable:
         raise SafetyError("Clawpatch release sweep requires a clean working tree before it starts.")
 
@@ -598,6 +631,7 @@ def release_sweep(
         raise SafetyError("The working tree is not clean after the final Clawpatch proof.")
     final_head = _git_text(root, ["git", "rev-parse", "HEAD"])
     if push_mode == "final":
+        _require_current_branch(root, selected_branch, operation="push the release branch")
         _push(root, selected_branch, first=not bool(checkpoint.get("pushed")))
         checkpoint["pushed"] = True
     proof = {
