@@ -9,7 +9,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from manageroo.clawpatch_release import release_sweep
+from manageroo.clawpatch_release import _json_command, release_sweep
 from manageroo.entrypoint import _clawpatch_main
 from manageroo.errors import SafetyError
 
@@ -29,6 +29,21 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         ).stdout.strip()
+
+    @patch("manageroo.clawpatch_release._must_run")
+    def test_json_command_accepts_clawpatch_progress_before_final_json(self, must_run):
+        must_run.return_value = (
+            "clawpatch map start source=heuristic\n"
+            "clawpatch map done features=34\n"
+            '{"features":34,"next":"clawpatch review --limit 3"}\n'
+        )
+        self.assertEqual(_json_command(Path("/repo"), "map")["features"], 34)
+
+    @patch("manageroo.clawpatch_release._must_run")
+    def test_json_command_rejects_non_whitespace_after_final_json(self, must_run):
+        must_run.return_value = '{"features":34}\nunsafe trailing output\n'
+        with self.assertRaisesRegex(SafetyError, "valid JSON"):
+            _json_command(Path("/repo"), "map")
 
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._run")

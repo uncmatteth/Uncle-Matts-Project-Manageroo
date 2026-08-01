@@ -63,7 +63,19 @@ def _json_command(
     try:
         value = json.loads(output)
     except json.JSONDecodeError as exc:
-        raise SafetyError(f"Clawpatch {command} did not return valid JSON:\n{output[-4000:]}") from exc
+        value = None
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"(?m)^[ \t]*(\{)", output):
+            start = match.start(1)
+            try:
+                candidate, end = decoder.raw_decode(output, start)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict) and not output[end:].strip():
+                value = candidate
+                break
+        if value is None:
+            raise SafetyError(f"Clawpatch {command} did not return valid JSON:\n{output[-4000:]}") from exc
     if not isinstance(value, dict):
         raise SafetyError(f"Clawpatch {command} returned an unexpected JSON value.")
     return value
