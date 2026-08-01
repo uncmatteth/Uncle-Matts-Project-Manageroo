@@ -162,9 +162,18 @@ manageroo clawpatch release-sweep --repo . --apply
 
 # Push only when explicitly requested
 manageroo clawpatch release-sweep --repo . --apply --push final
+
+# Trusted code on an already-isolated host: avoid a nested Codex sandbox
+manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
 ```
 
 The sweep follows Clawpatch's own lifecycle: doctor, init when needed, map, review, fresh `next`, show, fix, and revalidate. Existing Clawpatch projects retain their state choice; a first-time sweep keeps new Clawpatch state under Git's private directory so initialization does not dirty source. Manageroo adds fail-closed Git boundaries, configured project gates, one exact-path commit per finding, a repository-private resume checkpoint, final all-open revalidation, a zero-open report, and proof bound to the final Git HEAD. A finding that remains `open`, `uncertain`, or otherwise fails to revalidate as `fixed` is left uncommitted for inspection.
+
+The trusted-host bypass is explicit and temporary. It sets Clawpatch's documented
+Codex sandbox override only in child-process environment and never persists it.
+It removes the nested Codex approval/sandbox boundary, so use it only for trusted
+source on a host that already supplies isolation. Manageroo's path restrictions,
+project gates, revalidation, and exact-path commit rules still apply.
 
 The proof can be made mandatory for the final operator gate with `manageroo release-ready --require-clawpatch` or the `[project]` setting `require_clawpatch_release_sweep = true`.
 

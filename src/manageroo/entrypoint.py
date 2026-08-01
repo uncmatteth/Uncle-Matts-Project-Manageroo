@@ -168,6 +168,14 @@ def _clawpatch_main(argv: list[str]) -> int:
     release.add_argument("--jobs", type=int, default=3)
     release.add_argument("--max-findings", type=int, default=0, help="0 processes every open finding.")
     release.add_argument("--skip-review", action="store_true", help="Use existing findings after map instead of running a new review.")
+    release.add_argument(
+        "--trusted-host-codex-sandbox-bypass",
+        action="store_true",
+        help=(
+            "Run Clawpatch Codex workers without Codex approvals or sandboxing. "
+            "Use only for trusted code on a host that already provides isolation."
+        ),
+    )
     release.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -182,6 +190,7 @@ def _clawpatch_main(argv: list[str]) -> int:
                 jobs=args.jobs,
                 max_findings=args.max_findings,
                 skip_review=args.skip_review,
+                trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
             )
             formatter = format_release_sweep
         elif args.command == "fix-open":

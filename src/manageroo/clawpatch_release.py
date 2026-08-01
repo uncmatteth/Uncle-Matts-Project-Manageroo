@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -25,7 +26,13 @@ LIFECYCLE = (
 )
 
 
-def _run(argv: list[str], *, cwd: Path, timeout: int = 1800) -> subprocess.CompletedProcess[str]:
+def _run(
+    argv: list[str],
+    *,
+    cwd: Path,
+    timeout: int = 1800,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             argv,
@@ -33,6 +40,7 @@ def _run(argv: list[str], *, cwd: Path, timeout: int = 1800) -> subprocess.Compl
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            env=env,
             shell=False,
             timeout=timeout,
         )
@@ -43,8 +51,14 @@ def _run(argv: list[str], *, cwd: Path, timeout: int = 1800) -> subprocess.Compl
         return subprocess.CompletedProcess(argv, 127, str(exc), None)
 
 
-def _must_run(argv: list[str], *, cwd: Path, timeout: int = 1800) -> str:
-    result = _run(argv, cwd=cwd, timeout=timeout)
+def _must_run(
+    argv: list[str],
+    *,
+    cwd: Path,
+    timeout: int = 1800,
+    env: dict[str, str] | None = None,
+) -> str:
+    result = _run(argv, cwd=cwd, timeout=timeout, env=env)
     if result.returncode:
         raise SafetyError(f"Command failed ({' '.join(argv)}):\n{result.stdout[-6000:]}")
     return result.stdout
@@ -56,10 +70,11 @@ def _json_command(
     *args: str,
     timeout: int = 1800,
     state_dir: Path | None = None,
+    clawpatch_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     state_args = ["--state-dir", str(state_dir)] if state_dir is not None else []
     argv = ["clawpatch", "--json", "--no-input", *state_args, command, *args]
-    output = _must_run(argv, cwd=repo, timeout=timeout)
+    output = _must_run(argv, cwd=repo, timeout=timeout, env=clawpatch_env)
     try:
         value = json.loads(output)
     except json.JSONDecodeError as exc:
@@ -239,9 +254,17 @@ def _finish_finding(
     push_mode: str,
     branch: str,
     state_dir: Path | None,
+    clawpatch_env: dict[str, str] | None,
 ) -> dict[str, Any]:
     gate_runs = _run_manageroo_gates(repo, label=finding_id)
-    validation = _json_command(repo, "revalidate", "--finding", finding_id, state_dir=state_dir)
+    validation = _json_command(
+        repo,
+        "revalidate",
+        "--finding",
+        finding_id,
+        state_dir=state_dir,
+        clawpatch_env=clawpatch_env,
+    )
     if str(validation.get("outcome") or "") != "fixed":
         raise SafetyError(
             f"Clawpatch finding {finding_id} did not clear after validation "
@@ -285,6 +308,7 @@ def release_sweep(
     jobs: int = 3,
     max_findings: int = 0,
     skip_review: bool = False,
+    trusted_host_codex_sandbox_bypass: bool = False,
 ) -> dict[str, Any]:
     """Run the strict, serial Clawpatch final-release lifecycle.
 
@@ -297,6 +321,10 @@ def release_sweep(
     current_branch = _git_text(root, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
     head = _git_text(root, ["git", "rev-parse", "HEAD"])
     status = _git_status(root)
+    clawpatch_env = None
+    if trusted_host_codex_sandbox_bypass:
+        clawpatch_env = dict(os.environ)
+        clawpatch_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
     if push_mode not in {"none", "each", "final"}:
         raise SafetyError("push_mode must be one of: none, each, final.")
     if review_limit < 1 or jobs < 1 or max_findings < 0:
@@ -311,6 +339,7 @@ def release_sweep(
         "git_head_before": head,
         "lifecycle": LIFECYCLE,
         "push_mode": push_mode,
+        "trusted_host_codex_sandbox_bypass": trusted_host_codex_sandbox_bypass,
         "results": [],
     }
     if not apply:
@@ -351,11 +380,17 @@ def release_sweep(
         if push_mode != "none":
             _must_run(["git", "remote", "get-url", "origin"], cwd=root, timeout=60)
 
-        _json_command(root, "doctor", timeout=300, state_dir=state_dir)
+        _json_command(
+            root, "doctor", timeout=300, state_dir=state_dir, clawpatch_env=clawpatch_env
+        )
         state_project = (state_dir / "project.json") if state_dir is not None else (root / ".clawpatch" / "project.json")
         if not state_project.is_file():
-            _json_command(root, "init", timeout=300, state_dir=state_dir)
-        _json_command(root, "map", timeout=1800, state_dir=state_dir)
+            _json_command(
+                root, "init", timeout=300, state_dir=state_dir, clawpatch_env=clawpatch_env
+            )
+        _json_command(
+            root, "map", timeout=1800, state_dir=state_dir, clawpatch_env=clawpatch_env
+        )
         if not skip_review:
             _json_command(
                 root,
@@ -366,6 +401,7 @@ def release_sweep(
                 str(jobs),
                 timeout=7200,
                 state_dir=state_dir,
+                clawpatch_env=clawpatch_env,
             )
         checkpoint = {
             "version": 1,
@@ -394,19 +430,36 @@ def release_sweep(
                 push_mode=push_mode,
                 branch=selected_branch,
                 state_dir=state_dir,
+                clawpatch_env=clawpatch_env,
             )
         )
 
     seen: set[str] = set()
     while max_findings == 0 or len(report["results"]) < max_findings:
-        next_payload = _json_command(root, "next", "--status", "open", timeout=300, state_dir=state_dir)
+        next_payload = _json_command(
+            root,
+            "next",
+            "--status",
+            "open",
+            timeout=300,
+            state_dir=state_dir,
+            clawpatch_env=clawpatch_env,
+        )
         finding_id = _finding_id(next_payload)
         if not finding_id:
             break
         if finding_id in seen:
             raise SafetyError(f"Clawpatch selected {finding_id} twice without clearing it; stopping.")
         seen.add(finding_id)
-        _json_command(root, "show", "--finding", finding_id, timeout=300, state_dir=state_dir)
+        _json_command(
+            root,
+            "show",
+            "--finding",
+            finding_id,
+            timeout=300,
+            state_dir=state_dir,
+            clawpatch_env=clawpatch_env,
+        )
         if _git_status(root).strip():
             raise SafetyError(f"Working tree became dirty before fixing {finding_id}.")
         checkpoint.update({
@@ -417,7 +470,15 @@ def release_sweep(
             "head": _git_text(root, ["git", "rev-parse", "HEAD"]),
         })
         atomic_write_json(_checkpoint_path(root), checkpoint)
-        fix = _json_command(root, "fix", "--finding", finding_id, timeout=3600, state_dir=state_dir)
+        fix = _json_command(
+            root,
+            "fix",
+            "--finding",
+            finding_id,
+            timeout=3600,
+            state_dir=state_dir,
+            clawpatch_env=clawpatch_env,
+        )
         if str(fix.get("status") or "") != "applied":
             raise SafetyError(f"Clawpatch did not apply finding {finding_id}.")
         paths = _changed_paths(root)
@@ -433,15 +494,31 @@ def release_sweep(
                 push_mode=push_mode,
                 branch=selected_branch,
                 state_dir=state_dir,
+                clawpatch_env=clawpatch_env,
             )
         )
 
     final_validation = _json_command(
-        root, "revalidate", "--all", "--status", "open", timeout=3600, state_dir=state_dir
+        root,
+        "revalidate",
+        "--all",
+        "--status",
+        "open",
+        timeout=3600,
+        state_dir=state_dir,
+        clawpatch_env=clawpatch_env,
     )
     if int(final_validation.get("open") or 0) or int(final_validation.get("uncertain") or 0):
         raise SafetyError("Final Clawpatch revalidation still reports open or uncertain findings.")
-    final_report = _json_command(root, "report", "--status", "open", timeout=300, state_dir=state_dir)
+    final_report = _json_command(
+        root,
+        "report",
+        "--status",
+        "open",
+        timeout=300,
+        state_dir=state_dir,
+        clawpatch_env=clawpatch_env,
+    )
     if int(final_report.get("total") or 0) != 0:
         raise SafetyError("Clawpatch still reports open findings after the release sweep.")
     final_gates = _run_manageroo_gates(root, label="final proof")

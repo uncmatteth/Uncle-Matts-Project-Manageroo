@@ -40,6 +40,17 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(_json_command(Path("/repo"), "map")["features"], 34)
 
     @patch("manageroo.clawpatch_release._must_run")
+    def test_json_command_scopes_trusted_host_bypass_to_clawpatch_child(self, must_run):
+        must_run.return_value = '{"features":34}\n'
+        child_env = {"CLAWPATCH_CODEX_SANDBOX": "bypass"}
+
+        self.assertEqual(
+            _json_command(Path("/repo"), "map", clawpatch_env=child_env)["features"],
+            34,
+        )
+        self.assertEqual(must_run.call_args.kwargs["env"], child_env)
+
+    @patch("manageroo.clawpatch_release._must_run")
     def test_json_command_rejects_non_whitespace_after_final_json(self, must_run):
         must_run.return_value = '{"features":34}\nunsafe trailing output\n'
         with self.assertRaisesRegex(SafetyError, "valid JSON"):
@@ -71,13 +82,26 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         with redirect_stdout(output):
             code = _clawpatch_main([
                 "release-sweep", "--repo", ".", "--apply", "--branch", "current",
-                "--push", "final", "--max-findings", "4", "--json",
+                "--push", "final", "--max-findings", "4",
+                "--trusted-host-codex-sandbox-bypass", "--json",
             ])
 
         self.assertEqual(code, 0)
         self.assertEqual(sweep.call_args.kwargs["push_mode"], "final")
         self.assertEqual(sweep.call_args.kwargs["max_findings"], 4)
         self.assertTrue(sweep.call_args.kwargs["apply"])
+        self.assertTrue(sweep.call_args.kwargs["trusted_host_codex_sandbox_bypass"])
+
+    def test_tracked_clawpatch_config_delegates_validation_to_manageroo_gates(self):
+        config = json.loads(
+            (Path(__file__).resolve().parents[1] / "clawpatch.config.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            config["commands"],
+            {"typecheck": None, "lint": None, "format": None, "test": None},
+        )
 
     @patch("manageroo.clawpatch_release._run_manageroo_gates", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="clawpatch 0.7.1")

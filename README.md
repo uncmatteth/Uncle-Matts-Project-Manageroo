@@ -344,6 +344,20 @@ Execute it on a dedicated branch:
 manageroo clawpatch release-sweep --repo . --apply
 ```
 
+When Clawpatch runs inside a trusted project and the host already supplies the
+required isolation, its Codex worker can be allowed to edit without nested
+sandbox failures:
+
+```bash
+manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
+```
+
+That flag is deliberately explicit. It disables Codex approval prompts and
+sandboxing only for the Clawpatch child processes in this sweep; it is not saved
+as a global setting. Do not use it for untrusted code. Manageroo still runs the
+project's configured verification gates, requires Clawpatch revalidation, stages
+only the exact changed paths, and commits one cleared finding at a time.
+
 The applied sweep runs Clawpatch doctor, initialization when needed, map, and review. For a project without existing Clawpatch state, Manageroo keeps that new state under Git's private directory so setup does not dirty the source tree. It then asks Clawpatch for one fresh open finding at a time, shows and applies that finding, runs the project's Manageroo verification gates, requires Clawpatch to revalidate the finding as fixed, stages only the exact changed paths, and creates one commit. It checkpoints between findings so a validated partial sweep can resume. At the end it revalidates every open finding, requires a zero-open report, reruns the gates, requires clean Git state, and writes proof tied to the exact final commit.
 
 Dry-run is the default. `--apply` is required for local changes. Nothing is pushed unless you explicitly add `--push each` or `--push final`. On `main` or `master`, the default `--branch auto` creates a timestamped `clawpatch/release-sweep-*` branch; use `--branch current` only when you deliberately want the current branch.
