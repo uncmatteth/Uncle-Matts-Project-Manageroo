@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import errno
 import os
+import stat
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,75 +12,67 @@ from .branding import PROJECT_DIR
 from .util import atomic_write_json, new_run_id, read_json, slugify, utc_now
 
 
-def _lock_owner_pid(path: Path) -> int | None:
-    try:
-        text = path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    if not text.startswith("pid="):
-        return None
-    try:
-        pid = int(text.split("=", 1)[1])
-    except ValueError:
-        return None
-    return pid if pid > 0 else None
+def _try_lock_file(descriptor: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
-def _pid_is_live(pid: int) -> bool:
-    if pid == os.getpid():
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return True
-    return True
+def _unlock_file(descriptor: int) -> None:
+    if os.name == "nt":
+        import msvcrt
 
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
 
-def _reclaim_abandoned_lock(path: Path) -> bool:
-    pid = _lock_owner_pid(path)
-    if pid is not None and _pid_is_live(pid):
-        return False
-    # Re-read the owner immediately before unlinking so we do not remove a lock that
-    # was replaced by a live contender between inspection and takeover.
-    before = _lock_owner_pid(path)
-    if before is not None and _pid_is_live(before):
-        return False
-    try:
-        path.unlink()
-        return True
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
+    fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 
 @contextmanager
 def _exclusive_lock(path: Path, *, timeout_seconds: float = 10.0) -> Iterator[None]:
-    deadline = time.monotonic() + timeout_seconds
-    fd: int | None = None
-    while fd is None:
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            _reclaim_abandoned_lock(path)
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Timed out waiting for idea-inbox lock: {path}")
-            time.sleep(0.02)
+    flags = os.O_CREAT | os.O_RDWR
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    acquired = False
     try:
+        lock_state = os.fstat(fd)
+        if not stat.S_ISREG(lock_state.st_mode):
+            raise OSError(f"Idea-inbox lock is not a regular file: {path}")
+        if lock_state.st_size == 0:
+            os.ftruncate(fd, 1)
+
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                _try_lock_file(fd)
+                acquired = True
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for idea-inbox lock: {path}") from exc
+                time.sleep(0.02)
+
+        os.ftruncate(fd, 0)
         os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
         os.fsync(fd)
         yield
     finally:
-        os.close(fd)
         try:
-            if _lock_owner_pid(path) == os.getpid():
-                path.unlink()
-        except FileNotFoundError:
-            pass
+            if acquired:
+                _unlock_file(fd)
+        finally:
+            os.close(fd)
 
 
 class IdeaInbox:

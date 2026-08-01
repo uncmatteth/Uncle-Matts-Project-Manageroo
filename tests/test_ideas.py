@@ -1,9 +1,40 @@
+import multiprocessing
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
 from manageroo.ideas import IdeaInbox
+
+
+def _hold_idea_lock_before_owner_publication(repo, publication_paused, release, results) -> None:
+    import manageroo.ideas as ideas
+
+    original_write = ideas.os.write
+
+    def delayed_write(descriptor, data):
+        publication_paused.set()
+        if not release.wait(timeout=5):
+            raise TimeoutError("test did not release owner publication")
+        return original_write(descriptor, data)
+
+    ideas.os.write = delayed_write
+    results.put(("owner", IdeaInbox(Path(repo)).attach_pending("owner")))
+
+
+def _attach_after_lock_open(repo, lock_opened, completed, results) -> None:
+    import manageroo.ideas as ideas
+
+    original_open = ideas.os.open
+
+    def observed_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        lock_opened.set()
+        return descriptor
+
+    ideas.os.open = observed_open
+    results.put(("contender", IdeaInbox(Path(repo)).attach_pending("contender")))
+    completed.set()
 
 
 class IdeaTests(unittest.TestCase):
@@ -52,6 +83,50 @@ class IdeaTests(unittest.TestCase):
             persisted = IdeaInbox(repo).list("attached")
             self.assertEqual(len(persisted), 1)
             self.assertEqual(persisted[0]["linked_run"], winner)
+
+    def test_contender_waits_while_lock_owner_metadata_is_unpublished(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            IdeaInbox(repo).add("The initialized owner keeps its lock", "future-feature")
+            context = multiprocessing.get_context("spawn")
+            publication_paused = context.Event()
+            release = context.Event()
+            contender_opened = context.Event()
+            contender_completed = context.Event()
+            results = context.Queue()
+            owner = context.Process(
+                target=_hold_idea_lock_before_owner_publication,
+                args=(repo, publication_paused, release, results),
+            )
+            contender = context.Process(
+                target=_attach_after_lock_open,
+                args=(repo, contender_opened, contender_completed, results),
+            )
+
+            try:
+                owner.start()
+                self.assertTrue(publication_paused.wait(timeout=5))
+                contender.start()
+                self.assertTrue(contender_opened.wait(timeout=5))
+                self.assertFalse(contender_completed.wait(timeout=0.3))
+                release.set()
+                owner.join(timeout=5)
+                contender.join(timeout=5)
+                self.assertEqual(owner.exitcode, 0)
+                self.assertEqual(contender.exitcode, 0)
+                claims = dict(results.get(timeout=2) for _ in range(2))
+                self.assertEqual(len(claims["owner"]), 1)
+                self.assertEqual(claims["contender"], [])
+                self.assertEqual(IdeaInbox(repo).list("attached")[0]["linked_run"], "owner")
+            finally:
+                release.set()
+                for process in (owner, contender):
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
+                results.close()
 
 
 if __name__ == "__main__":
