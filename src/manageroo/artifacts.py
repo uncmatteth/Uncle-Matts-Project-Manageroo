@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import threading
 import time
@@ -32,20 +33,23 @@ class ArtifactStore:
             if not self.ledger_path.exists():
                 atomic_write_json(self.ledger_path, {"artifacts": {}})
 
-    def _lock_owner_pid(self) -> int | None:
+    def _lock_owner(self) -> tuple[int, str] | None:
         owner = self.lock_path / "owner"
         try:
             lines = owner.read_text(encoding="utf-8").splitlines()
         except OSError:
             return None
+        pid: int | None = None
+        token = ""
         for line in lines:
             if line.startswith("pid="):
                 try:
                     pid = int(line.split("=", 1)[1])
                 except ValueError:
                     return None
-                return pid if pid > 0 else None
-        return None
+            elif line.startswith("token="):
+                token = line.split("=", 1)[1].strip()
+        return (pid, token) if pid is not None and pid > 0 else None
 
     @staticmethod
     def _pid_is_live(pid: int) -> bool:
@@ -62,40 +66,77 @@ class ArtifactStore:
         return True
 
     def _reclaim_abandoned_lock(self) -> bool:
-        pid = self._lock_owner_pid()
-        if pid is not None and self._pid_is_live(pid):
+        owner = self._lock_owner()
+        if owner is not None and self._pid_is_live(owner[0]):
             return False
         # Unknown-owner lock directories are reclaimable only after a short age guard,
         # which avoids stealing one during the tiny mkdir -> owner-write window.
         try:
-            age = time.time() - self.lock_path.stat().st_mtime
-        except OSError:
+            lock_stat = self.lock_path.stat()
+            age = time.time() - lock_stat.st_mtime
+        except FileNotFoundError:
             return True
-        if pid is None and age < 2.0:
+        except OSError:
             return False
-        pid = self._lock_owner_pid()
-        if pid is not None and self._pid_is_live(pid):
+        if owner is None and age < 2.0:
             return False
+
+        claim_path = self.lock_path / "reclaim"
         try:
-            shutil.rmtree(self.lock_path)
+            claim_path.mkdir()
+        except FileNotFoundError:
+            return True
+        except FileExistsError:
+            return False
+        except OSError:
+            return False
+
+        lock_identity = (lock_stat.st_dev, lock_stat.st_ino)
+        claimed = False
+        try:
+            current_stat = self.lock_path.stat()
+            if (current_stat.st_dev, current_stat.st_ino) != lock_identity:
+                return False
+            current_owner = self._lock_owner()
+            if current_owner != owner:
+                return False
+            if current_owner is not None and self._pid_is_live(current_owner[0]):
+                return False
+
+            quarantine = self.root / f"{self.lock_path.name}.reclaimed-{secrets.token_hex(16)}"
+            os.rename(self.lock_path, quarantine)
+            claimed = True
+            shutil.rmtree(quarantine, ignore_errors=True)
             return True
         except FileNotFoundError:
             return True
         except OSError:
             return False
+        finally:
+            if not claimed:
+                try:
+                    current_stat = self.lock_path.stat()
+                    if (current_stat.st_dev, current_stat.st_ino) == lock_identity:
+                        claim_path.rmdir()
+                except OSError:
+                    pass
 
     @contextmanager
     def _transaction_lock(self, *, timeout_seconds: float = 30.0) -> Iterator[None]:
         """Cross-process lock with conservative abandoned-owner recovery."""
         deadline = time.monotonic() + timeout_seconds
         acquired = False
+        acquired_identity: tuple[int, int] | None = None
+        owner_token = secrets.token_hex(16)
         with self._lock:
             while not acquired:
                 try:
                     self.lock_path.mkdir()
                     acquired = True
+                    lock_stat = self.lock_path.stat()
+                    acquired_identity = (lock_stat.st_dev, lock_stat.st_ino)
                     (self.lock_path / "owner").write_text(
-                        f"pid={os.getpid()}\ncreated_at={utc_now()}\n",
+                        f"pid={os.getpid()}\ntoken={owner_token}\ncreated_at={utc_now()}\n",
                         encoding="utf-8",
                     )
                 except FileExistsError:
@@ -106,8 +147,18 @@ class ArtifactStore:
                         )
                     time.sleep(0.05)
                 except OSError as exc:
-                    if acquired:
-                        shutil.rmtree(self.lock_path, ignore_errors=True)
+                    if acquired and acquired_identity is not None:
+                        try:
+                            current_stat = self.lock_path.stat()
+                            current_identity = (current_stat.st_dev, current_stat.st_ino)
+                            current_owner = self._lock_owner()
+                            if current_identity == acquired_identity and current_owner in {
+                                None,
+                                (os.getpid(), owner_token),
+                            }:
+                                shutil.rmtree(self.lock_path, ignore_errors=True)
+                        except OSError:
+                            pass
                     raise SafetyError(
                         f"Could not acquire artifact-store transaction lock: {self.lock_path}: {exc}"
                     ) from exc
@@ -115,7 +166,7 @@ class ArtifactStore:
                 yield
             finally:
                 try:
-                    if self._lock_owner_pid() == os.getpid():
+                    if self._lock_owner() == (os.getpid(), owner_token):
                         shutil.rmtree(self.lock_path)
                 except FileNotFoundError:
                     pass
