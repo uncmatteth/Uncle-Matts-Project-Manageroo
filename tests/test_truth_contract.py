@@ -145,6 +145,19 @@ class TruthContractTests(unittest.TestCase):
         )
         self.assertEqual(len(offenders), 1)
 
+    def test_overclaim_guard_rejects_negation_reversals(self):
+        sentences = [
+            "Manageroo does not lack full vision support.",
+            "Manageroo does not only provide full vision support.",
+            "Manageroo does not fail to provide full vision support.",
+        ]
+        for sentence in sentences:
+            with self.subTest(sentence=sentence):
+                self.assertFalse(claim_is_explicitly_denied(sentence, "full vision support"))
+                self.assertEqual(
+                    len(find_overclaim_offenders(sentence, ["full vision support"])), 1
+                )
+
     def test_project_manageroo_rename_has_no_old_public_brand_surface(self):
         old_title = _fixture([85,110,99,108,101,32,77,97,116,116,39,115,32,83,117,112,101,114,32,77,101,103,97,32,70,111,114,119,97,114,100,32,66,117,105,108,100,32,85,108,116,105,109,97,116,101,32,82,101,109,105,120,32,65,108,108,45,83,116,97,114,32,66,111,111,116,121,32,111,102,32,70,105,114,101,32,69,100,105,116,105,111,110])
         old_short = _fixture([83,117,112,101,114,32,77,101,103,97,32,70,111,114,119,97,114,100,32,66,117,105,108,100])
