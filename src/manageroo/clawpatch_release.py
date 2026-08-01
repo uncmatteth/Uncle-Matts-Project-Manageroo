@@ -115,6 +115,15 @@ def _parse_json_output(output: str, *, command: str) -> dict[str, Any]:
     return value
 
 
+def _required_count(payload: dict[str, Any], *, command: str, field: str) -> int:
+    value = payload.get(field)
+    if field not in payload or isinstance(value, bool) or not isinstance(value, int):
+        raise SafetyError(
+            f"Clawpatch {command} returned a missing or malformed {field!r} count."
+        )
+    return value
+
+
 def _fix_command(
     repo: Path,
     finding_id: str,
@@ -613,7 +622,11 @@ def release_sweep(
         state_dir=state_dir,
         clawpatch_env=clawpatch_env,
     )
-    if int(final_validation.get("open") or 0) or int(final_validation.get("uncertain") or 0):
+    open_count = _required_count(final_validation, command="revalidate", field="open")
+    uncertain_count = _required_count(
+        final_validation, command="revalidate", field="uncertain"
+    )
+    if open_count or uncertain_count:
         raise SafetyError("Final Clawpatch revalidation still reports open or uncertain findings.")
     final_report = _json_command(
         root,
@@ -624,7 +637,7 @@ def release_sweep(
         state_dir=state_dir,
         clawpatch_env=clawpatch_env,
     )
-    if int(final_report.get("total") or 0) != 0:
+    if _required_count(final_report, command="report", field="total") != 0:
         raise SafetyError("Clawpatch still reports open findings after the release sweep.")
     final_gates = _run_manageroo_gates(root, label="final proof")
     if _git_status(root).strip():

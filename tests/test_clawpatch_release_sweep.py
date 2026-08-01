@@ -308,6 +308,98 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             self.assertEqual(self.git(repo, "show", "--pretty=", "--name-only", "HEAD"), "app.py")
             self.assertTrue(all(call.kwargs.get("state_dir") for call in clawpatch.call_args_list))
 
+    def test_final_proof_rejects_missing_malformed_and_nonzero_counts(self):
+        cases = (
+            ("missing open", {}, {"total": 0}, "missing or malformed 'open' count"),
+            (
+                "missing uncertain",
+                {"open": 0},
+                {"total": 0},
+                "missing or malformed 'uncertain' count",
+            ),
+            (
+                "string open",
+                {"open": "0", "uncertain": 0},
+                {"total": 0},
+                "missing or malformed 'open' count",
+            ),
+            (
+                "boolean uncertain",
+                {"open": 0, "uncertain": False},
+                {"total": 0},
+                "missing or malformed 'uncertain' count",
+            ),
+            (
+                "nonzero open",
+                {"open": 1, "uncertain": 0},
+                {"total": 0},
+                "still reports open or uncertain findings",
+            ),
+            (
+                "missing total",
+                {"open": 0, "uncertain": 0},
+                {},
+                "missing or malformed 'total' count",
+            ),
+            (
+                "boolean total",
+                {"open": 0, "uncertain": 0},
+                {"total": False},
+                "missing or malformed 'total' count",
+            ),
+            (
+                "nonzero total",
+                {"open": 0, "uncertain": 0},
+                {"total": 1},
+                "still reports open findings",
+            ),
+        )
+
+        for label, final_validation, final_report, error in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                repo = Path(temp)
+                self.git(repo, "init", "-q", "-b", "feature/release")
+                self.git(repo, "config", "user.name", "Test")
+                self.git(repo, "config", "user.email", "test@example.invalid")
+                (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+                self.git(repo, "add", "app.py")
+                self.git(repo, "commit", "-q", "-m", "base")
+
+                def fake_json(_repo, command, *args, **_kwargs):
+                    if command in {"doctor", "init", "map"}:
+                        return {}
+                    if command == "next":
+                        return {"finding": None}
+                    if command == "revalidate" and "--all" in args:
+                        return final_validation
+                    if command == "report":
+                        return final_report
+                    raise AssertionError((command, args))
+
+                with (
+                    patch(
+                        "manageroo.clawpatch_release._clawpatch_version",
+                        return_value="clawpatch 0.7.1",
+                    ),
+                    patch(
+                        "manageroo.clawpatch_release._json_command",
+                        side_effect=fake_json,
+                    ),
+                    patch("manageroo.clawpatch_release._run_manageroo_gates") as gates,
+                ):
+                    with self.assertRaisesRegex(SafetyError, error):
+                        release_sweep(
+                            repo,
+                            apply=True,
+                            branch="current",
+                            skip_review=True,
+                        )
+
+                gates.assert_not_called()
+                self.assertFalse(
+                    (repo / ".git" / "manageroo" / "clawpatch-release-proof.json").exists()
+                )
+
     @patch("manageroo.clawpatch_release._run_manageroo_gates", return_value=[])
     @patch("manageroo.clawpatch_release._changed_paths", return_value=["src/app.py"])
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
