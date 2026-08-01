@@ -172,8 +172,13 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
 
     parent = drop_dir.parent
     parent.mkdir(parents=True, exist_ok=True)
-    stage = Path(tempfile.mkdtemp(prefix=f".{drop_dir.name}.stage-", dir=str(parent)))
     backup = drop_dir.with_name(drop_dir.name + ".manageroo-previous")
+    if backup.exists() or backup.is_symlink():
+        raise RuntimeError(
+            f"Interrupted release-drop transaction found at {backup}; "
+            "refusing to overwrite recovery data."
+        )
+    stage = Path(tempfile.mkdtemp(prefix=f".{drop_dir.name}.stage-", dir=str(parent)))
     try:
         if drop_dir.is_dir():
             for existing in drop_dir.iterdir():
@@ -194,8 +199,6 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
         ]
         (stage / "SHA256SUMS.txt").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
 
-        if backup.exists():
-            shutil.rmtree(backup)
         if drop_dir.exists():
             drop_dir.rename(backup)
         stage.rename(drop_dir)
@@ -214,9 +217,16 @@ def _publish_archive_pair(candidate_output: Path, candidate_source: Path) -> Non
     """Publish both public archives as one recoverable transaction."""
     output_backup = OUTPUT.with_name(OUTPUT.name + ".manageroo-previous")
     source_backup = SOURCE_OUTPUT.with_name(SOURCE_OUTPUT.name + ".manageroo-previous")
-    for backup in (output_backup, source_backup):
-        if backup.exists():
-            backup.unlink()
+    existing_backups = [
+        backup
+        for backup in (output_backup, source_backup)
+        if backup.exists() or backup.is_symlink()
+    ]
+    if existing_backups:
+        raise RuntimeError(
+            "Interrupted release archive transaction found; refusing to overwrite recovery data: "
+            + ", ".join(str(backup) for backup in existing_backups)
+        )
     output_had_old = OUTPUT.exists()
     source_had_old = SOURCE_OUTPUT.exists()
     try:
