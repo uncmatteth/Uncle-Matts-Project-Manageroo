@@ -810,8 +810,6 @@ class Orchestrator:
 
     def _external_intelligence(self, brief: str, inventory: dict[str, Any]) -> dict:
         existing = self._artifact_json("discovery/external-intelligence.json")
-        if existing is not None:
-            return existing
         cfg = self.config.get("integrations", {})
         values = self._external_values(brief=brief)
         document_intelligence = self._document_intelligence(brief=brief, inventory=inventory)
@@ -848,7 +846,8 @@ class Orchestrator:
                 "failed or missing tools do not block the core controller run."
             ),
         }
-        self.artifacts.write_json("discovery/external-intelligence.json", payload, lock=True)
+        if existing is None:
+            self.artifacts.write_json("discovery/external-intelligence.json", payload, lock=True)
         return payload
 
     def _external_review_repair_commands(self) -> list[tuple[str, list[str]]]:

@@ -1,12 +1,16 @@
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from manageroo.artifacts import ArtifactStore
+from manageroo.adapters.mock import MockAdapter
 from manageroo.evidence_artifact_guard import install_evidence_artifact_guard
 from manageroo.evidence_policy import install_evidence_policy
+from manageroo.orchestrator import Orchestrator
+from manageroo.project import initialize_project
 
 
 class _Artifacts:
@@ -103,43 +107,60 @@ class EvidencePolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
-            run_root = repo / ".manageroo" / "runs" / "run-1"
             repo.mkdir(parents=True)
-            run_root.mkdir(parents=True)
+            for argv in (
+                ["git", "init", "-q", "-b", "main"],
+                ["git", "config", "user.name", "MANAGEROO Tests"],
+                ["git", "config", "user.email", "tests@local.invalid"],
+            ):
+                subprocess.run(argv, cwd=repo, check=True)
+            snapshot = repo / "snapshot.txt"
+            snapshot.write_text("old repository snapshot\n", encoding="utf-8")
+            subprocess.run(["git", "add", "snapshot.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
+            initialize_project(repo, agent="mock")
+            config = repo / ".manageroo" / "config.toml"
+            command = [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; import sys; print(Path(sys.argv[1]).read_text())",
+                "{repo}/snapshot.txt",
+            ]
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "gitnexus_query_command = []",
+                    "gitnexus_query_command = "
+                    + "[" + ", ".join(json.dumps(item) for item in command) + "]",
+                ),
+                encoding="utf-8",
+            )
 
-            Orchestrator = self._patched_class()
-            instance = Orchestrator(repo, run_root)
-            instance.artifacts = ArtifactStore(run_root / "artifacts")
-            instance.external_records = [{
-                "name": "gitnexus-query",
-                "enabled": True,
-                "ok": True,
-                "stdout": "old repository snapshot",
-            }]
-            instance._external_intelligence("repository architecture", {"snapshot": "old"})
-            first = instance._call(role="plan-compiler", metadata={})
+            instance = Orchestrator(repo, adapter=MockAdapter())
+            instance.workspace = instance.mirror.create()
+            inventory = {"files": []}
+            instance._external_intelligence("repository architecture", inventory)
             self.assertEqual(
-                first["metadata"]["_evidence_items"][0]["content"],
+                instance._planning_evidence_items[0]["content"],
                 "old repository snapshot",
             )
 
-            instance.external_records = [{
-                "name": "gitnexus-query",
-                "enabled": True,
-                "ok": True,
-                "stdout": "new repository snapshot",
-            }]
-            instance._external_intelligence("repository architecture", {"snapshot": "new"})
-            second = instance._call(role="plan-compiler", metadata={})
+            snapshot.write_text("new repository snapshot\n", encoding="utf-8")
+            continued = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=instance.run_id,
+                continue_existing=True,
+            )
+            continued._external_intelligence("repository architecture", inventory)
 
             persisted = json.loads(
-                (instance.artifacts.root / "discovery" / "evidence.json").read_text(encoding="utf-8")
+                (continued.artifacts.root / "discovery" / "evidence.json").read_text(encoding="utf-8")
             )
             self.assertEqual(persisted["schema_version"], 2)
             self.assertEqual(len(persisted["discovery_identity"]), 64)
             self.assertEqual(persisted["items"][0]["content"], "new repository snapshot")
             self.assertEqual(
-                second["metadata"]["_evidence_items"][0]["content"],
+                continued._planning_evidence_items[0]["content"],
                 "new repository snapshot",
             )
 
