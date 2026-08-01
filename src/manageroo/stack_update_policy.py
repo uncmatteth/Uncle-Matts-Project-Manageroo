@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import errno
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
+
+from .config_lock import _try_lock_file, _unlock_file
 
 
 def _decode_timeout_output(value: Any) -> str:
@@ -16,51 +20,46 @@ def _decode_timeout_output(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _pid_live(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except (PermissionError, OSError):
-        return True
-    return True
-
-
 @contextmanager
 def _destination_lock(destination: Path, *, timeout: float = 30.0) -> Iterator[None]:
     lock = destination.with_name(f".{destination.name}.manageroo-update.lock")
-    deadline = time.monotonic() + timeout
-    fd: int | None = None
-    while fd is None:
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            try:
-                text = lock.read_text(encoding="utf-8").strip()
-                pid = int(text.split("=", 1)[1]) if text.startswith("pid=") else 0
-            except (OSError, ValueError):
-                pid = 0
-            if not pid or not _pid_live(pid):
-                try:
-                    lock.unlink()
-                    continue
-                except OSError:
-                    pass
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Timed out waiting for AUTOREVIEW update lock: {lock}")
-            time.sleep(0.05)
+    flags = os.O_CREAT | os.O_RDWR
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(lock, flags, 0o600)
+    acquired = False
     try:
+        lock_state = os.fstat(fd)
+        if not stat.S_ISREG(lock_state.st_mode):
+            raise OSError(f"AUTOREVIEW update lock is not a regular file: {lock}")
+        if lock_state.st_size == 0:
+            os.ftruncate(fd, 1)
+
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                _try_lock_file(fd)
+                acquired = True
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for AUTOREVIEW update lock: {lock}"
+                    ) from exc
+                time.sleep(0.05)
+
+        os.ftruncate(fd, 0)
         os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
         os.fsync(fd)
         yield
     finally:
-        os.close(fd)
         try:
-            text = lock.read_text(encoding="utf-8").strip()
-            if text == f"pid={os.getpid()}":
-                lock.unlink()
-        except FileNotFoundError:
-            pass
+            if acquired:
+                _unlock_file(fd)
+        finally:
+            os.close(fd)
 
 
 def _manager_bin(module: Any, manager: str) -> Path | None:

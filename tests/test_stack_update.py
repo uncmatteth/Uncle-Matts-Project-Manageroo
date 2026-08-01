@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import tempfile
 import unittest
@@ -14,6 +15,45 @@ from manageroo.stack_update import (
     stack_update_plan,
 )
 from manageroo.trufflehog import TRUFFLEHOG_VERSION
+
+
+def _hold_autoreview_lock_before_owner_publication(
+    destination,
+    publication_paused,
+    publish_owner,
+    owner_entered,
+    release_owner,
+) -> None:
+    import manageroo.stack_update_policy as policy
+
+    original_write = policy.os.write
+
+    def delayed_write(descriptor, data):
+        publication_paused.set()
+        if not publish_owner.wait(timeout=5):
+            raise TimeoutError("test did not release owner publication")
+        return original_write(descriptor, data)
+
+    policy.os.write = delayed_write
+    with policy._destination_lock(Path(destination)):
+        owner_entered.set()
+        if not release_owner.wait(timeout=5):
+            raise TimeoutError("test did not release lock owner")
+
+
+def _enter_autoreview_lock(destination, lock_opened, entered) -> None:
+    import manageroo.stack_update_policy as policy
+
+    original_open = policy.os.open
+
+    def observed_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        lock_opened.set()
+        return descriptor
+
+    policy.os.open = observed_open
+    with policy._destination_lock(Path(destination)):
+        entered.set()
 
 
 class StackUpdateTests(unittest.TestCase):
@@ -290,6 +330,76 @@ class StackUpdateTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertEqual((destination / "SKILL.md").read_text(encoding="utf-8"), "old\n")
             self.assertEqual((prior_backup / "SKILL.md").read_text(encoding="utf-8"), "older\n")
+
+    def test_autoreview_lock_blocks_contender_before_owner_metadata_is_published(self):
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "autoreview"
+            context = multiprocessing.get_context("spawn")
+            publication_paused = context.Event()
+            publish_owner = context.Event()
+            owner_entered = context.Event()
+            release_owner = context.Event()
+            contender_opened = context.Event()
+            contender_entered = context.Event()
+            owner = context.Process(
+                target=_hold_autoreview_lock_before_owner_publication,
+                args=(
+                    destination,
+                    publication_paused,
+                    publish_owner,
+                    owner_entered,
+                    release_owner,
+                ),
+            )
+            contender = context.Process(
+                target=_enter_autoreview_lock,
+                args=(destination, contender_opened, contender_entered),
+            )
+
+            try:
+                owner.start()
+                self.assertTrue(publication_paused.wait(timeout=5))
+                contender.start()
+                self.assertTrue(contender_opened.wait(timeout=5))
+                self.assertFalse(contender_entered.wait(timeout=0.3))
+                publish_owner.set()
+                self.assertTrue(owner_entered.wait(timeout=5))
+                self.assertFalse(contender_entered.wait(timeout=0.3))
+                release_owner.set()
+                owner.join(timeout=5)
+                contender.join(timeout=5)
+                self.assertEqual(owner.exitcode, 0)
+                self.assertEqual(contender.exitcode, 0)
+                self.assertTrue(contender_entered.is_set())
+            finally:
+                publish_owner.set()
+                release_owner.set()
+                for process in (owner, contender):
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
+
+    def test_autoreview_lock_never_unlinks_stale_owner_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "autoreview"
+            lock = destination.with_name(f".{destination.name}.manageroo-update.lock")
+            lock.write_text("pid=999999999\n", encoding="utf-8")
+
+            with patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=AssertionError("lock path must not be unlinked"),
+            ):
+                from manageroo.stack_update_policy import _destination_lock
+
+                with _destination_lock(destination):
+                    pass
+
+            self.assertTrue(lock.is_file())
+            self.assertEqual(lock.read_text(encoding="utf-8"), f"pid={os.getpid()}\n")
 
     def test_plain_output_makes_apply_boundary_explicit(self):
         text = format_stack_update(stack_update_plan())
