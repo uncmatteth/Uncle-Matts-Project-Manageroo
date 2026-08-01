@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import shutil
 import stat
+import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..errors import SafetyError
@@ -97,6 +102,126 @@ class TransactionalAdapter(AgentAdapter):
                 f"{git_dir}"
             )
         return git_dir
+
+    def _git_common_directory(self, cwd: Path) -> Path:
+        result = self.runner.run(
+            ["git", "rev-parse", "--git-common-dir"], cwd=cwd, timeout_seconds=30
+        )
+        if not result.passed or not result.stdout.strip():
+            raise SafetyError(
+                "Manageroo could not locate the worker-attempt Git common directory: "
+                + result.stderr
+            )
+        git_common_dir = Path(result.stdout.strip())
+        if not git_common_dir.is_absolute():
+            git_common_dir = cwd / git_common_dir
+        try:
+            git_common_dir = git_common_dir.resolve(strict=True)
+        except OSError as exc:
+            raise SafetyError(
+                "Manageroo could not resolve the worker-attempt Git common directory: "
+                f"{git_common_dir}: {exc}"
+            ) from exc
+        if not git_common_dir.is_dir():
+            raise SafetyError(
+                "Worker-attempt Git common directory is not a directory: "
+                f"{git_common_dir}"
+            )
+        return git_common_dir
+
+    def _repository_lock_path(self, cwd: Path) -> Path:
+        git_common_dir = self._git_common_directory(cwd)
+        owner = str(os.getuid()) if hasattr(os, "getuid") else "local"
+        lock_root = Path(tempfile.gettempdir()) / f"manageroo-transaction-locks-{owner}"
+        try:
+            lock_root.mkdir(mode=0o700, exist_ok=True)
+        except OSError as exc:
+            raise SafetyError(
+                "Manageroo could not create the repository transaction lock directory: "
+                f"{lock_root}: {exc}"
+            ) from exc
+        if lock_root.is_symlink() or not lock_root.is_dir():
+            raise SafetyError(
+                f"Manageroo repository transaction lock path is unsafe: {lock_root}"
+            )
+        identity = hashlib.sha256(os.fsencode(str(git_common_dir))).hexdigest()
+        return lock_root / f"{identity}.lock"
+
+    @staticmethod
+    def _try_lock_file(descriptor: int) -> None:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            return
+        import fcntl
+
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    @staticmethod
+    def _unlock_file(descriptor: int) -> None:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            return
+        import fcntl
+
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+    @contextmanager
+    def _repository_transaction_lock(
+        self, cwd: Path, *, timeout_seconds: float = 30.0
+    ) -> Iterator[None]:
+        lock_path = self._repository_lock_path(cwd)
+        flags = os.O_CREAT | os.O_RDWR
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(lock_path, flags, 0o600)
+        except OSError as exc:
+            raise SafetyError(
+                f"Manageroo could not open the repository transaction lock: {lock_path}: {exc}"
+            ) from exc
+        acquired = False
+        try:
+            lock_state = os.fstat(descriptor)
+            if not stat.S_ISREG(lock_state.st_mode):
+                raise SafetyError(
+                    f"Manageroo repository transaction lock is not a regular file: {lock_path}"
+                )
+            if lock_state.st_size == 0:
+                os.write(descriptor, b"\0")
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                try:
+                    self._try_lock_file(descriptor)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                        raise SafetyError(
+                            "Manageroo could not acquire the repository transaction lock: "
+                            f"{lock_path}: {exc}"
+                        ) from exc
+                    if time.monotonic() >= deadline:
+                        raise SafetyError(
+                            f"Timed out waiting for repository transaction lock: {lock_path}"
+                        ) from exc
+                    time.sleep(0.05)
+            yield
+        finally:
+            try:
+                if acquired:
+                    self._unlock_file(descriptor)
+            except OSError as exc:
+                raise SafetyError(
+                    f"Manageroo could not release the repository transaction lock: {lock_path}: {exc}"
+                ) from exc
+            finally:
+                os.close(descriptor)
 
     def _git_metadata_state(self, git_dir: Path) -> dict[str, tuple[str, int, bytes]]:
         state: dict[str, tuple[str, int, bytes]] = {}
@@ -348,6 +473,10 @@ class TransactionalAdapter(AgentAdapter):
         )
 
     def run(self, request: AgentRequest) -> AgentResponse:
+        with self._repository_transaction_lock(request.cwd):
+            return self._run_locked(request)
+
+    def _run_locked(self, request: AgentRequest) -> AgentResponse:
         self._assert_pristine_disposable_workspace(request.cwd)
         head = self._head(request.cwd)
         head_state = self._head_state(request.cwd)

@@ -19,6 +19,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Compaction cannot drop must-not rules | Intent lock plus compaction audit | Detective, blocks continuation |
 | Worker memory cannot become run truth | Durable job store, packet manifests, artifact hashes | Preventive in controller |
 | Failed worker attempt is not treated as completion | Worker-attempt records plus retry/failed-job status | Preventive in controller |
+| Concurrent worker attempts cannot share one repository transaction | Interprocess lock keyed to the canonical Git common directory, held from pristine check through validation or rollback | Preventive |
 | Completed worker job is not casually repeated | Completed job artifact hash check | Detective, blocks stale reuse |
 | Continue cannot shift later failed job IDs | Replay matches worker calls to saved job spec hashes | Preventive in controller |
 | Unresolved product decision cannot be skipped on continue | `planning/blocking-decisions.json` blocks replay | Preventive in controller |
