@@ -287,44 +287,60 @@ def run_external_review_repair_lanes(
             record = dict(record)
             record.setdefault("name", name)
             record.setdefault("enabled", True)
-        changed_paths = self.mirror.changed_paths(before_command)
-        record.update(
-            {
-                "command_owned_repair_lane": True,
-                "ai_freehand_repair_allowed": False,
-                "changed_paths": changed_paths,
-                "baseline": before_command,
-            }
-        )
-        policy_error = ""
-        if self.mirror.head() != before_command:
-            policy_error = (
-                "External review/repair lane changed Git HEAD; the controller owns checkpoints."
-            )
         try:
-            ScopePolicy(tuple(allowed_paths)).validate_paths(changed_paths)
-        except SafetyError as exc:
-            policy_error = str(exc)
-        if policy_error:
-            record["ok"] = False
-            record["policy_error"] = policy_error
-
-        if record.get("ok") and changed_paths:
-            checkpoint = self.mirror.checkpoint(
-                _checkpoint_message(name, str(self.run_id), before_command)
-            )
-            record["checkpoint"] = checkpoint
-            atomic_write_json(
-                _checkpoint_manifest_path(self, name),
+            changed_paths = self.mirror.changed_paths(before_command)
+            record.update(
                 {
-                    "run_id": str(self.run_id),
-                    "name": name,
+                    "command_owned_repair_lane": True,
+                    "ai_freehand_repair_allowed": False,
+                    "changed_paths": changed_paths,
                     "baseline": before_command,
-                    "checkpoint": checkpoint,
-                    "changed_paths": _actual_checkpoint_paths(self, before_command, checkpoint),
-                },
+                }
             )
-        elif not record.get("ok"):
+            policy_error = ""
+            if self.mirror.head() != before_command:
+                policy_error = (
+                    "External review/repair lane changed Git HEAD; the controller owns checkpoints."
+                )
+            try:
+                ScopePolicy(tuple(allowed_paths)).validate_paths(changed_paths)
+            except SafetyError as exc:
+                policy_error = str(exc)
+            if policy_error:
+                record["ok"] = False
+                record["policy_error"] = policy_error
+
+            if record.get("ok") and changed_paths:
+                checkpoint = self.mirror.checkpoint(
+                    _checkpoint_message(name, str(self.run_id), before_command)
+                )
+                record["checkpoint"] = checkpoint
+                atomic_write_json(
+                    _checkpoint_manifest_path(self, name),
+                    {
+                        "run_id": str(self.run_id),
+                        "name": name,
+                        "baseline": before_command,
+                        "checkpoint": checkpoint,
+                        "changed_paths": _actual_checkpoint_paths(
+                            self, before_command, checkpoint
+                        ),
+                    },
+                )
+        except Exception as exc:
+            try:
+                _rollback_lane(self, name=name, baseline=before_command)
+            except SafetyError as rollback_exc:
+                raise SafetyError(
+                    f"Command-owned {name} repair lane post-command processing failed "
+                    f"({exc}) and rollback could not be verified. Workspace state is uncertain."
+                ) from rollback_exc
+            raise SafetyError(
+                f"Command-owned {name} repair lane post-command processing failed; "
+                f"rollback was verified: {exc}"
+            ) from exc
+
+        if not record.get("ok"):
             try:
                 _rollback_lane(self, name=name, baseline=before_command)
                 record["rollback_verified"] = True
