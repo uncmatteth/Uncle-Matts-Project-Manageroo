@@ -9,7 +9,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from manageroo.clawpatch_release import _json_command, release_sweep
+from manageroo.clawpatch_release import _json_command, _release_clawpatch_env, release_sweep
 from manageroo.entrypoint import _clawpatch_main
 from manageroo.errors import SafetyError
 
@@ -49,6 +49,13 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             34,
         )
         self.assertEqual(must_run.call_args.kwargs["env"], child_env)
+
+    @patch.dict("manageroo.clawpatch_release.os.environ", {}, clear=True)
+    def test_release_env_extends_clawpatch_worker_timeout_without_default_bypass(self):
+        child_env = _release_clawpatch_env(trusted_host_codex_sandbox_bypass=False)
+
+        self.assertEqual(child_env["CLAWPATCH_CODEX_TIMEOUT_MS"], "1800000")
+        self.assertNotIn("CLAWPATCH_CODEX_SANDBOX", child_env)
 
     @patch("manageroo.clawpatch_release._must_run")
     def test_json_command_rejects_non_whitespace_after_final_json(self, must_run):

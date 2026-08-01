@@ -358,6 +358,10 @@ as a global setting. Do not use it for untrusted code. Manageroo still runs the
 project's configured verification gates, requires Clawpatch revalidation, stages
 only the exact changed paths, and commits one cleared finding at a time.
 
+Release sweeps also give Clawpatch's Codex worker up to 30 minutes by default,
+instead of Clawpatch's shorter interactive default. An existing
+`CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins.
+
 The applied sweep runs Clawpatch doctor, initialization when needed, map, and review. For a project without existing Clawpatch state, Manageroo keeps that new state under Git's private directory so setup does not dirty the source tree. It then asks Clawpatch for one fresh open finding at a time, shows and applies that finding, runs the project's Manageroo verification gates, requires Clawpatch to revalidate the finding as fixed, stages only the exact changed paths, and creates one commit. It checkpoints between findings so a validated partial sweep can resume. At the end it revalidates every open finding, requires a zero-open report, reruns the gates, requires clean Git state, and writes proof tied to the exact final commit.
 
 Dry-run is the default. `--apply` is required for local changes. Nothing is pushed unless you explicitly add `--push each` or `--push final`. On `main` or `master`, the default `--branch auto` creates a timestamped `clawpatch/release-sweep-*` branch; use `--branch current` only when you deliberately want the current branch.

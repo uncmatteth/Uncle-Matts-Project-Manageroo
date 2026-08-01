@@ -19,11 +19,24 @@ from .util import atomic_write_json, read_json, sha256_file, utc_now
 
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
+CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 1_800_000
 LIFECYCLE = (
     "clawpatch doctor -> init (when needed) -> map -> review -> "
     "clawpatch next --status open -> show -> fix -> Manageroo gates -> revalidate -> exact-path commit; "
     "repeat -> revalidate --all --status open -> zero-open report -> final gates -> clean Git"
 )
+
+
+def _release_clawpatch_env(*, trusted_host_codex_sandbox_bypass: bool) -> dict[str, str]:
+    """Build child-only environment for Clawpatch's long release operations."""
+    child_env = dict(os.environ)
+    child_env.setdefault(
+        "CLAWPATCH_CODEX_TIMEOUT_MS",
+        str(CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS),
+    )
+    if trusted_host_codex_sandbox_bypass:
+        child_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
+    return child_env
 
 
 def _run(
@@ -321,10 +334,9 @@ def release_sweep(
     current_branch = _git_text(root, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
     head = _git_text(root, ["git", "rev-parse", "HEAD"])
     status = _git_status(root)
-    clawpatch_env = None
-    if trusted_host_codex_sandbox_bypass:
-        clawpatch_env = dict(os.environ)
-        clawpatch_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
+    clawpatch_env = _release_clawpatch_env(
+        trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass
+    )
     if push_mode not in {"none", "each", "final"}:
         raise SafetyError("push_mode must be one of: none, each, final.")
     if review_limit < 1 or jobs < 1 or max_findings < 0:

@@ -175,6 +175,10 @@ It removes the nested Codex approval/sandbox boundary, so use it only for truste
 source on a host that already supplies isolation. Manageroo's path restrictions,
 project gates, revalidation, and exact-path commit rules still apply.
 
+Manageroo gives the Codex worker up to 30 minutes during a release sweep so a
+valid repair is not abandoned at Clawpatch's shorter interactive default. A
+user-supplied `CLAWPATCH_CODEX_TIMEOUT_MS` value takes precedence.
+
 The proof can be made mandatory for the final operator gate with `manageroo release-ready --require-clawpatch` or the `[project]` setting `require_clawpatch_release_sweep = true`.
 
 Project: https://github.com/openclaw/clawpatch
