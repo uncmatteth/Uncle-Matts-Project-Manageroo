@@ -233,17 +233,25 @@ def _run_root(repo: Path, run_id: str) -> Path:
     return resolved
 
 
-def _blocking_decisions(run_root: Path) -> list[dict]:
+def _blocking_decisions(run_root: Path) -> list[object]:
     if decisions_fully_resolved(run_root):
         return []
     path = run_root / "artifacts" / "planning" / "blocking-decisions.json"
     if not path.is_file():
         return []
-    payload = read_json(path)
-    return list(payload.get("decisions", []) or [])
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise SafetyError(f"Blocking decision artifact is unreadable: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SafetyError(f"Blocking decision artifact must contain a JSON object: {path}")
+    decisions = payload.get("decisions", [])
+    if not isinstance(decisions, list):
+        raise SafetyError(f"Blocking decision artifact field 'decisions' must be an array: {path}")
+    return decisions
 
 
-def _validated_decisions(decisions: list[dict]) -> tuple[list[dict], str | None]:
+def _validated_decisions(decisions: list[object]) -> tuple[list[dict], str | None]:
     validated: list[dict] = []
     for index, decision in enumerate(decisions, 1):
         if not isinstance(decision, dict):
@@ -280,7 +288,25 @@ def _decisions_main(argv: list[str]) -> int:
         run_root = _run_root(Path(args.repo), args.run_id)
     except SafetyError as exc:
         parser.error(str(exc))
-    decisions = _blocking_decisions(run_root)
+    try:
+        decisions = _blocking_decisions(run_root)
+    except SafetyError as exc:
+        error = f"Cannot read blocking decisions: {exc}"
+        if args.command == "show" and args.json:
+            print(json.dumps({"ok": False, "error": error}, indent=2))
+        else:
+            print(error, file=sys.stderr)
+        return 2
+
+    decisions, validation_error = _validated_decisions(decisions)
+    if validation_error:
+        error = f"Cannot read blocking decisions: {validation_error}"
+        if args.command == "show" and args.json:
+            print(json.dumps({"ok": False, "error": error}, indent=2))
+        else:
+            print(error, file=sys.stderr)
+        return 2
+
     if not decisions:
         if args.command == "show" and args.json:
             print(json.dumps({"run_id": args.run_id, "decisions": []}, indent=2))
@@ -296,11 +322,6 @@ def _decisions_main(argv: list[str]) -> int:
             text = markdown.read_text(encoding="utf-8") if markdown else "No blocking questions found."
             print(text, end="")
         return 0
-
-    decisions, validation_error = _validated_decisions(decisions)
-    if validation_error:
-        print(f"Cannot answer blocking decisions: {validation_error}", file=sys.stderr)
-        return 2
 
     answers: list[dict[str, str]] = []
     for index, decision in enumerate(decisions, 1):

@@ -76,6 +76,54 @@ class DecisionRegressionTests(unittest.TestCase):
             payload = json.loads(output.getvalue())
             self.assertEqual(payload, {"run_id": run_id, "decisions": []})
 
+    def test_malformed_decision_artifacts_fail_closed_for_show_and_answer(self):
+        malformed_artifacts = {
+            "invalid-json": "{",
+            "top-level-array": "[]",
+            "scalar-decisions": '{"decisions": 1}',
+            "string-decisions": '{"decisions": "open"}',
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            for name, artifact in malformed_artifacts.items():
+                with self.subTest(name=name, command="show"):
+                    planning = (
+                        repo
+                        / ".manageroo"
+                        / "runs"
+                        / name
+                        / "artifacts"
+                        / "planning"
+                    )
+                    planning.mkdir(parents=True)
+                    (planning / "blocking-decisions.json").write_text(
+                        artifact, encoding="utf-8"
+                    )
+                    stdout = io.StringIO()
+                    stderr = io.StringIO()
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        code = _decisions_main(
+                            ["show", name, "--repo", str(repo), "--json"]
+                        )
+                    payload = json.loads(stdout.getvalue())
+                    self.assertEqual(code, 2)
+                    self.assertEqual(payload["ok"], False)
+                    self.assertIn("Cannot read blocking decisions", payload["error"])
+                    self.assertNotIn("Traceback", stdout.getvalue() + stderr.getvalue())
+
+                with self.subTest(name=name, command="answer"):
+                    stderr = io.StringIO()
+                    with patch(
+                        "builtins.input", side_effect=AssertionError("input must not be called")
+                    ):
+                        with redirect_stderr(stderr):
+                            code = _decisions_main(
+                                ["answer", name, "--repo", str(repo)]
+                            )
+                    self.assertEqual(code, 2)
+                    self.assertIn("Cannot read blocking decisions", stderr.getvalue())
+                    self.assertNotIn("Traceback", stderr.getvalue())
+
     def test_optionless_decision_is_rejected_before_interactive_prompting(self):
         decisions, error = _validated_decisions([
             {"id": "deployment-mode", "question": "Choose deployment", "options": []}
