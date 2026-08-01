@@ -7,6 +7,8 @@ one ranked artifact. Retrieval informs planning; it never owns completion.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from .evidence import (
@@ -28,6 +30,29 @@ PLANNING_EVIDENCE_ROLES = {
 }
 PLANNING_EVIDENCE_LIMIT = 8
 PLANNING_EVIDENCE_CONTENT_CHARS = 4_000
+
+
+def _discovery_identity(
+    orchestrator,
+    brief: str,
+    inventory: dict[str, Any],
+    payload: dict[str, Any],
+) -> str:
+    config = getattr(orchestrator, "config", {})
+    integrations = config.get("integrations", {}) if isinstance(config, dict) else {}
+    canonical = json.dumps(
+        {
+            "brief": brief,
+            "inventory": inventory,
+            "external_intelligence": payload,
+            "integrations": integrations,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _controller_classified_items(
@@ -176,20 +201,23 @@ def install_evidence_policy(orchestrator_module) -> None:
 
     def _external_intelligence_with_evidence(self, brief: str, inventory: dict[str, Any]) -> dict[str, Any]:
         payload = original_external(self, brief, inventory)
+        identity = _discovery_identity(self, brief, inventory, payload)
         existing = self._artifact_json("discovery/evidence.json")
-        if existing is None:
+        if existing is not None and existing.get("discovery_identity") == identity:
+            evidence_payload = existing
+        else:
             bundle = _bundle_from_discovery(self, brief, payload)
             evidence_payload = {
                 **bundle.to_dict(),
+                "schema_version": 2,
+                "discovery_identity": identity,
                 "authority_rule": (
                     "Current repository evidence outranks run evidence, explicit project knowledge, "
                     "and historical external knowledge. Retrieval never overrides controller proof."
                 ),
                 "controller_authority": True,
             }
-            self.artifacts.write_json("discovery/evidence.json", evidence_payload, lock=True)
-        else:
-            evidence_payload = existing
+            self.artifacts.write_json("discovery/evidence.json", evidence_payload)
         self._planning_evidence_items = _planning_items(evidence_payload)
         return {
             **payload,

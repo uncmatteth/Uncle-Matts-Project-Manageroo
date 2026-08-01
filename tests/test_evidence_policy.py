@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from manageroo.artifacts import ArtifactStore
+from manageroo.evidence_artifact_guard import install_evidence_artifact_guard
 from manageroo.evidence_policy import install_evidence_policy
 
 
@@ -27,12 +29,17 @@ class _FakeOrchestrator:
         self.run_root = run_root
         self.artifacts = _Artifacts(run_root / "artifacts")
         self.call_payloads = []
+        self.external_records = []
 
     def _artifact_json(self, relative: str):
-        return self.artifacts.saved.get(relative)
+        saved = getattr(self.artifacts, "saved", None)
+        if isinstance(saved, dict):
+            return saved.get(relative)
+        path = self.artifacts.root / relative
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
     def _external_intelligence(self, brief: str, inventory: dict):
-        return {"summary": {}, "records": [], "note": "base"}
+        return {"summary": {}, "records": list(self.external_records), "note": "base"}
 
     def _call(self, *args, **kwargs):
         self.call_payloads.append((args, kwargs))
@@ -46,6 +53,7 @@ class EvidencePolicyTests(unittest.TestCase):
 
         module = SimpleNamespace(Orchestrator=Fake)
         install_evidence_policy(module)
+        install_evidence_artifact_guard(module)
         return module.Orchestrator
 
     def test_discovery_writes_ranked_evidence_and_planning_call_receives_bounded_items(self):
@@ -90,6 +98,50 @@ class EvidencePolicyTests(unittest.TestCase):
             instance._external_intelligence("relevant project", {})
             result = instance._call(role="implementer", metadata={})
             self.assertNotIn("_evidence_items", result["metadata"])
+
+    def test_repeated_discovery_replaces_stale_repository_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = repo / ".manageroo" / "runs" / "run-1"
+            repo.mkdir(parents=True)
+            run_root.mkdir(parents=True)
+
+            Orchestrator = self._patched_class()
+            instance = Orchestrator(repo, run_root)
+            instance.artifacts = ArtifactStore(run_root / "artifacts")
+            instance.external_records = [{
+                "name": "gitnexus-query",
+                "enabled": True,
+                "ok": True,
+                "stdout": "old repository snapshot",
+            }]
+            instance._external_intelligence("repository architecture", {"snapshot": "old"})
+            first = instance._call(role="plan-compiler", metadata={})
+            self.assertEqual(
+                first["metadata"]["_evidence_items"][0]["content"],
+                "old repository snapshot",
+            )
+
+            instance.external_records = [{
+                "name": "gitnexus-query",
+                "enabled": True,
+                "ok": True,
+                "stdout": "new repository snapshot",
+            }]
+            instance._external_intelligence("repository architecture", {"snapshot": "new"})
+            second = instance._call(role="plan-compiler", metadata={})
+
+            persisted = json.loads(
+                (instance.artifacts.root / "discovery" / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(persisted["schema_version"], 2)
+            self.assertEqual(len(persisted["discovery_identity"]), 64)
+            self.assertEqual(persisted["items"][0]["content"], "new repository snapshot")
+            self.assertEqual(
+                second["metadata"]["_evidence_items"][0]["content"],
+                "new repository snapshot",
+            )
 
 
 if __name__ == "__main__":

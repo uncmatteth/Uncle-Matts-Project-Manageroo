@@ -71,7 +71,7 @@ Manageroo's existing discovery lanes already run configured GitNexus and GBrain 
 .manageroo/runs/<run-id>/artifacts/discovery/evidence.json
 ```
 
-That artifact contains ranked evidence, contradictions, provider errors when applicable, and the authority rule used by the controller.
+That artifact contains ranked evidence, contradictions, provider errors when applicable, and the authority rule used by the controller. Its discovery identity binds it to the product brief, repository inventory, external-intelligence payload, and integration configuration. Manageroo reuses it only while that identity matches; changed repository or provider state regenerates both the persisted evidence and planning context.
 
 GitNexus remains the first-class repository/code-graph intelligence integration. GBrain remains the external durable knowledge lane. Manageroo artifacts remain durable run evidence. None of them can mark a run `COMPLETE`.
 

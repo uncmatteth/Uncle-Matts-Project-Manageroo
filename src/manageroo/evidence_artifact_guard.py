@@ -25,8 +25,12 @@ def _validate_existing_evidence(path, brief: str) -> None:
     if not isinstance(payload, dict):
         raise SafetyError("Persisted discovery evidence must be a JSON object.")
     schema_version = payload.get("schema_version", 1)
-    if schema_version != 1:
+    if schema_version not in {1, 2}:
         raise SafetyError(f"Persisted discovery evidence uses unsupported schema version: {schema_version!r}")
+    if schema_version == 2:
+        identity = str(payload.get("discovery_identity") or "")
+        if len(identity) != 64 or any(character not in "0123456789abcdef" for character in identity):
+            raise SafetyError("Persisted discovery evidence has an invalid discovery identity.")
     if str(payload.get("query") or "") != str(brief):
         raise SafetyError(
             "Persisted discovery evidence belongs to a different product brief and cannot be reused."
