@@ -1,4 +1,4 @@
-"""Bootstrap the repository's src-layout package before the rest of unittest discovery."""
+"""Make the repository's src-layout package importable during pytest collection."""
 
 from __future__ import annotations
 
