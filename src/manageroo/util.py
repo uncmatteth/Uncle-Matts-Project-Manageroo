@@ -16,6 +16,7 @@ from .errors import SafetyError
 _SECRET_KEY_RE = re.compile(
     r"(?i)(?:^|[_-])(?:api[_-]?key|token|password|secret|authorization)(?:$|[_-])"
 )
+_CAMEL_CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _BEARER_RE = re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+")
 _SECRET_PAIR_RE = re.compile(
     r'''(?ix)
@@ -76,7 +77,9 @@ def sha256_file(path: Path) -> str:
 def _redact_json_value(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            key: "<REDACTED>" if _SECRET_KEY_RE.search(str(key)) else _redact_json_value(item)
+            key: "<REDACTED>"
+            if _SECRET_KEY_RE.search(_CAMEL_CASE_BOUNDARY_RE.sub("_", str(key)))
+            else _redact_json_value(item)
             for key, item in value.items()
         }
     if isinstance(value, list):

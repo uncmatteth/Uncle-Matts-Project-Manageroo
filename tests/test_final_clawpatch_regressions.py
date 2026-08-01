@@ -57,6 +57,33 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         for secret in ("abc123", "hunter2", "xyz"):
             self.assertNotIn(secret, rendered)
 
+    def test_camel_case_json_secret_keys_are_redacted_recursively_and_in_argv(self):
+        payload = {
+            "accessToken": "access-value",
+            "nested": {
+                "refreshToken": "refresh-value",
+                "items": [
+                    {"apiKey": "api-value", "label": "visible"},
+                    {"clientSecret": "client-value"},
+                ],
+            },
+            "public": "keep-me",
+        }
+        expected = {
+            "accessToken": "<REDACTED>",
+            "nested": {
+                "refreshToken": "<REDACTED>",
+                "items": [
+                    {"apiKey": "<REDACTED>", "label": "visible"},
+                    {"clientSecret": "<REDACTED>"},
+                ],
+            },
+            "public": "keep-me",
+        }
+
+        self.assertEqual(json.loads(redact_text(json.dumps(payload))), expected)
+        self.assertEqual(json.loads(redact_argv([json.dumps(payload)])[0]), expected)
+
     def test_stack_doctor_probe_record_redacts_split_secret_arguments(self):
         record = _safe_probe_record(
             {
