@@ -16,6 +16,17 @@ def snapshot(root: Path) -> dict[str, bytes]:
 
 
 class SkillPackTransactionTests(unittest.TestCase):
+    def _replacement_fixture(self, root: Path):
+        source = root / "source" / "demo-skill"
+        source.mkdir(parents=True)
+        (source / "SKILL.md").write_text("new skill\n", encoding="utf-8")
+        skills = root / "skills"
+        target = skills / "demo-skill"
+        target.mkdir(parents=True)
+        (target / "SKILL.md").write_text("old skill\n", encoding="utf-8")
+        (target / "keep.txt").write_text("keep me\n", encoding="utf-8")
+        return source, skills, target, snapshot(target)
+
     def test_failed_multifile_import_preserves_active_destination_tree(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -101,6 +112,56 @@ class SkillPackTransactionTests(unittest.TestCase):
             self.assertEqual(list(skills.glob(".demo-skill.manageroo-stage-*")), [])
             installed = snapshot(target).values()
             self.assertFalse(any(linked_secret.read_bytes() in content for content in installed))
+
+    def test_cleanup_failure_cannot_skip_restoration_after_swap_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            import manageroo.skill_pack as skill_pack
+
+            source, skills, target, before = self._replacement_fixture(Path(temp))
+            original_rename = Path.rename
+            calls = {"restored": False}
+
+            def fail_swap(path, destination):
+                if ".manageroo-stage-" in path.name:
+                    raise OSError("simulated swap failure")
+                if ".manageroo-backup-" in path.name:
+                    calls["restored"] = True
+                return original_rename(path, destination)
+
+            with patch.object(Path, "rename", new=fail_swap), patch.object(
+                skill_pack.shutil,
+                "rmtree",
+                side_effect=OSError("simulated cleanup failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated swap failure"):
+                    skill_pack._transactional_replace_skill(source, target, skills)
+
+            self.assertTrue(calls["restored"])
+            self.assertEqual(snapshot(target), before)
+
+    def test_swap_and_restoration_failures_are_both_reported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            import manageroo.skill_pack as skill_pack
+
+            source, skills, target, _before = self._replacement_fixture(Path(temp))
+            original_rename = Path.rename
+
+            def fail_swap_and_restore(path, destination):
+                if ".manageroo-stage-" in path.name:
+                    raise OSError("simulated swap failure")
+                if ".manageroo-backup-" in path.name:
+                    raise OSError("simulated restoration failure")
+                return original_rename(path, destination)
+
+            with patch.object(Path, "rename", new=fail_swap_and_restore):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "simulated swap failure.*simulated restoration failure",
+                ):
+                    skill_pack._transactional_replace_skill(source, target, skills)
+
+            self.assertFalse(target.exists())
+            self.assertEqual(len(list(skills.glob("demo-skill.manageroo-backup-*"))), 1)
 
 
 if __name__ == "__main__":

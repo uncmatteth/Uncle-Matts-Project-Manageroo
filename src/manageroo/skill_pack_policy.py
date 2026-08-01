@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -54,45 +52,5 @@ def install_skill_pack_policy(module: Any) -> None:
             item["reason"] = "installed skill tree differs; import will transactionally back up the complete old tree"
         return item
 
-    def transactional_replace(source_dir: Path, target_dir: Path, target_root: Path) -> str:
-        source_files = module._validate_source_tree(source_dir)
-        module._validate_destination_tree(target_dir, target_root)
-        stage = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.manageroo-stage-", dir=str(target_root)))
-        backup: Path | None = None
-        try:
-            module._copy_validated_source_tree(source_dir, source_files, stage)
-            if not (stage / "SKILL.md").is_file():
-                raise ValueError(f"Staged skill is missing SKILL.md: {source_dir}")
-            if target_dir.exists():
-                backup = module._backup_path(target_dir)
-                target_dir.rename(backup)
-            try:
-                stage.rename(target_dir)
-            except Exception as swap_exc:
-                restore_error: Exception | None = None
-                if backup and backup.exists() and not target_dir.exists():
-                    try:
-                        backup.rename(target_dir)
-                    except Exception as exc:
-                        restore_error = exc
-                if restore_error is not None:
-                    raise RuntimeError(
-                        f"Skill replacement failed: {swap_exc}; previous skill restoration failed: {restore_error}"
-                    ) from swap_exc
-                raise
-            return str(backup) if backup else ""
-        finally:
-            if stage.exists() and stage != target_dir:
-                try:
-                    if stage.is_dir() and not stage.is_symlink():
-                        shutil.rmtree(stage)
-                    else:
-                        stage.unlink()
-                except OSError:
-                    # Restoration has already been attempted independently above. Cleanup
-                    # failure must not suppress the original swap/restoration result.
-                    pass
-
     module._candidate = candidate
-    module._transactional_replace_skill = transactional_replace
     module._manageroo_skill_pack_policy_installed = True

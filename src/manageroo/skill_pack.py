@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import stat
+import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -194,32 +195,41 @@ def _transactional_replace_skill(source_dir: Path, target_dir: Path, target_root
     """Stage a complete skill and swap it atomically at directory granularity."""
     source_files = _validate_source_tree(source_dir)
     _validate_destination_tree(target_dir, target_root)
-    stage = target_root / f".{target_dir.name}.manageroo-stage"
-    if stage.exists() or stage.is_symlink():
-        if stage.is_dir() and not stage.is_symlink():
-            shutil.rmtree(stage)
-        else:
-            stage.unlink()
+    stage = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.manageroo-stage-", dir=str(target_root)))
     backup: Path | None = None
     try:
-        stage.mkdir(parents=False, exist_ok=False)
         _copy_validated_source_tree(source_dir, source_files, stage)
         if not (stage / "SKILL.md").is_file():
             raise ValueError(f"Staged skill is missing SKILL.md: {source_dir}")
         if target_dir.exists():
             backup = _backup_path(target_dir)
             target_dir.rename(backup)
-        stage.rename(target_dir)
-        return str(backup) if backup else ""
-    except Exception:
         try:
-            if stage.exists() and stage.is_dir() and not stage.is_symlink():
-                shutil.rmtree(stage)
+            stage.rename(target_dir)
+        except Exception as swap_exc:
+            restore_error: Exception | None = None
             if backup and backup.exists() and not target_dir.exists():
-                backup.rename(target_dir)
-        except OSError:
-            pass
-        raise
+                try:
+                    backup.rename(target_dir)
+                except Exception as exc:
+                    restore_error = exc
+            if restore_error is not None:
+                raise RuntimeError(
+                    f"Skill replacement failed: {swap_exc}; previous skill restoration failed: {restore_error}"
+                ) from swap_exc
+            raise
+        return str(backup) if backup else ""
+    finally:
+        if stage.exists() and stage != target_dir:
+            try:
+                if stage.is_dir() and not stage.is_symlink():
+                    shutil.rmtree(stage)
+                else:
+                    stage.unlink()
+            except OSError:
+                # Restoration is attempted before cleanup so a cleanup failure cannot
+                # leave the previous live skill missing or hide a restoration failure.
+                pass
 
 
 def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str]) -> dict[str, Any]:
