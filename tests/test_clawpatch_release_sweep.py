@@ -12,6 +12,7 @@ from unittest.mock import patch
 from manageroo.clawpatch_release import (
     _fix_command,
     _json_command,
+    _paths_after_gates,
     _release_clawpatch_env,
     release_sweep,
 )
@@ -85,6 +86,16 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "validation-pending")
         self.assertEqual(result["exit_code"], 6)
+
+    @patch(
+        "manageroo.clawpatch_release._changed_paths",
+        return_value=["BUILD-VALIDATION.json", "src/app.py"],
+    )
+    def test_gate_generated_release_proof_joins_exact_fix_commit(self, _changed):
+        self.assertEqual(
+            _paths_after_gates(Path("/repo"), ["src/app.py"]),
+            ["BUILD-VALIDATION.json", "src/app.py"],
+        )
 
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._run")

@@ -363,6 +363,10 @@ not clear. Manageroo treats that as a revalidation transition, not success: it
 runs the project gates, revalidates that same finding, and commits only when the
 gates pass and Clawpatch reports the finding fixed.
 
+When a configured gate refreshes the tracked `BUILD-VALIDATION.json` proof,
+Manageroo includes that known controller artifact in the same exact repair
+commit. Any other unexpected gate-created source change still stops the sweep.
+
 Release sweeps also give Clawpatch's Codex worker up to 30 minutes by default,
 instead of Clawpatch's shorter interactive default. An existing
 `CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins.

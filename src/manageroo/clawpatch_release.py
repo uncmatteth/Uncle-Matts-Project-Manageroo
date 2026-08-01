@@ -20,6 +20,7 @@ from .util import atomic_write_json, read_json, sha256_file, utc_now
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
 CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 1_800_000
+CONTROLLER_GATE_ARTIFACTS = frozenset({"BUILD-VALIDATION.json"})
 LIFECYCLE = (
     "clawpatch doctor -> init (when needed) -> map -> review -> "
     "clawpatch next --status open -> show -> fix -> Manageroo gates -> revalidate -> exact-path commit; "
@@ -213,6 +214,22 @@ def _path_digests(repo: Path, paths: list[str]) -> dict[str, str]:
     return digests
 
 
+def _paths_after_gates(repo: Path, fix_paths: list[str]) -> list[str]:
+    """Include only known controller-generated proof beside the exact repair paths."""
+    current = _changed_paths(repo)
+    missing = sorted(set(fix_paths) - set(current))
+    unexpected = sorted(set(current) - set(fix_paths) - CONTROLLER_GATE_ARTIFACTS)
+    if missing:
+        raise SafetyError(
+            "Manageroo gates unexpectedly removed Clawpatch fix paths: " + ", ".join(missing)
+        )
+    if unexpected:
+        raise SafetyError(
+            "Manageroo gates changed unexpected paths: " + ", ".join(unexpected)
+        )
+    return current
+
+
 def _run_manageroo_gates(repo: Path, *, label: str) -> list[dict[str, Any]]:
     config_path = repo / PROJECT_DIR / "config.toml"
     if not config_path.is_file():
@@ -304,6 +321,7 @@ def _finish_finding(
     clawpatch_env: dict[str, str] | None,
 ) -> dict[str, Any]:
     gate_runs = _run_manageroo_gates(repo, label=finding_id)
+    paths = _paths_after_gates(repo, paths)
     validation = _json_command(
         repo,
         "revalidate",
