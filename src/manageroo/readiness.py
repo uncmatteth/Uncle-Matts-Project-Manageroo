@@ -97,9 +97,12 @@ SCAN_SKIP_PARTS = {
 
 
 def _read_text_if_present(path: Path) -> str:
-    if not path.exists():
+    try:
+        if not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
         return ""
-    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def _term_pattern(term: str) -> re.Pattern[str]:
@@ -243,11 +246,11 @@ def helper_skill_items() -> list[dict[str, Any]]:
 
 
 def brief_is_template(path: Path) -> bool:
-    if not path.exists():
+    current = _read_text_if_present(path)
+    if not current:
         return False
     template = asset_path("templates/PRODUCT-BRIEF.md").read_text(encoding="utf-8").strip()
-    current = path.read_text(encoding="utf-8", errors="replace").strip()
-    return current == template
+    return current.strip() == template
 
 
 def _selected_agent_item(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
