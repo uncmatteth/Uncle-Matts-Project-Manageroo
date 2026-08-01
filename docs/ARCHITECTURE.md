@@ -101,6 +101,8 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
+Clawpatch batch commits snapshot exact NUL-delimited repair paths and blob identities, stage only those paths, and refuse to commit if the staged paths or content differ from that snapshot.
+
 ## Parallel mapping and review, sequential implementation
 
 Tasks are dependency ordered and executed sequentially in the same isolated integration repository. This is slower than unconstrained parallel editing but avoids incompatible branches and hidden interface assumptions.

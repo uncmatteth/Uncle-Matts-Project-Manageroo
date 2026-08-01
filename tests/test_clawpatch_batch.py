@@ -105,7 +105,7 @@ class ClawpatchBatchTests(unittest.TestCase):
 
     @patch("manageroo.clawpatch_batch.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_batch._run")
-    def test_successful_fix_is_staged_with_add_all_and_committed_per_finding(self, run, _which):
+    def test_successful_fix_is_staged_by_exact_path_and_committed_per_finding(self, run, _which):
         run.side_effect = [
             self.completed(["git"], output=str(self.repo) + "\n", error="root warning\n"),
             self.completed(["git"], output=str(self.repo) + "\n", error="root warning\n"),
@@ -113,12 +113,18 @@ class ClawpatchBatchTests(unittest.TestCase):
             self.completed(["git"], output="", error="status warning\n"),
             self.completed(["git"], output="", error="status warning\n"),
             self.completed(["clawpatch"], output="fixed\n", error="fix warning\n"),
+            self.completed(["git"], output="file.py\0"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output="blob123\n"),
             self.completed(["git"], output=" M file.py\n", error="status warning\n"),
             self.completed(["git"], output=""),
-            self.completed(["git"], code=1, output=""),
+            self.completed(["git"], output="file.py\0"),
+            self.completed(["git"], output="100644 blob123 0\tfile.py\0"),
             self.completed(["git"], output="committed\n"),
             self.completed(["git"], output="abc123\n", error="head warning\n"),
         ]
+        (self.repo / "file.py").write_text("fixed\n", encoding="utf-8")
         report = batch_fix_open_findings(self.repo, apply=True)
         self.assertTrue(report["ok"])
         self.assertEqual(report["completed_count"], 1)
@@ -126,8 +132,102 @@ class ClawpatchBatchTests(unittest.TestCase):
         self.assertEqual(report["results"][0]["git_status_after_fix"], " M file.py\n")
         self.assertEqual(report["results"][0]["fix_output"], "fixed\nfix warning\n")
         commands = [call.args[0] for call in run.call_args_list]
-        self.assertIn(["git", "add", "-A"], commands)
+        self.assertIn(["git", "add", "--", "file.py"], commands)
+        self.assertNotIn(["git", "add", "-A"], commands)
         self.assertIn(["git", "commit", "-m", "clawpatch fix: fnd_one"], commands)
+
+    @patch("manageroo.clawpatch_batch.shutil.which", return_value="/usr/bin/clawpatch")
+    @patch("manageroo.clawpatch_batch._run")
+    def test_unrelated_change_after_fix_snapshot_is_not_staged(self, run, _which):
+        run.side_effect = [
+            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(["clawpatch"], output="id: fnd_one\n"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output=""),
+            self.completed(["clawpatch"], output="fixed\n"),
+            self.completed(["git"], output="file.py\0"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output="blob123\n"),
+            self.completed(["git"], output=" M file.py\n M unrelated.py\n"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output="file.py\0"),
+            self.completed(["git"], output="100644 blob123 0\tfile.py\0"),
+            self.completed(["git"], output="committed\n"),
+            self.completed(["git"], output="abc123\n"),
+        ]
+        (self.repo / "file.py").write_text("fixed\n", encoding="utf-8")
+
+        report = batch_fix_open_findings(self.repo, apply=True)
+
+        self.assertTrue(report["ok"])
+        add_commands = [
+            call.args[0] for call in run.call_args_list if call.args[0][:2] == ["git", "add"]
+        ]
+        self.assertEqual(add_commands, [["git", "add", "--", "file.py"]])
+        self.assertNotIn("unrelated.py", add_commands[0])
+
+    @patch("manageroo.clawpatch_batch.shutil.which", return_value="/usr/bin/clawpatch")
+    @patch("manageroo.clawpatch_batch._run")
+    def test_staged_content_drift_stops_before_commit(self, run, _which):
+        run.side_effect = [
+            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(["clawpatch"], output="id: fnd_one\n"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output=""),
+            self.completed(["clawpatch"], output="fixed\n"),
+            self.completed(["git"], output="file.py\0"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output="captured-blob\n"),
+            self.completed(["git"], output=" M file.py\n"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output="file.py\0"),
+            self.completed(["git"], output="100644 different-blob 0\tfile.py\0"),
+        ]
+        (self.repo / "file.py").write_text("fixed\n", encoding="utf-8")
+
+        report = batch_fix_open_findings(self.repo, apply=True)
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            report["results"][0]["error"],
+            "staged content did not match the Clawpatch fix snapshot",
+        )
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertNotIn(["git", "commit", "-m", "clawpatch fix: fnd_one"], commands)
+
+    @patch("manageroo.clawpatch_batch.shutil.which", return_value="/usr/bin/clawpatch")
+    @patch("manageroo.clawpatch_batch._run")
+    def test_concurrently_staged_unrelated_path_stops_before_commit(self, run, _which):
+        run.side_effect = [
+            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(["clawpatch"], output="id: fnd_one\n"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output=""),
+            self.completed(["clawpatch"], output="fixed\n"),
+            self.completed(["git"], output="file.py\0"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output="captured-blob\n"),
+            self.completed(["git"], output=" M file.py\n M unrelated.py\n"),
+            self.completed(["git"], output=""),
+            self.completed(["git"], output="file.py\0unrelated.py\0"),
+        ]
+        (self.repo / "file.py").write_text("fixed\n", encoding="utf-8")
+
+        report = batch_fix_open_findings(self.repo, apply=True)
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            report["results"][0]["error"],
+            "staged paths did not exactly match the Clawpatch fix snapshot",
+        )
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertNotIn(["git", "commit", "-m", "clawpatch fix: fnd_one"], commands)
 
 
 if __name__ == "__main__":

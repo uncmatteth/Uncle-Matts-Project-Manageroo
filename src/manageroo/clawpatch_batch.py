@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from .errors import SafetyError
@@ -57,6 +59,111 @@ def _git_status(repo: Path) -> str:
             + _diagnostic_output(result, 4000)
         )
     return result.stdout
+
+
+def _changed_paths(repo: Path) -> list[str]:
+    paths: set[str] = set()
+    for argv in (
+        ["git", "diff", "--name-only", "--no-renames", "-z"],
+        ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"],
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+    ):
+        result = _run(argv, cwd=repo, timeout=120)
+        if result.returncode:
+            raise SafetyError(
+                "Could not capture exact Clawpatch fix paths.\n"
+                + _diagnostic_output(result, 4000)
+            )
+        paths.update(path for path in result.stdout.split("\0") if path)
+    return sorted(paths)
+
+
+def _validate_fix_paths(paths: list[str]) -> None:
+    if not paths:
+        raise SafetyError("Clawpatch fix produced no Git-visible source change.")
+    invalid = []
+    for relative in paths:
+        posix = PurePosixPath(relative)
+        windows = PureWindowsPath(relative)
+        if (
+            posix.is_absolute()
+            or windows.is_absolute()
+            or any(part in {"", ".", ".."} for part in posix.parts)
+            or posix.parts[0].lower() == ".git"
+        ):
+            invalid.append(relative)
+    if invalid:
+        raise SafetyError("Clawpatch produced unsafe changed paths: " + ", ".join(invalid))
+
+
+def _git_blob_oid(data: bytes, algorithm: str) -> str:
+    digest = hashlib.new(algorithm)
+    digest.update(f"blob {len(data)}\0".encode("ascii"))
+    digest.update(data)
+    return digest.hexdigest()
+
+
+def _path_digests(repo: Path, paths: list[str]) -> dict[str, str]:
+    digests: dict[str, str] = {}
+    object_format = ""
+    for relative in paths:
+        path = repo / relative
+        if path.is_symlink():
+            if not object_format:
+                result = _run(["git", "rev-parse", "--show-object-format"], cwd=repo, timeout=60)
+                if result.returncode or result.stdout.strip() not in {"sha1", "sha256"}:
+                    raise SafetyError(
+                        "Could not determine the Git object format for Clawpatch staging.\n"
+                        + _diagnostic_output(result, 4000)
+                    )
+                object_format = result.stdout.strip()
+            digests[relative] = _git_blob_oid(os.fsencode(path.readlink()), object_format)
+        elif path.is_file():
+            result = _run(
+                ["git", "hash-object", f"--path={relative}", "--", relative],
+                cwd=repo,
+                timeout=120,
+            )
+            if result.returncode or not result.stdout.strip():
+                raise SafetyError(
+                    f"Could not snapshot Clawpatch content for {relative}.\n"
+                    + _diagnostic_output(result, 4000)
+                )
+            digests[relative] = result.stdout.strip()
+        elif not path.exists():
+            digests[relative] = "deleted"
+        else:
+            raise SafetyError(f"Clawpatch changed path is not a regular file: {relative}")
+    return digests
+
+
+def _staged_paths(repo: Path) -> list[str]:
+    result = _run(
+        ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"],
+        cwd=repo,
+        timeout=120,
+    )
+    if result.returncode:
+        raise SafetyError(
+            "Could not inspect staged Clawpatch paths.\n" + _diagnostic_output(result, 4000)
+        )
+    return sorted(path for path in result.stdout.split("\0") if path)
+
+
+def _staged_path_digests(repo: Path, paths: list[str]) -> dict[str, str]:
+    result = _run(["git", "ls-files", "--stage", "-z", "--", *paths], cwd=repo, timeout=120)
+    if result.returncode:
+        raise SafetyError(
+            "Could not inspect staged Clawpatch content.\n" + _diagnostic_output(result, 4000)
+        )
+    entries: dict[str, str] = {}
+    for entry in (value for value in result.stdout.split("\0") if value):
+        metadata, separator, relative = entry.partition("\t")
+        fields = metadata.split()
+        if not separator or len(fields) != 3 or fields[2] != "0" or relative in entries:
+            raise SafetyError("Git returned an unexpected staged entry for Clawpatch repair.")
+        entries[relative] = fields[1]
+    return {relative: entries.get(relative, "deleted") for relative in paths}
 
 
 def open_finding_ids(repo: Path) -> tuple[list[str], str]:
@@ -141,39 +248,41 @@ def batch_fix_open_findings(
             plan["stopped_at"] = finding_id
             break
 
-        changed = _git_status(root)
-        if not changed.strip():
+        fix_paths = _changed_paths(root)
+        if not fix_paths:
             record["ok"] = False
             record["error"] = "clawpatch fix reported success but produced no Git-visible change"
             plan["results"].append(record)
             plan["ok"] = False
             plan["stopped_at"] = finding_id
             break
+        _validate_fix_paths(fix_paths)
+        fix_digests = _path_digests(root, fix_paths)
+        changed = _git_status(root)
         record["git_status_after_fix"] = changed
 
         if commit_each:
-            add = _run(["git", "add", "-A"], cwd=root, timeout=120)
+            add = _run(["git", "add", "--", *fix_paths], cwd=root, timeout=120)
             if add.returncode:
                 record["ok"] = False
-                record["error"] = "git add -A failed"
+                record["error"] = "exact-path git add failed"
                 record["git_output"] = _diagnostic_output(add, 4000)
                 plan["results"].append(record)
                 plan["ok"] = False
                 plan["stopped_at"] = finding_id
                 break
 
-            staged = _run(["git", "diff", "--cached", "--quiet", "--exit-code"], cwd=root, timeout=60)
-            if staged.returncode == 0:
+            staged_paths = _staged_paths(root)
+            if staged_paths != fix_paths:
                 record["ok"] = False
-                record["error"] = "no staged change remained after git add -A"
+                record["error"] = "staged paths did not exactly match the Clawpatch fix snapshot"
                 plan["results"].append(record)
                 plan["ok"] = False
                 plan["stopped_at"] = finding_id
                 break
-            if staged.returncode != 1:
+            if _staged_path_digests(root, fix_paths) != fix_digests:
                 record["ok"] = False
-                record["error"] = "could not inspect staged Clawpatch change"
-                record["git_output"] = _diagnostic_output(staged, 4000)
+                record["error"] = "staged content did not match the Clawpatch fix snapshot"
                 plan["results"].append(record)
                 plan["ok"] = False
                 plan["stopped_at"] = finding_id
