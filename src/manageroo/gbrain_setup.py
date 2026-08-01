@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shlex
 import shutil
 import subprocess
@@ -65,12 +66,44 @@ def summarize_sync_status(output: str) -> dict[str, Any]:
     if not isinstance(sources, list):
         return {"ok": False, "parsed": False, "healthy": False, "error": "gbrain sync data did not include sources"}
     coverages: list[float] = []
+    embedding_metrics_valid = True
     for source in sources:
-        if not isinstance(source, dict) or source.get("embedding_coverage_pct") is None:
+        if not isinstance(source, dict):
+            embedding_metrics_valid = False
             continue
         try:
-            coverages.append(float(source["embedding_coverage_pct"]))
-        except (TypeError, ValueError):
+            coverage_value = source["embedding_coverage_pct"]
+            chunks_total_value = source["chunks_total"]
+            chunks_unembedded_value = source["chunks_unembedded"]
+            if any(
+                isinstance(value, bool)
+                for value in (coverage_value, chunks_total_value, chunks_unembedded_value)
+            ):
+                raise ValueError
+            coverage = float(coverage_value)
+            if not str(chunks_total_value).lstrip("-").isdigit():
+                raise ValueError
+            if not str(chunks_unembedded_value).lstrip("-").isdigit():
+                raise ValueError
+            source_chunks_total = int(chunks_total_value)
+            source_chunks_unembedded = int(chunks_unembedded_value)
+            if (
+                not math.isfinite(coverage)
+                or not 0.0 <= coverage <= 100.0
+                or source_chunks_total < 0
+                or not 0 <= source_chunks_unembedded <= source_chunks_total
+            ):
+                raise ValueError
+            expected_coverage = (
+                100.0
+                if source_chunks_total == 0
+                else 100.0 * (source_chunks_total - source_chunks_unembedded) / source_chunks_total
+            )
+            if not math.isclose(coverage, expected_coverage, abs_tol=0.01):
+                raise ValueError
+            coverages.append(coverage)
+        except (KeyError, TypeError, ValueError):
+            embedding_metrics_valid = False
             continue
     try:
         unacknowledged_failures = int(sync.get("unacknowledged_failures") or 0)
@@ -100,7 +133,11 @@ def summarize_sync_status(output: str) -> dict[str, Any]:
         if isinstance(source, dict) and str(source.get("chunks_unembedded") or "0").lstrip("-").isdigit()
     )
     sync_healthy = unacknowledged_failures == 0
-    embeddings_ready = chunks_unembedded == 0 and all(coverage >= 100.0 for coverage in coverages)
+    embeddings_ready = (
+        embedding_metrics_valid
+        and chunks_unembedded == 0
+        and all(coverage >= 100.0 for coverage in coverages)
+    )
     healthy = sync_healthy and embeddings_ready
     problems: list[str] = []
     if unacknowledged_failures:
@@ -109,6 +146,8 @@ def summarize_sync_status(output: str) -> dict[str, Any]:
         problems.append(f"GBrain still has {chunks_unembedded} unembedded chunk(s).")
     if coverages and min(coverages) < 100.0:
         problems.append(f"Minimum embedding coverage is {min(coverages)}%, not 100%.")
+    if not embedding_metrics_valid:
+        problems.append("One or more GBrain sources have missing or invalid embedding readiness metrics.")
     return {
         "ok": healthy,
         "parsed": True,

@@ -65,6 +65,47 @@ class GBrainSetupTests(unittest.TestCase):
         self.assertEqual(summary["embedding_coverage_min_pct"], 80.0)
         self.assertEqual(summary["unacknowledged_failures"], 1)
 
+    def test_missing_embedding_metrics_are_unknown_and_unhealthy(self):
+        status_json = json.dumps(
+            {
+                "sync": {
+                    "sources": [{"source_id": "site", "chunks_total": 10}],
+                    "unacknowledged_failures": 0,
+                }
+            }
+        )
+
+        summary = summarize_sync_status(status_json)
+
+        self.assertFalse(summary["embeddings_ready"])
+        self.assertFalse(summary["healthy"])
+        self.assertIn("missing or invalid embedding readiness metrics", summary["health_problem"])
+
+        def probe(argv, timeout_seconds=60):
+            if argv[1:] == ["config", "show"]:
+                return {
+                    "ok": True,
+                    "exit_code": 0,
+                    "argv": argv,
+                    "stdout": "engine: pglite",
+                    "stderr": "",
+                    "output": "engine: pglite",
+                }
+            return {
+                "ok": True,
+                "exit_code": 0,
+                "argv": argv,
+                "stdout": status_json,
+                "stderr": "",
+                "output": status_json,
+            }
+
+        with patch("manageroo.gbrain_setup.shutil.which", return_value="/usr/bin/gbrain"), patch(
+            "manageroo.gbrain_setup.run_probe", side_effect=probe
+        ):
+            report = gbrain_setup_status()
+        self.assertFalse(report["ok"])
+
     def test_status_parsing_uses_stdout_even_when_stderr_contains_warning(self):
         status_json = json.dumps(
             {
