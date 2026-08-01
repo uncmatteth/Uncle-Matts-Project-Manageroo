@@ -30,6 +30,11 @@ PLANNING_EVIDENCE_ROLES = {
 }
 PLANNING_EVIDENCE_LIMIT = 8
 PLANNING_EVIDENCE_CONTENT_CHARS = 4_000
+TRUSTED_DISCOVERY_PROVIDER_POLICIES = {
+    "manageroo.discovery.gitnexus-analyze.v1": ("current_repo", 0.92, 1.0),
+    "manageroo.discovery.gitnexus-query.v1": ("current_repo", 0.92, 1.0),
+    "manageroo.discovery.gbrain-search.v1": ("external_knowledge", 0.78, 0.75),
+}
 
 
 def _discovery_identity(
@@ -115,18 +120,11 @@ def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) ->
         stdout = str(record.get("stdout") or "").strip()
         if not stdout:
             continue
-        if name.startswith("gitnexus"):
-            authority = "current_repo"
-            confidence = 0.92
-            freshness = 1.0
-        elif name.startswith("gbrain"):
-            authority = "external_knowledge"
-            confidence = 0.78
-            freshness = 0.75
-        else:
-            authority = "external_knowledge"
-            confidence = 0.70
-            freshness = 0.70
+        provider_id = str(record.get("provider_id") or "")
+        authority, confidence, freshness = TRUSTED_DISCOVERY_PROVIDER_POLICIES.get(
+            provider_id,
+            ("external_knowledge", 0.70, 0.70),
+        )
         try:
             items.extend(
                 _controller_classified_items(

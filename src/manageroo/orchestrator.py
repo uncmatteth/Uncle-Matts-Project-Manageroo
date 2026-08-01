@@ -728,9 +728,13 @@ class Orchestrator:
         values: dict[str, str],
         cwd: Path,
         timeout_seconds: int = 180,
+        provider_id: str | None = None,
     ) -> dict:
         if not argv_template:
-            return {"name": name, "enabled": False, "ok": False}
+            record = {"name": name, "enabled": False, "ok": False}
+            if provider_id is not None:
+                record["provider_id"] = provider_id
+            return record
         try:
             result = ExternalCommandIntegration(argv_template, self.runner).run(
                 cwd=cwd,
@@ -738,15 +742,18 @@ class Orchestrator:
                 timeout_seconds=timeout_seconds,
                 log_name=f"external-{name}",
             )
-            return command_record(name, result)
+            record = command_record(name, result)
         except Exception as exc:
-            return {
+            record = {
                 "name": name,
                 "enabled": True,
                 "ok": False,
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
+        if provider_id is not None:
+            record["provider_id"] = provider_id
+        return record
 
     def _document_intelligence(self, *, brief: str, inventory: dict[str, Any]) -> dict:
         existing = self._artifact_json("discovery/document-intelligence.json")
@@ -814,9 +821,21 @@ class Orchestrator:
         values = self._external_values(brief=brief)
         document_intelligence = self._document_intelligence(brief=brief, inventory=inventory)
         commands = [
-            ("gbrain-search", cfg.get("gbrain_search_command", [])),
-            ("gitnexus-analyze", cfg.get("gitnexus_analyze_command", [])),
-            ("gitnexus-query", cfg.get("gitnexus_query_command", [])),
+            (
+                "gbrain-search",
+                "manageroo.discovery.gbrain-search.v1",
+                cfg.get("gbrain_search_command", []),
+            ),
+            (
+                "gitnexus-analyze",
+                "manageroo.discovery.gitnexus-analyze.v1",
+                cfg.get("gitnexus_analyze_command", []),
+            ),
+            (
+                "gitnexus-query",
+                "manageroo.discovery.gitnexus-query.v1",
+                cfg.get("gitnexus_query_command", []),
+            ),
         ]
         records = list(document_intelligence.get("records", []))
         records.extend(
@@ -825,8 +844,9 @@ class Orchestrator:
                 argv_template=list(argv_template or []),
                 values=values,
                 cwd=self.source_repo,
+                provider_id=provider_id,
             )
-            for name, argv_template in commands
+            for name, provider_id, argv_template in commands
         )
         summary = {
             "enabled": [item["name"] for item in records if item.get("enabled")],

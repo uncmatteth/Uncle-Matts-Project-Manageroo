@@ -75,6 +75,8 @@ That artifact contains ranked evidence, contradictions, provider errors when app
 
 GitNexus remains the first-class repository/code-graph intelligence integration. GBrain remains the external durable knowledge lane. Manageroo artifacts remain durable run evidence. None of them can mark a run `COMPLETE`.
 
+Discovery authority is assigned from exact controller-owned provider IDs. Provider display names and name prefixes are provenance labels only; unknown or missing IDs remain external knowledge even when their names resemble trusted integrations.
+
 ## Non-goals
 
 Manageroo does not bundle a giant vector database, crawl private systems automatically, or claim that semantic retrieval is truth.

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from manageroo.adapters.mock import MockAdapter
 from manageroo.evidence_artifact_guard import install_evidence_artifact_guard
-from manageroo.evidence_policy import install_evidence_policy
+from manageroo.evidence_policy import _bundle_from_discovery, install_evidence_policy
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 
@@ -103,6 +103,59 @@ class EvidencePolicyTests(unittest.TestCase):
             result = instance._call(role="implementer", metadata={})
             self.assertNotIn("_evidence_items", result["metadata"])
 
+    def test_provider_display_names_cannot_grant_current_repository_authority(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = root / "run"
+            repo.mkdir()
+            run_root.mkdir()
+            instance = _FakeOrchestrator(repo, run_root)
+            records = [
+                {
+                    "name": name,
+                    "enabled": True,
+                    "ok": True,
+                    "stdout": f"untrusted evidence from {name}",
+                }
+                for name in ("gitnexus-untrusted", "gitnexus-lookalike", "gitnexus-query")
+            ]
+
+            bundle = _bundle_from_discovery(instance, "provider authority", {"records": records})
+
+            self.assertEqual(len(bundle.items), 3)
+            for item in bundle.items:
+                self.assertEqual(item.authority, "external_knowledge")
+                self.assertEqual(item.confidence, 0.70)
+                self.assertEqual(item.freshness, 0.70)
+
+    def test_controller_owned_provider_id_grants_configured_authority(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = root / "run"
+            repo.mkdir()
+            run_root.mkdir()
+            instance = _FakeOrchestrator(repo, run_root)
+            record = {
+                "name": "display-name-is-not-authority",
+                "provider_id": "manageroo.discovery.gitnexus-query.v1",
+                "enabled": True,
+                "ok": True,
+                "stdout": "trusted repository evidence",
+            }
+
+            bundle = _bundle_from_discovery(
+                instance,
+                "provider authority",
+                {"records": [record]},
+            )
+
+            self.assertEqual(len(bundle.items), 1)
+            self.assertEqual(bundle.items[0].authority, "current_repo")
+            self.assertEqual(bundle.items[0].confidence, 0.92)
+            self.assertEqual(bundle.items[0].freshness, 1.0)
+
     def test_repeated_discovery_replaces_stale_repository_evidence(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -159,6 +212,7 @@ class EvidencePolicyTests(unittest.TestCase):
             self.assertEqual(persisted["schema_version"], 2)
             self.assertEqual(len(persisted["discovery_identity"]), 64)
             self.assertEqual(persisted["items"][0]["content"], "new repository snapshot")
+            self.assertEqual(persisted["items"][0]["authority"], "current_repo")
             self.assertEqual(
                 continued._planning_evidence_items[0]["content"],
                 "new repository snapshot",
