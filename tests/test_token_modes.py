@@ -1,5 +1,6 @@
-import os
 import json
+import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -88,6 +89,51 @@ class TokenModeTests(unittest.TestCase):
                     set_token_mode("curse", state_path=state, install_skills=False)
             self.assertEqual(state.read_bytes(), before)
             self.assertEqual(read_token_mode(state)["mode"], "off")
+
+    def test_failed_token_mode_write_rolls_back_installed_skill_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            state = base / "token-mode.json"
+            skills = base / "skills"
+            ownership = skills / ".manageroo-ownership.json"
+            set_token_mode("off", state_path=state, install_skills=False)
+            install_token_skills(skills)
+
+            target = skills / "caveman" / "SKILL.md"
+            target.write_text("previous active manageroo skill\n", encoding="utf-8")
+            ownership_data = json.loads(ownership.read_text(encoding="utf-8"))
+            ownership_data["skills"][str(target.parent.resolve())]["tree_sha256"] = (
+                _skill_tree_sha256(target.parent)
+            )
+            curse_dir = skills / "uncle-matts-caveman-curse"
+            shutil.rmtree(curse_dir)
+            ownership_data["skills"].pop(str(curse_dir.resolve()))
+            ownership.write_text(
+                json.dumps(ownership_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            state_before = state.read_bytes()
+            ownership_before = ownership.read_bytes()
+            skill_before = target.read_bytes()
+            from manageroo import token_modes
+
+            original_write = token_modes.atomic_write_json
+
+            def fail_state_write(path, data):
+                if Path(path).resolve() == state.resolve():
+                    original_write(path, data)
+                    raise OSError("state disk full")
+                return original_write(path, data)
+
+            with patch("manageroo.token_modes.atomic_write_json", side_effect=fail_state_write):
+                with self.assertRaisesRegex(OSError, "state disk full"):
+                    set_token_mode("curse", state_path=state, skills_dir=skills)
+
+            self.assertEqual(state.read_bytes(), state_before)
+            self.assertEqual(ownership.read_bytes(), ownership_before)
+            self.assertEqual(target.read_bytes(), skill_before)
+            self.assertFalse(curse_dir.exists())
 
     def test_existing_user_skill_is_reused_without_backup_or_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:

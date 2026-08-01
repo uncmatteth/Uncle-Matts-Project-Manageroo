@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .assets import asset_path
 from .util import atomic_write_json
@@ -342,6 +342,47 @@ def _read_ownership(path: Path) -> dict[str, Any]:
     return {"version": 1, "skills": skills if isinstance(skills, dict) else {}}
 
 
+def _snapshot_file_bytes(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() and not path.is_symlink() else None
+
+
+def _json_file_bytes(data: Any) -> bytes:
+    return (json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _restore_file_bytes(path: Path, contents: bytes | None) -> None:
+    if contents is None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, stage_name = tempfile.mkstemp(
+        prefix=f".{path.name}.manageroo-restore-",
+        dir=path.parent,
+    )
+    stage = Path(stage_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(contents)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(stage, path)
+    finally:
+        if stage.exists():
+            stage.unlink()
+
+
+def _restore_file_bytes_if_matches(
+    path: Path,
+    expected_current: bytes,
+    previous: bytes | None,
+) -> None:
+    if _snapshot_file_bytes(path) == expected_current:
+        _restore_file_bytes(path, previous)
+
+
 def _default_search_roots(target_root: Path) -> list[Path]:
     target_real = target_root.expanduser().resolve()
     values = [Path.home() / ".agents" / "skills", Path.home() / ".codex" / "skills"]
@@ -527,6 +568,7 @@ def _install_skill_pack_transactionally(
     *,
     search_roots: list[Path],
     ownership_path: Path,
+    finalize: Callable[[dict[str, str]], None] | None = None,
 ) -> dict[str, str]:
     unresolved_root = root.expanduser()
     if unresolved_root.is_symlink():
@@ -534,6 +576,7 @@ def _install_skill_pack_transactionally(
     unresolved_root.mkdir(parents=True, exist_ok=True)
     root_real = unresolved_root.resolve()
     with _skill_install_lock(root_real):
+        ownership_before = _snapshot_file_bytes(ownership_path)
         ownership = _read_ownership(ownership_path)
         transaction = Path(tempfile.mkdtemp(prefix=".manageroo-skill-transaction-", dir=root_real))
         snapshots = transaction / "snapshots"
@@ -541,6 +584,8 @@ def _install_skill_pack_transactionally(
         absent: set[str] = set()
         snapshotted: set[str] = set()
         written: dict[str, tuple[int, int, str]] = {}
+        ownership_written = False
+        ownership_written_bytes: bytes | None = None
         try:
             for _, skill_name, _ in items:
                 skill_dir = unresolved_root / skill_name
@@ -564,24 +609,35 @@ def _install_skill_pack_transactionally(
                 skill_dir = unresolved_root / skill_name
                 if skill_dir.is_dir() and not skill_dir.is_symlink():
                     written[skill_name] = _tree_identity(skill_dir)
+            ownership_written_bytes = _json_file_bytes(ownership)
             atomic_write_json(ownership_path, ownership)
-            shutil.rmtree(transaction)
+            ownership_written = True
+            if finalize is not None:
+                finalize(installed)
             return installed
         except Exception:
-            for skill_name in snapshotted:
-                destination_dir = unresolved_root / skill_name
-                if not _same_tree_identity(destination_dir, written.get(skill_name)):
-                    continue
-                shutil.rmtree(destination_dir)
-                shutil.copytree(snapshots / skill_name, destination_dir, symlinks=False)
-            for skill_name in absent:
-                destination_dir = unresolved_root / skill_name
-                if _same_tree_identity(destination_dir, written.get(skill_name)):
+            try:
+                for skill_name in snapshotted:
+                    destination_dir = unresolved_root / skill_name
+                    if not _same_tree_identity(destination_dir, written.get(skill_name)):
+                        continue
                     shutil.rmtree(destination_dir)
+                    shutil.copytree(snapshots / skill_name, destination_dir, symlinks=False)
+                for skill_name in absent:
+                    destination_dir = unresolved_root / skill_name
+                    if _same_tree_identity(destination_dir, written.get(skill_name)):
+                        shutil.rmtree(destination_dir)
+            finally:
+                if ownership_written and ownership_written_bytes is not None:
+                    _restore_file_bytes_if_matches(
+                        ownership_path,
+                        ownership_written_bytes,
+                        ownership_before,
+                    )
             raise
         finally:
             if transaction.exists():
-                shutil.rmtree(transaction)
+                shutil.rmtree(transaction, ignore_errors=True)
 
 
 def install_core_helper_skills(
@@ -610,6 +666,7 @@ def install_token_skills(
     *,
     search_roots: list[Path] | None = None,
     ownership_path: Path | None = None,
+    _finalize: Callable[[dict[str, str]], None] | None = None,
 ) -> dict[str, str]:
     root = (skills_dir or token_mode_skills_dir()).expanduser()
     state_path = _ownership_file(root, ownership_path)
@@ -628,6 +685,7 @@ def install_token_skills(
         items,
         search_roots=roots,
         ownership_path=state_path,
+        finalize=_finalize,
     )
 
 
@@ -659,7 +717,6 @@ def set_token_mode(
     install_skills: bool = True,
 ) -> dict[str, Any]:
     normalized = normalize_mode(mode)
-    installed = install_token_skills(skills_dir) if install_skills and normalized != "off" else {}
     path = (state_path or token_mode_state_path()).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
@@ -668,9 +725,23 @@ def set_token_mode(
         "selected_skill": TOKEN_MODES[normalized].skill_name,
         "state_path": str(path),
         "skills_dir": str((skills_dir or token_mode_skills_dir()).expanduser().resolve()),
-        "installed_skills": installed,
+        "installed_skills": {},
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if install_skills and normalized != "off":
+        state_before = _snapshot_file_bytes(path)
+
+        def write_state(installed: dict[str, str]) -> None:
+            data["installed_skills"] = installed
+            state_written_bytes = _json_file_bytes(data)
+            try:
+                atomic_write_json(path, data)
+            except Exception:
+                _restore_file_bytes_if_matches(path, state_written_bytes, state_before)
+                raise
+
+        install_token_skills(skills_dir, _finalize=write_state)
+        return data
     atomic_write_json(path, data)
     return data
 
