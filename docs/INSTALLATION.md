@@ -218,7 +218,11 @@ manageroo token-mode status
 manageroo stack-status
 manageroo stack-doctor
 manageroo repair-install --no-apply
+manageroo uninstall-plan
 ```
+
+`uninstall-plan` emits removal commands only for an absolute, non-root prefix whose
+ownership is proven by a matching install lock or bounded Manageroo installation markers.
 
 ## Release proof
 

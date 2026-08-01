@@ -212,12 +212,64 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
     }
 
 
+def _safe_uninstall_prefix(prefix: Path) -> tuple[Path | None, str | None]:
+    if not prefix.is_absolute():
+        return None, "the prefix must be an absolute path"
+    if prefix.is_symlink():
+        return None, "the prefix must not be a symlink"
+    try:
+        resolved = prefix.resolve(strict=False)
+        dangerous = {
+            Path(resolved.anchor).resolve(strict=False),
+            Path.home().resolve(strict=False),
+            Path.cwd().resolve(strict=False),
+        }
+    except (OSError, RuntimeError) as exc:
+        return None, f"the prefix could not be resolved safely: {exc}"
+    if resolved in dangerous:
+        return None, "the prefix is the filesystem root, home directory, or current working directory"
+    if not resolved.is_dir():
+        return None, "the prefix is not an existing directory"
+    return resolved, None
+
+
+def _has_manageroo_install_marker(prefix: Path) -> bool:
+    markers = (
+        prefix / "app" / "manageroo" / "__init__.py",
+        prefix / "venv" / "pyvenv.cfg",
+    )
+    try:
+        return all(
+            marker.is_file()
+            and not marker.is_symlink()
+            and marker.resolve(strict=True).is_relative_to(prefix)
+            for marker in markers
+        )
+    except (OSError, RuntimeError):
+        return False
+
+
 def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> dict[str, Any]:
-    prefix = prefix.expanduser() if prefix else default_prefix()
-    loaded = read_install_lock(default_lock_path(prefix))
+    requested_prefix = prefix.expanduser() if prefix else default_prefix()
+    prefix, prefix_problem = _safe_uninstall_prefix(requested_prefix)
+    loaded = read_install_lock(default_lock_path(prefix)) if prefix else {"ok": False}
+    lock_matches_prefix = False
+    if prefix and loaded.get("ok"):
+        recorded_prefix = loaded["lock"].get("prefix")
+        if isinstance(recorded_prefix, str) and Path(recorded_prefix).expanduser().is_absolute():
+            try:
+                lock_matches_prefix = Path(recorded_prefix).expanduser().resolve(strict=False) == prefix
+            except (OSError, RuntimeError):
+                pass
+    prefix_ownership_known = bool(
+        prefix and (lock_matches_prefix or _has_manageroo_install_marker(prefix))
+    )
+    if prefix and not prefix_ownership_known:
+        prefix_problem = "no matching Manageroo install lock or installation marker was found"
+
     launchers: list[Path] = []
     manageroo_owned_external_paths: list[Path] = []
-    if loaded.get("ok"):
+    if prefix_ownership_known and lock_matches_prefix:
         recorded = loaded["lock"].get("launcher")
         validated, _ = _validated_launcher_value(recorded)
         if validated:
@@ -243,21 +295,32 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
                         and not external.is_symlink()
                     ):
                         manageroo_owned_external_paths.append(external_resolved)
-    elif bin_dir is not None:
+    elif prefix_ownership_known and bin_dir is not None:
         root = bin_dir.expanduser()
         for candidate in (root / PUBLIC_COMMAND, root / f"{PUBLIC_COMMAND}.cmd"):
             if launcher_is_manageroo_owned(candidate):
                 launchers.append(candidate)
     owned_files = [*launchers, *manageroo_owned_external_paths]
     launcher_commands = [shlex.join(["rm", "-f", *[str(path) for path in owned_files]])] if owned_files else []
-    core_commands = [shlex.join(["rm", "-rf", str(prefix)]), *launcher_commands]
+    core_commands = (
+        [shlex.join(["rm", "-rf", str(prefix)]), *launcher_commands]
+        if prefix_ownership_known and prefix
+        else []
+    )
     return {
         "executes_deletions": False,
-        "core_paths": [str(prefix), *[str(path) for path in owned_files]],
+        "core_paths": (
+            [str(prefix), *[str(path) for path in owned_files]]
+            if prefix_ownership_known and prefix
+            else []
+        ),
         "core_commands": core_commands,
+        "prefix_ownership_known": prefix_ownership_known,
+        "prefix_error": prefix_problem,
         "launcher_ownership_known": bool(launchers),
         "manageroo_owned_external_paths": [str(path) for path in manageroo_owned_external_paths],
         "third_party_notes": [
+            *([] if prefix_ownership_known else [f"No removal commands were generated: {prefix_problem}."]),
             "GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Codex, Bun, Node, pnpm, Flatpak, Snap, Homebrew, and Winget are external tools.",
             "MANAGEROO does not remove third-party tools automatically; the plan includes TruffleHog only when the install lock and launcher directory prove Manageroo installed that exact binary.",
             "Use stack-status first, then remove only the external tools you intentionally want gone.",

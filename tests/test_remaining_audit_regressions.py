@@ -85,7 +85,7 @@ class RemainingAuditRegressionTests(unittest.TestCase):
                 '#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n',
                 encoding="utf-8",
             )
-            (prefix / "install-lock.json").write_text(json.dumps({"launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
+            (prefix / "install-lock.json").write_text(json.dumps({"prefix": str(prefix), "launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
             plan = uninstall_plan(prefix=prefix)
             self.assertIn(str(custom_launcher), plan["core_paths"])
             self.assertTrue(plan["launcher_ownership_known"])

@@ -87,7 +87,7 @@ class InstallStatusTests(unittest.TestCase):
             prefix.mkdir()
             custom_launcher.parent.mkdir()
             custom_launcher.write_text('#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n', encoding="utf-8")
-            (prefix / "install-lock.json").write_text(json.dumps({"launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
+            (prefix / "install-lock.json").write_text(json.dumps({"prefix": str(prefix), "launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
             plan = uninstall_plan(prefix=prefix)
             self.assertFalse(plan["executes_deletions"])
             self.assertIn(str(custom_launcher), plan["core_paths"])
@@ -97,9 +97,33 @@ class InstallStatusTests(unittest.TestCase):
     def test_uninstall_plan_does_not_delete(self):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
+            prefix.mkdir()
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"prefix": str(prefix), "external_tools": []}),
+                encoding="utf-8",
+            )
             plan = uninstall_plan(prefix=prefix, bin_dir=Path(temp) / "bin")
             self.assertFalse(plan["executes_deletions"])
             self.assertIn(str(prefix), plan["core_paths"])
+
+    def test_uninstall_plan_refuses_dangerous_and_unverified_prefixes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            unrelated = Path(temp) / "unrelated"
+            unrelated.mkdir()
+            unsafe_prefixes = [
+                Path.home(),
+                Path(Path.cwd().anchor),
+                Path("."),
+                Path.cwd(),
+                unrelated,
+            ]
+            for prefix in unsafe_prefixes:
+                with self.subTest(prefix=prefix):
+                    plan = uninstall_plan(prefix=prefix)
+                    self.assertFalse(plan["prefix_ownership_known"])
+                    self.assertEqual(plan["core_paths"], [])
+                    self.assertEqual(plan["core_commands"], [])
+                    self.assertTrue(plan["prefix_error"])
 
     def test_uninstall_plan_includes_only_lock_proven_manageroo_owned_trufflehog(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -113,6 +137,7 @@ class InstallStatusTests(unittest.TestCase):
             trufflehog = bin_dir / "trufflehog"
             trufflehog.write_bytes(b"binary")
             (prefix / "install-lock.json").write_text(json.dumps({
+                "prefix": str(prefix),
                 "launcher": str(launcher),
                 "external_tools": [{"name": "trufflehog", "path": str(trufflehog), "manageroo_owned": True}],
             }), encoding="utf-8")
@@ -124,6 +149,7 @@ class InstallStatusTests(unittest.TestCase):
             outside.parent.mkdir()
             outside.write_bytes(b"user binary")
             (prefix / "install-lock.json").write_text(json.dumps({
+                "prefix": str(prefix),
                 "launcher": str(launcher),
                 "external_tools": [{"name": "trufflehog", "path": str(outside), "manageroo_owned": True}],
             }), encoding="utf-8")
