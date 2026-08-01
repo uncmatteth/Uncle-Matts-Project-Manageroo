@@ -13,6 +13,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Agent cannot persist Git config, hooks, or other Git-directory metadata | In-memory Git-directory checkpoint, comparison, and verified restoration | Detective, blocks acceptance and restores metadata |
 | Agent cannot invent executable gates | Gate IDs reference controller config | Preventive |
 | Dangerous shell interpolation | argv-only subprocess execution; no `shell=True` | Preventive in controller |
+| Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change | Artifact hash ledger | Detective, blocks next phase |

@@ -51,6 +51,22 @@ def _safe_repo_regular_file(repo: Path, path: Path, *, allow_missing: bool = Fal
     return resolved
 
 
+def _safe_repo_write_destination(repo: Path, path: Path) -> Path:
+    repo = repo.expanduser().resolve()
+    lexical = path.expanduser()
+    if lexical.is_symlink():
+        raise SafetyError(f"Refusing to rewrite symlinked project memory file: {lexical}")
+    if lexical.parent.is_symlink():
+        raise SafetyError(
+            f"Refusing to write project memory through symlinked directory: {lexical.parent}"
+        )
+    try:
+        lexical.parent.resolve().relative_to(repo)
+    except (OSError, ValueError) as exc:
+        raise SafetyError(f"Project memory destination escapes repository root: {lexical}") from exc
+    return lexical
+
+
 def _read_utf8(path: Path, *, repo: Path | None = None) -> str:
     target = _safe_repo_regular_file(repo, path) if repo is not None else path
     assert target is not None
@@ -148,9 +164,7 @@ def ensure_project_memory(
     proof: list[str] | None = None,
     notes: list[str] | None = None,
 ) -> dict[str, Any]:
-    path = project_memory_path(repo)
-    if path.is_symlink():
-        raise SafetyError(f"Refusing to rewrite symlinked project memory file: {path}")
+    path = _safe_repo_write_destination(repo, project_memory_path(repo))
     created = not path.exists()
     updated_sections: list[str] = []
     if created:

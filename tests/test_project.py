@@ -1,8 +1,10 @@
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+from manageroo.errors import SafetyError
 from manageroo.project import create_project_repo, initialize_project
 from manageroo.project_memory import ensure_project_memory
 
@@ -66,6 +68,22 @@ class ProjectInitializationTests(unittest.TestCase):
                 "Add the commands or manual checks that prove the current state.",
             ):
                 self.assertNotIn(placeholder, text)
+
+    def test_project_memory_refuses_symlinked_manageroo_parent_without_external_write(self):
+        if os.name == "nt":
+            self.skipTest("symlink semantics vary on Windows")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            outside = root / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            (repo / ".manageroo").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(SafetyError):
+                ensure_project_memory(repo)
+
+            self.assertFalse((outside / "PROJECT-MEMORY.md").exists())
 
     def test_create_project_repo_initializes_missing_folder_with_first_commit(self):
         with tempfile.TemporaryDirectory() as temp:
