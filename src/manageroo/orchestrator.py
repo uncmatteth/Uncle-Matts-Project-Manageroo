@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, TypeVar
 
+from .acceptance import build_acceptance_evidence
 from .adapters.base import AgentAdapter, AgentRequest
 from .adapters.factory import build_adapter
 from .artifacts import ArtifactStore
@@ -162,92 +163,6 @@ def _capability_catalog_metadata(
 def _artifact_fragment(value: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in "-_." else "-" for char in value)
     return cleaned.strip("-") or "item"
-
-
-def _passed_gate_ids(gates: list[dict]) -> list[str]:
-    passed: list[str] = []
-    for item in gates:
-        if not isinstance(item, dict):
-            continue
-        gate = item.get("gate", {})
-        result = item.get("result", {})
-        if isinstance(gate, dict) and isinstance(result, dict) and result.get("exit_code") == 0:
-            gate_id = str(gate.get("id") or "").strip()
-            if gate_id:
-                passed.append(gate_id)
-    return passed
-
-
-def _needs_demonstration(description: str) -> bool:
-    lowered = description.lower()
-    terms = (
-        "browser",
-        "journey",
-        "demo",
-        "deploy",
-        "deployment",
-        "security",
-        "auth",
-        "login",
-        "permission",
-        "screenshot",
-        "visual",
-        "checkout",
-        "user can",
-        "end user",
-    )
-    return any(term in lowered for term in terms)
-
-
-def build_acceptance_evidence(
-    *,
-    product: dict,
-    gate_results: list[dict],
-    demonstration: dict,
-    review: dict,
-) -> list[dict]:
-    passed_gates = _passed_gate_ids(gate_results)
-    demo_gates = _passed_gate_ids(list(demonstration.get("gates", []) or []))
-    review_approved = review.get("status") == "approved"
-    rows: list[dict] = []
-    for item in product.get("acceptance_outcomes", []):
-        description = str(item)
-        if _needs_demonstration(description) and not demo_gates:
-            rows.append(
-                {
-                    "description": description,
-                    "status": "unknown",
-                    "evidence": [],
-                    "reason": "This outcome describes a user journey, demo, browser, deploy, visual, or security behavior without matching demonstration evidence.",
-                }
-            )
-            continue
-        if passed_gates and review_approved:
-            evidence = [f"gate:{gate_id}" for gate_id in passed_gates]
-            evidence.append("review:approved")
-            evidence.extend(f"demo:{gate_id}" for gate_id in demo_gates)
-            rows.append(
-                {
-                    "description": description,
-                    "status": "passed",
-                    "evidence": evidence,
-                    "reason": "Required gates passed and independent review approved the patch.",
-                }
-            )
-            continue
-        rows.append(
-            {
-                "description": description,
-                "status": "failed" if not review_approved else "unknown",
-                "evidence": [f"gate:{gate_id}" for gate_id in passed_gates],
-                "reason": (
-                    "Independent review did not approve the result."
-                    if not review_approved
-                    else "No passing required gate evidence was recorded."
-                ),
-            }
-        )
-    return rows
 
 
 class Orchestrator:

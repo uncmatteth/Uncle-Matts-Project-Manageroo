@@ -85,6 +85,16 @@ def proof_binding_findings(
             for item in matches[0].get("gate_ids", [])
             if str(item).strip()
         }
+        if not gate_ids:
+            findings.append(
+                {
+                    "id": f"PROOF-EMPTY-GATES-{len(findings) + 1}",
+                    "severity": "high",
+                    "problem": f"Outcome proof binding names no gates for: {description}",
+                    "required_change": "Bind at least one configured gate ID to this outcome.",
+                }
+            )
+            continue
         unknown = sorted(gate_ids - available_gate_ids)
         if unknown:
             findings.append(
