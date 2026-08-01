@@ -83,19 +83,19 @@ def discover_projects(
     bounded_limit = max(0, int(limit))
     for root in selected_roots:
         root_depth = len(root.parts)
-        for current, dirs, _files in os.walk(root):
+        for current, dirs, files in os.walk(root):
             current_path = Path(current)
             depth = len(current_path.parts) - root_depth
             if depth >= max_depth:
                 dirs[:] = []
-            if ".git" not in dirs:
+            if ".git" not in dirs and ".git" not in files:
                 continue
             try:
                 repo = git_root(current_path)
             except Exception:
-                repo = current_path.resolve()
+                continue
             discovered.setdefault(repo, _project_record(repo, agent=agent))
-            dirs[:] = [name for name in dirs if name != ".git"]
+            dirs[:] = []
             if bounded_limit and len(discovered) >= bounded_limit:
                 break
         if bounded_limit and len(discovered) >= bounded_limit:
