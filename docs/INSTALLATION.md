@@ -224,6 +224,8 @@ manageroo uninstall-plan
 
 `uninstall-plan` emits removal commands only for an absolute, non-root prefix whose
 ownership is proven by a matching install lock or bounded Manageroo installation markers.
+It includes a launcher only when the file has Manageroo's versioned ownership marker and
+matches the complete generated POSIX or Windows launcher structure.
 
 ## Release proof
 

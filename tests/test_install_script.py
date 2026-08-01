@@ -8,6 +8,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from manageroo.install_status import launcher_is_manageroo_owned
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SCRIPT = ROOT / "scripts" / "install.py"
@@ -38,6 +40,20 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_generated_launchers_have_verified_manageroo_ownership(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            python = root / "python"
+            app_root = root / "app"
+            prefix = root / "prefix"
+            launcher = install.install_launcher(root / "posix-bin", python, app_root, prefix)
+            self.assertTrue(launcher_is_manageroo_owned(launcher))
+
+            with patch.object(install.os, "name", "nt"):
+                launcher = install.install_launcher(root / "windows-bin", python, app_root, prefix)
+            self.assertTrue(launcher_is_manageroo_owned(launcher))
+
     def test_windows_launcher_rejects_percent_expansion_in_each_interpolated_path(self):
         install = load_install_script()
         with tempfile.TemporaryDirectory() as temp:

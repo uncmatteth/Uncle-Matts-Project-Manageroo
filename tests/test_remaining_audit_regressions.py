@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from manageroo.acceptance import _needs_demonstration
 from manageroo.errors import SafetyError
-from manageroo.install_status import stack_status, uninstall_plan
+from manageroo.install_status import LAUNCHER_MARKER, stack_status, uninstall_plan
 from manageroo.jobs import JobStore
 from manageroo.policy import ScopePolicy, validate_allowed_scope_patterns
 from manageroo.readiness import _mentions
@@ -82,7 +82,11 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             custom_launcher = root / "custom-bin" / "manageroo"
             custom_launcher.parent.mkdir()
             custom_launcher.write_text(
-                '#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n',
+                "#!/bin/sh\n"
+                f"# {LAUNCHER_MARKER}\n"
+                "export PYTHONPATH=/tmp/manageroo/app${PYTHONPATH:+:$PYTHONPATH}\n"
+                "export MANAGEROO_PREFIX=/tmp/manageroo\n"
+                'exec python3 -m manageroo "$@"\n',
                 encoding="utf-8",
             )
             (prefix / "install-lock.json").write_text(json.dumps({"prefix": str(prefix), "launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")

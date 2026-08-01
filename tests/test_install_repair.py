@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.install_repair import repair_install
+from manageroo.install_status import LAUNCHER_MARKER, launcher_is_manageroo_owned
 
 
 def _snapshot(root: Path) -> dict[str, tuple]:
@@ -27,7 +28,13 @@ def _snapshot(root: Path) -> dict[str, tuple]:
 
 
 def _launcher_text() -> str:
-    return '#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n'
+    return (
+        "#!/bin/sh\n"
+        f"# {LAUNCHER_MARKER}\n"
+        "export PYTHONPATH=/tmp/manageroo/app${PYTHONPATH:+:$PYTHONPATH}\n"
+        "export MANAGEROO_PREFIX=/tmp/manageroo\n"
+        'exec python3 -m manageroo "$@"\n'
+    )
 
 
 class InstallRepairTests(unittest.TestCase):
@@ -62,6 +69,7 @@ class InstallRepairTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(launcher.exists())
             self.assertIn("PYTHONPATH", launcher.read_text(encoding="utf-8"))
+            self.assertTrue(launcher_is_manageroo_owned(launcher))
             if os.name != "nt":
                 self.assertTrue(os.access(launcher, os.X_OK))
                 self.assertNotEqual(launcher.stat().st_mode & 0o111, 0)
@@ -139,6 +147,33 @@ class InstallRepairTests(unittest.TestCase):
             )
             result = repair_install(prefix=prefix, apply=False)
             self.assertEqual(result["bin_dir"], str(custom_bin.resolve()))
+
+    @unittest.skipIf(os.name == "nt", "POSIX execute bits do not apply on Windows")
+    def test_apply_does_not_chmod_malformed_launcher_with_marker_substrings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            bin_dir = Path(temp) / "bin"
+            launcher = bin_dir / "manageroo"
+            prefix.mkdir()
+            bin_dir.mkdir()
+            launcher.write_text(
+                "#!/bin/sh\n"
+                f"# {LAUNCHER_MARKER}\n"
+                "# MANAGEROO_PREFIX appears only in a comment\n"
+                "# -m manageroo appears only in a comment\n"
+                "echo unrelated\n",
+                encoding="utf-8",
+            )
+            launcher.chmod(0o644)
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"launcher": str(launcher)}) + "\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills")}):
+                result = repair_install(prefix=prefix, bin_dir=bin_dir, apply=True)
+            self.assertFalse(result["ok"])
+            self.assertEqual(launcher.stat().st_mode & 0o777, 0o644)
+            self.assertFalse(any(action.get("status") == "made executable" for action in result["actions"]))
 
 
 if __name__ == "__main__":

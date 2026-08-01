@@ -14,6 +14,8 @@ from .token_modes import CORE_HELPER_SKILLS, token_mode_skills_dir
 DEFAULT_PREFIX = Path.home() / ".local" / "share" / PUBLIC_COMMAND
 DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
 LAUNCHER_BASENAMES = {PUBLIC_COMMAND, f"{PUBLIC_COMMAND}.cmd"}
+LAUNCHER_MARKER = "MANAGEROO-LAUNCHER-V1"
+_MAX_LAUNCHER_CHARACTERS = 8192
 
 
 def default_prefix() -> Path:
@@ -52,14 +54,70 @@ def _validated_launcher_value(value: Any) -> tuple[str | None, str | None]:
     return str(path), None
 
 
+def _canonical_shell_path(expression: str) -> bool:
+    try:
+        values = shlex.split(expression, posix=True)
+    except ValueError:
+        return False
+    return len(values) == 1 and bool(values[0]) and shlex.quote(values[0]) == expression
+
+
+def _posix_launcher_is_manageroo_owned(lines: list[str]) -> bool:
+    if len(lines) != 5 or lines[:2] != ["#!/bin/sh", f"# {LAUNCHER_MARKER}"]:
+        return False
+    pythonpath_prefix = "export PYTHONPATH="
+    pythonpath_suffix = "${PYTHONPATH:+:$PYTHONPATH}"
+    prefix_prefix = "export MANAGEROO_PREFIX="
+    exec_prefix = "exec "
+    exec_suffix = ' -m manageroo "$@"'
+    if not (
+        lines[2].startswith(pythonpath_prefix)
+        and lines[2].endswith(pythonpath_suffix)
+        and lines[3].startswith(prefix_prefix)
+        and lines[4].startswith(exec_prefix)
+        and lines[4].endswith(exec_suffix)
+    ):
+        return False
+    return all(
+        _canonical_shell_path(expression)
+        for expression in (
+            lines[2][len(pythonpath_prefix):-len(pythonpath_suffix)],
+            lines[3][len(prefix_prefix):],
+            lines[4][len(exec_prefix):-len(exec_suffix)],
+        )
+    )
+
+
+def _cmd_launcher_is_manageroo_owned(lines: list[str]) -> bool:
+    if len(lines) != 4 or lines[0] != f"@rem {LAUNCHER_MARKER}":
+        return False
+    prefixes = ('@set "PYTHONPATH=', '@set "MANAGEROO_PREFIX=', '@"')
+    suffixes = ('"', '"', '" -m manageroo %*')
+    for line, prefix, suffix in zip(lines[1:], prefixes, suffixes, strict=True):
+        if not line.startswith(prefix) or not line.endswith(suffix):
+            return False
+        value = line[len(prefix):-len(suffix)]
+        if not value or any(character in value for character in ('"', "%", "\r", "\n")):
+            return False
+    return True
+
+
 def launcher_is_manageroo_owned(path: Path) -> bool:
     try:
         if path.is_symlink() or not path.is_file():
             return False
-        text = path.read_text(encoding="utf-8", errors="replace")[:8192]
-    except OSError:
+        with path.open("r", encoding="utf-8") as handle:
+            text = handle.read(_MAX_LAUNCHER_CHARACTERS + 1)
+    except (OSError, UnicodeError):
         return False
-    return "MANAGEROO_PREFIX" in text and "-m manageroo" in text
+    if len(text) > _MAX_LAUNCHER_CHARACTERS or not text.endswith("\n"):
+        return False
+    lines = text.splitlines()
+    if path.name == PUBLIC_COMMAND:
+        return _posix_launcher_is_manageroo_owned(lines)
+    if path.name == f"{PUBLIC_COMMAND}.cmd":
+        return _cmd_launcher_is_manageroo_owned(lines)
+    return False
 
 
 def _validate_lock_payload(payload: dict[str, Any]) -> str | None:

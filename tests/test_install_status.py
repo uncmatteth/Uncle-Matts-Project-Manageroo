@@ -5,12 +5,24 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.install_status import (
+    LAUNCHER_MARKER,
     format_stack_status,
+    launcher_is_manageroo_owned,
     read_install_lock,
     stack_status,
     summarize_external_tools,
     uninstall_plan,
 )
+
+
+def _launcher_text() -> str:
+    return (
+        "#!/bin/sh\n"
+        f"# {LAUNCHER_MARKER}\n"
+        "export PYTHONPATH=/tmp/manageroo/app${PYTHONPATH:+:$PYTHONPATH}\n"
+        "export MANAGEROO_PREFIX=/tmp/manageroo\n"
+        'exec python3 -m manageroo "$@"\n'
+    )
 
 
 class InstallStatusTests(unittest.TestCase):
@@ -86,7 +98,7 @@ class InstallStatusTests(unittest.TestCase):
             unrelated_default = Path.home() / ".local" / "bin" / "manageroo"
             prefix.mkdir()
             custom_launcher.parent.mkdir()
-            custom_launcher.write_text('#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n', encoding="utf-8")
+            custom_launcher.write_text(_launcher_text(), encoding="utf-8")
             (prefix / "install-lock.json").write_text(json.dumps({"prefix": str(prefix), "launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
             plan = uninstall_plan(prefix=prefix)
             self.assertFalse(plan["executes_deletions"])
@@ -133,7 +145,7 @@ class InstallStatusTests(unittest.TestCase):
             prefix.mkdir()
             bin_dir.mkdir()
             launcher = bin_dir / "manageroo"
-            launcher.write_text('#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n', encoding="utf-8")
+            launcher.write_text(_launcher_text(), encoding="utf-8")
             trufflehog = bin_dir / "trufflehog"
             trufflehog.write_bytes(b"binary")
             (prefix / "install-lock.json").write_text(json.dumps({
@@ -155,6 +167,48 @@ class InstallStatusTests(unittest.TestCase):
             }), encoding="utf-8")
             plan = uninstall_plan(prefix=prefix)
             self.assertNotIn(str(outside), plan["manageroo_owned_external_paths"])
+
+    def test_launcher_ownership_requires_marker_and_complete_structure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            launcher = Path(temp) / "manageroo"
+            launcher.write_text(_launcher_text(), encoding="utf-8")
+            self.assertTrue(launcher_is_manageroo_owned(launcher))
+
+            unrelated_launchers = (
+                "#!/bin/sh\n# MANAGEROO_PREFIX\n# -m manageroo\necho unrelated\n",
+                (
+                    "#!/bin/sh\n"
+                    f"# {LAUNCHER_MARKER}\n"
+                    "# MANAGEROO_PREFIX\n"
+                    "# -m manageroo\n"
+                    "echo unrelated\n"
+                ),
+                _launcher_text() + "echo unrelated\n",
+            )
+            for text in unrelated_launchers:
+                with self.subTest(text=text):
+                    launcher.write_text(text, encoding="utf-8")
+                    self.assertFalse(launcher_is_manageroo_owned(launcher))
+
+    def test_uninstall_plan_excludes_unrelated_launcher_with_ownership_substrings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = root / "prefix"
+            launcher = root / "bin" / "manageroo"
+            prefix.mkdir()
+            launcher.parent.mkdir()
+            launcher.write_text(
+                "#!/bin/sh\n# MANAGEROO_PREFIX\n# -m manageroo\necho unrelated\n",
+                encoding="utf-8",
+            )
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"prefix": str(prefix), "launcher": str(launcher), "external_tools": []}),
+                encoding="utf-8",
+            )
+            plan = uninstall_plan(prefix=prefix)
+            self.assertFalse(plan["launcher_ownership_known"])
+            self.assertNotIn(str(launcher), plan["core_paths"])
+            self.assertNotIn(str(launcher), "\n".join(plan["core_commands"]))
 
 
 if __name__ == "__main__":

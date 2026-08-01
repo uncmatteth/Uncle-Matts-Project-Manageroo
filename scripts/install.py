@@ -23,7 +23,11 @@ sys.path.insert(0, str(ROOT / "src"))
 from manageroo.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from manageroo.chiptune import ThemePlayback, play_once  # noqa: E402
 from manageroo.credits import format_special_thanks  # noqa: E402
-from manageroo.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
+from manageroo.install_status import (  # noqa: E402
+    LAUNCHER_MARKER,
+    summarize_external_tools,
+    uninstall_plan,
+)
 from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
 from manageroo.trufflehog import (  # noqa: E402
     TRUFFLEHOG_REFERENCE,
@@ -138,9 +142,10 @@ def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) 
     if os.name == "nt":
         launcher = bin_dir / "manageroo.cmd"
         launcher.write_text(
-            f'@set "PYTHONPATH={_safe_cmd_value(app_root)}"\r\n'
-            f'@set "MANAGEROO_PREFIX={_safe_cmd_value(prefix)}"\r\n'
-            f'@"{_safe_cmd_value(python)}" -m manageroo %*\r\n',
+            f"@rem {LAUNCHER_MARKER}\n"
+            f'@set "PYTHONPATH={_safe_cmd_value(app_root)}"\n'
+            f'@set "MANAGEROO_PREFIX={_safe_cmd_value(prefix)}"\n'
+            f'@"{_safe_cmd_value(python)}" -m manageroo %*\n',
             encoding="utf-8",
         )
     else:
@@ -150,6 +155,7 @@ def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) 
         python_value = shlex.quote(str(python))
         launcher.write_text(
             "#!/bin/sh\n"
+            f"# {LAUNCHER_MARKER}\n"
             f"export PYTHONPATH={app_value}${{PYTHONPATH:+:$PYTHONPATH}}\n"
             f"export MANAGEROO_PREFIX={prefix_value}\n"
             f"exec {python_value} -m manageroo \"$@\"\n",
