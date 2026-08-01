@@ -24,6 +24,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Continue cannot shift later failed job IDs | Replay matches worker calls to saved job spec hashes | Preventive in controller |
 | Unresolved product decision cannot be skipped on continue | `planning/blocking-decisions.json` blocks replay | Preventive in controller |
 | Stale context cannot be reused | Source hashes in packet manifest | Detective, blocks execution |
+| Untrusted context cannot escape prompt framing | Dynamic payload fences, single-line metadata labels, and validated content hashes | Preventive |
 | Required context cannot disappear | Budget compiler raises instead of truncating | Preventive |
 | Model cannot mark run complete | Controller state machine | Preventive |
 | Unverified patch cannot reach source | Apply only after COMPLETE path and source hash check | Preventive |
