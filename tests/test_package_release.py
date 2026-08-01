@@ -12,6 +12,13 @@ SPEC = importlib.util.spec_from_file_location("package_release", ROOT / "scripts
 assert SPEC and SPEC.loader
 package_release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package_release)
+VERIFY_SPEC = importlib.util.spec_from_file_location(
+    "verify_distribution",
+    ROOT / "scripts" / "verify_distribution.py",
+)
+assert VERIFY_SPEC and VERIFY_SPEC.loader
+verify_distribution = importlib.util.module_from_spec(VERIFY_SPEC)
+VERIFY_SPEC.loader.exec_module(verify_distribution)
 
 
 def _fixture(codes: list[int]) -> str:
@@ -140,6 +147,17 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("EXPECTED_CORE_SKILLS = 18", distribution_text)
         self.assertIn("EXPECTED_OPTIONAL_SKILLS = 32", distribution_text)
         self.assertIn("Installed wheel did not create the manageroo console entry point", distribution_text)
+
+    def test_distribution_build_uses_isolated_declared_requirements(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wheel_dir = Path(temp) / "wheel"
+            with patch.object(verify_distribution, "_run") as run:
+                verify_distribution._build_wheel(wheel_dir)
+
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[1:5], ["-m", "pip", "--isolated", "wheel"])
+        self.assertNotIn("--no-build-isolation", argv)
+        self.assertEqual(run.call_args.kwargs, {"cwd": ROOT, "timeout": 600})
 
     def test_write_archive_failure_preserves_existing_published_archive(self):
         with tempfile.TemporaryDirectory() as temp:

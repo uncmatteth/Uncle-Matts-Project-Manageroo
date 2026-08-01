@@ -43,27 +43,31 @@ def _run(argv: list[str], *, cwd: Path, timeout: int = 300) -> subprocess.Comple
     return result
 
 
+def _build_wheel(wheel_dir: Path) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--isolated",
+            "wheel",
+            "--disable-pip-version-check",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheel_dir),
+            str(ROOT),
+        ],
+        cwd=ROOT,
+        timeout=600,
+    )
+
+
 def verify_distribution() -> dict:
     with tempfile.TemporaryDirectory(prefix="manageroo-distribution-proof-") as temp:
         root = Path(temp)
         wheel_dir = root / "wheel"
         wheel_dir.mkdir()
-        build = _run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "wheel",
-                "--disable-pip-version-check",
-                "--no-deps",
-                "--no-build-isolation",
-                "--wheel-dir",
-                str(wheel_dir),
-                str(ROOT),
-            ],
-            cwd=ROOT,
-            timeout=600,
-        )
+        build = _build_wheel(wheel_dir)
         wheels = sorted(wheel_dir.glob("*.whl"))
         if len(wheels) != 1:
             raise RuntimeError(f"Expected exactly one built wheel, found: {[path.name for path in wheels]}")

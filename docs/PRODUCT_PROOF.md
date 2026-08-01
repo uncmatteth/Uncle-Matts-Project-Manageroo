@@ -149,6 +149,8 @@ python3 scripts/release.py
 
 The release driver runs product proof first and proceeds to verification, packaging, checksum generation, and clean-install ZIP smoke only when proof is complete. It fails closed and does not create release artifacts when certification is partial or failed.
 
+Distribution verification builds through isolated PEP 517 mode, so pip provisions the build requirements declared in `pyproject.toml` instead of relying on globally installed build tools.
+
 The lower-level diagnostic sequence remains available:
 
 ```bash
