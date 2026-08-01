@@ -2,12 +2,16 @@ import io
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from manageroo.cli import main
+from manageroo.errors import ConfigurationError
 from manageroo.intent_lock import audit_compaction_text, capture_intent_lock, format_compaction_audit, intent_lock_path
+from manageroo.util import atomic_write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,6 +25,51 @@ class IntentLockTests(unittest.TestCase):
             repo = self._repo(Path(temp))
             result = capture_intent_lock(repo, want="Build the release helper without pretending it deploys.", outcomes=["Writes a release handoff"], must_not=["Do not deploy production"], proof=["release-ready reports READY"], corrections=["The command name is manageroo"], rejected=["Do not add GitHub Actions"], questions=["Which deployment target should the operator use?"], scopes=["Only this Git repo"], source="operator-chat")
             self.assertTrue(result["ok"]); lock = intent_lock_path(repo); self.assertTrue(lock.is_file()); payload = json.loads(lock.read_text(encoding="utf-8")); self.assertEqual(payload["want"], "Build the release helper without pretending it deploys."); self.assertIn("Do not deploy production", payload["must_not"]); self.assertIn("Do not add GitHub Actions", payload["rejected"]); markdown = lock.with_suffix(".md").read_text(encoding="utf-8"); self.assertIn("## Must Not Happen", markdown); self.assertIn("Do not deploy production", markdown); self.assertIn("## Rejected Ideas", markdown)
+
+    def test_concurrent_capture_allows_exactly_one_non_force_writer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            first_write_started = threading.Event()
+            release_first_write = threading.Event()
+            second_completed = threading.Event()
+            results: dict[str, object] = {}
+
+            def delayed_json_write(path, payload):
+                if payload["want"] == "First intent wins.":
+                    first_write_started.set()
+                    if not release_first_write.wait(timeout=5):
+                        raise TimeoutError("test did not release first intent write")
+                atomic_write_json(path, payload)
+
+            def capture(name: str, want: str) -> None:
+                try:
+                    results[name] = capture_intent_lock(repo, want=want)
+                except BaseException as exc:
+                    results[name] = exc
+                finally:
+                    if name == "second":
+                        second_completed.set()
+
+            with mock.patch("manageroo.intent_lock.atomic_write_json", side_effect=delayed_json_write):
+                first = threading.Thread(target=capture, args=("first", "First intent wins."))
+                second = threading.Thread(target=capture, args=("second", "Second intent loses."))
+                first.start()
+                self.assertTrue(first_write_started.wait(timeout=5))
+                second.start()
+                self.assertFalse(second_completed.wait(timeout=0.2))
+                release_first_write.set()
+                first.join(timeout=5)
+                second.join(timeout=5)
+
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            self.assertIsInstance(results["first"], dict)
+            self.assertIsInstance(results["second"], ConfigurationError)
+            lock = intent_lock_path(repo)
+            self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["want"], "First intent wins.")
+            markdown = lock.with_suffix(".md").read_text(encoding="utf-8")
+            self.assertIn("First intent wins.", markdown)
+            self.assertNotIn("Second intent loses.", markdown)
 
     def test_audit_blocks_when_compaction_drops_must_not_rules(self):
         with tempfile.TemporaryDirectory() as temp:
