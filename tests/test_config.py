@@ -3,6 +3,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from manageroo.config import apply_agent_preset, config_template
 from manageroo.config_lock import config_mutation_lock
@@ -142,6 +143,18 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config["budget"]["max_runtime_minutes"], 33)
             self.assertEqual(config["integrations"]["custom_tool_command"], ["custom", "--flag"])
             self.assertEqual(config["verification"]["gates"][0]["id"], "custom-smoke")
+
+    def test_directly_imported_apply_agent_preset_acquires_mutation_lock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            config_path = repo / ".manageroo" / "config.toml"
+            config_path.parent.mkdir()
+            config_path.write_text(config_template("codex", []), encoding="utf-8")
+
+            with mock.patch("manageroo.config.config_mutation_lock", wraps=config_mutation_lock) as lock:
+                apply_agent_preset(repo, "gemini")
+
+            lock.assert_called_once_with(config_path)
 
 
 if __name__ == "__main__":

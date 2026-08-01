@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .branding import FULL_ACRONYM, PROJECT_DIR, PUBLIC_COMMAND
+from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
 from .util import atomic_write_text
 
@@ -246,10 +247,11 @@ def write_config(repo: Path, agent: str, gates: list[dict[str, Any]]) -> Path:
 
 def apply_agent_preset(repo: Path, preset_name: str) -> dict[str, Any]:
     path = repo / PROJECT_DIR / "config.toml"
-    if not path.exists():
-        raise ConfigurationError(f"Missing {path}. Run `{PUBLIC_COMMAND} init` first.")
-    updated = replace_agent_block(path.read_text(encoding="utf-8"), preset_name)
-    atomic_write_text(path, updated)
+    with config_mutation_lock(path):
+        if not path.exists():
+            raise ConfigurationError(f"Missing {path}. Run `{PUBLIC_COMMAND} init` first.")
+        updated = replace_agent_block(path.read_text(encoding="utf-8"), preset_name)
+        atomic_write_text(path, updated)
     return {"repo": str(repo), "config": str(path), "preset": preset_name, "agent": agent_preset(preset_name)}
 
 
