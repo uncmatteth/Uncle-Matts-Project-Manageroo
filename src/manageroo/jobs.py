@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import asdict, dataclass, field, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from .config_lock import config_mutation_lock
 from .errors import SafetyError
 from .util import atomic_write_json, read_json, safe_repo_relative, sha256_file, sha256_json, utc_now
 
@@ -254,16 +256,55 @@ class JobStore:
             return []
         return [JobAttempt(**read_json(path)) for path in sorted(root.glob("*.json"))]
 
+    def _reserve_attempt(self, attempt: JobAttempt) -> bool:
+        path = self._attempt_path(attempt.job_id, attempt.attempt_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        reservation = path.with_name(f".{path.name}.reserve")
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(reservation, flags, 0o600)
+        except FileExistsError:
+            return False
+        try:
+            os.close(descriptor)
+            if path.exists():
+                return False
+            atomic_write_json(path, asdict(attempt))
+            return True
+        finally:
+            reservation.unlink(missing_ok=True)
+
     def begin_attempt(self, job_id: str) -> JobAttempt:
-        job = self.load_job(job_id)
-        if job.status == JobStatus.COMPLETE.value:
-            raise SafetyError(f"Completed job cannot start another attempt: {job_id}")
-        attempt_id = f"{len(self.attempts_for(job_id)) + 1:03d}"
-        attempt = JobAttempt(job_id=job.id, attempt_id=attempt_id, started_at=utc_now())
-        job.status = JobStatus.RUNNING.value
-        self.save_job(job)
-        self.save_attempt(attempt)
-        return attempt
+        with config_mutation_lock(self._job_path(job_id)):
+            job = self.load_job(job_id)
+            attempts = self.attempts_for(job_id)
+            if job.status == JobStatus.COMPLETE.value:
+                raise SafetyError(f"Completed job cannot start another attempt: {job_id}")
+            if job.status == JobStatus.RUNNING.value or any(
+                attempt.status == AttemptStatus.RUNNING.value for attempt in attempts
+            ):
+                raise SafetyError(f"Job already has a running attempt: {job_id}")
+
+            attempt_number = len(attempts) + 1
+            while True:
+                attempt = JobAttempt(
+                    job_id=job.id,
+                    attempt_id=f"{attempt_number:03d}",
+                    started_at=utc_now(),
+                )
+                if self._reserve_attempt(attempt):
+                    break
+                attempt_number += 1
+
+            job.status = JobStatus.RUNNING.value
+            try:
+                self.save_job(job)
+            except BaseException:
+                self._attempt_path(attempt.job_id, attempt.attempt_id).unlink(missing_ok=True)
+                raise
+            return attempt
 
     def save_attempt(self, attempt: JobAttempt) -> None:
         attempt.job_id = _identifier(attempt.job_id, "job id")
