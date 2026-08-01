@@ -358,6 +358,11 @@ as a global setting. Do not use it for untrusted code. Manageroo still runs the
 project's configured verification gates, requires Clawpatch revalidation, stages
 only the exact changed paths, and commits one cleared finding at a time.
 
+Clawpatch exit code 6 means its fix was applied but its immediate validator did
+not clear. Manageroo treats that as a revalidation transition, not success: it
+runs the project gates, revalidates that same finding, and commits only when the
+gates pass and Clawpatch reports the finding fixed.
+
 Release sweeps also give Clawpatch's Codex worker up to 30 minutes by default,
 instead of Clawpatch's shorter interactive default. An existing
 `CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins.

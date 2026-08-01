@@ -175,6 +175,10 @@ It removes the nested Codex approval/sandbox boundary, so use it only for truste
 source on a host that already supplies isolation. Manageroo's path restrictions,
 project gates, revalidation, and exact-path commit rules still apply.
 
+If `clawpatch fix` exits with code 6, Manageroo does not commit blindly or stop
+the entire queue. It runs the configured project gates and revalidates that same
+finding. Only a gate-passing patch that revalidates as `fixed` is committed.
+
 Manageroo gives the Codex worker up to 30 minutes during a release sweep so a
 valid repair is not abandoned at Clawpatch's shorter interactive default. A
 user-supplied `CLAWPATCH_CODEX_TIMEOUT_MS` value takes precedence.

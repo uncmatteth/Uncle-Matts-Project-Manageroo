@@ -88,6 +88,10 @@ def _json_command(
     state_args = ["--state-dir", str(state_dir)] if state_dir is not None else []
     argv = ["clawpatch", "--json", "--no-input", *state_args, command, *args]
     output = _must_run(argv, cwd=repo, timeout=timeout, env=clawpatch_env)
+    return _parse_json_output(output, command=command)
+
+
+def _parse_json_output(output: str, *, command: str) -> dict[str, Any]:
     try:
         value = json.loads(output)
     except json.JSONDecodeError as exc:
@@ -107,6 +111,36 @@ def _json_command(
     if not isinstance(value, dict):
         raise SafetyError(f"Clawpatch {command} returned an unexpected JSON value.")
     return value
+
+
+def _fix_command(
+    repo: Path,
+    finding_id: str,
+    *,
+    state_dir: Path | None,
+    clawpatch_env: dict[str, str] | None,
+) -> dict[str, Any]:
+    """Apply one finding, preserving Clawpatch's exit-6 revalidation transition."""
+    state_args = ["--state-dir", str(state_dir)] if state_dir is not None else []
+    argv = [
+        "clawpatch",
+        "--json",
+        "--no-input",
+        *state_args,
+        "fix",
+        "--finding",
+        finding_id,
+    ]
+    result = _run(argv, cwd=repo, timeout=3600, env=clawpatch_env)
+    if result.returncode == 6:
+        return {
+            "status": "validation-pending",
+            "exit_code": 6,
+            "next": f"clawpatch revalidate --finding {finding_id}",
+        }
+    if result.returncode:
+        raise SafetyError(f"Command failed ({' '.join(argv)}):\n{result.stdout[-6000:]}")
+    return _parse_json_output(result.stdout, command="fix")
 
 
 def _git_root(repo: Path) -> Path:
@@ -482,16 +516,13 @@ def release_sweep(
             "head": _git_text(root, ["git", "rev-parse", "HEAD"]),
         })
         atomic_write_json(_checkpoint_path(root), checkpoint)
-        fix = _json_command(
+        fix = _fix_command(
             root,
-            "fix",
-            "--finding",
             finding_id,
-            timeout=3600,
             state_dir=state_dir,
             clawpatch_env=clawpatch_env,
         )
-        if str(fix.get("status") or "") != "applied":
+        if str(fix.get("status") or "") not in {"applied", "validation-pending"}:
             raise SafetyError(f"Clawpatch did not apply finding {finding_id}.")
         paths = _changed_paths(root)
         _validate_fix_paths(paths)

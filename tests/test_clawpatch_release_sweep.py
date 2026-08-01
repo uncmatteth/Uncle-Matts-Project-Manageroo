@@ -9,7 +9,12 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from manageroo.clawpatch_release import _json_command, _release_clawpatch_env, release_sweep
+from manageroo.clawpatch_release import (
+    _fix_command,
+    _json_command,
+    _release_clawpatch_env,
+    release_sweep,
+)
 from manageroo.entrypoint import _clawpatch_main
 from manageroo.errors import SafetyError
 
@@ -63,6 +68,24 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         with self.assertRaisesRegex(SafetyError, "valid JSON"):
             _json_command(Path("/repo"), "map")
 
+    @patch("manageroo.clawpatch_release._run")
+    def test_fix_exit_six_advances_to_controller_gates_and_revalidation(self, run):
+        run.return_value = self.completed(
+            ["clawpatch", "fix"],
+            "error: validation failed after applying fix\n",
+            6,
+        )
+
+        result = _fix_command(
+            Path("/repo"),
+            "fnd_one",
+            state_dir=None,
+            clawpatch_env={"PATH": "/tools"},
+        )
+
+        self.assertEqual(result["status"], "validation-pending")
+        self.assertEqual(result["exit_code"], 6)
+
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._run")
     def test_default_is_a_non_mutating_plan(self, run, _which):
@@ -113,7 +136,10 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._run_manageroo_gates", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="clawpatch 0.7.1")
     @patch("manageroo.clawpatch_release._json_command")
-    def test_real_git_repository_gets_one_validated_exact_path_commit(self, clawpatch, _version, _gates):
+    @patch("manageroo.clawpatch_release._fix_command")
+    def test_real_git_repository_gets_one_validated_exact_path_commit(
+        self, fix_command, clawpatch, _version, _gates
+    ):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             self.git(repo, "init", "-q", "-b", "feature/release")
@@ -133,9 +159,6 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 if command == "next":
                     next_count += 1
                     return {"finding": {"findingId": "fnd_real"}} if next_count == 1 else {"finding": None}
-                if command == "fix":
-                    (repo / "app.py").write_text("value = 2\n", encoding="utf-8")
-                    return {"status": "applied", "changedFiles": "app.py"}
                 if command == "revalidate" and "--all" not in args:
                     return {"finding": "fnd_real", "outcome": "fixed"}
                 if command == "revalidate":
@@ -145,6 +168,11 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 raise AssertionError((command, args))
 
             clawpatch.side_effect = fake
+            def fake_fix(*_args, **_kwargs):
+                (repo / "app.py").write_text("value = 2\n", encoding="utf-8")
+                return {"status": "applied", "changedFiles": "app.py"}
+
+            fix_command.side_effect = fake_fix
             report = release_sweep(repo, apply=True, branch="current")
 
             self.assertTrue(report["ok"])
