@@ -1,10 +1,12 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from manageroo.discovery_policy import install_discovery_policy
+from manageroo.discovery_policy import decisions_fully_resolved, install_discovery_policy
+from manageroo.errors import ValidationError
 
 
 class _Artifacts:
@@ -91,6 +93,25 @@ class DiscoveryPolicyTests(unittest.TestCase):
                 "discovery/unknown-unknowns-preflight.json",
                 instance.artifacts.writes,
             )
+
+    def test_fully_resolved_rejects_malformed_product_decisions(self):
+        malformed_decision_sets = [
+            ["malformed"],
+            [{"id": "known", "chosen": "yes"}, "malformed"],
+        ]
+        for decisions in malformed_decision_sets:
+            with self.subTest(decisions=decisions), tempfile.TemporaryDirectory() as temp:
+                run_root = Path(temp)
+                planning = run_root / "artifacts" / "planning"
+                planning.mkdir(parents=True)
+                (planning / "product-model.json").write_text(
+                    json.dumps({"blocking_decisions": decisions}),
+                    encoding="utf-8",
+                )
+                (planning / "decision-resolution.json").write_text("{}", encoding="utf-8")
+
+                with self.assertRaises(ValidationError):
+                    decisions_fully_resolved(run_root)
 
 
 if __name__ == "__main__":
