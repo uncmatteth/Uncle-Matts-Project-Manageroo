@@ -193,6 +193,8 @@ class StackUpdateTests(unittest.TestCase):
             def run(argv, **_kwargs):
                 if argv[0] == "/usr/bin/npm" and argv[1:] == ["prefix", "-g"]:
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": str(prefix) + "\n"}
+                if argv[0] == "/usr/bin/npm" and argv[1:] == ["root", "-g"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": str(package_root) + "\n"}
                 if argv[0] == "/usr/bin/npm" and argv[1:4] == ["list", "-g", "--depth=0"]:
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": "installed\n"}
                 if argv[0] == "/usr/bin/pnpm" and argv[1:] == ["bin", "-g"]:
@@ -209,6 +211,41 @@ class StackUpdateTests(unittest.TestCase):
             self.assertEqual(
                 tools["clawpatch"]["commands"][:1],
                 [["/usr/bin/npm", "install", "-g", CLAWPATCH_PACKAGE]],
+            )
+
+    def test_plan_falls_back_to_pnpm_for_pnpm_owned_gitnexus(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            npm_prefix = root / "npm-prefix"
+            pnpm_bin = root / "pnpm-bin"
+            pnpm_bin.mkdir()
+            gitnexus = pnpm_bin / "gitnexus"
+            gitnexus.write_text("", encoding="utf-8")
+
+            def which(name: str):
+                return {
+                    "npm": "/usr/bin/npm",
+                    "pnpm": "/usr/bin/pnpm",
+                    "gitnexus": str(gitnexus),
+                }.get(name)
+
+            def run(argv, **_kwargs):
+                if argv[0] == "/usr/bin/npm" and argv[1:] == ["prefix", "-g"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": str(npm_prefix) + "\n"}
+                if argv[0] == "/usr/bin/pnpm" and argv[1:] == ["bin", "-g"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": str(pnpm_bin) + "\n"}
+                if argv[0] == "/usr/bin/pnpm" and argv[1:4] == ["list", "-g", "--depth=0"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": "installed\n"}
+                return {"ok": False, "exit_code": 1, "argv": argv, "output": "not owned"}
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update._run", side_effect=run
+            ):
+                plan = stack_update_plan(["gitnexus"])
+
+            self.assertEqual(
+                plan["tools"][0]["commands"],
+                [["/usr/bin/pnpm", "add", "-g", GITNEXUS_PACKAGE]],
             )
 
     def test_codex_only_autoreview_is_updated_in_place(self):

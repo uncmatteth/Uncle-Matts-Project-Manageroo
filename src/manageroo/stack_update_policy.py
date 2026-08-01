@@ -78,6 +78,16 @@ def _manager_bin(module: Any, manager: str) -> Path | None:
     return None
 
 
+def _manager_package_root(module: Any, manager: str) -> Path | None:
+    executable = shutil.which(manager)
+    if not executable or manager not in {"npm", "pnpm"}:
+        return None
+    probe = module._run([executable, "root", "-g"], timeout=30)
+    if not probe.get("ok"):
+        return None
+    return Path(str(probe.get("output") or "").strip()).expanduser()
+
+
 def _owned_by_manager(
     module: Any,
     tool_path: str | None,
@@ -88,7 +98,7 @@ def _owned_by_manager(
         return False
     tool = Path(tool_path).expanduser()
     try:
-        tool.resolve(strict=True)
+        resolved_tool = tool.resolve(strict=True)
     except OSError:
         return False
     if manager in {"npm", "pnpm"}:
@@ -99,6 +109,14 @@ def _owned_by_manager(
             tool.absolute().relative_to(root.resolve(strict=False))
         except ValueError:
             return False
+        if tool.is_symlink():
+            package_root = _manager_package_root(module, manager)
+            if package_root is None:
+                return False
+            try:
+                resolved_tool.relative_to(package_root.resolve(strict=False))
+            except ValueError:
+                return False
         if package_name:
             executable = shutil.which(manager)
             if not executable:
