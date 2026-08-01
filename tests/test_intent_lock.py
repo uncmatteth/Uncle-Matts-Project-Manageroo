@@ -34,6 +34,18 @@ class IntentLockTests(unittest.TestCase):
             report = audit_compaction_text(repo, "\n".join(["Intent: Build the release helper.", "Outcome: Writes a release handoff.", "Must not: Do not deploy production.", "Proof: release-ready reports READY.", "Correction: The command name is manageroo."]))
             self.assertTrue(report["ok"], report); self.assertEqual(report["status"], "passed"); self.assertFalse(report["missing"])
 
+    def test_audit_allows_confidence_claim_supported_by_locked_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Ship the release.", proof=["Production-ready because the release gate and smoke tests passed."])
+            report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: Production-ready because the release gate and smoke tests passed."]))
+            self.assertTrue(report["ok"], report); self.assertEqual(report["status"], "passed"); self.assertFalse(report["confidence_claims_blocking"]); self.assertTrue(report["warnings"])
+
+    def test_audit_blocks_confidence_claim_without_matching_locked_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Ship the release.", proof=["The release gate and smoke tests have not run."])
+            report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: The release gate and smoke tests have not run.", "Status: Production-ready."]))
+            self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); self.assertTrue(report["confidence_claims_blocking"]); self.assertFalse(report["missing"])
+
     def test_cli_capture_and_compact_audit_json(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); stdout = io.StringIO()

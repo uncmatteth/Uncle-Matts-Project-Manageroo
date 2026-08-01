@@ -21,7 +21,21 @@ def install_intent_audit_policy(intent_lock_module: Any) -> None:
             isinstance(policy, dict) and policy.get("confidence_claims_require_evidence")
         )
         warnings = list(report.get("warnings", []) or [])
-        if confidence_required and warnings:
+        proof = lock.get("proof", []) if isinstance(lock, dict) else []
+        normalized_proof = [
+            " ".join(str(item).casefold().split())
+            for item in proof
+            if str(item).strip()
+        ] if isinstance(proof, (list, tuple)) else []
+        unsupported_warnings = [
+            warning
+            for warning in warnings
+            if not any(
+                " ".join(str(warning.get("text", "")).casefold().split()) in evidence
+                for evidence in normalized_proof
+            )
+        ]
+        if confidence_required and unsupported_warnings:
             report["ok"] = False
             report["status"] = "blocked"
             report["confidence_claims_blocking"] = True
