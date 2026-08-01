@@ -34,7 +34,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Unverified patch cannot reach source | Apply only after COMPLETE path and source hash check | Preventive |
 | Crash during final apply loses proof | Final result/report/patch are written before source apply; continue retries apply only | Detective and recoverable |
 | Acceptance cannot be auto-passed | `verification/acceptance-evidence.json` binds outcomes to gates, demo evidence, and review | Preventive in controller |
-| Release-ready cannot ship without a valid Manageroo run | Fail-closed final-result schema validation, latest completed run proof, approved review, final report, final patch, and boolean applied-source status | Preventive release gate |
+| Release-ready cannot ship without a valid Manageroo run | Fail-closed final-result schema validation, latest completed run proof, post-gate HEAD and source-tree proof, approved review, final report, final patch, and boolean applied-source status | Preventive release gate |
 | Generic third-party agent is fully sandboxed | Not guaranteed | Unsupported claim; use Codex adapter for hard mode |
 
 ## Critical limitation

@@ -284,6 +284,7 @@ def release_ready(
     require_clawpatch: bool = False,
 ) -> dict[str, Any]:
     repo = git_root(repo_path)
+    initial_head = _git_output(repo, ["git", "rev-parse", "HEAD"])
     metadata = _load_metadata(repo)
     target = target.strip() or str(metadata.get("target", "")).strip()
     rollback = rollback.strip() or str(metadata.get("rollback", "")).strip()
@@ -337,6 +338,27 @@ def release_ready(
         items.append(_item("verification gates pass", False, "not run", f"{PUBLIC_COMMAND} release-ready"))
     else:
         items.append(_item("verification gates pass", False, "nothing to run", f"{PUBLIC_COMMAND} checks suggest"))
+
+    integrity_failures: list[str] = []
+    if _git_output(repo, ["git", "rev-parse", "HEAD"]) != initial_head:
+        integrity_failures.append("HEAD changed while release checks ran")
+    expected_tree_digest = str(run_proof.get("verified_source_tree_sha256") or "").strip()
+    if not expected_tree_digest:
+        integrity_failures.append("completed run proof has no verified source-tree digest")
+    else:
+        try:
+            final_tree_digest = source_tree_digest(repo, CommandRunner())
+        except Exception as exc:
+            integrity_failures.append(f"final source-tree digest could not be computed: {exc}")
+        else:
+            if final_tree_digest != expected_tree_digest:
+                integrity_failures.append("source tree changed after completed-run proof")
+    items.append(_item(
+        "source integrity after verification gates",
+        not integrity_failures,
+        "; ".join(integrity_failures) if integrity_failures else "HEAD and source tree unchanged",
+        str(run_proof.get("next") or "git status --short"),
+    ))
 
     items.extend([
         _item("deployment target", bool(target), target or "missing", _release_metadata_command()),
