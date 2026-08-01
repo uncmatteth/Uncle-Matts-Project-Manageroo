@@ -472,7 +472,7 @@ def _install_bundled_skill(
         raise ValueError(f"Refusing to install through symlinked skills root: {unresolved_root}")
     unresolved_root.mkdir(parents=True, exist_ok=True)
     root_real = unresolved_root.resolve()
-    skill_dir = unresolved_root / skill_name
+    skill_dir = root_real / skill_name
     if skill_dir.is_symlink():
         raise ValueError(f"Refusing to install through symlinked skill directory: {skill_dir}")
     if skill_dir.exists() and not skill_dir.is_dir():

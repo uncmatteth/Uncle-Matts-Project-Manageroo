@@ -48,6 +48,24 @@ class TokenModeTests(unittest.TestCase):
             self.assertTrue(curse.exists())
             self.assertIn("69% MORE PROFANITY", curse.read_text(encoding="utf-8"))
 
+    def test_installs_token_skills_with_relative_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            previous_cwd = Path.cwd()
+            os.chdir(temp)
+            try:
+                installed = install_token_skills(Path("skills"))
+            finally:
+                os.chdir(previous_cwd)
+
+            root = Path(temp) / "skills"
+            self.assertEqual(Path(installed["caveman"]), root / "caveman" / "SKILL.md")
+            self.assertEqual(
+                Path(installed["curse"]),
+                root / "uncle-matts-caveman-curse" / "SKILL.md",
+            )
+            self.assertTrue((root / "caveman" / "SKILL.md").is_file())
+            self.assertTrue((root / "uncle-matts-caveman-curse" / "SKILL.md").is_file())
+
     def test_set_and_read_token_mode(self):
         with tempfile.TemporaryDirectory() as temp:
             state = Path(temp) / "token-mode.json"
