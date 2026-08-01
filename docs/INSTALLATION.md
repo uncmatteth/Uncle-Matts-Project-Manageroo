@@ -33,6 +33,7 @@ Windows PowerShell:
 ```
 
 The launchers install the same Manageroo product.
+On Windows, paths written into the generated command launcher cannot contain `%`, which batch files interpret as variable expansion.
 
 An AI or IDE agent can assist, but it should surface meaningful installer choices before selecting them on the user's behalf.
 

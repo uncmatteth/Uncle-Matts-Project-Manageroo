@@ -128,7 +128,7 @@ def command_version(executable: str) -> str:
 
 def _safe_cmd_value(path: Path) -> str:
     text = str(path)
-    if any(character in text for character in ('"', "\r", "\n")):
+    if any(character in text for character in ('"', "%", "\r", "\n")):
         raise SystemExit(f"Installer path contains characters unsafe for a Windows command launcher: {text!r}")
     return text
 

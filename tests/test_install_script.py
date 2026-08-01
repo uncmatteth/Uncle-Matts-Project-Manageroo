@@ -38,6 +38,21 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_windows_launcher_rejects_percent_expansion_in_each_interpolated_path(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            safe = root / "safe"
+            path_arguments = {
+                "python": (root / "%TESTVAR%" / "python.exe", safe, safe),
+                "app_root": (safe, root / "%TESTVAR%" / "app", safe),
+                "prefix": (safe, safe, root / "%TESTVAR%" / "prefix"),
+            }
+            for name, arguments in path_arguments.items():
+                with self.subTest(path=name), patch.object(install.os, "name", "nt"):
+                    with self.assertRaisesRegex(SystemExit, "unsafe for a Windows command launcher"):
+                        install.install_launcher(root / name / "bin", *arguments)
+
     def test_agent_detection_reports_supported_coding_tools_already_on_the_machine(self):
         install = load_install_script()
         paths = {
