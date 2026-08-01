@@ -78,7 +78,45 @@ class FailingWorker(AgentAdapter):
         raise AgentExecutionError("should never run on a dirty non-disposable workspace")
 
 
+class GitMetadataMutationWorker(AgentAdapter):
+    def doctor(self, cwd: Path):
+        return {"ok": True}
+
+    def run(self, req: AgentRequest):
+        config = req.cwd / ".git" / "config"
+        config.write_bytes(
+            config.read_bytes()
+            + b"\n[remote \"attacker\"]\n\turl = https://example.invalid\n"
+        )
+        hook = req.cwd / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+        return AgentResponse(role=req.role, data={"ok": True}, raw_text="{}", command=["fake"])
+
+
+def git_metadata(repo: Path) -> dict[str, tuple[int, bytes]]:
+    git_dir = repo / ".git"
+    return {
+        path.relative_to(git_dir).as_posix(): (path.stat().st_mode & 0o777, path.read_bytes())
+        for path in git_dir.rglob("*")
+        if path.is_file()
+    }
+
+
 class TransactionalAdapterHardeningTests(unittest.TestCase):
+    def test_successful_worker_git_metadata_mutation_is_rejected_and_restored(self):
+        for sandbox in ("read-only", "workspace-write"):
+            with self.subTest(sandbox=sandbox), tempfile.TemporaryDirectory() as temp:
+                repo = make_repo(Path(temp))
+                before = git_metadata(repo)
+                adapter = TransactionalAdapter(GitMetadataMutationWorker(), CommandRunner())
+
+                with self.assertRaisesRegex(SafetyError, "protected Git metadata"):
+                    adapter.run(request(repo, sandbox))
+
+                self.assertEqual(git_metadata(repo), before)
+                self.assertEqual(git(repo, "status", "--porcelain", "--ignored"), "")
+
     def test_read_only_committed_mutation_is_rejected_and_head_restored(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = make_repo(Path(temp))

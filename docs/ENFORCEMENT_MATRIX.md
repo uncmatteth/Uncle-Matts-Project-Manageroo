@@ -10,6 +10,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | AI cannot request broad edit scope | Exact allowed-path validation before plan lock | Preventive |
 | Agent cannot commit normally | Failing pre-commit hook | Preventive for normal commit |
 | Agent cannot bypass commit rule | `HEAD` comparison | Detective, blocks acceptance |
+| Agent cannot persist Git config, hooks, or other Git-directory metadata | In-memory Git-directory checkpoint, comparison, and verified restoration | Detective, blocks acceptance and restores metadata |
 | Agent cannot invent executable gates | Gate IDs reference controller config | Preventive |
 | Dangerous shell interpolation | argv-only subprocess execution; no `shell=True` | Preventive in controller |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |

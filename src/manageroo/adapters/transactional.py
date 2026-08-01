@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
+import stat
 from pathlib import Path
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
@@ -26,6 +28,7 @@ class TransactionalAdapter(AgentAdapter):
         result["transactional_attempts"] = True
         result["read_only_mutation_enforced"] = True
         result["git_history_mutation_enforced"] = True
+        result["git_metadata_mutation_enforced"] = True
         result["pristine_workspace_required"] = True
         result["ignored_worker_state_discarded"] = True
         result["critical_controller_truth_guard"] = True
@@ -74,6 +77,110 @@ class TransactionalAdapter(AgentAdapter):
             if separator and name and sha:
                 refs[name] = sha
         return refs
+
+    def _git_directory(self, cwd: Path) -> Path:
+        result = self.runner.run(
+            ["git", "rev-parse", "--absolute-git-dir"], cwd=cwd, timeout_seconds=30
+        )
+        if not result.passed or not result.stdout.strip():
+            raise SafetyError(
+                "Manageroo could not locate the worker-attempt Git directory: " + result.stderr
+            )
+        git_dir = Path(result.stdout.strip())
+        if not git_dir.is_absolute():
+            git_dir = cwd / git_dir
+        git_dir = git_dir.resolve()
+        expected_git_dir = cwd.resolve() / ".git"
+        if git_dir != expected_git_dir or not git_dir.is_dir() or git_dir.is_symlink():
+            raise SafetyError(
+                "Transactional worker execution requires a repository-local .git directory: "
+                f"{git_dir}"
+            )
+        return git_dir
+
+    def _git_metadata_state(self, git_dir: Path) -> dict[str, tuple[str, int, bytes]]:
+        state: dict[str, tuple[str, int, bytes]] = {}
+        if not git_dir.exists() or git_dir.is_symlink() or not git_dir.is_dir():
+            return state
+        for path in [git_dir, *sorted(git_dir.rglob("*"))]:
+            relative = "." if path == git_dir else path.relative_to(git_dir).as_posix()
+            metadata = path.lstat()
+            mode = stat.S_IMODE(metadata.st_mode)
+            if stat.S_ISDIR(metadata.st_mode):
+                state[relative] = ("directory", mode, b"")
+            elif stat.S_ISREG(metadata.st_mode):
+                state[relative] = ("file", mode, path.read_bytes())
+            else:
+                state[relative] = ("unsupported", mode, b"")
+        return state
+
+    def _snapshot_git_metadata(
+        self, cwd: Path
+    ) -> tuple[Path, dict[str, tuple[str, int, bytes]]]:
+        git_dir = self._git_directory(cwd)
+        snapshot = self._git_metadata_state(git_dir)
+        unsupported = [path for path, entry in snapshot.items() if entry[0] == "unsupported"]
+        if unsupported:
+            raise SafetyError(
+                "Transactional worker execution does not support symlinks or special files "
+                "in the Git directory: "
+                + ", ".join(unsupported)
+            )
+        return git_dir, snapshot
+
+    @staticmethod
+    def _make_removable(function, path: str, _exc_info) -> None:
+        os.chmod(path, stat.S_IRWXU)
+        function(path)
+
+    def _restore_git_metadata(
+        self, snapshot: tuple[Path, dict[str, tuple[str, int, bytes]]]
+    ) -> bool:
+        git_dir, expected = snapshot
+        try:
+            current = self._git_metadata_state(git_dir)
+        except OSError:
+            current = {}
+        if current == expected:
+            return False
+        changed_paths = {
+            path
+            for path in set(current) | set(expected)
+            if current.get(path) != expected.get(path)
+        }
+        protected_metadata_changed = bool(changed_paths - {"index"})
+        try:
+            if git_dir.is_dir() and not git_dir.is_symlink():
+                shutil.rmtree(git_dir, onerror=self._make_removable)
+            elif git_dir.exists() or git_dir.is_symlink():
+                git_dir.unlink()
+
+            git_dir.mkdir(parents=True, mode=0o700)
+            directories = [
+                (relative, entry)
+                for relative, entry in expected.items()
+                if relative != "." and entry[0] == "directory"
+            ]
+            for relative, _entry in sorted(directories, key=lambda item: item[0].count("/")):
+                (git_dir / relative).mkdir(mode=0o700)
+            for relative, (kind, mode, content) in expected.items():
+                if kind != "file":
+                    continue
+                path = git_dir / relative
+                path.write_bytes(content)
+                path.chmod(mode)
+            for relative, (_kind, mode, _content) in sorted(
+                directories, key=lambda item: item[0].count("/"), reverse=True
+            ):
+                (git_dir / relative).chmod(mode)
+            git_dir.chmod(expected["."][1])
+        except OSError as exc:
+            raise SafetyError(
+                f"Worker changed protected Git metadata and it could not be restored: {git_dir}: {exc}"
+            ) from exc
+        if self._git_metadata_state(git_dir) != expected:
+            raise SafetyError("Worker changed protected Git metadata and restoration could not be verified.")
+        return protected_metadata_changed
 
     def _clean_ignored(self, cwd: Path) -> None:
         clean = self.runner.run(["git", "clean", "-fdX"], cwd=cwd, timeout_seconds=120)
@@ -127,8 +234,17 @@ class TransactionalAdapter(AgentAdapter):
             except OSError as exc:
                 raise SafetyError(f"Failed worker output could not be discarded safely: {path}: {exc}") from exc
 
-    def _rollback_failed_attempt(self, request: AgentRequest, head: str, refs: dict[str, str], head_state: tuple[str, str]) -> None:
+    def _rollback_failed_attempt(
+        self,
+        request: AgentRequest,
+        head: str,
+        refs: dict[str, str],
+        head_state: tuple[str, str],
+        git_snapshot: tuple[Path, dict[str, tuple[str, int, bytes]]],
+    ) -> None:
+        self._restore_git_metadata(git_snapshot)
         self._rollback(request.cwd, head, refs, head_state)
+        self._restore_git_metadata(git_snapshot)
         self._discard_failed_outputs(request)
 
     def _run_location(self, request: AgentRequest) -> tuple[Path, str, str] | None:
@@ -236,21 +352,34 @@ class TransactionalAdapter(AgentAdapter):
         head = self._head(request.cwd)
         head_state = self._head_state(request.cwd)
         refs = self._refs(request.cwd)
+        git_snapshot = self._snapshot_git_metadata(request.cwd)
         truth_snapshot = self._snapshot_controller_truth(request)
         try:
             response = self.inner.run(request)
         except Exception as exc:
+            changed_git_metadata = self._restore_git_metadata(git_snapshot)
             changed_truth = self._restore_controller_truth(truth_snapshot)
-            self._rollback_failed_attempt(request, head, refs, head_state)
+            self._rollback_failed_attempt(request, head, refs, head_state, git_snapshot)
+            if changed_git_metadata:
+                raise SafetyError("Worker modified protected Git metadata; changes were restored.") from exc
             if changed_truth:
                 raise SafetyError(
                     "Worker modified critical Manageroo controller truth; changes were restored: " + ", ".join(changed_truth)
                 ) from exc
             raise
 
+        changed_git_metadata = self._restore_git_metadata(git_snapshot)
         changed_truth = self._restore_controller_truth(truth_snapshot)
+        if changed_git_metadata:
+            self._rollback_failed_attempt(request, head, refs, head_state, git_snapshot)
+            if request.sandbox == "read-only":
+                raise SafetyError(
+                    f"Read-only worker {request.role!r} mutated repository state or Git history, "
+                    "including protected Git metadata; changes were restored."
+                )
+            raise SafetyError("Worker modified protected Git metadata; changes were restored.")
         if changed_truth:
-            self._rollback_failed_attempt(request, head, refs, head_state)
+            self._rollback_failed_attempt(request, head, refs, head_state, git_snapshot)
             raise SafetyError(
                 "Worker modified critical Manageroo controller truth; changes were restored: " + ", ".join(changed_truth)
             )
@@ -276,10 +405,11 @@ class TransactionalAdapter(AgentAdapter):
         except Exception as exc:
             try:
                 self._restore_controller_truth(truth_snapshot)
-                self._rollback_failed_attempt(request, head, refs, head_state)
+                self._rollback_failed_attempt(request, head, refs, head_state, git_snapshot)
             except Exception as rollback_exc:
                 raise SafetyError(
                     "Worker finalization failed and the workspace could not be rolled back safely: " + str(rollback_exc)
                 ) from rollback_exc
             raise exc
+        self._restore_git_metadata(git_snapshot)
         return response
