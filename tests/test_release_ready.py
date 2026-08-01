@@ -11,7 +11,7 @@ from manageroo.project import initialize_project
 from manageroo.release_proof_policy import source_tree_digest
 from manageroo.release_ready import format_release_ready, release_ready
 from manageroo.runner import CommandRunner
-from manageroo.util import atomic_write_json, sha256_file
+from manageroo.util import atomic_write_json, read_json, sha256_file
 
 
 class ReleaseReadyTests(unittest.TestCase):
@@ -147,6 +147,33 @@ class ReleaseReadyTests(unittest.TestCase):
             run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
             self.assertFalse(run_item["ok"])
             self.assertIn("patch bytes", run_item["detail"])
+
+    def test_release_ready_rejects_malformed_completed_proof_without_raising(self):
+        cases = (
+            ("null evidence_paths", "evidence_paths", None),
+            ("null review", "review", None),
+            ("non-string patch path", "evidence_paths.patch", ["final.patch"]),
+            ("string applied state", "applied_to_source", "false"),
+        )
+        for label, field, value in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                run_root = self._completed_run(repo)
+                result_path = run_root / "delivery" / "final-result.json"
+                proof = read_json(result_path)
+                if field == "evidence_paths.patch":
+                    proof["evidence_paths"]["patch"] = value
+                else:
+                    proof[field] = value
+                atomic_write_json(result_path, proof)
+
+                report = self._release_ready(repo)
+
+                self.assertFalse(report["ok"])
+                run_proof = report["manageroo_run"]
+                self.assertFalse(run_proof["ok"])
+                self.assertIn("invalid schema", run_proof["detail"])
+                self.assertIn(field, run_proof["detail"])
 
     def test_release_ready_fails_without_completed_manageroo_run(self):
         with tempfile.TemporaryDirectory() as temp:
