@@ -8,7 +8,7 @@ from .assets import asset_path
 from .config import write_config
 from .detector import detect_gates
 from .errors import ConfigurationError
-from .project_memory import ensure_project_memory
+from .project_memory import ensure_project_memory, project_memory_path
 from .runner import CommandRunner
 from .util import atomic_write_json, atomic_write_text
 
@@ -284,9 +284,11 @@ def create_project_repo(path: Path, *, title: str = "", description: str = "", s
 
 
 def _read_utf8_preflight(path: Path, *, label: str) -> None:
+    if path.is_symlink():
+        raise ValueError(f"Refusing to rewrite unsafe {label}: {path}")
     if not path.exists():
         return
-    if path.is_symlink() or not path.is_file():
+    if not path.is_file():
         raise ValueError(f"Refusing to rewrite unsafe {label}: {path}")
     try:
         path.read_text(encoding="utf-8")
@@ -308,6 +310,7 @@ def _preflight_initialize_project(repo: Path) -> None:
     manageroo = repo / ".manageroo"
     if manageroo.exists() and (manageroo.is_symlink() or not manageroo.is_dir()):
         raise ValueError(f"Refusing to initialize through unsafe Manageroo directory: {manageroo}")
+    _read_utf8_preflight(project_memory_path(repo), label="project memory file")
     for directory in (
         repo / ".agents",
         repo / ".agents" / "skills",

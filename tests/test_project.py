@@ -141,6 +141,33 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertFalse((repo / ".agents").exists())
             self.assertFalse((repo / "CONTEXT.md").exists())
 
+    def test_initialization_preflights_non_utf8_project_memory_before_mutating_repo(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            manageroo = repo / ".manageroo"
+            manageroo.mkdir()
+            memory = manageroo / "PROJECT-MEMORY.md"
+            memory.write_bytes(b"prefix\xffsuffix")
+            before = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in repo.rglob("*")
+                if path.is_file() and ".git" not in path.parts
+            }
+
+            with self.assertRaises(ValueError):
+                initialize_project(repo, agent="mock")
+
+            after = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in repo.rglob("*")
+                if path.is_file() and ".git" not in path.parts
+            }
+            self.assertEqual(after, before)
+            self.assertFalse((manageroo / "config.toml").exists())
+            self.assertFalse((manageroo / "PRODUCT-BRIEF.md").exists())
+
     def test_initialization_preserves_existing_instruction_context_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
