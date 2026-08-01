@@ -17,6 +17,10 @@ class TransactionalAdapter(AgentAdapter):
         self.inner = inner
         self.runner = runner
 
+    @property
+    def requires_host_capability_catalog(self) -> bool:
+        return self.inner.requires_host_capability_catalog
+
     def doctor(self, cwd: Path) -> dict:
         result = dict(self.inner.doctor(cwd))
         result["transactional_attempts"] = True

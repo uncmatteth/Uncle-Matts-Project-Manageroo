@@ -56,6 +56,13 @@ Those commands report the current host as informational context. A target projec
 
 # Skills
 
+Describe the job normally. Manageroo automatically selects relevant installed
+capabilities before each worker starts. It does not ask the user to remember a
+`$skill-name`, and it does not load the whole catalog into every worker packet.
+
+Normal, Caveman, and Caveman Curse remain the one-time installer communication
+choice. That saved preference is applied separately from task routing.
+
 The repository contains **50 bundled skill packages**.
 
 - **18 portable core skills** are installed as the recommended/default Manageroo-owned pack.
@@ -123,6 +130,7 @@ Inspect skills already present on the host without changing them:
 ```bash
 manageroo host-skills
 manageroo host-skills --json
+manageroo skills explain "describe the job normally"
 ```
 
 # Optional surrounding stack
@@ -172,7 +180,7 @@ This discovers Git repositories and lets Manageroo register projects you already
 manageroo solo /absolute/path/to/product
 ```
 
-`solo` prepares the project configuration, product brief, project memory, intent lock, readiness state, and one next action.
+`solo` safely creates or updates `AGENTS.md`, `CONTEXT.md`, the project configuration, product brief, project memory, intent lock, repo-local Manageroo skill, readiness state, and one next action. The operator answers plain-English questions instead of hand-filling context files. Existing human-written `AGENTS.md` and `CONTEXT.md` content is preserved.
 
 ## New or empty repository
 
@@ -297,7 +305,7 @@ Bundled optional library
     32 additional skills available without becoming default installs
 
 Optional surrounding stack
-    GitNexus + GBrain + AUTOREVIEW + Clawpatch + Obsidian when selected
+    GitNexus + GBrain + TruffleHog + AUTOREVIEW + Clawpatch + Obsidian when selected
 
 Host environment
     independently owned additional skills and tools

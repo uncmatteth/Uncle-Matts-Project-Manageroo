@@ -72,6 +72,28 @@ Required context exceeding a limit is not truncated; the plan must decompose.
 
 Implementation tasks still run in dependency order in one integration workspace.
 
+## `[capabilities]`
+
+- `enabled`: automatically route relevant installed capabilities into every worker packet. Default: `true`. Setting it to `false` disables selection, but Codex workers still require bounded catalog discovery so unselected global skills can be hidden for that process.
+- `max_selected`: hard maximum number of selected task capabilities. Default: `4`.
+- `max_prompt_chars`: hard character ceiling for complete selected skill entrypoints. A skill is omitted rather than partially loaded. Default: `24000`.
+
+The operator is never asked to select a skill. `manageroo skills explain
+"normal-language task"` is a diagnostic view of the same automatic decision,
+not a required workflow step. Saved token mode is separate.
+
+Optional skill frontmatter can narrow automatic use with
+`manageroo_roles: [reviewer]`, `manageroo_sandboxes: [read-only]`,
+`manageroo_interactive: true`, `manageroo_external_actions: true`,
+`manageroo_required_commands: [tool-name]`, or `mutating: true`. An explicit
+skill request that conflicts with these limits,
+host-disabled state, a duplicate-name conflict, or a capsule budget exits
+blocked before a worker launches.
+
+Skills cannot self-declare an exception to external-action detection. Safety and
+authority remain controller-owned even when third-party frontmatter claims a
+skill is unattended-safe.
+
 ## Learning lane
 
 Learning cards do not have a config switch that permits silent mutation. Cards

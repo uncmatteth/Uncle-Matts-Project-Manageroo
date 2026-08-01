@@ -25,12 +25,17 @@ from manageroo.chiptune import ThemePlayback, play_once  # noqa: E402
 from manageroo.credits import format_special_thanks  # noqa: E402
 from manageroo.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
 from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
+from manageroo.trufflehog import (  # noqa: E402
+    TRUFFLEHOG_REFERENCE,
+    TRUFFLEHOG_VERSION,
+    install_trufflehog_binary,
+)
 from manageroo.util import atomic_write_json  # noqa: E402
 
 # Manageroo releases pin every third-party source that this installer can execute or copy.
 # Updating one of these pins is a source change that goes through Manageroo's own release proof.
 CODEX_NPM_PACKAGE = "@openai/codex@0.144.4"
-GBRAIN_COMMIT = "3cc34c92eec2540ef36d2513eff8d4e4bf73bad9"
+GBRAIN_COMMIT = "f84bfb57f2ab9294ea9c4bb33e40dec75dab41bf"
 GBRAIN_INSTALL_SOURCE = f"github:garrytan/gbrain#{GBRAIN_COMMIT}"
 GBRAIN_AGENT_INSTALL_PROTOCOL_URL = (
     f"https://raw.githubusercontent.com/garrytan/gbrain/{GBRAIN_COMMIT}/INSTALL_FOR_AGENTS.md"
@@ -40,7 +45,7 @@ GITNEXUS_VERSION = "1.6.9"
 GITNEXUS_NPM_PACKAGE = f"gitnexus@{GITNEXUS_VERSION}"
 GITNEXUS_REFERENCE = "https://github.com/abhigyanpatwari/GitNexus"
 OPENCLAW_AGENT_SKILLS_REPO = "https://github.com/openclaw/agent-skills.git"
-OPENCLAW_AGENT_SKILLS_COMMIT = "c4ab5e7f999cf504890986322473d3e7afd373af"
+OPENCLAW_AGENT_SKILLS_COMMIT = "4b79fc967ba4d7c5231f99dd27bb1372c83e9430"
 AUTOREVIEW_REFERENCE = (
     "https://github.com/openclaw/agent-skills/tree/"
     f"{OPENCLAW_AGENT_SKILLS_COMMIT}/skills/autoreview"
@@ -704,6 +709,60 @@ def install_autoreview(downloads: list[dict], prefix: Path) -> dict:
     }
 
 
+def install_trufflehog(downloads: list[dict], bin_dir: Path) -> dict:
+    existing = shutil.which("trufflehog")
+    if existing:
+        return {
+            "name": "trufflehog",
+            "installed": True,
+            "configured": True,
+            "path": existing,
+            "version": command_version("trufflehog"),
+            "manageroo_owned": False,
+            "reference": TRUFFLEHOG_REFERENCE,
+            "pinned_version": TRUFFLEHOG_VERSION,
+        }
+    destination = bin_dir / ("trufflehog.exe" if os.name == "nt" else "trufflehog")
+    if destination.exists():
+        return {
+            "name": "trufflehog",
+            "installed": False,
+            "configured": False,
+            "error": f"Refusing to overwrite an unrecognized existing path: {destination}",
+            "reference": TRUFFLEHOG_REFERENCE,
+        }
+    try:
+        report = install_trufflehog_binary(destination)
+    except (OSError, RuntimeError, TimeoutError) as exc:
+        return {
+            "name": "trufflehog",
+            "installed": False,
+            "configured": False,
+            "error": f"Pinned TruffleHog installation failed: {exc}",
+            "reference": TRUFFLEHOG_REFERENCE,
+        }
+    downloads.append(
+        {
+            "tool": "trufflehog",
+            "method": "verified-github-release-archive",
+            "source": report["url"],
+            "asset": report["asset"],
+            "sha256": report["sha256"],
+            "immutable": True,
+        }
+    )
+    return {
+        "name": "trufflehog",
+        "installed": True,
+        "configured": True,
+        "path": str(destination),
+        "version": TRUFFLEHOG_VERSION,
+        "manageroo_owned": True,
+        "reference": TRUFFLEHOG_REFERENCE,
+        "pinned_version": TRUFFLEHOG_VERSION,
+    }
+
+
 def ensure_pnpm(downloads: list[dict]) -> str | None:
     pnpm = shutil.which("pnpm")
     npm = _ensure_node_npm()
@@ -890,10 +949,12 @@ def install_recommended_stack(
     prefix: Path,
     gbrain_lane: str,
     clawpatch_codex_login: str,
+    bin_dir: Path,
 ) -> list[dict]:
     return [
         install_gbrain(downloads, gbrain_lane),
         install_gitnexus(downloads),
+        install_trufflehog(downloads, bin_dir),
         install_autoreview(downloads, prefix),
         install_clawpatch(downloads, clawpatch_codex_login),
         install_obsidian(downloads, obsidian_method),
@@ -1135,6 +1196,9 @@ def main() -> int:
     external_tools: list[dict] = []
     with ThemePlayback(cue="install", enabled=not args.no_music, variant=69):
         prefix = args.prefix.expanduser().resolve()
+        bin_dir = args.bin_dir.expanduser().resolve()
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["PATH"] = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
         venv_root = prefix / "venv"
         app_root = prefix / "app"
         prefix.mkdir(parents=True, exist_ok=True)
@@ -1196,6 +1260,7 @@ def main() -> int:
                     prefix,
                     choose_gbrain_lane(args.gbrain_lane),
                     args.clawpatch_codex_login,
+                    bin_dir,
                 )
             )
         else:
@@ -1203,7 +1268,7 @@ def main() -> int:
                 {
                     "name": "recommended-stack",
                     "skipped": True,
-                    "reason": "Stack install skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch, and Obsidian.",
+                    "reason": "Stack install skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian.",
                 }
             )
 
@@ -1223,7 +1288,7 @@ def main() -> int:
         python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")
-        launcher = install_launcher(args.bin_dir.expanduser().resolve(), python, app_root, prefix)
+        launcher = install_launcher(bin_dir, python, app_root, prefix)
         installed_env = {"PYTHONPATH": str(app_root)}
         version = run([str(python), "-m", "manageroo", "--version"], cwd=prefix, env=installed_env)
         self_test_output = (
@@ -1253,7 +1318,7 @@ def main() -> int:
             "uninstall_plan": uninstall_plan(prefix, args.bin_dir.expanduser().resolve()),
             "network_downloads": downloads,
             "dependency_policy": (
-                "Manageroo is the portable controller. Executable or copied third-party sources selected by this installer are pinned by the Manageroo release; operating-system package-manager installs remain explicit operator-selected lanes. GitNexus is first-class recommended repository intelligence in the full stack; GBrain, AUTOREVIEW, Clawpatch, and Obsidian are surrounding lanes. External tools never replace Manageroo completion authority."
+                "Manageroo is the portable controller. Executable or copied third-party sources selected by this installer are pinned by the Manageroo release; operating-system package-manager installs remain explicit operator-selected lanes. GitNexus is first-class recommended repository intelligence in the full stack; GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian are surrounding lanes. External tools never replace Manageroo completion authority."
             ),
         }
         atomic_write_json(prefix / "install-lock.json", lock)

@@ -23,6 +23,10 @@ class WorkerPoolAdapter(AgentAdapter):
         self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
         self._hook_managed_workers: set[str] = set()
 
+    @property
+    def requires_host_capability_catalog(self) -> bool:
+        return any(adapter.requires_host_capability_catalog for _, adapter in self.workers)
+
     @staticmethod
     def _install_worker_hook(
         adapter: Any,

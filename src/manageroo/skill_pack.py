@@ -243,7 +243,16 @@ def reconcile_skill_pack(
         if expanded not in source_roots:
             source_roots.append(expanded)
 
-    installed = install_core_helper_skills(target_root) if apply else {}
+    reuse_roots = [
+        root
+        for root in source_roots
+        if root != target_root and root.parent.name in {".agents", ".codex"}
+    ]
+    installed = (
+        install_core_helper_skills(target_root, search_roots=reuse_roots)
+        if apply
+        else {}
+    )
     import_reports: list[dict[str, Any]] = []
     if apply and include_external:
         for source in source_roots:
@@ -262,7 +271,12 @@ def reconcile_skill_pack(
         name: items for name, items in sorted(by_name.items())
         if len({item["sha256"] for item in items}) > 1 or len(items) > 1
     }
-    missing_bundled = [name for name in sorted(CORE_HELPER_SKILLS) if not (target_root / name / "SKILL.md").exists()]
+    missing_bundled = [
+        name
+        for name in sorted(CORE_HELPER_SKILLS)
+        if not str(installed.get(name, "")).strip()
+        or not Path(installed[name]).is_file()
+    ] if apply else []
     return {
         "ok": not missing_bundled if apply else True,
         "applied": apply,
@@ -276,8 +290,8 @@ def reconcile_skill_pack(
         "external_imports": import_reports,
         "next_command": "" if apply else shlex.join([PUBLIC_COMMAND, "skills", "reconcile", "--apply"]),
         "note": (
-            "Reconcile installs one active Manageroo-managed copy of each bundled skill under the target skills directory. "
-            "It reports duplicate names in other agent skill roots instead of deleting outside directories."
+            "Reconcile reuses an existing same-name skill across standard agent roots and installs only missing bundled skills. "
+            "It reports pre-existing duplicate names instead of deleting or manufacturing another copy."
         ),
     }
 

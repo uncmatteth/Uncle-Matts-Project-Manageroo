@@ -62,6 +62,14 @@ class CliSoloTests(unittest.TestCase):
             self.assertIn("Make checkout sane", memory_text)
             self.assertIn("Do not change exports", memory_text)
             self.assertIn("Run checkout tests", memory_text)
+            agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
+            context_text = (repo / "CONTEXT.md").read_text(encoding="utf-8")
+            self.assertIn(".manageroo/PROJECT-MEMORY.md", agents_text)
+            self.assertIn(".manageroo/PRODUCT-BRIEF.md", context_text)
+            self.assertTrue((repo / ".manageroo" / "config.toml").is_file())
+            self.assertTrue(
+                (repo / ".agents" / "skills" / "uncle-matts-project-manageroo" / "SKILL.md").is_file()
+            )
             intent = repo / ".manageroo" / "intent" / "INTENT-LOCK.json"
             intent_payload = json.loads(intent.read_text(encoding="utf-8"))
             self.assertEqual(intent_payload["want"], "Make checkout sane")

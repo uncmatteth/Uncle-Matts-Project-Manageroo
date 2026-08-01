@@ -19,6 +19,7 @@ from .stack_update import (
     GITNEXUS_REFERENCE,
 )
 from .util import redact_text
+from .trufflehog import TRUFFLEHOG_REFERENCE, TRUFFLEHOG_VERSION
 
 WhichFn = Callable[[str], str | None]
 RunnerFn = Callable[[list[str], int], dict]
@@ -169,7 +170,32 @@ def _gitnexus(which: WhichFn, runner: RunnerFn) -> dict:
     }
 
 
-def _autoreview(home: Path) -> dict:
+def _trufflehog(which: WhichFn, runner: RunnerFn) -> dict:
+    path = which("trufflehog")
+    if not path:
+        return _missing(
+            "trufflehog",
+            "TruffleHog command not found. AUTOREVIEW requires it for the pre-review secret scan.",
+            ["Rerun the Manageroo installer with the recommended stack enabled."],
+            reference=TRUFFLEHOG_REFERENCE,
+        )
+    version_probe = runner([path, "--version"], 30)
+    configured = bool(version_probe.get("ok"))
+    return {
+        "name": "trufflehog",
+        "status": "ok" if configured else "needs_action",
+        "installed": True,
+        "configured": configured,
+        "path": path,
+        "detail": f"version probe passed; Manageroo release pin is {TRUFFLEHOG_VERSION}" if configured else "installed; version probe failed",
+        "next_commands": [] if configured else ["trufflehog --version"],
+        "probes": {"version": _safe_probe_record(version_probe)},
+        "reference": TRUFFLEHOG_REFERENCE,
+        "pinned_version": TRUFFLEHOG_VERSION,
+    }
+
+
+def _autoreview(home: Path, trufflehog: dict) -> dict:
     candidates = [
         home / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
         home / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
@@ -190,14 +216,20 @@ def _autoreview(home: Path) -> dict:
             ],
             reference=AUTOREVIEW_REFERENCE,
         )
+    configured = bool(trufflehog.get("configured"))
     return {
         "name": "autoreview",
-        "status": "ok",
+        "status": "ok" if configured else "needs_action",
         "installed": True,
-        "configured": True,
+        "configured": configured,
         "path": str(existing),
-        "detail": f"runnable script found at {existing}",
-        "next_commands": [],
+        "detail": (
+            f"runnable script and TruffleHog dependency found at {existing}"
+            if configured
+            else f"runnable script found at {existing}, but required TruffleHog is not ready"
+        ),
+        "next_commands": [] if configured else list(trufflehog.get("next_commands") or []),
+        "dependencies": {"trufflehog": trufflehog},
         "detected_locations": [str(path) for path in valid],
         "reference": AUTOREVIEW_REFERENCE,
         "pinned_commit": AUTOREVIEW_COMMIT,
@@ -289,10 +321,12 @@ def stack_doctor(
 ) -> dict:
     home = (home or Path.home()).expanduser()
     codex = _codex(which, runner)
+    trufflehog = _trufflehog(which, runner)
     items = [
         _gbrain(which, runner),
         _gitnexus(which, runner),
-        _autoreview(home),
+        trufflehog,
+        _autoreview(home, trufflehog),
         _clawpatch(which, runner, codex),
         _obsidian(which),
         codex,

@@ -58,6 +58,12 @@ Concurrency comes from project orchestration configuration because a configured 
 
 ## Portable core skill pack
 
+Installing the pack does not make the operator choose skills manually. During a
+run, Manageroo indexes available metadata locally and automatically gives each
+worker only the relevant bounded capability capsule. The installer token-mode
+question separately saves whether agent prose is normal, Caveman, or Caveman
+Curse.
+
 Manageroo installs a small portable core by default:
 
 1. `uncle-matts-project-manageroo`
@@ -81,6 +87,18 @@ Manageroo installs a small portable core by default:
 
 The repository may ship additional optional skill assets, but they are not Manageroo-owned default dependencies.
 
+Installation inventories the standard `.agents/skills` and `.codex/skills`
+roots before writing the portable core. An existing same-name skill is reused in
+place, including a differing host-owned version; setup does not create a second
+copy or a backup-file trail. Manageroo records ownership only for skill trees it
+actually creates. A later install may update that owned tree only while its
+digest still matches the last Manageroo install. If the operator edits it,
+Manageroo preserves the edit and stops treating the tree as Manageroo-owned.
+Known pre-ledger Manageroo bundle digests are migrated once so an upgrade from
+an older Manageroo release does not become permanently stale. The complete pack
+and its ownership ledger update transactionally: a later failure restores every
+earlier tree. Existing trees are hashed under hard file, entry, and byte limits.
+
 Inspect what the current host already has without changing anything:
 
 ```bash
@@ -88,7 +106,7 @@ manageroo host-skills
 manageroo host-skills --json
 ```
 
-`use-installed-skills-first` lets compatible workers use relevant host-installed skills when present. Manageroo does not copy, delete, upgrade, or claim ownership of the whole host skill environment.
+Automatic selection is controller-owned during Manageroo runs. `use-installed-skills-first` remains useful compatibility guidance for supported agents working outside a Manageroo run. Manageroo does not copy, delete, upgrade, or claim ownership of the whole host skill environment.
 
 Reconcile the Manageroo core later if needed:
 
@@ -102,6 +120,7 @@ Manageroo can install and integrate with a recommended surrounding stack:
 
 - **GitNexus** for repository and code-graph intelligence;
 - **GBrain** for external durable knowledge when explicitly relevant;
+- **TruffleHog** for the local secret scan required by AUTOREVIEW;
 - **AUTOREVIEW** for an external review lane;
 - **Clawpatch** for an external review/repair lane;
 - **Obsidian** for human-readable Markdown knowledge.
@@ -132,6 +151,8 @@ manageroo stack-update --apply
 ```
 
 The updater does not use absence as permission to install every optional component.
+
+The recommended installer is the exception for TruffleHog because current AUTOREVIEW cannot run without it. Manageroo first reuses an existing command. If none exists, it selects the official pinned release asset for Linux, macOS, or Windows and the current CPU architecture, verifies its SHA-256 checksum, installs only the binary beside the Manageroo launcher, and records that exact path as Manageroo-owned.
 
 ## Installer controls
 
@@ -172,6 +193,8 @@ Start Manageroo in an existing repo:
 ```bash
 manageroo solo /absolute/path/to/product
 ```
+
+`solo` creates or updates the repo's `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, intent lock, configuration, and repo-local Manageroo skill from plain-English answers. Existing human-written instruction and context content is preserved; the operator does not need to remember or hand-fill these files.
 
 Create a new missing or empty repo:
 
@@ -216,7 +239,7 @@ Manageroo core
     = portable controller and its small core skill pack
 
 Recommended surrounding stack
-    = GitNexus, GBrain, AUTOREVIEW, Clawpatch, Obsidian when selected
+    = GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, Obsidian when selected
 
 Host environment
     = additional independently owned skills and tools

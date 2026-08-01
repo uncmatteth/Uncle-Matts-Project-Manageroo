@@ -141,6 +141,24 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertFalse((repo / ".agents").exists())
             self.assertFalse((repo / "CONTEXT.md").exists())
 
+    def test_initialization_preserves_existing_instruction_context_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            (repo / "AGENTS.md").write_text("# My rules\n\nKeep this rule.\n", encoding="utf-8")
+            (repo / "CONTEXT.md").write_text("# My context\n\nKeep this language.\n", encoding="utf-8")
+
+            initialize_project(repo, agent="mock")
+            initialize_project(repo, agent="mock")
+
+            agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
+            context_text = (repo / "CONTEXT.md").read_text(encoding="utf-8")
+            self.assertIn("Keep this rule.", agents_text)
+            self.assertIn("Keep this language.", context_text)
+            self.assertEqual(agents_text.count("<!-- MANAGEROO:BEGIN -->"), 1)
+            self.assertEqual(context_text.count("<!-- MANAGEROO-CONTEXT:BEGIN -->"), 1)
+
     def test_create_project_repo_refuses_non_empty_non_git_folder(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "existing"

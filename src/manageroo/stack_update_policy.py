@@ -79,12 +79,17 @@ def _manager_bin(module: Any, manager: str) -> Path | None:
     return None
 
 
-def _owned_by_manager(module: Any, tool_path: str | None, manager: str) -> bool:
+def _owned_by_manager(
+    module: Any,
+    tool_path: str | None,
+    manager: str,
+    package_name: str = "",
+) -> bool:
     if not tool_path:
         return False
     tool = Path(tool_path).expanduser()
     try:
-        resolved = tool.resolve(strict=True)
+        tool.resolve(strict=True)
     except OSError:
         return False
     if manager in {"npm", "pnpm"}:
@@ -92,10 +97,19 @@ def _owned_by_manager(module: Any, tool_path: str | None, manager: str) -> bool:
         if root is None:
             return False
         try:
-            resolved.relative_to(root.resolve(strict=False))
-            return True
+            tool.absolute().relative_to(root.resolve(strict=False))
         except ValueError:
             return False
+        if package_name:
+            executable = shutil.which(manager)
+            if not executable:
+                return False
+            probe = module._run(
+                [executable, "list", "-g", "--depth=0", package_name],
+                timeout=30,
+            )
+            return bool(probe.get("ok"))
+        return True
     if manager == "snap":
         return str(tool).replace("\\", "/").startswith("/snap/bin/")
     return False
@@ -194,7 +208,19 @@ def install_stack_update_policy(module: Any) -> None:
             if name in {"gitnexus", "clawpatch"} and commands:
                 manager = Path(str(commands[0][0])).name.lower()
                 manager = "pnpm" if "pnpm" in manager else "npm" if "npm" in manager else manager
-                if not _owned_by_manager(module, active_path, manager):
+                package = module.GITNEXUS_PACKAGE if name == "gitnexus" else module.CLAWPATCH_PACKAGE
+                package_name = package.split("@", 1)[0]
+                if not _owned_by_manager(module, active_path, manager, package_name):
+                    alternate = "pnpm" if manager == "npm" else "npm"
+                    alternate_executable = shutil.which(alternate)
+                    if alternate_executable and _owned_by_manager(
+                        module, active_path, alternate, package_name
+                    ):
+                        verb = "add" if alternate == "pnpm" else "install"
+                        tool["commands"] = [[alternate_executable, verb, "-g", package]]
+                        if name == "clawpatch":
+                            tool["commands"].append([active_path, "doctor"])
+                        continue
                     tool["commands"] = []
                     tool["note"] = (
                         str(tool.get("note") or "")

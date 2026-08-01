@@ -68,7 +68,8 @@ Do not invent selections or bypass explicit choices.
 
 Manageroo owns a small portable 18-skill core. Do not load the whole pack for every job. Route only to relevant helpers.
 
-- Use `$use-installed-skills-first` before non-trivial local work when the host supports skills.
+- Manageroo-controlled workers receive automatic capability capsules. Do not ask the operator to choose or remember skills.
+- Outside a Manageroo-controlled run, use `$use-installed-skills-first` before non-trivial local work when the host supports skills.
 - Use `$skill-vetter` before adopting or installing third-party skills from external sources.
 - Use `$pimp-my-prompt` when a rough or overloaded request needs exact scope, acceptance criteria, proof, and stop rules.
 - Use `$to-prd`, `$to-issues`, `$grill-me`, or `$grill-with-docs` for product definition, issue breakdown, and requirement pressure.

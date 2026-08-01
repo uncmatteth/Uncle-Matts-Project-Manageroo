@@ -2,6 +2,7 @@ import importlib.util
 import io
 import re
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -309,6 +310,7 @@ class InstallScriptTests(unittest.TestCase):
             install.PNPM_PACKAGE,
             install.CLAWPATCH_PACKAGE,
             f"{install.OPENCLAW_AGENT_SKILLS_REPO}#{install.OPENCLAW_AGENT_SKILLS_COMMIT}",
+            f"{install.TRUFFLEHOG_REFERENCE}/releases/download/v{install.TRUFFLEHOG_VERSION}",
         ]
         for source in pinned:
             with self.subTest(source=source):
@@ -316,6 +318,27 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertNotIn("@latest", source.lower())
         self.assertEqual(len(install.GBRAIN_COMMIT), 40)
         self.assertEqual(len(install.OPENCLAW_AGENT_SKILLS_COMMIT), 40)
+
+    def test_trufflehog_install_records_verified_manageroo_ownership(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / "bin"
+            downloads = []
+            report = {
+                "version": install.TRUFFLEHOG_VERSION,
+                "path": str(bin_dir / "trufflehog"),
+                "asset": "trufflehog-test.tar.gz",
+                "url": f"{install.TRUFFLEHOG_REFERENCE}/releases/download/v{install.TRUFFLEHOG_VERSION}/trufflehog-test.tar.gz",
+                "sha256": "a" * 64,
+            }
+            with patch.object(install.shutil, "which", return_value=None), patch.object(
+                install, "install_trufflehog_binary", return_value=report
+            ):
+                result = install.install_trufflehog(downloads, bin_dir)
+        self.assertTrue(result["configured"])
+        self.assertTrue(result["manageroo_owned"])
+        self.assertTrue(downloads[0]["immutable"])
+        self.assertEqual(downloads[0]["sha256"], "a" * 64)
 
     def test_pinned_git_checkout_verifies_exact_commit(self):
         install = load_install_script()

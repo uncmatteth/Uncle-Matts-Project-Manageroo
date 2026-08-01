@@ -199,7 +199,7 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
         return loaded
     lock = loaded["lock"]
     summary = summarize_external_tools(lock.get("external_tools", []))
-    probes: dict[str, str | None] = {name: shutil.which(name) for name in ("codex", "gbrain", "gitnexus", "clawpatch", "obsidian")}
+    probes: dict[str, str | None] = {name: shutil.which(name) for name in ("codex", "gbrain", "gitnexus", "trufflehog", "clawpatch", "obsidian")}
     probes["autoreview"] = _find_skill("autoreview")
     for skill in CORE_HELPER_SKILLS:
         probes[skill] = _find_skill(skill)
@@ -216,6 +216,7 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
     prefix = prefix.expanduser() if prefix else default_prefix()
     loaded = read_install_lock(default_lock_path(prefix))
     launchers: list[Path] = []
+    manageroo_owned_external_paths: list[Path] = []
     if loaded.get("ok"):
         recorded = loaded["lock"].get("launcher")
         validated, _ = _validated_launcher_value(recorded)
@@ -223,21 +224,42 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
             candidate = Path(validated)
             if launcher_is_manageroo_owned(candidate):
                 launchers.append(candidate)
+                for tool in loaded["lock"].get("external_tools", []):
+                    if not isinstance(tool, dict) or tool.get("name") != "trufflehog" or not tool.get("manageroo_owned"):
+                        continue
+                    recorded_path = tool.get("path")
+                    if not isinstance(recorded_path, str):
+                        continue
+                    external = Path(recorded_path).expanduser()
+                    try:
+                        external_resolved = external.resolve(strict=True)
+                        launcher_parent = candidate.parent.resolve(strict=False)
+                    except OSError:
+                        continue
+                    if (
+                        external_resolved.parent == launcher_parent
+                        and external_resolved.name.lower() in {"trufflehog", "trufflehog.exe"}
+                        and external_resolved.is_file()
+                        and not external.is_symlink()
+                    ):
+                        manageroo_owned_external_paths.append(external_resolved)
     elif bin_dir is not None:
         root = bin_dir.expanduser()
         for candidate in (root / PUBLIC_COMMAND, root / f"{PUBLIC_COMMAND}.cmd"):
             if launcher_is_manageroo_owned(candidate):
                 launchers.append(candidate)
-    launcher_commands = [shlex.join(["rm", "-f", *[str(path) for path in launchers]])] if launchers else []
+    owned_files = [*launchers, *manageroo_owned_external_paths]
+    launcher_commands = [shlex.join(["rm", "-f", *[str(path) for path in owned_files]])] if owned_files else []
     core_commands = [shlex.join(["rm", "-rf", str(prefix)]), *launcher_commands]
     return {
         "executes_deletions": False,
-        "core_paths": [str(prefix), *[str(path) for path in launchers]],
+        "core_paths": [str(prefix), *[str(path) for path in owned_files]],
         "core_commands": core_commands,
         "launcher_ownership_known": bool(launchers),
+        "manageroo_owned_external_paths": [str(path) for path in manageroo_owned_external_paths],
         "third_party_notes": [
             "GBrain, GitNexus, AUTOREVIEW, Clawpatch, Obsidian, Codex, Bun, Node, pnpm, Flatpak, Snap, Homebrew, and Winget are external tools.",
-            "MANAGEROO does not remove third-party tools automatically.",
+            "MANAGEROO does not remove third-party tools automatically; the plan includes TruffleHog only when the install lock and launcher directory prove Manageroo installed that exact binary.",
             "Use stack-status first, then remove only the external tools you intentionally want gone.",
             *([] if launchers else ["No Manageroo-owned launcher signature was verified, so no launcher deletion command was generated."]),
         ],

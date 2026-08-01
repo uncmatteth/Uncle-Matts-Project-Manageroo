@@ -101,6 +101,35 @@ class InstallStatusTests(unittest.TestCase):
             self.assertFalse(plan["executes_deletions"])
             self.assertIn(str(prefix), plan["core_paths"])
 
+    def test_uninstall_plan_includes_only_lock_proven_manageroo_owned_trufflehog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = root / "prefix"
+            bin_dir = root / "bin"
+            prefix.mkdir()
+            bin_dir.mkdir()
+            launcher = bin_dir / "manageroo"
+            launcher.write_text('#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n', encoding="utf-8")
+            trufflehog = bin_dir / "trufflehog"
+            trufflehog.write_bytes(b"binary")
+            (prefix / "install-lock.json").write_text(json.dumps({
+                "launcher": str(launcher),
+                "external_tools": [{"name": "trufflehog", "path": str(trufflehog), "manageroo_owned": True}],
+            }), encoding="utf-8")
+            plan = uninstall_plan(prefix=prefix)
+            self.assertIn(str(trufflehog), plan["manageroo_owned_external_paths"])
+            self.assertIn(str(trufflehog), plan["core_paths"])
+
+            outside = root / "outside" / "trufflehog"
+            outside.parent.mkdir()
+            outside.write_bytes(b"user binary")
+            (prefix / "install-lock.json").write_text(json.dumps({
+                "launcher": str(launcher),
+                "external_tools": [{"name": "trufflehog", "path": str(outside), "manageroo_owned": True}],
+            }), encoding="utf-8")
+            plan = uninstall_plan(prefix=prefix)
+            self.assertNotIn(str(outside), plan["manageroo_owned_external_paths"])
+
 
 if __name__ == "__main__":
     unittest.main()

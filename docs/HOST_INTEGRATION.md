@@ -31,6 +31,13 @@ The report separates:
 - known optional skills that Manageroo ships as library assets but does not install by default;
 - host-owned or external skills that belong to the user's agent environment.
 
-`use-installed-skills-first` is the bridge. Workers may use a relevant installed host skill when its trigger matches and its required tools are available. An installed external orchestrator does not replace Manageroo's controller during a Manageroo run.
+Manageroo's automatic capability router is the bridge during a run. It indexes
+frontmatter without putting the full catalog in the prompt, selects a bounded
+set from the assignment, injects complete selected entrypoints, and records the
+paths and hashes. It never asks the operator which skill to use.
+
+`use-installed-skills-first` remains compatibility guidance outside a
+Manageroo-controlled run. An installed external orchestrator does not replace
+Manageroo's controller during a Manageroo run.
 
 This lets advanced users keep richer local environments without making any one user's machine, private toolchain, or personal skill collection part of the public Manageroo product definition.

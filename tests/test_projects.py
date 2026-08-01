@@ -132,14 +132,26 @@ class ProjectDiscoveryTests(unittest.TestCase):
             output = stdout.getvalue()
             self.assertEqual(code, 0)
             self.assertIn("PROJECT SETUP CHECKLIST", output)
+            self.assertIn("Discovery is read-only", output)
+            self.assertIn("Unselected projects are unchanged", output)
             self.assertIn("[ ] 1.", output)
             self.assertIn("Which projects do you want to add", output)
             self.assertIn("Add another project folder path", output)
             self.assertIn("[x] alpha", output)
             self.assertIn("[x] extra", output)
-            self.assertTrue((alpha / ".manageroo" / "config.toml").exists())
-            self.assertTrue((extra / ".manageroo" / "config.toml").exists())
+            for selected in (alpha, extra):
+                self.assertTrue((selected / ".manageroo" / "config.toml").exists())
+                self.assertTrue((selected / ".manageroo" / "PROJECT-MEMORY.md").exists())
+                self.assertTrue((selected / ".manageroo" / "PRODUCT-BRIEF.md").exists())
+                self.assertTrue((selected / "AGENTS.md").exists())
+                self.assertTrue((selected / "CONTEXT.md").exists())
+                self.assertTrue(
+                    (selected / ".agents" / "skills" / "uncle-matts-project-manageroo" / "SKILL.md").exists()
+                )
+                self.assertIn(f"Next: manageroo solo {selected}", output)
             self.assertFalse((beta / ".manageroo").exists())
+            self.assertFalse((beta / "AGENTS.md").exists())
+            self.assertFalse((beta / "CONTEXT.md").exists())
 
     def test_projects_add_can_create_missing_manual_project_path(self):
         with tempfile.TemporaryDirectory() as temp:

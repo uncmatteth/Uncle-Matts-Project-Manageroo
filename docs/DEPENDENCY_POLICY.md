@@ -13,6 +13,7 @@
 - GBrain
 - GitNexus
 - Obsidian
+- TruffleHog
 - AUTOREVIEW
 - Clawpatch
 
@@ -63,8 +64,9 @@ installed.
 ## Recommended skill pack
 
 Core install offers the recommended skill pack under `~/.agents/skills`. The
-pack is optional but strongly suggested because it lets compatible AI IDE agents
-choose the right helper without the user remembering skill names. The installer
+pack is optional but strongly suggested. During Manageroo runs, the controller
+automatically chooses the right helper without the user remembering skill names;
+compatible AI IDE agents can also use the installed metadata directly. The installer
 defaults to installing it. Use `--skill-pack skip` or `--skip-skill-pack` to
 leave it out and install it later with `manageroo skills reconcile --apply`.
 
@@ -102,7 +104,12 @@ fetch anything from the network.
 
 The stack installer installs AUTOREVIEW from the canonical OpenClaw
 `agent-skills` repository when it is missing. It checks both
-`~/.agents/skills/autoreview` and `~/.codex/skills/autoreview` first. Clawpatch
+`~/.agents/skills/autoreview` and `~/.codex/skills/autoreview` first. Because
+AUTOREVIEW's preflight requires TruffleHog, Manageroo reuses an existing binary
+or downloads the release-pinned official archive for the detected Linux,
+macOS, or Windows architecture, verifies its pinned SHA-256 checksum, and
+installs only the executable beside the Manageroo launcher. Existing copies
+remain user-owned. Clawpatch
 uses the upstream package install path, `pnpm add -g clawpatch`, runs
 `clawpatch doctor`, checks Codex login status for Clawpatch's codex provider,
 and records failures or missing package managers instead of claiming completion.

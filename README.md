@@ -23,6 +23,8 @@
 >
 > Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, optional supporting tools, token style, project discovery, and a read-only stack check.
 >
+> Project discovery itself is read-only. Manageroo shows what it found and asks which projects to enroll. Only selected projects receive the context bundle; everything else is left alone.
+>
 > **3. Point Manageroo at a project**
 >
 > Open a new terminal and run:
@@ -32,6 +34,8 @@
 > ```
 >
 > Answer the questions in plain English: what you want built or fixed, who it is for, what must not change, and what proof should count. If you are ever unsure what comes next, run `manageroo next`.
+>
+> You do **not** have to create or fill agent context files yourself. `solo` safely creates or updates `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, the current intent lock, Manageroo configuration, and the repo-local Manageroo skill. Existing human-written `AGENTS.md` and `CONTEXT.md` content is preserved.
 >
 > **Manageroo for beginners:** Think of Manageroo as the project foreman above your coding agent. You describe the result you want; Manageroo records the mission, maps the repository, gives the coding agent bounded jobs in an isolated workspace, runs the project's checks, performs separate review, and produces evidence and a patch. It does not treat the worker saying “done” as proof. Use `manageroo run --apply` when you want a successfully verified patch applied to your project. Use `manageroo status RUN_ID --repo .` to check a run and `manageroo report RUN_ID --repo .` to read what happened.
 
@@ -200,7 +204,7 @@ For one specific existing repository:
 manageroo solo /absolute/path/to/product
 ```
 
-`solo` prepares the repository for Manageroo. It sets up the project configuration, product brief, project memory, intent lock, readiness state, and tells you the next useful action.
+`solo` prepares the repository for Manageroo. It safely creates or updates `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, the current intent lock, project configuration, the repo-local Manageroo skill, and readiness state, then tells you the next useful action. You answer normal questions; you do not hand-build or remember these files. Existing human-written instruction and context content is preserved.
 
 For a brand-new project that does not exist yet, or an empty directory:
 
@@ -369,6 +373,18 @@ The hardware profile is informational context. Manageroo does not silently rewri
 
 # Skills: exactly what is included
 
+Users do not need to remember or type skill names. Before every worker job,
+Manageroo indexes installed skill metadata locally, matches the normal-language
+assignment, and injects only the strongest relevant full instructions into a
+bounded task packet. The route is automatic and never asks the operator to
+choose implementation machinery. The operator's original brief controls which
+skills are eligible; an implementation task may only rerank that approved set,
+so model-generated plan text cannot activate a new capability.
+
+The installer's **normal**, **Caveman**, and **Caveman Curse** choice is a
+separate saved communication preference. It is selected once during setup and
+applied automatically; those modes do not compete in task routing.
+
 This repository currently contains **50 bundled skill packages**.
 
 That does **not** mean Manageroo installs all 50 by default.
@@ -378,6 +394,12 @@ The boundary is:
 - **18 portable core skills** are the recommended/default Manageroo-owned pack;
 - **32 additional bundled skills** ship in the repository as optional capabilities;
 - **host-installed skills** can also be discovered and used when relevant, but Manageroo does not claim ownership of the user's entire skill environment.
+
+Before installing a core skill, setup checks the standard agent skill roots. It
+reuses an existing same-name skill instead of creating another copy, and it does
+not overwrite a differing host-owned skill. Manageroo updates only skill trees
+recorded in its ownership ledger and still unchanged since Manageroo installed
+them; a user edit revokes that ownership automatically.
 
 ## 18 portable core skills installed by default
 
@@ -450,7 +472,13 @@ manageroo host-skills
 manageroo host-skills --json
 ```
 
-`use-installed-skills-first` lets compatible workers use relevant host capabilities when appropriate. Manageroo does not copy, delete, upgrade, or pretend it owns the whole host skill environment.
+Automatic capability routing is native controller behavior. `use-installed-skills-first` remains a portable compatibility policy for work that happens outside a Manageroo-controlled run. Manageroo does not copy, delete, upgrade, or pretend it owns the whole host skill environment.
+
+Advanced diagnostics can explain the same decision without changing it:
+
+```bash
+manageroo skills explain "describe the job normally"
+```
 
 `skill-vetter` exists so third-party skills can be reviewed before adoption instead of being treated as trusted just because somebody put a `SKILL.md` in a folder.
 
@@ -462,6 +490,7 @@ Manageroo is the controller. It can also work with optional tools that add speci
 Manageroo
 ├── GitNexus   → repository and code-graph intelligence
 ├── GBrain     → external durable knowledge and retrieval
+├── TruffleHog → local secret scanning required by AUTOREVIEW
 ├── AUTOREVIEW → structured external review
 ├── Clawpatch  → evidence-driven findings and repair loops
 └── Obsidian   → human-readable Markdown knowledge
@@ -492,6 +521,10 @@ Apply supported updates explicitly:
 ```bash
 manageroo stack-update --apply
 ```
+
+For npm/pnpm command-line tools, Manageroo updates through the package manager proven to own the active executable and tries the other supported manager only when ownership is verified there. It refuses ambiguous installations instead of guessing.
+
+AUTOREVIEW requires TruffleHog. When the recommended stack is selected, Manageroo reuses an existing `trufflehog` command or installs the release-pinned official binary for Linux, macOS, or Windows after SHA-256 verification. Manageroo records ownership only for the copy it installed, so stack updates and uninstall planning do not overwrite or remove a user-managed copy.
 
 GitNexus is treated as a first-class recommended repository-intelligence integration when selected during installation. Manageroo can still operate when optional surrounding tools are intentionally skipped or unavailable.
 

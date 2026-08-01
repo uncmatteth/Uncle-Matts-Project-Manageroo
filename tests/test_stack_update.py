@@ -13,6 +13,7 @@ from manageroo.stack_update import (
     format_stack_update,
     stack_update_plan,
 )
+from manageroo.trufflehog import TRUFFLEHOG_VERSION
 
 
 class StackUpdateTests(unittest.TestCase):
@@ -33,6 +34,7 @@ class StackUpdateTests(unittest.TestCase):
                 "pnpm": "/usr/bin/pnpm",
                 "clawpatch": "/usr/bin/clawpatch",
                 "obsidian": "/usr/bin/obsidian",
+                "trufflehog": "/usr/bin/trufflehog",
             }.get(name)
 
         with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
@@ -50,6 +52,7 @@ class StackUpdateTests(unittest.TestCase):
         self.assertIn(["/usr/bin/npm", "install", "-g", GITNEXUS_PACKAGE], tools["gitnexus"]["commands"])
         self.assertIn(["/usr/bin/pnpm", "add", "-g", CLAWPATCH_PACKAGE], tools["clawpatch"]["commands"])
         self.assertNotIn("@latest", repr(plan))
+        self.assertEqual(tools["trufflehog"]["pinned_version"], TRUFFLEHOG_VERSION)
 
     def test_absent_gitnexus_is_not_treated_as_an_installed_tool(self):
         with patch("manageroo.stack_update.shutil.which", return_value=None):
@@ -70,6 +73,16 @@ class StackUpdateTests(unittest.TestCase):
             plan = stack_update_plan(["gitnexus"])
         self.assertEqual(plan["selected_tools"], ["gitnexus"])
         self.assertEqual([item["name"] for item in plan["tools"]], ["gitnexus"])
+
+    def test_trufflehog_update_requires_manageroo_ownership_proof(self):
+        with patch("manageroo.stack_update.shutil.which", side_effect=lambda name: "/usr/bin/trufflehog" if name == "trufflehog" else None), patch(
+            "manageroo.stack_update._manageroo_owned_trufflehog_path", return_value=None
+        ):
+            plan = stack_update_plan(["trufflehog"])
+        tool = plan["tools"][0]
+        self.assertTrue(tool["installed"])
+        self.assertEqual(tool["install_paths"], [])
+        self.assertIn("ownership", tool["note"].lower())
 
     def test_apply_one_tool_executes_no_unselected_tool_commands(self):
         calls: list[list[str]] = []
@@ -114,6 +127,50 @@ class StackUpdateTests(unittest.TestCase):
         self.assertEqual(tool["commands"], [])
         self.assertIn("ownership", tool["note"])
 
+    def test_plan_proves_npm_owned_symlink_and_falls_back_from_wrong_manager(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "npm-prefix"
+            npm_bin = prefix / "bin"
+            package_root = prefix / "lib" / "node_modules"
+            npm_bin.mkdir(parents=True)
+            (package_root / "gitnexus" / "dist").mkdir(parents=True)
+            (package_root / "clawpatch" / "dist").mkdir(parents=True)
+            (package_root / "gitnexus" / "dist" / "cli.js").write_text("", encoding="utf-8")
+            (package_root / "clawpatch" / "dist" / "cli.js").write_text("", encoding="utf-8")
+            gitnexus = npm_bin / "gitnexus"
+            clawpatch = npm_bin / "clawpatch"
+            gitnexus.symlink_to(package_root / "gitnexus" / "dist" / "cli.js")
+            clawpatch.symlink_to(package_root / "clawpatch" / "dist" / "cli.js")
+
+            def which(name: str):
+                return {
+                    "npm": "/usr/bin/npm",
+                    "pnpm": "/usr/bin/pnpm",
+                    "gitnexus": str(gitnexus),
+                    "clawpatch": str(clawpatch),
+                }.get(name)
+
+            def run(argv, **_kwargs):
+                if argv[0] == "/usr/bin/npm" and argv[1:] == ["prefix", "-g"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": str(prefix) + "\n"}
+                if argv[0] == "/usr/bin/npm" and argv[1:4] == ["list", "-g", "--depth=0"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": "installed\n"}
+                if argv[0] == "/usr/bin/pnpm" and argv[1:] == ["bin", "-g"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": str(Path(temp) / "pnpm-bin") + "\n"}
+                return {"ok": False, "exit_code": 1, "argv": argv, "output": "not owned"}
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update._run", side_effect=run
+            ):
+                plan = stack_update_plan(["gitnexus", "clawpatch"])
+
+            tools = {item["name"]: item for item in plan["tools"]}
+            self.assertEqual(tools["gitnexus"]["commands"], [["/usr/bin/npm", "install", "-g", GITNEXUS_PACKAGE]])
+            self.assertEqual(
+                tools["clawpatch"]["commands"][:1],
+                [["/usr/bin/npm", "install", "-g", CLAWPATCH_PACKAGE]],
+            )
+
     def test_codex_only_autoreview_is_updated_in_place(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
@@ -147,6 +204,39 @@ class StackUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual((codex_target / "SKILL.md").read_text(encoding="utf-8"), "new\n")
             self.assertFalse((home / ".agents" / "skills" / "autoreview").exists())
+
+    def test_autoreview_update_omits_only_the_known_claude_compatibility_alias(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            destination = home / ".codex" / "skills" / "autoreview"
+            destination.mkdir(parents=True)
+            (destination / "SKILL.md").write_text("old\n", encoding="utf-8")
+
+            def fake_run(argv, **kwargs):
+                if argv[1:3] == ["clone", "--no-checkout"]:
+                    checkout = Path(argv[-1])
+                    checkout.mkdir(parents=True)
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+                if "checkout" in argv:
+                    skill = Path(kwargs["cwd"]) / "skills" / "autoreview"
+                    skill.mkdir(parents=True)
+                    (skill / "SKILL.md").write_text("new\n", encoding="utf-8")
+                    (skill / "AGENTS.md").write_text("rules\n", encoding="utf-8")
+                    (skill / "CLAUDE.md").symlink_to("AGENTS.md")
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+                if "rev-parse" in argv:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": AUTOREVIEW_COMMIT + "\n"}
+                return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+
+            with patch("manageroo.stack_update.Path.home", return_value=home), patch(
+                "manageroo.stack_update.shutil.which", side_effect=lambda name: "/usr/bin/git" if name == "git" else None
+            ), patch("manageroo.stack_update._run", side_effect=fake_run):
+                result = apply_stack_updates(["autoreview"])
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual((destination / "SKILL.md").read_text(encoding="utf-8"), "new\n")
+            self.assertTrue((destination / "AGENTS.md").is_file())
+            self.assertFalse((destination / "CLAUDE.md").exists())
 
     def test_symlinked_autoreview_alias_is_preserved_and_resolved_target_updated_once(self):
         if os.name == "nt":

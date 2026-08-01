@@ -36,6 +36,10 @@ class BudgetedAdapter(AgentAdapter):
         self.calls = self._load_calls()
         self._concrete_launch_hook_installed = self._install_launch_hook(inner)
 
+    @property
+    def requires_host_capability_catalog(self) -> bool:
+        return self.inner.requires_host_capability_catalog
+
     def _install_launch_hook(self, adapter: Any, seen: set[int] | None = None) -> bool:
         seen = seen or set()
         identity = id(adapter)

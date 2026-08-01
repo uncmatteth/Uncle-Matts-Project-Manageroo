@@ -1,6 +1,6 @@
 # External integrations
 
-Manageroo is the controller. GitNexus, GBrain, AUTOREVIEW, Clawpatch, and Obsidian provide surrounding capabilities. Current repository truth, Manageroo's locked run artifacts, deterministic gates, and evidence remain authoritative.
+Manageroo is the controller. GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian provide surrounding capabilities. Current repository truth, Manageroo's locked run artifacts, deterministic gates, and evidence remain authoritative.
 
 ## Recommended full stack
 
@@ -8,6 +8,7 @@ The intended full installation can include:
 
 - GitNexus for repository/code-graph intelligence;
 - GBrain for external durable knowledge when explicitly relevant;
+- TruffleHog for AUTOREVIEW's local pre-review secret scan;
 - AUTOREVIEW for external review;
 - Clawpatch for external review and repair;
 - Obsidian for human-readable knowledge.
@@ -122,22 +123,29 @@ Project: https://github.com/garrytan/gbrain
 
 AUTOREVIEW is a command-owned closeout review lane. The canonical source is `openclaw/agent-skills`.
 
+Current AUTOREVIEW requires TruffleHog and fails closed when the binary is missing. The recommended Manageroo installer therefore reuses an existing TruffleHog or installs a release-pinned official binary with a pinned per-platform SHA-256 checksum. Supported release assets cover Linux, macOS, and Windows on amd64 and arm64. A Manageroo-owned copy is recorded in `install-lock.json`; an existing user-owned copy is reused without Manageroo claiming update or uninstall ownership.
+
 Manageroo's stack updater refreshes an existing AUTOREVIEW installation from the canonical `skills/autoreview` tree, rejects symlinked downloaded content, and preserves a backup of the previous installed copy before replacement.
 
 AUTOREVIEW findings do not become unconstrained freehand AI repair prompts. When configured as a Manageroo command-owned lane, its command owns its result and Manageroo scope-checks any resulting edits.
 
 Project: https://github.com/openclaw/agent-skills/tree/main/skills/autoreview
 
+TruffleHog project: https://github.com/trufflesecurity/trufflehog
+
 ## Clawpatch
 
 Clawpatch is a command-owned review and repair lane.
 
-For an existing pnpm-managed installation, Manageroo's supported update path is:
+For an existing npm- or pnpm-managed installation, Manageroo proves which package manager owns the active executable and uses that same manager. The supported pinned update is one of:
 
 ```bash
+npm install -g clawpatch@0.7.1
 pnpm add -g clawpatch@0.7.1
 clawpatch doctor
 ```
+
+Manageroo refuses the update if neither ownership lane can be proved. It does not move an installation between npm and pnpm merely because both tools exist.
 
 Manageroo does not claim Clawpatch is healthy merely because the executable exists. The post-update doctor remains part of the update result.
 

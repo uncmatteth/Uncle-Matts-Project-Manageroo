@@ -12,6 +12,7 @@ CLI
      ├─ Source mirror
      ├─ Evidence retrieval and provenance ranking
      ├─ Context compiler
+     ├─ Automatic capability router and bounded task capsules
      ├─ Durable worker job store
      ├─ Agent adapter / worker pool
      ├─ Scope and command policies
@@ -120,7 +121,7 @@ The surrounding stack provides first-class capabilities without taking control a
 These systems are capabilities, not completion authorities.
 
 ```text
-GitNexus / GBrain / AUTOREVIEW / Clawpatch / Obsidian
+GitNexus / GBrain / TruffleHog / AUTOREVIEW / Clawpatch / Obsidian
                         ↓
               evidence and capabilities
                         ↓
@@ -138,6 +139,27 @@ Manageroo writes `verification/acceptance-evidence.json` instead of auto-marking
 A user's host environment may contain additional skills and tools. Manageroo may use relevant capabilities when available, but it does not copy, delete, upgrade, or claim ownership of the entire host environment.
 
 The public Manageroo package must remain portable and free of private machine assumptions, personal paths, and user-specific configuration.
+
+Before every worker job, the capability router indexes local skill metadata,
+repository-local skills, and enabled local Codex plugin skill roots outside
+model context. It selects from controller-owned normal-language intent (never
+rendered packets or repository evidence), applies role/sandbox/interaction
+compatibility policy, injects only complete selected entrypoints within a hard
+budget, and records raw entrypoint plus full-tree digests as controller evidence.
+Generated task text can only rerank candidates already made eligible by the
+operator's original brief; it cannot activate or explicitly request another skill.
+The selected trees are rehashed immediately before every concrete provider
+launch, including fallback attempts. Codex catalog identities are refreshed at
+that same boundary before its ephemeral isolation profile is built.
+Codex workers receive a short-lived layered profile that removes the discovered
+global and repository catalog by canonical name and source path from model-visible
+context for that process. This is a deep module
+behind one automatic interface; workers and users do not implement routing at
+each call site.
+
+Controller policies and saved prose preferences are not ordinary task
+capabilities. In particular, `use-installed-skills-first` is native Manageroo
+behavior, while normal/Caveman/Caveman Curse remains installer-selected state.
 
 ## Proactive learning, no silent self-mutation
 

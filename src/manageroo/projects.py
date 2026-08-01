@@ -140,7 +140,14 @@ def format_project_discovery(report: dict) -> str:
 
 def format_project_add_checklist(report: dict) -> str:
     projects = list(report.get("projects", []) or [])
-    lines = ["PROJECT SETUP CHECKLIST", "", "Pick the projects Manageroo should initialize:"]
+    lines = [
+        "PROJECT SETUP CHECKLIST",
+        "",
+        "Discovery is read-only. Pick only the projects Manageroo should initialize.",
+        "Selected projects keep their existing AGENTS.md and CONTEXT.md content; Manageroo adds its",
+        "managed guidance and creates any missing project context files. Unselected projects are unchanged.",
+        "",
+    ]
     for index, project in enumerate(projects, start=1):
         lines.extend(
             [

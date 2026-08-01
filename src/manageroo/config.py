@@ -38,6 +38,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "parallel_mapping": True,
         "parallel_review": True,
     },
+    "capabilities": {
+        "enabled": True,
+        "max_selected": 4,
+        "max_prompt_chars": 24000,
+    },
     "budget": {"max_total_worker_calls": 80, "max_runtime_minutes": 240},
     "safety": {
         "allowed_programs": [
@@ -191,6 +196,11 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "max_worker_attempts = 2",
         "parallel_mapping = true",
         "parallel_review = true",
+        "",
+        "[capabilities]",
+        "enabled = true",
+        "max_selected = 4",
+        "max_prompt_chars = 24000",
         "",
         "[budget]",
         "max_total_worker_calls = 80",
