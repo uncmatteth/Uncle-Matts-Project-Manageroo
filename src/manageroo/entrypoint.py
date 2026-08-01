@@ -367,6 +367,9 @@ def _root_help() -> str:
 
 
 def main() -> int:
+    from .entrypoint_policy import install_entrypoint_policy
+
+    install_entrypoint_policy(sys.modules[__name__])
     argv = sys.argv[1:]
     if argv and argv[0] == "prove":
         return _prove_main(argv[1:])
