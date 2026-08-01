@@ -3,7 +3,7 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from manageroo.chiptune import (
     FADE_SECONDS,
@@ -97,6 +97,37 @@ class ChiptuneTests(unittest.TestCase):
             playback.stop()
             self.assertFalse(owned.exists())
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
+
+    def test_start_twice_preserves_first_playback_until_stop(self):
+        with tempfile.TemporaryDirectory() as temp:
+            owned = Path(temp) / "manageroo-owned"
+            owned.mkdir()
+            process = Mock()
+            process.poll.return_value = None
+            with (
+                patch("manageroo.chiptune.sys.stdout.isatty", return_value=True),
+                patch("manageroo.chiptune.tempfile.mkdtemp", return_value=str(owned)) as mkdtemp,
+                patch("manageroo.chiptune.generate_theme", side_effect=lambda path, **_: path) as generate,
+                patch("manageroo.chiptune._player_command", return_value=["player"]) as player_command,
+                patch("manageroo.chiptune.subprocess.Popen", return_value=process) as popen,
+            ):
+                playback = ThemePlayback(cue="success")
+                self.assertTrue(playback.start())
+                first_path = playback.path
+                self.assertFalse(playback.start())
+
+            mkdtemp.assert_called_once_with(prefix="manageroo-music-")
+            generate.assert_called_once()
+            self.assertEqual(player_command.call_count, 2)
+            popen.assert_called_once()
+            self.assertIs(playback.process, process)
+            self.assertEqual(playback.path, first_path)
+            self.assertEqual(playback.temp_root, owned.resolve())
+
+            playback.stop()
+            process.terminate.assert_called_once_with()
+            process.wait.assert_called_once_with(timeout=1.5)
+            self.assertFalse(owned.exists())
 
 
 if __name__ == "__main__":

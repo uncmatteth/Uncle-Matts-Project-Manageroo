@@ -197,6 +197,8 @@ class ThemePlayback:
     temp_root: Path | None = None
 
     def start(self) -> bool:
+        if self.process is not None or self.path is not None or self.temp_root is not None:
+            return False
         disabled = os.environ.get("MANAGEROO_MUSIC", "1").lower() in {"0", "false", "no", "off"}
         if not self.enabled or disabled or os.environ.get("CI") or not sys.stdout.isatty():
             return False
