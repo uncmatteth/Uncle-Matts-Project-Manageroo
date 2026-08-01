@@ -1,4 +1,5 @@
 import json
+import multiprocessing
 import shlex
 import subprocess
 import sys
@@ -15,6 +16,18 @@ from manageroo.checks import (
 )
 from manageroo.config import config_template
 from manageroo.project import initialize_project
+
+
+def _add_check_gate_concurrently(repo: str, gate_id: str, start, results) -> None:
+    if not start.wait(timeout=5):
+        results.put((gate_id, "start timeout"))
+        return
+    try:
+        add_check_gate(Path(repo), gate_id=gate_id, argv=[sys.executable, "-V"])
+    except Exception as exc:
+        results.put((gate_id, f"{type(exc).__name__}: {exc}"))
+    else:
+        results.put((gate_id, "ok"))
 
 
 class CheckCommandTests(unittest.TestCase):
@@ -45,6 +58,45 @@ class CheckCommandTests(unittest.TestCase):
             add_check_gate(repo, gate_id="smoke", argv=[sys.executable, "-m", "unittest"])
             with self.assertRaises(ValueError):
                 add_check_gate(repo, gate_id="smoke", argv=[sys.executable, "-m", "unittest"])
+
+    def test_concurrent_distinct_check_additions_are_all_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            context = multiprocessing.get_context("spawn")
+            start = context.Event()
+            results = context.Queue()
+            gate_ids = [f"concurrent-{index}" for index in range(6)]
+            processes = [
+                context.Process(
+                    target=_add_check_gate_concurrently,
+                    args=(str(repo), gate_id, start, results),
+                )
+                for gate_id in gate_ids
+            ]
+
+            try:
+                for process in processes:
+                    process.start()
+                start.set()
+                for process in processes:
+                    process.join(timeout=10)
+
+                outcomes = dict(results.get(timeout=2) for _ in processes)
+                self.assertEqual(outcomes, {gate_id: "ok" for gate_id in gate_ids})
+                self.assertTrue(all(process.exitcode == 0 for process in processes))
+
+                config_path = repo / ".manageroo" / "config.toml"
+                config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+                configured_ids = [gate["id"] for gate in config["verification"]["gates"]]
+                self.assertCountEqual(configured_ids, gate_ids)
+                self.assertEqual(len(configured_ids), len(set(configured_ids)))
+            finally:
+                for process in processes:
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
 
     def test_unsafe_gate_ids_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

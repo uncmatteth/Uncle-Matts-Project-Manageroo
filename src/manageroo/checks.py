@@ -9,6 +9,7 @@ from typing import Any
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config import load_config
+from .config_lock import config_mutation_lock
 from .detector import detect_gates
 from .errors import ConfigurationError
 from .gates import gates_from_config
@@ -53,29 +54,30 @@ def add_check_gate(
         raise ValueError(f"Command is required. Run `{PUBLIC_COMMAND} checks suggest` for repo-aware options.")
 
     config_path = repo / PROJECT_DIR / "config.toml"
-    if not config_path.exists():
-        raise ConfigurationError(f"Missing {config_path}. Run `{PUBLIC_COMMAND} init` first.")
-    config = load_config(repo)
-    existing = {gate.id for gate in gates_from_config(config)}
-    if gate_id in existing:
-        raise ValueError(f"Check id already exists: {gate_id}")
+    with config_mutation_lock(config_path):
+        if not config_path.exists():
+            raise ConfigurationError(f"Missing {config_path}. Run `{PUBLIC_COMMAND} init` first.")
+        config = load_config(repo)
+        existing = {gate.id for gate in gates_from_config(config)}
+        if gate_id in existing:
+            raise ValueError(f"Check id already exists: {gate_id}")
 
-    CommandPolicy(tuple(config["safety"]["allowed_programs"])).validate(argv)
+        CommandPolicy(tuple(config["safety"]["allowed_programs"])).validate(argv)
 
-    block = [
-        "",
-        "[[verification.gates]]",
-        f"id = {_toml_value(gate_id)}",
-        f"kind = {_toml_value(kind)}",
-        f"required = {_toml_value(required)}",
-        f"timeout_seconds = {int(timeout_seconds)}",
-        f"argv = {_toml_value(argv)}",
-        "",
-    ]
-    text = config_path.read_text(encoding="utf-8")
-    if text and not text.endswith("\n"):
-        text += "\n"
-    atomic_write_text(config_path, text + "\n".join(block).lstrip("\n"))
+        block = [
+            "",
+            "[[verification.gates]]",
+            f"id = {_toml_value(gate_id)}",
+            f"kind = {_toml_value(kind)}",
+            f"required = {_toml_value(required)}",
+            f"timeout_seconds = {int(timeout_seconds)}",
+            f"argv = {_toml_value(argv)}",
+            "",
+        ]
+        text = config_path.read_text(encoding="utf-8")
+        if text and not text.endswith("\n"):
+            text += "\n"
+        atomic_write_text(config_path, text + "\n".join(block).lstrip("\n"))
     return {
         "ok": True,
         "id": gate_id,
