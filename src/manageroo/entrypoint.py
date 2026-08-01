@@ -141,7 +141,7 @@ def _clawpatch_main(argv: list[str]) -> int:
     release = sub.add_parser(
         "release-sweep",
         description=(
-            "Follow Clawpatch's printed next commands exactly, stopping on the first failed gate."
+            "Run Clawpatch's complete review and one-finding repair lifecycle; preserve unresolved attempts and stop on global failures."
         ),
     )
     release.add_argument("--repo", default=".")
@@ -354,7 +354,8 @@ def _root_help() -> str:
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
         + "  host-skills           Inspect host skills without modifying or owning them.\n"
         + "\nCommand-owned repair automation:\n"
-        + "  clawpatch release-sweep  Follow Clawpatch's printed next commands; stop on the first failed gate.\n"
+        + "  clawpatch release-sweep  Automate Clawpatch review/fix/revalidation across the full queue.\n"
+        + "                            Preserve unresolved attempts; stop on global failures.\n"
         + "                            Dry-run by default; --apply mutates; --push is always explicit.\n"
         + "                        Cross-platform; one commit per successful fix by default.\n"
         + "\nRecommended stack maintenance:\n"

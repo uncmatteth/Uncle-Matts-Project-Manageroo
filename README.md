@@ -358,33 +358,41 @@ as a global setting. Do not use it for untrusted code. Manageroo still runs the
 project's configured verification gates, requires Clawpatch revalidation, stages
 only the exact changed paths, and commits one cleared finding at a time.
 
-Clawpatch owns the queue. Manageroo runs `clawpatch status --json`, clears only
-proven-stale locks, runs `clawpatch map`, and then executes only the exact command
-Clawpatch prints after `next:`. It does not build a finding list from a report,
-change review flags, retry a finding, triage it away, or hand-repair source.
+Clawpatch owns finding selection and repair. Manageroo runs `clawpatch status
+--json`, clears only proven-stale locks, maps the repository, reviews every
+pending feature through Clawpatch, and proves no reviewable feature remains.
+It then uses `clawpatch next --json` for exactly one current open finding,
+records `clawpatch show --json`, and automatically runs Clawpatch's explicit
+finding-scoped `fix`. It never builds a queue from a report, retries a failed
+finding, triages it as resolved, or hand-repairs source.
 
-Exit code 6 is a hard stop. Manageroo preserves the patch and evidence, but does
-not run project gates, revalidate, commit, push, or advance to another finding.
-Every other nonzero result also stops the workflow immediately.
+Exit code 6 ends that repair attempt. Manageroo does not run project gates,
+revalidate, commit, or push the failed patch. It preserves the source attempt in
+a named Git stash, marks the finding visibly `uncertain`, and continues the rest
+of the queue. Other nonzero results stop the workflow immediately because they
+can indicate a broken provider, authentication, quota, state, or command lane.
 
 After a successful fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, requires revalidation for the same finding
 with the exact outcome `fixed`, and stages only source files recorded by that
 patch attempt. It never creates a partial or metadata-only repair commit.
 
-Current Clawpatch 0.7.1 has one upstream command-chain gap: `clawpatch next`
-selects `clawpatch show`, while `show` ends with a triage placeholder rather than
-an executable fix command. Manageroo stops there instead of inventing a fix
-transition or changing finding status. When Clawpatch prints an executable next
-command, Manageroo continues automatically.
+Clawpatch's `show` output ends with a human triage template. That template is
+not an executable workflow command. Manageroo preserves the inspection output
+for the audit record and applies its explicit release policy: every current
+open finding is sent to `clawpatch fix`; findings are never automatically
+hidden or marked resolved. A failed attempt may be marked `uncertain` solely so
+the remaining queue can run; Manageroo reports it as unresolved and refuses to
+write a COMPLETE release proof.
 
 Release sweeps also give Clawpatch's Codex worker up to 30 minutes by default,
 instead of Clawpatch's shorter interactive default. An existing
 `CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins.
 
-At closure, Manageroo revalidates all open findings, requires an empty open
-report, requires zero findings and locks in status, reruns every project gate,
-and requires a clean Git worktree. Tracked `.clawpatch/**` state is never mixed
+At closure, Manageroo proves no mapped feature remains pending, revalidates all
+open findings, requires an empty open report, requires zero findings and locks
+in status, reruns every project gate, and requires a clean Git worktree.
+Tracked `.clawpatch/**` state is never mixed
 into a source-repair commit. To publish tracked state after closure, explicitly
 add `--publish-clawpatch-state` together with a push mode; Manageroo creates one
 separate final state-only commit and verifies the live remote SHA.

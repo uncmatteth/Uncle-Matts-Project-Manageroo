@@ -23,11 +23,18 @@ MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
 CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 1_800_000
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
-    "clawpatch map -> execute only each printed next command -> one fix -> complete project gates -> "
-    "exact fixed revalidation -> exact-path commit/push when authorized -> clawpatch next -> final closure"
+    "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "
+    "complete project gates -> exact fixed revalidation -> exact-path commit/push when authorized -> "
+    "repeat the open queue -> final closure"
 )
-_NEXT_LINE = re.compile(r"(?mi)^\s*(?:[-*]\s*)?next:\s*(.+?)\s*$")
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
+
+
+class _UnresolvedFinding(SafetyError):
+    def __init__(self, message: str, *, finding_id: str, outcome: str | None = None) -> None:
+        super().__init__(message)
+        self.finding_id = finding_id
+        self.outcome = outcome
 
 
 def _release_clawpatch_env(*, trusted_host_codex_sandbox_bypass: bool) -> dict[str, str]:
@@ -45,9 +52,10 @@ def _run(
     timeout: int = 1800,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    command = _platform_command(argv, platform_name=os.name)
     try:
         return subprocess.run(
-            argv,
+            command,
             cwd=str(cwd),
             text=True,
             stdout=subprocess.PIPE,
@@ -58,9 +66,20 @@ def _run(
         )
     except subprocess.TimeoutExpired as exc:
         output = exc.stdout if isinstance(exc.stdout, str) else ""
-        return subprocess.CompletedProcess(argv, 124, output + "\nTIMEOUT", None)
+        return subprocess.CompletedProcess(command, 124, output + "\nTIMEOUT", None)
     except OSError as exc:
-        return subprocess.CompletedProcess(argv, 127, str(exc), None)
+        return subprocess.CompletedProcess(command, 127, str(exc), None)
+
+
+def _platform_command(argv: list[str], *, platform_name: str) -> list[str]:
+    command = list(argv)
+    if platform_name == "nt" and command:
+        executable = PureWindowsPath(command[0]).name.lower()
+        if executable in {"clawpatch", "clawpatch.exe", "clawpatch.cmd", "clawpatch.bat"}:
+            resolved = shutil.which(command[0]) or shutil.which("clawpatch")
+            if resolved:
+                command[0] = resolved
+    return command
 
 
 def _must_run(
@@ -98,44 +117,6 @@ def _parse_json_output(output: str, *, command: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise SafetyError(f"Clawpatch {command} returned an unexpected JSON value.")
     return value
-
-
-def _next_from_output(output: str) -> str:
-    try:
-        value = json.loads(output)
-    except json.JSONDecodeError:
-        value = None
-    if isinstance(value, dict) and isinstance(value.get("next"), str):
-        return str(value["next"]).strip()
-    matches = _NEXT_LINE.findall(output)
-    if not matches:
-        return ""
-    command = matches[-1].strip()
-    if len(command) >= 2 and command[0] == command[-1] and command[0] in {"`", "'", '"'}:
-        command = command[1:-1].strip()
-    return command
-
-
-def _command_from_next(command: str) -> list[str]:
-    raw = command.strip()
-    if not raw:
-        raise SafetyError("Clawpatch printed an empty next command.")
-    if "<" in raw or ">" in raw:
-        raise SafetyError(f"Clawpatch next command contains an unresolved placeholder: {raw}")
-    if any(token in raw for token in ("\n", "\r", "\x00", "&&", "||", ";", "|", "$(", "`")):
-        raise SafetyError(f"Clawpatch next command is not a single executable command: {raw}")
-    try:
-        argv = shlex.split(raw, posix=os.name != "nt")
-    except ValueError as exc:
-        raise SafetyError(f"Clawpatch next command could not be parsed exactly: {raw}") from exc
-    if not argv or Path(argv[0].strip('"')).name.lower() not in {"clawpatch", "clawpatch.exe"}:
-        raise SafetyError(f"Clawpatch next command is not a Clawpatch command: {raw}")
-    argv[0] = argv[0].strip('"')
-    if len(argv) < 2:
-        raise SafetyError(f"Clawpatch next command has no command verb: {raw}")
-    if argv[1] == "triage":
-        raise SafetyError("Clawpatch directed triage; Manageroo will not alter a finding status.")
-    return argv
 
 
 def _git_root(repo: Path) -> Path:
@@ -195,12 +176,52 @@ def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
             if cwd == root:
                 found.append({"pid": int(entry.name), "cwd": str(cwd), "command": cmdline.strip()})
         return found
+    if os.name == "nt":
+        return _windows_clawpatch_processes(root)
     result = _run(["ps", "-eo", "pid=,command="], cwd=root, timeout=30)
     if result.returncode:
         raise SafetyError("Could not prove that no other Clawpatch process is active.")
     for line in result.stdout.splitlines():
         if "clawpatch" in line.lower():
             found.append({"pid": line.strip().split(maxsplit=1)[0], "cwd": "unknown", "command": line.strip()})
+    return found
+
+
+def _windows_clawpatch_processes(root: Path) -> list[dict[str, Any]]:
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if powershell is None:
+        raise SafetyError("Could not inspect live Clawpatch processes on Windows.")
+    script = (
+        "$rows = Get-CimInstance Win32_Process | Where-Object { "
+        "$_.ProcessId -ne $PID -and $_.CommandLine -and "
+        "$_.CommandLine -match '(?i)(^|[\\\\/\\s])clawpatch(?:\\.cmd|\\.exe|\\.js)?(?:\\s|$)' }; "
+        "$rows | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
+    )
+    result = _run(
+        [powershell, "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=root,
+        timeout=30,
+    )
+    if result.returncode:
+        raise SafetyError("Could not inspect live Clawpatch processes on Windows.")
+    if not result.stdout.strip():
+        return []
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise SafetyError("Windows returned malformed Clawpatch process data.") from exc
+    rows = parsed if isinstance(parsed, list) else [parsed]
+    found: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise SafetyError("Windows returned malformed Clawpatch process data.")
+        found.append(
+            {
+                "pid": row.get("ProcessId"),
+                "cwd": "unknown; Windows process inspection is conservative",
+                "command": str(row.get("CommandLine") or "").strip(),
+            }
+        )
     return found
 
 
@@ -253,6 +274,54 @@ def _json_clawpatch(repo: Path, argv: list[str], *, env: dict[str, str], timeout
     return _parse_json_output(output, command=" ".join(argv[1:]))
 
 
+def _next_finding(repo: Path, *, env: dict[str, str]) -> tuple[str | None, dict[str, Any]]:
+    payload = _json_clawpatch(repo, ["clawpatch", "next", "--json"], env=env)
+    finding = payload.get("finding")
+    if finding is None:
+        return None, payload
+    if not isinstance(finding, dict):
+        raise SafetyError("Clawpatch next returned a malformed finding value.")
+    finding_id = finding.get("id")
+    if not isinstance(finding_id, str) or not _FINDING_ID.fullmatch(finding_id):
+        raise SafetyError("Clawpatch next returned no valid finding ID.")
+    if finding.get("status") != "open":
+        raise SafetyError(f"Clawpatch next returned non-open finding {finding_id}.")
+    expected_next = f"clawpatch show --finding {finding_id}"
+    if payload.get("next") != expected_next:
+        raise SafetyError(
+            f"Clawpatch next returned an unexpected inspection command for {finding_id}."
+        )
+    return finding_id, payload
+
+
+def _show_finding(
+    repo: Path,
+    finding_id: str,
+    *,
+    env: dict[str, str],
+    required_status: str | None,
+) -> dict[str, Any]:
+    payload = _json_clawpatch(
+        repo,
+        ["clawpatch", "show", "--finding", finding_id, "--json"],
+        env=env,
+    )
+    finding = payload.get("finding")
+    if not isinstance(finding, dict) or finding.get("id") != finding_id:
+        raise SafetyError(f"Clawpatch show returned the wrong finding for {finding_id}.")
+    if required_status is not None and finding.get("status") != required_status:
+        raise SafetyError(
+            f"Clawpatch show requires {finding_id} to have status {required_status!r}."
+        )
+    validation = payload.get("validation")
+    if not isinstance(validation, list) or any(not isinstance(item, str) for item in validation):
+        raise SafetyError(f"Clawpatch show returned malformed validation data for {finding_id}.")
+    patch_attempts = payload.get("patchAttempts")
+    if not isinstance(patch_attempts, list):
+        raise SafetyError(f"Clawpatch show returned malformed patch attempts for {finding_id}.")
+    return payload
+
+
 def _finding_from_fix_argv(argv: list[str]) -> str:
     if len(argv) < 2 or argv[1] != "fix":
         raise SafetyError("Expected Clawpatch to direct a fix command.")
@@ -275,15 +344,20 @@ def _fix_command(repo: Path, argv: list[str], *, env: dict[str, str] | None = No
     result = _run(command, cwd=repo, timeout=3600, env=env)
     if result.returncode:
         requirement = "clawpatch fix validation passed" if result.returncode == 6 else "clawpatch fix exited 0"
-        raise SafetyError(
+        message = (
             f"phase: fix\ncommand: {shlex.join(command)}\nfinding ID: {finding_id}\n"
             f"exit code: {result.returncode}\nfailed requirement: {requirement}\n"
             f"changed source paths: {_source_paths(repo) if repo.exists() else []}\n"
             f"output:\n{result.stdout[-6000:]}"
         )
+        if result.returncode == 6:
+            raise _UnresolvedFinding(message, finding_id=finding_id)
+        raise SafetyError(message)
     payload = _parse_json_output(result.stdout, command="fix")
     if payload.get("finding") != finding_id:
         raise SafetyError(f"Clawpatch fix returned the wrong finding; expected {finding_id!r}.")
+    if payload.get("status") != "applied":
+        raise SafetyError(f"Clawpatch fix did not apply a validated patch for {finding_id}.")
     patch_attempt = payload.get("patchAttempt")
     if not isinstance(patch_attempt, str) or not patch_attempt.strip():
         raise SafetyError("Clawpatch fix returned no valid patch-attempt ID.")
@@ -291,20 +365,22 @@ def _fix_command(repo: Path, argv: list[str], *, env: dict[str, str] | None = No
     return payload
 
 
-def _patch_attempt(repo: Path, patch_attempt_id: str, finding_id: str) -> dict[str, Any]:
-    candidates = [
-        repo / ".clawpatch" / "patches" / f"{patch_attempt_id}.json",
-        repo / ".git" / "manageroo" / "clawpatch-state" / "patches" / f"{patch_attempt_id}.json",
-    ]
-    path = next((candidate for candidate in candidates if candidate.is_file()), None)
-    if path is None:
+def _patch_attempt_from_show(
+    show_payload: dict[str, Any], patch_attempt_id: str, finding_id: str
+) -> dict[str, Any]:
+    patch_attempts = show_payload.get("patchAttempts")
+    if not isinstance(patch_attempts, list):
+        raise SafetyError(f"Clawpatch show returned no patch-attempt list for {finding_id}.")
+    value = next(
+        (
+            candidate
+            for candidate in patch_attempts
+            if isinstance(candidate, dict) and candidate.get("patchAttemptId") == patch_attempt_id
+        ),
+        None,
+    )
+    if not isinstance(value, dict):
         raise SafetyError(f"Could not read Clawpatch patch-attempt record {patch_attempt_id}.")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise SafetyError(f"Clawpatch patch-attempt record {patch_attempt_id} is malformed.") from exc
-    if not isinstance(value, dict) or value.get("patchAttemptId") != patch_attempt_id:
-        raise SafetyError(f"Clawpatch patch-attempt record does not match {patch_attempt_id}.")
     finding_ids = value.get("findingIds")
     if not isinstance(finding_ids, list) or finding_id not in finding_ids:
         raise SafetyError(f"Clawpatch patch-attempt record does not belong to {finding_id}.")
@@ -365,12 +441,69 @@ def _run_project_gates(repo: Path, *, finding_id: str) -> list[dict[str, Any]]:
 def _revalidate(repo: Path, finding_id: str, *, env: dict[str, str]) -> dict[str, Any]:
     argv = ["clawpatch", "revalidate", "--finding", finding_id, "--json"]
     payload = _json_clawpatch(repo, argv, env=env, timeout=3600)
-    if payload.get("finding") != finding_id or payload.get("outcome") != "fixed":
+    outcome = payload.get("outcome")
+    if payload.get("finding") != finding_id or outcome not in {
+        "fixed",
+        "open",
+        "uncertain",
+        "false-positive",
+    }:
         raise SafetyError(
             f"phase: revalidation\ncommand: {shlex.join(argv)}\nfinding ID: {finding_id}\n"
-            "exit code: 0\nfailed requirement: matching finding and exact lowercase outcome fixed\n"
+            "exit code: 0\nfailed requirement: matching finding and a documented outcome\n"
             f"changed source paths: {_source_paths(repo)}\noutput:\n{json.dumps(payload, sort_keys=True)}"
         )
+    if outcome != "fixed":
+        raise _UnresolvedFinding(
+            f"phase: revalidation\ncommand: {shlex.join(argv)}\nfinding ID: {finding_id}\n"
+            f"exit code: 0\nfailed requirement: exact lowercase outcome fixed; received {outcome}\n"
+            f"changed source paths: {_source_paths(repo)}\n"
+            f"output:\n{json.dumps(payload, sort_keys=True)}",
+            finding_id=finding_id,
+            outcome=str(outcome),
+        )
+    return payload
+
+
+def _preserve_unresolved_source(repo: Path, finding_id: str, reason: str) -> dict[str, Any]:
+    paths = _source_paths(repo)
+    if not paths:
+        return {"created": False, "ref": "", "sha": "", "paths": []}
+    message = f"manageroo clawpatch unresolved {finding_id}: {reason}"
+    _must_run(
+        ["git", "stash", "push", "--include-untracked", "--message", message, "--", *paths],
+        cwd=repo,
+        timeout=300,
+    )
+    if _source_paths(repo):
+        raise SafetyError(f"Could not preserve and clear unresolved source changes for {finding_id}.")
+    identity = _git_text(repo, ["git", "stash", "list", "-1", "--format=%gd|%H"])
+    ref, separator, sha = identity.partition("|")
+    if not separator or not ref or not sha:
+        raise SafetyError(f"Could not verify the preserved Git stash for {finding_id}.")
+    return {"created": True, "ref": ref, "sha": sha, "paths": paths, "message": message}
+
+
+def _triage_unresolved(
+    repo: Path, finding_id: str, note: str, *, env: dict[str, str]
+) -> dict[str, Any]:
+    payload = _json_clawpatch(
+        repo,
+        [
+            "clawpatch",
+            "triage",
+            "--finding",
+            finding_id,
+            "--status",
+            "uncertain",
+            "--note",
+            note,
+            "--json",
+        ],
+        env=env,
+    )
+    if payload.get("finding") != finding_id or payload.get("status") != "uncertain":
+        raise SafetyError(f"Clawpatch did not preserve {finding_id} as uncertain.")
     return payload
 
 
@@ -439,8 +572,9 @@ def _publish_final_state(repo: Path, *, branch: str) -> str:
 
 def _execute_fix(
     repo: Path,
-    argv: list[str],
+    finding_id: str,
     *,
+    inspected: dict[str, Any],
     env: dict[str, str],
     push_mode: str,
     branch: str,
@@ -448,11 +582,12 @@ def _execute_fix(
 ) -> tuple[dict[str, Any], bool]:
     if _source_paths(repo):
         raise SafetyError("Pre-existing source changes block the current Clawpatch fix.")
-    finding_id = _finding_from_fix_argv(argv)
+    argv = ["clawpatch", "fix", "--finding", finding_id]
     head_before = _git_text(repo, ["git", "rev-parse", "HEAD"])
     _require_no_process(repo)
     fixed = _fix_command(repo, argv, env=env)
-    patch = _patch_attempt(repo, str(fixed["patchAttempt"]), finding_id)
+    post_fix_show = _show_finding(repo, finding_id, env=env, required_status="uncertain")
+    patch = _patch_attempt_from_show(post_fix_show, str(fixed["patchAttempt"]), finding_id)
     files = [str(path) for path in patch["filesChanged"]]
     _validate_attempt_paths(repo, files)
     gate_runs = _run_project_gates(repo, finding_id=finding_id)
@@ -464,6 +599,7 @@ def _execute_fix(
         pushed = True
     return {
         "finding_id": finding_id,
+        "inspection": inspected,
         "head_before": head_before,
         "patch_attempt": fixed["patchAttempt"],
         "files_changed": files,
@@ -476,8 +612,48 @@ def _execute_fix(
 def _required_int(payload: dict[str, Any], field: str) -> int:
     value = payload.get(field)
     if isinstance(value, bool) or not isinstance(value, int):
-        raise SafetyError(f"Clawpatch status returned a missing or malformed {field!r} value.")
+        raise SafetyError(f"Clawpatch returned a missing or malformed {field!r} value.")
     return value
+
+
+def _review_completion(
+    repo: Path, *, env: dict[str, str], review_limit: int
+) -> dict[str, Any]:
+    payload = _json_clawpatch(
+        repo,
+        [
+            "clawpatch",
+            "review",
+            "--limit",
+            str(max(review_limit, 1)),
+            "--dry-run",
+            "--json",
+        ],
+        env=env,
+    )
+    if payload.get("dryRun") is not True or _required_int(payload, "wouldReview") != 0:
+        raise SafetyError("Clawpatch still has pending or errored features requiring review.")
+    return payload
+
+
+def _review_all_features(
+    repo: Path, *, env: dict[str, str], mapped_features: int
+) -> dict[str, Any]:
+    if mapped_features < 0:
+        raise SafetyError("Clawpatch map returned a negative feature count.")
+    review_limit = max(mapped_features, 1)
+    review = _json_clawpatch(
+        repo,
+        ["clawpatch", "review", "--limit", str(review_limit), "--json"],
+        env=env,
+        timeout=7200,
+    )
+    reviewed = _required_int(review, "reviewed")
+    findings = _required_int(review, "findings")
+    if reviewed < 0 or reviewed > mapped_features or findings < 0:
+        raise SafetyError("Clawpatch review returned impossible completion counts.")
+    completion = _review_completion(repo, env=env, review_limit=review_limit)
+    return {"review": review, "completion": completion}
 
 
 def _final_closure(
@@ -488,14 +664,21 @@ def _final_closure(
     branch: str,
     pushed: bool,
     publish_clawpatch_state: bool,
+    review_limit: int,
 ) -> dict[str, Any]:
     _require_no_process(repo)
+    review_completion = _review_completion(repo, env=env, review_limit=review_limit)
     all_validation = _json_clawpatch(
         repo, ["clawpatch", "revalidate", "--all", "--status", "open", "--json"], env=env, timeout=3600
     )
     report = _json_clawpatch(repo, ["clawpatch", "report", "--status", "open", "--json"], env=env)
     if report.get("total") != 0 or report.get("items") != []:
         raise SafetyError("Final Clawpatch report is not exactly total=0 and items=[].")
+    uncertain_report = _json_clawpatch(
+        repo, ["clawpatch", "report", "--status", "uncertain", "--json"], env=env
+    )
+    if uncertain_report.get("total") != 0 or uncertain_report.get("items") != []:
+        raise SafetyError("Final Clawpatch report still contains uncertain findings.")
     status = _json_clawpatch(repo, ["clawpatch", "status", "--json"], env=env)
     for field in ("openFindings", "activeLocks", "lockFiles"):
         if _required_int(status, field) != 0:
@@ -520,7 +703,9 @@ def _final_closure(
     _require_no_process(repo)
     return {
         "all_revalidation": all_validation,
+        "review_completion": review_completion,
         "report": report,
+        "uncertain_report": uncertain_report,
         "status": status,
         "gate_runs": final_gates,
         "pushed": pushed,
@@ -537,7 +722,7 @@ def release_sweep(
     publish_clawpatch_state: bool = False,
     trusted_host_codex_sandbox_bypass: bool = False,
 ) -> dict[str, Any]:
-    """Run Clawpatch as a fail-closed interpreter of its own printed next commands."""
+    """Automate Clawpatch's documented one-finding workflow without automatic triage."""
     root = _git_root(repo)
     version = _clawpatch_version(root)
     current_branch = _git_text(root, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
@@ -555,6 +740,8 @@ def release_sweep(
         "push_mode": push_mode,
         "publish_clawpatch_state": publish_clawpatch_state,
         "results": [],
+        "false_positives": [],
+        "unresolved": [],
     }
     if not apply:
         report["planned_branch"] = branch
@@ -585,76 +772,122 @@ def release_sweep(
         _require_no_process(root)
         _json_clawpatch(root, ["clawpatch", "clean-locks", "--json"], env=env)
 
-    output = _must_clawpatch(root, ["clawpatch", "map"], env=env, timeout=1800)
-    next_text = _next_from_output(output)
-    if not next_text:
-        next_text = "clawpatch next"
+    mapped = _json_clawpatch(root, ["clawpatch", "map", "--json"], env=env, timeout=1800)
+    mapped_features = _required_int(mapped, "features")
+    review = _review_all_features(root, env=env, mapped_features=mapped_features)
+    report["map"] = mapped
+    report["review"] = review
 
-    review_seen = False
     pushed = False
     while True:
-        argv = _command_from_next(next_text)
-        verb = argv[1]
-        if verb == "review":
-            if review_seen:
-                raise SafetyError("Clawpatch directed a second review; Manageroo will not independently restart review.")
-            review_seen = True
-            output = _must_clawpatch(root, argv, env=env, timeout=7200)
-        elif verb == "fix":
+        finding_id, queue = _next_finding(root, env=env)
+        if finding_id is None:
+            break
+        inspected = _show_finding(root, finding_id, env=env, required_status="open")
+        try:
             record, pushed = _execute_fix(
                 root,
-                argv,
+                finding_id,
+                inspected=inspected,
                 env=env,
                 push_mode=push_mode,
                 branch=selected_branch,
                 pushed=pushed,
             )
-            report["results"].append(record)
-            output = json.dumps(record["revalidation"])
-        elif verb in {"next", "show", "report", "status", "map"}:
-            output = _must_clawpatch(root, argv, env=env, timeout=1800)
-        else:
-            raise SafetyError(f"Clawpatch directed unsupported command {shlex.join(argv)}; stopping without substitution.")
-
-        printed = _next_from_output(output)
-        if printed:
-            next_text = printed
-            continue
-        if verb == "report" and "--status" in argv and "open" in argv:
-            closure = _final_closure(
-                root,
-                env=env,
-                push_mode=push_mode,
-                branch=selected_branch,
-                pushed=pushed,
-                publish_clawpatch_state=publish_clawpatch_state,
-            )
-            final_head = _git_text(root, ["git", "rev-parse", "HEAD"])
-            proof = {
-                "status": "COMPLETE",
-                "completed_at": utc_now(),
-                "repo": str(root),
-                "branch": selected_branch,
-                "git_head": final_head,
-                "clawpatch_version": version,
-                "open_findings": 0,
-                "completed_findings": report["results"],
-                "final_closure": closure,
+        except _UnresolvedFinding as exc:
+            reason = exc.outcome or "fix-validation-failed"
+            preserved = _preserve_unresolved_source(root, finding_id, reason)
+            unresolved_record = {
+                "finding_id": finding_id,
+                "inspection": inspected,
+                "outcome": exc.outcome,
+                "error": str(exc),
+                "preserved_source": preserved,
             }
-            proof_path = root / PROJECT_DIR / "cache" / "clawpatch-release-proof.json"
-            atomic_write_json(proof_path, proof)
-            report.update(
-                {
-                    "branch": selected_branch,
-                    "git_head": final_head,
-                    "finding_count": len(report["results"]),
-                    "open_findings": 0,
-                    "final_closure": closure,
-                    "proof_path": str(proof_path),
-                }
-            )
-            return report
-        next_text = "clawpatch next"
+            if exc.outcome == "false-positive":
+                report["false_positives"].append(unresolved_record)
+            else:
+                note = (
+                    f"Manageroo automated repair ended as {reason}; source changes were "
+                    "preserved in the recorded Git stash for manual review."
+                )
+                unresolved_record["triage"] = _triage_unresolved(
+                    root, finding_id, note, env=env
+                )
+                report["unresolved"].append(unresolved_record)
+            continue
+        record["queue"] = queue
+        report["results"].append(record)
+
+    if report["unresolved"]:
+        open_report = _json_clawpatch(
+            root, ["clawpatch", "report", "--status", "open", "--json"], env=env
+        )
+        uncertain_report = _json_clawpatch(
+            root, ["clawpatch", "report", "--status", "uncertain", "--json"], env=env
+        )
+        status = _json_clawpatch(root, ["clawpatch", "status", "--json"], env=env)
+        if open_report.get("total") != 0 or open_report.get("items") != []:
+            raise SafetyError("The exhausted Clawpatch queue still contains open findings.")
+        for field in ("activeLocks", "lockFiles"):
+            if _required_int(status, field) != 0:
+                raise SafetyError(f"Clawpatch unresolved closure requires {field}=0.")
+        if _source_paths(root):
+            raise SafetyError("Unresolved Clawpatch source changes were not preserved cleanly.")
+        report.update(
+            {
+                "ok": False,
+                "status": "NEEDS_REVIEW",
+                "branch": selected_branch,
+                "git_head": _git_text(root, ["git", "rev-parse", "HEAD"]),
+                "finding_count": len(report["results"]),
+                "false_positive_count": len(report["false_positives"]),
+                "unresolved_count": len(report["unresolved"]),
+                "open_findings": 0,
+                "uncertain_findings": uncertain_report.get("total"),
+                "final_status": status,
+                "proof_path": "",
+            }
+        )
+        return report
+
+    closure = _final_closure(
+        root,
+        env=env,
+        push_mode=push_mode,
+        branch=selected_branch,
+        pushed=pushed,
+        publish_clawpatch_state=publish_clawpatch_state,
+        review_limit=max(mapped_features, 1),
+    )
+    final_head = _git_text(root, ["git", "rev-parse", "HEAD"])
+    proof = {
+        "status": "COMPLETE",
+        "completed_at": utc_now(),
+        "repo": str(root),
+        "branch": selected_branch,
+        "git_head": final_head,
+        "clawpatch_version": version,
+        "open_findings": 0,
+        "completed_findings": report["results"],
+        "false_positives": report["false_positives"],
+        "final_closure": closure,
+    }
+    proof_path = root / PROJECT_DIR / "cache" / "clawpatch-release-proof.json"
+    atomic_write_json(proof_path, proof)
+    report.update(
+        {
+            "branch": selected_branch,
+            "git_head": final_head,
+            "finding_count": len(report["results"]),
+            "false_positive_count": len(report["false_positives"]),
+            "unresolved_count": 0,
+            "open_findings": 0,
+            "final_closure": closure,
+            "proof_path": str(proof_path),
+        }
+    )
+    return report
 
 
 def format_release_sweep(report: dict[str, Any]) -> str:
@@ -665,6 +898,17 @@ def format_release_sweep(report: dict[str, Any]) -> str:
             f"Clawpatch: {report['clawpatch_version']}\n"
             f"Lifecycle: {report['lifecycle']}\n"
             "No repository changes were made. Run again with --apply to execute.\n"
+        )
+    if report.get("status") == "NEEDS_REVIEW":
+        return (
+            "CLAWPATCH RELEASE SWEEP: QUEUE PROCESSED, REVIEW STILL REQUIRED\n"
+            f"Findings fixed and committed: {report.get('finding_count', 0)}\n"
+            f"False positives: {report.get('false_positive_count', 0)}\n"
+            f"Unresolved findings preserved: {report.get('unresolved_count', 0)}\n"
+            f"Open findings: {report.get('open_findings', 0)}\n"
+            f"Uncertain findings: {report.get('uncertain_findings', 0)}\n"
+            "Successful repairs were kept. Unresolved source attempts are named Git stashes.\n"
+            "No COMPLETE release proof was written.\n"
         )
     return (
         "CLAWPATCH RELEASE SWEEP: COMPLETE\n"

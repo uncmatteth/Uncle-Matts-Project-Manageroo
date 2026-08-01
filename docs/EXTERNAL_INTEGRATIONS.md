@@ -167,13 +167,15 @@ manageroo clawpatch release-sweep --repo . --apply --push final
 manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
 ```
 
-The sweep first proves repository, process, Git, status, and lock state. It runs
-`clawpatch map` and then executes only Clawpatch's exact printed `next:` command.
-There is no report-derived queue, cached finding list, Manageroo-selected review
-configuration, status triage, manual repair, or concurrent Clawpatch process.
-Manageroo adds project validation, exact patch-attempt path staging, authorized
-commit/push boundaries, final zero-open and zero-lock proof, and remote-SHA
-verification without replacing Clawpatch's command-owned workflow.
+The sweep first proves repository, process, Git, status, and lock state. It maps
+the repository, asks Clawpatch to review every pending feature, and verifies a
+review dry-run has zero remaining work. It then repeats Clawpatch's documented
+one-finding lifecycle: `next --json`, `show --json`, `fix`, validation, and
+revalidation. There is no report-derived queue, cached finding list, status
+triage, manual repair, or concurrent Clawpatch process. Manageroo adds project
+validation, exact patch-attempt path staging, authorized commit/push boundaries,
+final zero-open and zero-lock proof, and remote-SHA verification without
+replacing Clawpatch's command-owned repair.
 
 The trusted-host bypass is explicit and temporary. It sets Clawpatch's documented
 Codex sandbox override only in child-process environment and never persists it.
@@ -181,21 +183,32 @@ It removes the nested Codex approval/sandbox boundary, so use it only for truste
 source on a host that already supplies isolation. Manageroo's path restrictions,
 project gates, revalidation, and exact-path commit rules still apply.
 
-If `clawpatch fix` exits with code 6, Manageroo stops immediately. It does not
-revalidate, commit, push, retry, or continue. A successful fix is committed only
-after complete configured project validation and revalidation of the matching
-finding with the exact lowercase outcome `fixed`. `open`, `uncertain`,
-`false-positive`, malformed JSON, or a mismatched finding all stop without a
-commit.
+If `clawpatch fix` exits with code 6, Manageroo stops that repair attempt. It
+does not revalidate, commit, push, or retry the failed patch. Source edits are
+preserved in a named Git stash, the finding is recorded as `uncertain`, and the
+remaining queue continues. A successful fix is committed only after complete
+configured project validation and revalidation of the matching finding with
+the exact lowercase outcome `fixed`. `open` and `uncertain` outcomes are also
+preserved and recorded as unresolved; `false-positive` is recorded without a
+source commit. Malformed output, global command failure, or mismatched state
+still stops immediately.
 
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
 Manageroo creates one separate `.clawpatch/**`-only final state commit.
 
-Clawpatch 0.7.1 currently has an upstream automation gap: `next` can direct
-`show`, and `show` prints a triage placeholder rather than an executable fix.
-Manageroo fails closed at that boundary. It does not synthesize a fix command,
-triage the finding, or loop back through a report.
+Clawpatch 0.7.1's `show` output includes a human triage template. Manageroo
+records that inspection but does not execute or fill in the template. Its
+explicit release policy sends every current open finding to Clawpatch's own
+finding-scoped `fix`. Failed attempts are never called fixed: Manageroo preserves
+their source edits, records them as uncertain, continues the queue, and returns
+`NEEDS_REVIEW` without a COMPLETE release proof.
+
+The implementation is native Python and uses argv-only subprocesses. It does
+not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports
+Windows, macOS, and Linux. On Windows, Manageroo resolves command shims and uses
+native PowerShell process inspection conservatively to prevent concurrent
+Clawpatch execution.
 
 Manageroo gives the Codex worker up to 30 minutes during a release sweep so a
 valid repair is not abandoned at Clawpatch's shorter interactive default. A

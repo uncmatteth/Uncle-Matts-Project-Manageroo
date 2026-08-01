@@ -105,7 +105,13 @@ Clawpatch release commits use the current successful patch-attempt record as the
 only source-path allowlist. Manageroo stages only those source paths after full
 project validation and exact `fixed` revalidation. It never builds a finding
 queue from reports, commits partial repairs, or mixes `.clawpatch/**` state into
-a repair commit.
+a repair commit. The cross-platform controller reviews all pending Clawpatch
+features, obtains one current open finding from `next --json`, records `show`
+for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
+The human triage template printed by `show` is not treated as executable and
+Manageroo never triages a finding as resolved. Failed attempts are preserved in
+named Git stashes and marked `uncertain` so later findings can run; unresolved
+items prevent final release proof.
 
 ## Parallel mapping and review, sequential implementation
 

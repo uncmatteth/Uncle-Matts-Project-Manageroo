@@ -8,8 +8,8 @@ from .errors import SafetyError
 
 _DISABLED = (
     "The report-derived Clawpatch batch workflow is disabled. "
-    "Use `manageroo clawpatch release-sweep`; it follows Clawpatch's current printed next command "
-    "and stops on the first failed gate."
+    "Use `manageroo clawpatch release-sweep`; it automates Clawpatch's structured one-finding "
+    "workflow and stops on the first failed gate."
 )
 
 

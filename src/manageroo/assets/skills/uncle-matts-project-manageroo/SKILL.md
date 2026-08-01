@@ -131,14 +131,19 @@ manageroo clawpatch release-sweep --repo .
 ```
 
 Only run it with `--apply` when the operator has authorized repository changes.
-Clawpatch owns the workflow: execute its exact printed `next:` command, process
-one current finding, and stop on the first nonzero command or failed gate. Exit
-code 6 is terminal. Never build a report-derived queue, retry, triage, or
-hand-repair a finding. After exit 0, require the matching patch attempt, complete
-project validation, and exact `fixed` revalidation before staging only that
-attempt's source paths. Pushing requires `--push each` or `--push final`. A valid
-final proof requires zero open findings, zero locks, passing gates, clean Git
-state, and an exact final-HEAD binding.
+Clawpatch owns review, finding selection, and repair. Manageroo reviews every
+pending mapped feature, verifies no review work remains, selects one current
+open finding with `next --json`, records `show --json`, and automatically invokes
+that finding's Clawpatch `fix`. The `show` triage template is human guidance, not
+an executable command. Exit code 6 ends that repair attempt: preserve source
+edits in a named Git stash, mark the finding visibly uncertain, and continue the
+remaining queue without committing or retrying it. Never build a report-derived
+queue or hand-repair a finding. After exit 0, require the matching patch attempt,
+complete project validation, and exact `fixed` revalidation before staging only
+that attempt's source paths. Pushing requires `--push each` or `--push final`.
+Any unresolved finding returns `NEEDS_REVIEW`; a valid final proof requires zero
+pending review work, zero open or uncertain findings, zero locks, passing gates,
+clean Git state, and an exact final-HEAD binding.
 
 ## Role separation
 
