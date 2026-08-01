@@ -60,11 +60,7 @@ def install_skill_pack_policy(module: Any) -> None:
         stage = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.manageroo-stage-", dir=str(target_root)))
         backup: Path | None = None
         try:
-            for source_file in source_files:
-                relative = source_file.relative_to(source_dir)
-                destination = stage / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_file, destination)
+            module._copy_validated_source_tree(source_dir, source_files, stage)
             if not (stage / "SKILL.md").is_file():
                 raise ValueError(f"Staged skill is missing SKILL.md: {source_dir}")
             if target_dir.exists():

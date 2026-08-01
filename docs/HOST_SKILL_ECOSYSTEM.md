@@ -121,3 +121,8 @@ Manageroo may use relevant host skills when the active agent environment exposes
 Manageroo does **not** implicitly copy, delete, upgrade, flatten, or claim ownership of those skills.
 
 Bundling a host skill into Manageroo requires an explicit reviewed import. This keeps the public portable core clean while still allowing richer machines to contribute capabilities.
+
+During import, Manageroo snapshots source identity and metadata, copies from held
+file descriptors with platform no-follow protection when available, and
+revalidates the source tree before replacing the installed skill. A source
+change aborts staging and leaves the active skill unchanged.

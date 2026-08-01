@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import shutil
+import stat
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,6 +16,18 @@ from .token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, token_m
 from .util import sha256_file
 
 _VALID_SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}[A-Za-z0-9]$|^[A-Za-z0-9]$")
+
+
+@dataclass(frozen=True)
+class _ValidatedSourceFile:
+    path: Path
+    device: int
+    inode: int
+    mode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+    atime_ns: int = field(compare=False)
 
 
 def _iter_skill_candidate_paths(root: Path) -> Iterator[Path]:
@@ -67,16 +82,94 @@ def _safe_target_root(skills_dir: Path | None, *, create: bool = False) -> Path:
     return resolved
 
 
-def _validate_source_tree(source_dir: Path) -> list[Path]:
+def _source_file_matches(source_file: _ValidatedSourceFile, status: os.stat_result) -> bool:
+    return (
+        stat.S_ISREG(status.st_mode)
+        and status.st_dev == source_file.device
+        and status.st_ino == source_file.inode
+        and status.st_mode == source_file.mode
+        and status.st_size == source_file.size
+        and status.st_mtime_ns == source_file.mtime_ns
+        and status.st_ctime_ns == source_file.ctime_ns
+    )
+
+
+def _validate_source_tree(source_dir: Path) -> list[_ValidatedSourceFile]:
     if source_dir.is_symlink():
         raise ValueError(f"Refusing to import from symlinked skill source directory: {source_dir}")
-    files: list[Path] = []
-    for path in source_dir.rglob("*"):
-        if path.is_symlink():
+    files: list[_ValidatedSourceFile] = []
+    paths = sorted(
+        source_dir.rglob("*"),
+        key=lambda item: item.relative_to(source_dir).as_posix(),
+    )
+    for path in paths:
+        status = path.lstat()
+        if stat.S_ISLNK(status.st_mode):
             raise ValueError(f"Refusing to copy symlinked skill content: {path}")
-        if path.is_file():
-            files.append(path)
+        if stat.S_ISREG(status.st_mode):
+            files.append(_ValidatedSourceFile(
+                path=path,
+                device=status.st_dev,
+                inode=status.st_ino,
+                mode=status.st_mode,
+                size=status.st_size,
+                mtime_ns=status.st_mtime_ns,
+                ctime_ns=status.st_ctime_ns,
+                atime_ns=status.st_atime_ns,
+            ))
     return files
+
+
+def _copy_validated_source_file(source_file: _ValidatedSourceFile, destination: Path) -> None:
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        source_fd = os.open(source_file.path, flags)
+    except OSError as exc:
+        raise ValueError(f"Skill source changed during import: {source_file.path}") from exc
+    try:
+        with os.fdopen(source_fd, "rb") as source_handle:
+            source_fd = -1
+            if not _source_file_matches(source_file, os.fstat(source_handle.fileno())):
+                raise ValueError(f"Skill source changed during import: {source_file.path}")
+            destination_flags = (
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_BINARY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+            )
+            destination_fd = os.open(destination, destination_flags, stat.S_IMODE(source_file.mode))
+            with os.fdopen(destination_fd, "wb") as destination_handle:
+                shutil.copyfileobj(source_handle, destination_handle, length=1024 * 1024)
+                if not _source_file_matches(source_file, os.fstat(source_handle.fileno())):
+                    raise ValueError(f"Skill source changed during import: {source_file.path}")
+                if hasattr(os, "fchmod"):
+                    os.fchmod(destination_handle.fileno(), stat.S_IMODE(source_file.mode))
+                else:
+                    os.chmod(destination, stat.S_IMODE(source_file.mode))
+        os.utime(destination, ns=(source_file.atime_ns, source_file.mtime_ns))
+    finally:
+        if source_fd >= 0:
+            os.close(source_fd)
+
+
+def _copy_validated_source_tree(
+    source_dir: Path,
+    source_files: list[_ValidatedSourceFile],
+    stage: Path,
+) -> None:
+    for source_file in source_files:
+        relative = source_file.path.relative_to(source_dir)
+        destination = stage / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _copy_validated_source_file(source_file, destination)
+    if _validate_source_tree(source_dir) != source_files:
+        raise ValueError(f"Skill source changed during import: {source_dir}")
 
 
 def _validate_destination_tree(target_dir: Path, target_root: Path) -> None:
@@ -110,11 +203,7 @@ def _transactional_replace_skill(source_dir: Path, target_dir: Path, target_root
     backup: Path | None = None
     try:
         stage.mkdir(parents=False, exist_ok=False)
-        for source_file in source_files:
-            relative = source_file.relative_to(source_dir)
-            destination = stage / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_file, destination)
+        _copy_validated_source_tree(source_dir, source_files, stage)
         if not (stage / "SKILL.md").is_file():
             raise ValueError(f"Staged skill is missing SKILL.md: {source_dir}")
         if target_dir.exists():

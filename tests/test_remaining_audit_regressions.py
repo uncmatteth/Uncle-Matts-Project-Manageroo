@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -147,16 +146,18 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             (destination / "SKILL.md").write_text("old skill\n", encoding="utf-8")
             (destination / "keep.txt").write_text("keep\n", encoding="utf-8")
             before = {path.relative_to(destination).as_posix(): path.read_bytes() for path in destination.rglob("*") if path.is_file()}
-            real_copy2 = shutil.copy2
+            import manageroo.skill_pack as skill_pack
+
+            real_copy = skill_pack._copy_validated_source_file
             calls = {"count": 0}
 
             def fail_second(source_path, destination_path, *args, **kwargs):
                 calls["count"] += 1
                 if calls["count"] == 2:
                     raise OSError("simulated staged copy failure")
-                return real_copy2(source_path, destination_path, *args, **kwargs)
+                return real_copy(source_path, destination_path, *args, **kwargs)
 
-            with patch("manageroo.skill_pack.shutil.copy2", side_effect=fail_second):
+            with patch("manageroo.skill_pack._copy_validated_source_file", side_effect=fail_second):
                 with self.assertRaises(OSError):
                     import_skill_folder(source, skills_dir=target_root, apply=True)
             after = {path.relative_to(destination).as_posix(): path.read_bytes() for path in destination.rglob("*") if path.is_file()}
