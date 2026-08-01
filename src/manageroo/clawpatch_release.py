@@ -21,6 +21,7 @@ from .util import atomic_write_json, read_json, sha256_file, utc_now
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
 CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 1_800_000
 CONTROLLER_GATE_ARTIFACTS = frozenset({"BUILD-VALIDATION.json"})
+MAX_REPAIR_ATTEMPTS_PER_FINDING = 3
 LIFECYCLE = (
     "clawpatch doctor -> init (when needed) -> map -> review -> "
     "clawpatch next --status open -> show -> fix -> Manageroo gates -> revalidate -> exact-path commit; "
@@ -330,7 +331,8 @@ def _finish_finding(
         state_dir=state_dir,
         clawpatch_env=clawpatch_env,
     )
-    if str(validation.get("outcome") or "") != "fixed":
+    outcome = str(validation.get("outcome") or "")
+    if outcome not in {"fixed", "open"}:
         raise SafetyError(
             f"Clawpatch finding {finding_id} did not clear after validation "
             f"(outcome={validation.get('outcome', 'unknown')}). No commit was created."
@@ -344,7 +346,12 @@ def _finish_finding(
     staged_paths = sorted(path for path in staged.split("\0") if path)
     if staged_paths != sorted(paths):
         raise SafetyError("The staged paths did not exactly match the Clawpatch fix; refusing to commit.")
-    _must_run(["git", "commit", "-m", f"clawpatch fix: {finding_id}"], cwd=repo, timeout=300)
+    commit_kind = "fix" if outcome == "fixed" else "partial"
+    _must_run(
+        ["git", "commit", "-m", f"clawpatch {commit_kind}: {finding_id}"],
+        cwd=repo,
+        timeout=300,
+    )
     commit = _git_text(repo, ["git", "rev-parse", "HEAD"])
     record = {
         "finding_id": finding_id,
@@ -352,8 +359,9 @@ def _finish_finding(
         "commit": commit,
         "validation": validation,
         "gate_runs": gate_runs,
+        "cleared": outcome == "fixed",
     }
-    checkpoint.setdefault("completed", []).append(record)
+    checkpoint.setdefault("completed" if outcome == "fixed" else "partial", []).append(record)
     checkpoint.update({"phase": "idle", "active_finding": "", "paths": [], "path_digests": {}, "head": commit})
     atomic_write_json(_checkpoint_path(repo), checkpoint)
     if push_mode == "each":
@@ -498,7 +506,7 @@ def release_sweep(
             )
         )
 
-    seen: set[str] = set()
+    attempt_counts: dict[str, int] = {}
     while max_findings == 0 or len(report["results"]) < max_findings:
         next_payload = _json_command(
             root,
@@ -512,9 +520,12 @@ def release_sweep(
         finding_id = _finding_id(next_payload)
         if not finding_id:
             break
-        if finding_id in seen:
-            raise SafetyError(f"Clawpatch selected {finding_id} twice without clearing it; stopping.")
-        seen.add(finding_id)
+        attempt_counts[finding_id] = attempt_counts.get(finding_id, 0) + 1
+        if attempt_counts[finding_id] > MAX_REPAIR_ATTEMPTS_PER_FINDING:
+            raise SafetyError(
+                f"Clawpatch did not clear {finding_id} after "
+                f"{MAX_REPAIR_ATTEMPTS_PER_FINDING} gated repair attempts; stopping."
+            )
         _json_command(
             root,
             "show",

@@ -179,6 +179,11 @@ If `clawpatch fix` exits with code 6, Manageroo does not commit blindly or stop
 the entire queue. It runs the configured project gates and revalidates that same
 finding. Only a gate-passing patch that revalidates as `fixed` is committed.
 
+A definite `open` revalidation can require another Clawpatch pass. Manageroo
+commits the gate-passing partial repair with an explicit `clawpatch partial`
+message and retries the same finding, up to three attempts. It never treats that
+partial commit as cleared release proof.
+
 Manageroo gives the Codex worker up to 30 minutes during a release sweep so a
 valid repair is not abandoned at Clawpatch's shorter interactive default. A
 user-supplied `CLAWPATCH_CODEX_TIMEOUT_MS` value takes precedence.

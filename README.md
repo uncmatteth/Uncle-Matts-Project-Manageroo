@@ -367,6 +367,11 @@ When a configured gate refreshes the tracked `BUILD-VALIDATION.json` proof,
 Manageroo includes that known controller artifact in the same exact repair
 commit. Any other unexpected gate-created source change still stops the sweep.
 
+If revalidation says a gate-passing repair is still `open`, Manageroo records an
+explicit partial commit and asks Clawpatch to repair that same finding again.
+This is bounded to three gated attempts per finding; `uncertain` still stops
+without a commit, and only `fixed` counts as cleared.
+
 Release sweeps also give Clawpatch's Codex worker up to 30 minutes by default,
 instead of Clawpatch's shorter interactive default. An existing
 `CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins.

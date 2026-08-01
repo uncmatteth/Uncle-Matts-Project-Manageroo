@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from manageroo.clawpatch_release import (
     _fix_command,
+    _finish_finding,
     _json_command,
     _paths_after_gates,
     _release_clawpatch_env,
@@ -95,6 +96,44 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(
             _paths_after_gates(Path("/repo"), ["src/app.py"]),
             ["BUILD-VALIDATION.json", "src/app.py"],
+        )
+
+    @patch("manageroo.clawpatch_release.atomic_write_json")
+    @patch("manageroo.clawpatch_release._paths_after_gates", return_value=["src/app.py"])
+    @patch("manageroo.clawpatch_release._run_manageroo_gates", return_value=[])
+    @patch(
+        "manageroo.clawpatch_release._json_command",
+        return_value={"finding": "fnd_one", "outcome": "open"},
+    )
+    @patch("manageroo.clawpatch_release._must_run")
+    def test_open_revalidation_creates_explicit_partial_checkpoint(
+        self, must_run, _json, _gates, _paths, _write
+    ):
+        def fake(argv, **_kwargs):
+            if argv[:3] == ["git", "diff", "--cached"]:
+                return "src/app.py\0"
+            if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                return "abc123\n"
+            return ""
+
+        must_run.side_effect = fake
+        checkpoint: dict = {"completed": []}
+        record = _finish_finding(
+            Path("/repo"),
+            finding_id="fnd_one",
+            paths=["src/app.py"],
+            checkpoint=checkpoint,
+            push_mode="none",
+            branch="feature/release",
+            state_dir=None,
+            clawpatch_env=None,
+        )
+
+        self.assertFalse(record["cleared"])
+        self.assertEqual(checkpoint["partial"][0]["finding_id"], "fnd_one")
+        self.assertIn(
+            ["git", "commit", "-m", "clawpatch partial: fnd_one"],
+            [call.args[0] for call in must_run.call_args_list],
         )
 
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
