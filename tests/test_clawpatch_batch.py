@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from manageroo.clawpatch_batch import batch_fix_open_findings, open_finding_ids
+from manageroo.clawpatch_batch import _run, batch_fix_open_findings, open_finding_ids
 from manageroo.errors import SafetyError
 
 
@@ -17,14 +17,30 @@ class ClawpatchBatchTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def completed(self, argv, code=0, output=""):
-        return subprocess.CompletedProcess(argv, code, output, None)
+    def completed(self, argv, code=0, output="", error=None):
+        return subprocess.CompletedProcess(argv, code, output, error)
+
+    @patch("manageroo.clawpatch_batch.subprocess.run")
+    def test_run_captures_stdout_and_stderr_separately(self, subprocess_run):
+        subprocess_run.return_value = self.completed(
+            ["git"], output=str(self.repo) + "\n", error="warning on stderr\n"
+        )
+
+        result = _run(["git", "rev-parse", "--show-toplevel"], cwd=self.repo)
+
+        self.assertEqual(result.stdout, str(self.repo) + "\n")
+        self.assertEqual(result.stderr, "warning on stderr\n")
+        self.assertIs(subprocess_run.call_args.kwargs["stderr"], subprocess.PIPE)
 
     @patch("manageroo.clawpatch_batch.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_batch._run")
     def test_open_finding_ids_uses_status_filtered_report_and_deduplicates(self, run, _which):
         run.side_effect = [
-            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(
+                ["git"],
+                output=str(self.repo) + "\n",
+                error="warning: repository diagnostic\n",
+            ),
             self.completed(
                 ["clawpatch"],
                 output=(
@@ -33,6 +49,7 @@ class ClawpatchBatchTests(unittest.TestCase):
                     "id: fnd_two\nstatus: open\n\n"
                     "id: fnd_one\n"
                 ),
+                error="id: fnd_stderr_only\n",
             ),
         ]
         ids, _ = open_finding_ids(self.repo)
@@ -90,22 +107,24 @@ class ClawpatchBatchTests(unittest.TestCase):
     @patch("manageroo.clawpatch_batch._run")
     def test_successful_fix_is_staged_with_add_all_and_committed_per_finding(self, run, _which):
         run.side_effect = [
-            self.completed(["git"], output=str(self.repo) + "\n"),
-            self.completed(["git"], output=str(self.repo) + "\n"),
+            self.completed(["git"], output=str(self.repo) + "\n", error="root warning\n"),
+            self.completed(["git"], output=str(self.repo) + "\n", error="root warning\n"),
             self.completed(["clawpatch"], output="id: fnd_one\n"),
-            self.completed(["git"], output=""),
-            self.completed(["git"], output=""),
-            self.completed(["clawpatch"], output="fixed\n"),
-            self.completed(["git"], output=" M file.py\n"),
+            self.completed(["git"], output="", error="status warning\n"),
+            self.completed(["git"], output="", error="status warning\n"),
+            self.completed(["clawpatch"], output="fixed\n", error="fix warning\n"),
+            self.completed(["git"], output=" M file.py\n", error="status warning\n"),
             self.completed(["git"], output=""),
             self.completed(["git"], code=1, output=""),
             self.completed(["git"], output="committed\n"),
-            self.completed(["git"], output="abc123\n"),
+            self.completed(["git"], output="abc123\n", error="head warning\n"),
         ]
         report = batch_fix_open_findings(self.repo, apply=True)
         self.assertTrue(report["ok"])
         self.assertEqual(report["completed_count"], 1)
         self.assertEqual(report["results"][0]["commit"], "abc123")
+        self.assertEqual(report["results"][0]["git_status_after_fix"], " M file.py\n")
+        self.assertEqual(report["results"][0]["fix_output"], "fixed\nfix warning\n")
         commands = [call.args[0] for call in run.call_args_list]
         self.assertIn(["git", "add", "-A"], commands)
         self.assertIn(["git", "commit", "-m", "clawpatch fix: fnd_one"], commands)

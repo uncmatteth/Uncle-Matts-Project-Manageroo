@@ -18,28 +18,44 @@ def _run(argv: list[str], *, cwd: Path, timeout: int = 1800) -> subprocess.Compl
             cwd=str(cwd),
             text=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             shell=False,
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
         output = exc.stdout if isinstance(exc.stdout, str) else ""
-        return subprocess.CompletedProcess(argv, 124, output + "\nTIMEOUT", None)
+        error = exc.stderr if isinstance(exc.stderr, str) else ""
+        return subprocess.CompletedProcess(argv, 124, output, error + "\nTIMEOUT")
     except OSError as exc:
-        return subprocess.CompletedProcess(argv, 127, str(exc), None)
+        return subprocess.CompletedProcess(argv, 127, "", str(exc))
+
+
+def _diagnostic_output(result: subprocess.CompletedProcess[str], limit: int) -> str:
+    output = result.stdout or ""
+    if result.stderr:
+        if output and not output.endswith("\n"):
+            output += "\n"
+        output += result.stderr
+    return output[-limit:]
 
 
 def _git_root(repo: Path) -> Path:
     result = _run(["git", "rev-parse", "--show-toplevel"], cwd=repo, timeout=30)
     if result.returncode:
-        raise SafetyError("Clawpatch batch repair requires an existing Git repository.")
+        raise SafetyError(
+            "Clawpatch batch repair requires an existing Git repository.\n"
+            + _diagnostic_output(result, 4000)
+        )
     return Path(result.stdout.strip()).resolve()
 
 
 def _git_status(repo: Path) -> str:
     result = _run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo, timeout=60)
     if result.returncode:
-        raise SafetyError("Could not inspect Git status before Clawpatch batch repair.")
+        raise SafetyError(
+            "Could not inspect Git status before Clawpatch batch repair.\n"
+            + _diagnostic_output(result, 4000)
+        )
     return result.stdout
 
 
@@ -50,7 +66,9 @@ def open_finding_ids(repo: Path) -> tuple[list[str], str]:
         raise SafetyError("Clawpatch is not installed or is not available on PATH.")
     report = _run(["clawpatch", "report", "--status", "open"], cwd=root, timeout=300)
     if report.returncode:
-        raise SafetyError("Could not read open Clawpatch findings:\n" + report.stdout[-4000:])
+        raise SafetyError(
+            "Could not read open Clawpatch findings:\n" + _diagnostic_output(report, 4000)
+        )
     ids: list[str] = []
     seen: set[str] = set()
     for finding_id in _FINDING_ID_RE.findall(report.stdout):
@@ -111,7 +129,7 @@ def batch_fix_open_findings(
         record: dict[str, Any] = {
             "finding_id": finding_id,
             "fix_exit_code": fix.returncode,
-            "fix_output": fix.stdout[-8000:],
+            "fix_output": _diagnostic_output(fix, 8000),
             "committed": False,
             "commit": "",
         }
@@ -138,7 +156,7 @@ def batch_fix_open_findings(
             if add.returncode:
                 record["ok"] = False
                 record["error"] = "git add -A failed"
-                record["git_output"] = add.stdout[-4000:]
+                record["git_output"] = _diagnostic_output(add, 4000)
                 plan["results"].append(record)
                 plan["ok"] = False
                 plan["stopped_at"] = finding_id
@@ -155,7 +173,7 @@ def batch_fix_open_findings(
             if staged.returncode != 1:
                 record["ok"] = False
                 record["error"] = "could not inspect staged Clawpatch change"
-                record["git_output"] = staged.stdout[-4000:]
+                record["git_output"] = _diagnostic_output(staged, 4000)
                 plan["results"].append(record)
                 plan["ok"] = False
                 plan["stopped_at"] = finding_id
@@ -169,7 +187,7 @@ def batch_fix_open_findings(
             if commit.returncode:
                 record["ok"] = False
                 record["error"] = "git commit failed"
-                record["git_output"] = commit.stdout[-4000:]
+                record["git_output"] = _diagnostic_output(commit, 4000)
                 plan["results"].append(record)
                 plan["ok"] = False
                 plan["stopped_at"] = finding_id
