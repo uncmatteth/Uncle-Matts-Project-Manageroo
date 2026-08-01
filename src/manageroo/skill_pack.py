@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,17 @@ from .token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, token_m
 from .util import sha256_file
 
 _VALID_SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}[A-Za-z0-9]$|^[A-Za-z0-9]$")
+
+
+def _iter_skill_candidate_paths(root: Path) -> Iterator[Path]:
+    for path in sorted(root.rglob("SKILL.md")):
+        directory_names = (root.name, *path.parent.relative_to(root).parts)
+        if path.is_symlink() or any(
+            ".manageroo-backup-" in name or ".manageroo-stage" in name
+            for name in directory_names
+        ):
+            continue
+        yield path
 
 
 def _backup_path(destination: Path) -> Path:
@@ -174,8 +186,7 @@ def scan_skill_folder(source: Path, *, skills_dir: Path | None = None) -> dict[s
     seen: set[str] = set()
     candidates = [
         _candidate(path, source_root, target_root, seen)
-        for path in sorted(source_root.rglob("SKILL.md"))
-        if not path.is_symlink()
+        for path in _iter_skill_candidate_paths(source_root)
     ]
     counts: dict[str, int] = {}
     for item in candidates:
@@ -215,9 +226,7 @@ def _all_skill_candidates(roots: list[Path], target_root: Path) -> list[dict[str
         if not root.exists() or not root.is_dir() or root.is_symlink():
             continue
         seen: set[str] = set()
-        for path in sorted(root.rglob("SKILL.md")):
-            if path.is_symlink():
-                continue
+        for path in _iter_skill_candidate_paths(root):
             item = _candidate(path, root.resolve(), target_root, seen)
             item["root"] = str(root.resolve())
             item["in_target"] = path.resolve().is_relative_to(target_root)

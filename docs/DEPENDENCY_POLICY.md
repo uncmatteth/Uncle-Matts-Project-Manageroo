@@ -98,7 +98,8 @@ Copied skill folders can be curated locally with
 `manageroo skills reconcile --source ~/Downloads/SKILLS --include-external
 --apply`. This imports skill entrypoints plus their support files, backs up
 same-name conflicts, reports duplicate names across scanned roots, and does not
-fetch anything from the network.
+fetch anything from the network. Later scans exclude Manageroo-generated backup
+and staging directories so archived copies cannot become candidates or false duplicates.
 
 ## AUTOREVIEW and Clawpatch
 
