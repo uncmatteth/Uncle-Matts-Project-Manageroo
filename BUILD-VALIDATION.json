@@ -38,7 +38,7 @@
   "ok": true,
   "python_process_safety_violations": [],
   "source_selection": "scripts/package_release.py included_files minus generated outputs",
-  "source_tree_sha256": "79cf261a4a743f87fc49b6f57d58afef6092e57b5f009dc4d255bcc0783ef5e6",
+  "source_tree_sha256": "8b48ad5f0aebb8561423d118d081d717082d919ab5966ad9d5b19e8fd8d7ddbb",
   "structural_checks": [
     {
       "name": "required:install.sh",
