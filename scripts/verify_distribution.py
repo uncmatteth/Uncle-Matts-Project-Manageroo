@@ -47,6 +47,7 @@ def _build_wheel(wheel_dir: Path) -> subprocess.CompletedProcess[str]:
     return _run(
         [
             sys.executable,
+            "-I",
             "-m",
             "pip",
             "--isolated",
@@ -59,6 +60,23 @@ def _build_wheel(wheel_dir: Path) -> subprocess.CompletedProcess[str]:
         ],
         cwd=ROOT,
         timeout=600,
+    )
+
+
+def _install_wheel(python: Path, wheel: Path, root: Path) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            str(python),
+            "-I",
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-deps",
+            str(wheel),
+        ],
+        cwd=root,
+        timeout=300,
     )
 
 
@@ -80,19 +98,7 @@ def verify_distribution() -> dict:
         if not python.is_file():
             raise RuntimeError(f"Distribution verification venv Python is missing: {python}")
 
-        _run(
-            [
-                str(python),
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--no-deps",
-                str(wheel),
-            ],
-            cwd=root,
-            timeout=300,
-        )
+        _install_wheel(python, wheel, root)
         if not manageroo.is_file():
             raise RuntimeError(f"Installed wheel did not create the manageroo console entry point: {manageroo}")
 

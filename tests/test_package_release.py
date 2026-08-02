@@ -166,9 +166,31 @@ class PackageReleaseTests(unittest.TestCase):
                 verify_distribution._build_wheel(wheel_dir)
 
         argv = run.call_args.args[0]
-        self.assertEqual(argv[1:5], ["-m", "pip", "--isolated", "wheel"])
+        self.assertEqual(argv[1:6], ["-I", "-m", "pip", "--isolated", "wheel"])
         self.assertNotIn("--no-build-isolation", argv)
         self.assertEqual(run.call_args.kwargs, {"cwd": ROOT, "timeout": 600})
+
+    def test_distribution_install_ignores_inherited_pythonpath(self):
+        python = Path("venv") / "bin" / "python"
+        wheel = Path("wheel") / "manageroo.whl"
+        root = Path("proof")
+        with patch.object(verify_distribution, "_run") as run:
+            verify_distribution._install_wheel(python, wheel, root)
+
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                str(python),
+                "-I",
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-deps",
+                str(wheel),
+            ],
+        )
+        self.assertEqual(run.call_args.kwargs, {"cwd": root, "timeout": 300})
 
     def test_write_archive_failure_preserves_existing_published_archive(self):
         with tempfile.TemporaryDirectory() as temp:
