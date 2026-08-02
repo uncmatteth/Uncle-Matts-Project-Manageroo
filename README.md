@@ -18,6 +18,12 @@
 > ```
 >
 > If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
+
+When Codex is selected, setup also verifies Codex's own native sandbox before
+calling it ready: `bwrap`/seccomp on Linux and WSL2, Seatbelt on macOS, and the
+native Windows sandbox from PowerShell. Failures stop with instructions for that
+platform; Manageroo does not apply Linux fixes to macOS or Windows and does not
+silently turn the sandbox off.
 >
 > **2. Follow the guided setup**
 >

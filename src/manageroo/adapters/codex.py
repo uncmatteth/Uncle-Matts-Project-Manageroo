@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import os
 import json
+import platform
 import secrets
+import shlex
 import shutil
+import subprocess
+import sys
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -19,8 +23,114 @@ from ..util import atomic_write_json
 
 _BWRAP_LOOPBACK_FAILURE = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
 _DANGER_FALLBACK_ENV = "MANAGEROO_CODEX_DANGER_FULL_ACCESS_FALLBACK"
+_CODEX_SANDBOX_REFERENCE = "https://learn.chatgpt.com/docs/sandboxing"
 _MAX_PROFILE_SKILLS = 512
 _MAX_PROFILE_BYTES = 1_000_000
+
+
+def _sandbox_helper_name(system_name: str | None = None) -> str | None:
+    return {
+        "linux": "linux",
+        "darwin": "macos",
+        "windows": "windows",
+    }.get((system_name or platform.system()).strip().lower())
+
+
+def _sandbox_failure_guidance(system_name: str, argv: list[str]) -> dict[str, Any]:
+    normalized = system_name.strip().lower()
+    rerun = subprocess.list2cmdline(argv) if normalized == "windows" else shlex.join(argv)
+    if normalized == "linux":
+        guidance = (
+            "OpenAI Codex on Linux and WSL2 requires bubblewrap, seccomp, and usable "
+            "unprivileged user namespaces. Ubuntu 24.04 may also require the "
+            "bwrap-userns-restrict AppArmor profile. If Codex is intentionally running "
+            "inside an outer container, that container must provide the isolation boundary."
+        )
+        try:
+            release = platform.freedesktop_os_release()
+        except OSError:
+            release = {}
+        distro = str(release.get("ID", "")).casefold()
+        version = str(release.get("VERSION_ID", ""))
+        if distro == "ubuntu" and version.startswith("24.04"):
+            next_commands = [
+                "sudo apt install bubblewrap apparmor-profiles apparmor-utils",
+                "sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap-userns-restrict",
+                "sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict",
+                rerun,
+            ]
+        elif shutil.which("apt-get"):
+            next_commands = ["sudo apt install bubblewrap", rerun]
+        elif shutil.which("dnf"):
+            next_commands = ["sudo dnf install bubblewrap", rerun]
+        elif shutil.which("yum"):
+            next_commands = ["sudo yum install bubblewrap", rerun]
+        elif shutil.which("pacman"):
+            next_commands = ["sudo pacman -S --needed bubblewrap", rerun]
+        elif shutil.which("zypper"):
+            next_commands = ["sudo zypper install bubblewrap", rerun]
+        else:
+            next_commands = [rerun]
+    elif normalized == "darwin":
+        guidance = (
+            "OpenAI Codex uses the built-in macOS Seatbelt sandbox. No Linux bubblewrap "
+            "setup applies; repair or update the Codex installation, then rerun the native "
+            "macOS sandbox diagnostic."
+        )
+        next_commands = [rerun]
+    else:
+        guidance = (
+            "OpenAI Codex uses its native Windows sandbox from PowerShell, or the Linux "
+            "sandbox under WSL2. Use the elevated native Windows sandbox when available; "
+            "WSL1 is unsupported by current Codex releases."
+        )
+        next_commands = [rerun]
+    return {
+        "guidance": guidance,
+        "next_commands": next_commands,
+        "reference": _CODEX_SANDBOX_REFERENCE,
+    }
+
+
+def codex_sandbox_preflight(
+    executable: str,
+    runner: CommandRunner,
+    cwd: Path,
+    *,
+    system_name: str | None = None,
+) -> dict[str, Any]:
+    """Exercise the native Codex sandbox before a real worker is launched."""
+    helper = _sandbox_helper_name(system_name)
+    if helper is None:
+        return {
+            "ok": False,
+            "platform": system_name or platform.system(),
+            "error": "Codex sandbox preflight supports Linux, macOS, and Windows only.",
+        }
+    argv = [
+        executable,
+        "sandbox",
+        "--permission-profile",
+        ":workspace",
+        "-C",
+        str(cwd),
+        "--",
+        sys.executable,
+        "-c",
+        "pass",
+    ]
+    result = runner.run(argv, cwd=cwd, timeout_seconds=30)
+    report = {
+        "ok": result.passed,
+        "platform": system_name or platform.system(),
+        "helper": helper,
+        "argv": result.argv,
+        "exit_code": result.exit_code,
+        "output": (result.stdout + result.stderr)[-4000:].strip(),
+    }
+    if not result.passed:
+        report.update(_sandbox_failure_guidance(system_name or platform.system(), argv))
+    return report
 
 
 def _codex_compatible_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -98,8 +208,9 @@ class CodexAdapter(AgentAdapter):
         version = self.runner.run([self.executable, "--version"], cwd=cwd, timeout_seconds=30)
         help_result = self.runner.run([self.executable, "exec", "--help"], cwd=cwd, timeout_seconds=30)
         missing = [flag for flag in self.REQUIRED_FLAGS if flag not in help_result.stdout]
+        sandbox_preflight = codex_sandbox_preflight(self.executable, self.runner, cwd)
         return {
-            "ok": version.passed and help_result.passed and not missing,
+            "ok": version.passed and help_result.passed and not missing and sandbox_preflight["ok"],
             "adapter": "codex",
             "path": found,
             "version": version.stdout.strip() or version.stderr.strip(),
@@ -107,6 +218,7 @@ class CodexAdapter(AgentAdapter):
             "danger_full_access_fallback_opted_in": _danger_fallback_enabled(),
             "stderr_triggered_escalation": False,
             "task_scoped_skill_catalog": True,
+            "sandbox_preflight": sandbox_preflight,
         }
 
     @staticmethod

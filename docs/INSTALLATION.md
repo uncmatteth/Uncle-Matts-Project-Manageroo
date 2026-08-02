@@ -12,6 +12,22 @@ The platform launcher checks these requirements and, in an interactive terminal,
 
 For real AI work, at least one compatible agent path must also be available, such as Codex, Claude Code, Gemini, or a configured generic CLI. The installer detects the three built-in CLI paths. One detected tool requires no question; several detected tools produce a short preference choice; no detected tool produces an optional Codex install offer. Installing Codex also installs Node.js/npm through a supported platform package path when needed.
 
+When Codex is detected or installed, Manageroo runs Codex's native sandbox helper
+before recording it as configured. The helper is selected by the host platform:
+
+- Linux and WSL2 use Codex's `bwrap` and seccomp sandbox. Linux must provide
+  bubblewrap and usable unprivileged user namespaces; Ubuntu 24.04 may also need
+  the `bwrap-userns-restrict` AppArmor profile.
+- macOS uses the built-in Seatbelt sandbox. Linux setup commands never apply.
+- native Windows uses the Windows sandbox from PowerShell; the elevated mode is
+  preferred when available. WSL2 follows the Linux path, while WSL1 is not
+  supported by current Codex releases.
+
+A failed native sandbox preflight leaves Codex marked as needing action and prints
+only the remediation for that platform. Manageroo never silently disables Codex
+sandboxing. OpenAI's current platform setup is documented at
+<https://learn.chatgpt.com/docs/sandboxing>.
+
 Manageroo detects coding-agent command-line tools, not the person's subscription or private account details. The selected coding tool keeps control of its own login and model configuration.
 
 Manageroo does **not** require a particular GPU, VRAM amount, CPU tier, or RAM class. A selected target project or explicitly chosen local AI tool may have separate requirements.

@@ -202,6 +202,22 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("No supported coding-agent CLI was detected or installed", source)
         self.assertNotIn("Codex is an adapter choice, not a core requirement", source)
 
+    def test_codex_install_status_requires_native_sandbox_preflight(self):
+        install = load_install_script()
+        failed = {
+            "ok": False,
+            "platform": "Windows",
+            "guidance": "Use the native Windows sandbox from PowerShell.",
+            "next_commands": ["codex sandbox windows -- python -c pass"],
+            "reference": "https://learn.chatgpt.com/docs/sandboxing",
+        }
+        with patch.object(install, "codex_sandbox_preflight", return_value=failed):
+            status = install.codex_sandbox_install_status("codex")
+
+        self.assertFalse(status["configured"])
+        self.assertEqual(status["sandbox_preflight"], failed)
+        self.assertEqual(status["next_commands"], failed["next_commands"])
+
     def test_unix_launcher_offers_guided_core_requirement_install(self):
         launcher = (ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn("install_core_requirements", launcher)

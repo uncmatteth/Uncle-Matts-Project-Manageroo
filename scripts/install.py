@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from manageroo.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from manageroo.chiptune import ThemePlayback, play_once  # noqa: E402
+from manageroo.adapters.codex import codex_sandbox_preflight  # noqa: E402
 from manageroo.credits import format_special_thanks  # noqa: E402
 from manageroo.install_status import (  # noqa: E402
     INSTALL_OWNERSHIP_MARKER,
@@ -30,6 +31,7 @@ from manageroo.install_status import (  # noqa: E402
     summarize_external_tools,
     uninstall_plan,
 )
+from manageroo.runner import CommandRunner  # noqa: E402
 from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
 from manageroo.trufflehog import (  # noqa: E402
     TRUFFLEHOG_REFERENCE,
@@ -130,6 +132,15 @@ def command_version(executable: str) -> str:
         return (result.stdout or "").strip() or f"exit {result.returncode}"
     except (OSError, subprocess.TimeoutExpired) as exc:
         return f"unavailable: {exc}"
+
+
+def codex_sandbox_install_status(executable: str) -> dict:
+    preflight = codex_sandbox_preflight(executable, CommandRunner(), Path.home())
+    return {
+        "configured": bool(preflight.get("ok")),
+        "sandbox_preflight": preflight,
+        "next_commands": list(preflight.get("next_commands", [])),
+    }
 
 
 def _safe_cmd_value(path: Path) -> str:
@@ -295,7 +306,13 @@ def install_codex_latest(downloads: list[dict]) -> dict:
     prepend_tool_paths()
     after = command_version("codex")
     status_line("CODEX", after, ok=after != "not installed")
-    return {"path": shutil.which("codex"), "version": after, "source": CODEX_NPM_PACKAGE}
+    path = shutil.which("codex") or "codex"
+    return {
+        "path": path,
+        "version": after,
+        "source": CODEX_NPM_PACKAGE,
+        **codex_sandbox_install_status(path),
+    }
 
 
 def optional_run(
@@ -1238,16 +1255,19 @@ def main() -> int:
         else:
             detected_agents = detect_coding_agents()
             if detected_agents:
-                external_tools.extend(
-                    {
+                records = []
+                for item in detected_agents:
+                    record = {
                         "name": item["preset"],
                         "display_name": item["name"],
                         "path": item["path"],
                         "version": command_version(item["executable"]),
                         "detected": True,
                     }
-                    for item in detected_agents
-                )
+                    if item["preset"] == "codex":
+                        record.update(codex_sandbox_install_status(item["path"]))
+                    records.append(record)
+                external_tools.extend(records)
             else:
                 external_tools.append(
                     {

@@ -76,6 +76,97 @@ def _request(root: Path) -> AgentRequest:
 
 
 class CodexSandboxFallbackTests(unittest.TestCase):
+    def test_doctor_preflights_the_native_codex_sandbox_on_every_supported_platform(self):
+        help_output = " ".join(CodexAdapter.REQUIRED_FLAGS)
+        for system_name, native_sandbox in (
+            ("Linux", "linux"),
+            ("Darwin", "macos"),
+            ("Windows", "windows"),
+        ):
+            with self.subTest(system_name=system_name), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                runner = _Runner(
+                    [
+                        _result(["codex", "--version"], root, stdout="codex-cli 1.0"),
+                        _result(["codex", "exec", "--help"], root, stdout=help_output),
+                        _result(["codex", "sandbox"], root),
+                    ]
+                )
+
+                with patch(
+                    "manageroo.adapters.codex.shutil.which", return_value="/tools/codex"
+                ), patch("manageroo.adapters.codex.platform.system", return_value=system_name):
+                    doctor = CodexAdapter("codex", runner).doctor(root)
+
+                self.assertTrue(doctor["ok"], doctor)
+                self.assertTrue(doctor["sandbox_preflight"]["ok"])
+                self.assertEqual(doctor["sandbox_preflight"]["helper"], native_sandbox)
+                self.assertEqual(runner.calls[2][0:2], ["codex", "sandbox"])
+                self.assertIn(":workspace", runner.calls[2])
+                self.assertIn(str(root), runner.calls[2])
+                self.assertIn("--", runner.calls[2])
+
+    def test_doctor_fails_closed_with_platform_specific_sandbox_setup(self):
+        help_output = " ".join(CodexAdapter.REQUIRED_FLAGS)
+        for system_name, expected_text in (
+            ("Linux", "bubblewrap"),
+            ("Darwin", "Seatbelt"),
+            ("Windows", "PowerShell"),
+        ):
+            with self.subTest(system_name=system_name), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                runner = _Runner(
+                    [
+                        _result(["codex", "--version"], root, stdout="codex-cli 1.0"),
+                        _result(["codex", "exec", "--help"], root, stdout=help_output),
+                        _result(
+                            ["codex", "sandbox"],
+                            root,
+                            exit_code=1,
+                            stderr="sandbox bootstrap failed",
+                        ),
+                    ]
+                )
+
+                with patch(
+                    "manageroo.adapters.codex.shutil.which", return_value="/tools/codex"
+                ), patch("manageroo.adapters.codex.platform.system", return_value=system_name):
+                    doctor = CodexAdapter("codex", runner).doctor(root)
+
+                self.assertFalse(doctor["ok"])
+                preflight = doctor["sandbox_preflight"]
+                self.assertIn(expected_text, preflight["guidance"])
+                self.assertTrue(preflight["next_commands"])
+                self.assertIn("chatgpt.com", preflight["reference"])
+                commands = "\n".join(preflight["next_commands"])
+                if system_name == "Linux":
+                    self.assertIn("apparmor_parser", commands)
+                else:
+                    self.assertNotIn("apt install", commands)
+
+    def test_windows_sandbox_rerun_command_quotes_python_paths_with_spaces(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runner = _Runner(
+                [
+                    _result(["codex", "sandbox"], root, exit_code=1, stderr="failed"),
+                ]
+            )
+            with patch(
+                "manageroo.adapters.codex.sys.executable",
+                r"C:\Program Files\Python\python.exe",
+            ):
+                from manageroo.adapters.codex import codex_sandbox_preflight
+
+                report = codex_sandbox_preflight(
+                    "codex", runner, root, system_name="Windows"
+                )
+
+            self.assertIn(
+                '"C:\\Program Files\\Python\\python.exe"',
+                report["next_commands"][0],
+            )
+
     def test_task_capsule_uses_bounded_ephemeral_profile_without_leaking_skill_paths_to_argv(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
