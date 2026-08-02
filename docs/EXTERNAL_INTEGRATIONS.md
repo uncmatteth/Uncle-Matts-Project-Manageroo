@@ -151,6 +151,24 @@ Manageroo does not claim Clawpatch is healthy merely because the executable exis
 
 Clawpatch findings remain command-owned. Manageroo must not hand them to a worker for unconstrained freehand repair.
 
+For the normal isolated Manageroo run lane, configure:
+
+```toml
+[integrations]
+clawpatch_command = ["clawpatch"]
+```
+
+Manageroo then supervises Clawpatch's baseline-bounded one-finding lifecycle
+rather than running one arbitrary command. `review --since` targets the changes
+made by the current Manageroo run, so unrelated repository findings cannot trap
+the locked task in an out-of-scope retry loop. It persists the active finding and command
+journal, checkpoints each gate-passing repair before exact revalidation, and
+resumes that state under `run --continue`. A 15-minute child-process watchdog
+kills the entire timed-out process group, reconciles the run-owned Clawpatch
+state, follows the current `next` command, and retries the same finding. Scope,
+gate, or non-fixed failures are also preserved, rolled back, reopened, and sent
+back to Clawpatch; Manageroo never edits the finding itself.
+
 For final project closeout, use Manageroo's cross-platform native sweep instead of manually copying one finding at a time:
 
 ```bash
@@ -210,7 +228,7 @@ Windows, macOS, and Linux. On Windows, Manageroo resolves command shims and uses
 native PowerShell process inspection conservatively to prevent concurrent
 Clawpatch execution.
 
-Manageroo gives the Codex worker up to 30 minutes during a release sweep so a
+Manageroo gives the Codex worker up to 15 minutes during a release sweep so a
 valid repair is not abandoned at Clawpatch's shorter interactive default. A
 user-supplied `CLAWPATCH_CODEX_TIMEOUT_MS` value takes precedence.
 

@@ -13,6 +13,9 @@ Not every control is equally strong. This document distinguishes prevention from
 | Agent cannot persist Git config, hooks, or other Git-directory metadata | In-memory Git-directory checkpoint, comparison, and verified restoration | Detective, blocks acceptance and restores metadata |
 | Agent cannot invent executable gates | Gate IDs reference controller config | Preventive |
 | Dangerous shell interpolation | argv-only subprocess execution; no `shell=True` | Preventive in controller |
+| Timed-out Clawpatch child leaves a provider editing the mirror | Dedicated process group terminated as a unit before state reconciliation and retry | Preventive and recoverable |
+| Clawpatch timeout or failed validation silently ends the repair queue | Durable active-finding journal, exact `next`/`show` reconciliation, attempt preservation, rollback, reopen, and same-finding retry | Recoverable in controller |
+| Controller restart loses a gate-passing Clawpatch repair | Controller checkpoint before exact revalidation plus `run --continue` recovery from the run-owned progress file | Recoverable in controller |
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |

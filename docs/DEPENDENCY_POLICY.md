@@ -116,9 +116,12 @@ uses the upstream package install path, `pnpm add -g clawpatch`, runs
 and records failures or missing package managers instead of claiming completion.
 
 When configured for a run, AUTOREVIEW and Clawpatch are command-owned repair
-lanes, not optional AI advice. MANAGEROO runs the configured command,
-captures the result, scope-checks any edits, and blocks on command failure. The
-AI repairer must not freehand fixes from AUTOREVIEW or Clawpatch findings.
+lanes, not optional AI advice. AUTOREVIEW runs its configured argv. The exact
+`clawpatch_command = ["clawpatch"]` form activates Manageroo's durable
+one-finding supervisor: Clawpatch owns every repair while Manageroo owns child
+watchdogs, retries, scope, gates, checkpoints, exact revalidation, and
+`run --continue` recovery. The AI repairer must not freehand fixes from either
+lane.
 
 ## GBrain lanes
 

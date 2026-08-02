@@ -101,17 +101,27 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
-Clawpatch release commits use the current successful patch-attempt record as the
-only source-path allowlist. Manageroo stages only those source paths after full
-project validation and exact `fixed` revalidation. It never builds a finding
-queue from reports, commits partial repairs, or mixes `.clawpatch/**` state into
-a repair commit. The cross-platform controller reviews all pending Clawpatch
-features, obtains one current open finding from `next --json`, records `show`
-for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
-The human triage template printed by `show` is not treated as executable and
-Manageroo never triages a finding as resolved. Failed attempts are preserved in
-named Git stashes and marked `uncertain` so later findings can run; unresolved
-items prevent final release proof.
+Clawpatch repairs use the current patch-attempt record as the only source-path
+allowlist. Manageroo accepts only those source paths after full project
+validation and exact `fixed` revalidation. It never builds a finding queue from
+reports, mixes Clawpatch state into a repair, or substitutes an AI freehand edit.
+The cross-platform controller obtains one current open finding from `next
+--json`, records `show` for auditability, and invokes Clawpatch's finding-scoped
+`fix`. Normal Manageroo runs review features changed since the run's original
+source baseline; the separate release sweep reviews every pending feature.
+
+During normal configured runs, Clawpatch operates inside the source mirror with
+run-owned state outside the worktree. The controller checkpoints a validated
+attempt before revalidation, persists its active state, and can recover that
+checkpoint with `run --continue`. A 15-minute child watchdog kills the complete
+Clawpatch process group, reconciles Clawpatch state, and retries the same finding;
+it is not a lane deadline. Failed scope, gate, or revalidation attempts are
+preserved, rolled back to the preceding checkpoint, reopened, and retried by
+Clawpatch. Only exact `fixed` revalidation advances the queue.
+
+The separate release-sweep command additionally owns source commits and optional
+pushes. The human triage template printed by `show` is not treated as executable,
+and Manageroo never triages a finding as resolved.
 
 ## Parallel mapping and review, sequential implementation
 

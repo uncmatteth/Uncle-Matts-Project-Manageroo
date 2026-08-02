@@ -1,7 +1,9 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -106,6 +108,29 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         self.assertTrue(result.timed_out)
         self.assertIn("partial stdout", result.stdout)
         self.assertIn("partial stderr", result.stderr)
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-group assertion")
+    def test_command_runner_timeout_kills_the_supervised_child_process_group(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "orphan-ran.txt"
+            child = (
+                "import time; from pathlib import Path; "
+                f"time.sleep(2); Path({str(marker)!r}).write_text('orphan', encoding='utf-8')"
+            )
+            parent = (
+                "import subprocess, sys, time; "
+                f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(10)"
+            )
+            result = CommandRunner().run(
+                [sys.executable, "-c", parent],
+                cwd=root,
+                timeout_seconds=1,
+                kill_process_group=True,
+            )
+            self.assertTrue(result.timed_out)
+            time.sleep(2)
+            self.assertFalse(marker.exists())
 
     def test_truth_contract_checks_every_occurrence_and_prerequisite_negation(self):
         repeated = (

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .errors import SafetyError, ValidationError
+from .internal_clawpatch import run_internal_clawpatch
 from .policy import ScopePolicy
 from .util import atomic_write_json, read_json, safe_repo_relative
 
@@ -183,6 +185,126 @@ def _validate_persisted_report(existing: Any) -> dict:
     return existing
 
 
+def _uses_internal_clawpatch(name: str, argv_template: list[str]) -> bool:
+    if name != "clawpatch" or len(argv_template) != 1:
+        return False
+    executable = Path(argv_template[0]).name.lower()
+    return executable in {"clawpatch", "clawpatch.exe", "clawpatch.cmd", "clawpatch.bat"}
+
+
+def _preserve_and_rollback_clawpatch_attempt(
+    orchestrator: Any,
+    *,
+    finding_id: str,
+    reason: str,
+    baseline: str,
+) -> dict:
+    assert orchestrator.workspace is not None
+    paths = orchestrator.mirror.changed_paths(baseline)
+    preservation = {"created": False, "ref": "", "sha": "", "paths": paths, "reason": reason}
+    current_head = orchestrator.mirror.head()
+    if paths and current_head != baseline:
+        preservation.update(
+            {
+                "created": True,
+                "ref": current_head,
+                "sha": current_head,
+                "kind": "controller-checkpoint",
+            }
+        )
+    elif paths:
+        stash = orchestrator.runner.run(
+            [
+                "git",
+                "stash",
+                "push",
+                "--include-untracked",
+                "--message",
+                f"manageroo internal clawpatch unresolved {finding_id}",
+                "--",
+                *paths,
+            ],
+            cwd=orchestrator.workspace,
+            timeout_seconds=300,
+        )
+        if not stash.passed:
+            raise SafetyError(f"Could not preserve unresolved Clawpatch attempt {finding_id}.")
+        identity = orchestrator.runner.run(
+            ["git", "stash", "list", "-1", "--format=%gd|%H"],
+            cwd=orchestrator.workspace,
+            timeout_seconds=60,
+        )
+        ref, separator, sha = identity.stdout.strip().partition("|")
+        if not identity.passed or not separator or not ref or not sha:
+            raise SafetyError(f"Could not verify preserved Clawpatch attempt {finding_id}.")
+        preservation.update({"created": True, "ref": ref, "sha": sha, "kind": "git-stash"})
+    _restore_checkpoint(orchestrator, name="clawpatch", checkpoint=baseline)
+    return preservation
+
+
+def _run_internal_clawpatch_record(
+    orchestrator: Any,
+    *,
+    executable: str,
+    allowed_paths: list[str],
+    baseline: str,
+) -> dict:
+    assert orchestrator.workspace is not None
+    state_dir = orchestrator.artifacts.root / "review" / "external-state" / "clawpatch"
+    try:
+        lifecycle = run_internal_clawpatch(
+            runner=orchestrator.runner,
+            workspace=orchestrator.workspace,
+            executable=executable,
+            state_dir=state_dir,
+            since_ref=orchestrator.mirror.baseline_commit,
+            allowed_paths=allowed_paths,
+            head=orchestrator.mirror.head,
+            changed_paths=orchestrator.mirror.changed_paths,
+            checkpoint=orchestrator.mirror.checkpoint,
+            run_gates=lambda: orchestrator._run_gates(
+                list(orchestrator._gate_catalog().values()), orchestrator.workspace
+            ),
+            preserve_and_rollback=lambda **kwargs: _preserve_and_rollback_clawpatch_attempt(
+                orchestrator, **kwargs
+            ),
+        )
+    except Exception as exc:
+        return {
+            "name": "clawpatch",
+            "enabled": True,
+            "ok": False,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "sequential_clawpatch_lifecycle": True,
+            "clawpatch_owns_repairs": True,
+            "baseline": baseline,
+        }
+    changed = orchestrator.mirror.changed_paths(baseline)
+    record = {
+        "name": "clawpatch",
+        "enabled": True,
+        "ok": bool(lifecycle.get("ok")),
+        "command_owned_repair_lane": True,
+        "ai_freehand_repair_allowed": False,
+        "baseline": baseline,
+        "checkpoint": orchestrator.mirror.head(),
+        "changed_paths": changed,
+        **lifecycle,
+    }
+    atomic_write_json(
+        _checkpoint_manifest_path(orchestrator, "clawpatch"),
+        {
+            "run_id": str(orchestrator.run_id),
+            "name": "clawpatch",
+            "baseline": baseline,
+            "checkpoint": orchestrator.mirror.head(),
+            "changed_paths": changed,
+        },
+    )
+    return record
+
+
 def run_external_review_repair_lanes(
     self: Any,
     *,
@@ -269,6 +391,25 @@ def run_external_review_repair_lanes(
 
         _require_clean_lane_start(self, name)
         before_command = baseline
+        if _uses_internal_clawpatch(name, argv_template):
+            record = _run_internal_clawpatch_record(
+                self,
+                executable=argv_template[0].format(**values),
+                allowed_paths=allowed_paths,
+                baseline=before_command,
+            )
+            if not record.get("ok"):
+                try:
+                    _rollback_lane(self, name=name, baseline=before_command)
+                    record["rollback_verified"] = True
+                    record["changed_paths_after_rollback"] = []
+                except SafetyError as exc:
+                    rollback_verified = False
+                    record["rollback_verified"] = False
+                    record["rollback_error"] = str(exc)
+                failed.append(name)
+            records.append(record)
+            continue
         record = self._run_optional_external_command(
             name=name,
             argv_template=argv_template,
@@ -373,8 +514,10 @@ def run_external_review_repair_lanes(
         "records": records,
         "note": (
             "AUTOREVIEW and Clawpatch findings are not fed to the AI repairer. "
-            "Each configured lane is run from a clean controller checkpoint. A failed, timed-out, "
-            "out-of-scope, or commit-producing lane is rolled back and verified before continuation. "
+            "Each configured lane is run from a clean controller checkpoint. The exact "
+            "clawpatch executable activates a durable one-finding supervisor: timed-out and "
+            "validation-failing attempts are reconciled and retried by Clawpatch instead of "
+            "becoming AI repair prompts. A hard lane failure is rolled back and verified. "
             "Successful continuation restores and verifies the exact run-scoped checkpoint."
         ),
     }

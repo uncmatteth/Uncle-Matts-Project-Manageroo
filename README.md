@@ -332,6 +332,22 @@ This is useful when a long project history has been summarized and you want to c
 
 ## 9. Run the final Clawpatch release sweep
 
+Normal Manageroo runs can use the internal sequential Clawpatch supervisor with:
+
+```toml
+[integrations]
+clawpatch_command = ["clawpatch"]
+```
+
+That is an activation command, not a one-shot `clawpatch` invocation. Inside the
+isolated run mirror, Manageroo owns `map` -> `review --since` the run's original
+source baseline -> one `next`/`show`/`fix` -> full gates -> checkpoint -> exact `fixed`
+revalidation loop. Clawpatch remains the only code repairer. Each child command
+has a 15-minute watchdog; timeouts and failed attempts are reconciled from
+durable Clawpatch state and retried on the same finding rather than ending the
+lane. `manageroo run --continue <run-id>` resumes a checkpointed or interrupted
+attempt. Manageroo does not install a separate operating-system restart daemon.
+
 Preview the complete closeout lifecycle without changing the repository:
 
 ```bash
@@ -385,7 +401,7 @@ hidden or marked resolved. A failed attempt may be marked `uncertain` solely so
 the remaining queue can run; Manageroo reports it as unresolved and refuses to
 write a COMPLETE release proof.
 
-Release sweeps also give Clawpatch's Codex worker up to 30 minutes by default,
+Release sweeps also give Clawpatch's Codex worker up to 15 minutes by default,
 instead of Clawpatch's shorter interactive default. An existing
 `CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins.
 

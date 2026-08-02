@@ -20,7 +20,7 @@ from .util import atomic_write_json, utc_now
 
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
-CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 1_800_000
+CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 900_000
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "

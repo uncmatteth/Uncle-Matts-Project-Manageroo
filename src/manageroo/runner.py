@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -55,6 +56,7 @@ class CommandRunner:
         input_text: str | None = None,
         log_name: str | None = None,
         check: bool = False,
+        kill_process_group: bool = False,
     ) -> CommandResult:
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise SafetyError("Commands must be non-empty argv arrays.")
@@ -64,26 +66,37 @@ class CommandRunner:
         if env:
             process_env.update({str(k): str(v) for k, v in env.items()})
         try:
-            completed = subprocess.run(
-                list(argv),
-                cwd=str(cwd),
-                env=process_env,
-                input=input_text,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=timeout_seconds,
-                shell=False,
-                check=False,
-            )
+            if kill_process_group:
+                completed, timed_out = self._run_process_group(
+                    list(argv),
+                    cwd=cwd,
+                    env=process_env,
+                    input_text=input_text,
+                    timeout_seconds=timeout_seconds,
+                )
+            else:
+                completed = subprocess.run(
+                    list(argv),
+                    cwd=str(cwd),
+                    env=process_env,
+                    input=input_text,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=timeout_seconds,
+                    shell=False,
+                    check=False,
+                )
+                timed_out = False
             result = CommandResult(
                 argv=safe_argv,
                 cwd=str(cwd),
                 started_at=started_at,
                 finished_at=utc_now(),
-                exit_code=completed.returncode,
+                exit_code=124 if timed_out else completed.returncode,
                 stdout=redact_text(completed.stdout),
                 stderr=redact_text(completed.stderr),
+                timed_out=timed_out,
             )
         except subprocess.TimeoutExpired as exc:
             result = CommandResult(
@@ -114,3 +127,56 @@ class CommandRunner:
                 result.exit_code, result.argv, result.stdout, result.stderr
             )
         return result
+
+    @staticmethod
+    def _run_process_group(
+        argv: list[str],
+        *,
+        cwd: Path,
+        env: Mapping[str, str],
+        input_text: str | None,
+        timeout_seconds: int,
+    ) -> tuple[subprocess.CompletedProcess[str], bool]:
+        kwargs: dict = {
+            "cwd": str(cwd),
+            "env": env,
+            "stdin": subprocess.PIPE if input_text is not None else None,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "shell": False,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        process = subprocess.Popen(argv, **kwargs)
+        try:
+            stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
+            return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr), False
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    shell=False,
+                    check=False,
+                )
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                if os.name == "nt":
+                    process.kill()
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                stdout, stderr = process.communicate()
+            return subprocess.CompletedProcess(argv, 124, stdout, stderr), True
