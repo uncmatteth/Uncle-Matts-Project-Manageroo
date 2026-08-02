@@ -1,10 +1,15 @@
+import hashlib
 import json
+import os
+import shlex
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.install_status import (
+    INSTALL_OWNERSHIP_MARKER,
+    LAUNCHER_MARKER,
     LAUNCHER_MARKER,
     format_stack_status,
     launcher_is_manageroo_owned,
@@ -22,6 +27,76 @@ def _launcher_text() -> str:
         "export PYTHONPATH=/tmp/manageroo/app${PYTHONPATH:+:$PYTHONPATH}\n"
         "export MANAGEROO_PREFIX=/tmp/manageroo\n"
         'exec python3 -m manageroo "$@"\n'
+    )
+
+
+def _write_owned_lock(prefix: Path, payload: dict) -> None:
+    installation_id = "a" * 64
+    marker = prefix / INSTALL_OWNERSHIP_MARKER
+    marker.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "product": "Uncle Matt's Project Manageroo",
+                "prefix": str(prefix.resolve()),
+                "installation_id": installation_id,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    lock = {"prefix": str(prefix.resolve()), **payload}
+    lock["installation_ownership"] = {
+        "schema_version": 1,
+        "marker": INSTALL_OWNERSHIP_MARKER,
+        "marker_sha256": hashlib.sha256(marker.read_bytes()).hexdigest(),
+        "installation_id": installation_id,
+    }
+    (prefix / "install-lock.json").write_text(json.dumps(lock), encoding="utf-8")
+
+
+def _legacy_tree_hash(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file() and not item.is_symlink()):
+        relative = path.relative_to(root)
+        if any(part in {".git", ".venv", "__pycache__", "dist", "build"} for part in relative.parts):
+            continue
+        digest.update(relative.as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _write_legacy_install(prefix: Path, launcher: Path) -> None:
+    app = prefix / "app"
+    python = prefix / "venv" / "bin" / "python"
+    (app / "manageroo").mkdir(parents=True)
+    python.parent.mkdir(parents=True)
+    (prefix / "venv" / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+    (app / "manageroo" / "__init__.py").write_text("VERSION = 'legacy'\n", encoding="utf-8")
+    python.write_text("legacy python\n", encoding="utf-8")
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text(
+        "#!/bin/sh\n"
+        f"# {LAUNCHER_MARKER}\n"
+        f"export PYTHONPATH={shlex.quote(str(app))}${{PYTHONPATH:+:$PYTHONPATH}}\n"
+        f"export MANAGEROO_PREFIX={shlex.quote(str(prefix))}\n"
+        f"exec {shlex.quote(str(python))} -m manageroo \"$@\"\n",
+        encoding="utf-8",
+    )
+    (prefix / "install-lock.json").write_text(
+        json.dumps(
+            {
+                "product": "Uncle Matt's Project Manageroo",
+                "prefix": str(prefix.resolve()),
+                "launcher": str(launcher.resolve()),
+                "installed_app_sha256": _legacy_tree_hash(app),
+                "external_tools": [],
+            }
+        ),
+        encoding="utf-8",
     )
 
 
@@ -99,7 +174,7 @@ class InstallStatusTests(unittest.TestCase):
             prefix.mkdir()
             custom_launcher.parent.mkdir()
             custom_launcher.write_text(_launcher_text(), encoding="utf-8")
-            (prefix / "install-lock.json").write_text(json.dumps({"prefix": str(prefix), "launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
+            _write_owned_lock(prefix, {"launcher": str(custom_launcher), "external_tools": []})
             plan = uninstall_plan(prefix=prefix)
             self.assertFalse(plan["executes_deletions"])
             self.assertIn(str(custom_launcher), plan["core_paths"])
@@ -110,13 +185,31 @@ class InstallStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
             prefix.mkdir()
-            (prefix / "install-lock.json").write_text(
-                json.dumps({"prefix": str(prefix), "external_tools": []}),
-                encoding="utf-8",
-            )
+            _write_owned_lock(prefix, {"external_tools": []})
             plan = uninstall_plan(prefix=prefix, bin_dir=Path(temp) / "bin")
             self.assertFalse(plan["executes_deletions"])
             self.assertIn(str(prefix), plan["core_paths"])
+
+    @unittest.skipIf(os.name == "nt", "fixture uses the POSIX legacy launcher")
+    def test_uninstall_plan_accepts_fully_verified_legacy_install_lock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = root / "prefix"
+            launcher = root / "bin" / "manageroo"
+            prefix.mkdir()
+            _write_legacy_install(prefix, launcher)
+
+            plan = uninstall_plan(prefix=prefix)
+
+            self.assertTrue(plan["prefix_ownership_known"], plan)
+            self.assertEqual(plan["ownership_proof"], "verified-legacy")
+            self.assertIn(str(prefix), plan["core_paths"])
+
+            (prefix / "app" / "manageroo" / "__init__.py").write_text(
+                "tampered\n", encoding="utf-8"
+            )
+            tampered = uninstall_plan(prefix=prefix)
+            self.assertFalse(tampered["prefix_ownership_known"])
 
     def test_uninstall_plan_refuses_dangerous_and_unverified_prefixes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -148,11 +241,10 @@ class InstallStatusTests(unittest.TestCase):
             launcher.write_text(_launcher_text(), encoding="utf-8")
             trufflehog = bin_dir / "trufflehog"
             trufflehog.write_bytes(b"binary")
-            (prefix / "install-lock.json").write_text(json.dumps({
-                "prefix": str(prefix),
+            _write_owned_lock(prefix, {
                 "launcher": str(launcher),
                 "external_tools": [{"name": "trufflehog", "path": str(trufflehog), "manageroo_owned": True}],
-            }), encoding="utf-8")
+            })
             plan = uninstall_plan(prefix=prefix)
             self.assertIn(str(trufflehog), plan["manageroo_owned_external_paths"])
             self.assertIn(str(trufflehog), plan["core_paths"])
@@ -160,11 +252,10 @@ class InstallStatusTests(unittest.TestCase):
             outside = root / "outside" / "trufflehog"
             outside.parent.mkdir()
             outside.write_bytes(b"user binary")
-            (prefix / "install-lock.json").write_text(json.dumps({
-                "prefix": str(prefix),
+            _write_owned_lock(prefix, {
                 "launcher": str(launcher),
                 "external_tools": [{"name": "trufflehog", "path": str(outside), "manageroo_owned": True}],
-            }), encoding="utf-8")
+            })
             plan = uninstall_plan(prefix=prefix)
             self.assertNotIn(str(outside), plan["manageroo_owned_external_paths"])
 
@@ -201,14 +292,50 @@ class InstallStatusTests(unittest.TestCase):
                 "#!/bin/sh\n# MANAGEROO_PREFIX\n# -m manageroo\necho unrelated\n",
                 encoding="utf-8",
             )
-            (prefix / "install-lock.json").write_text(
-                json.dumps({"prefix": str(prefix), "launcher": str(launcher), "external_tools": []}),
-                encoding="utf-8",
-            )
+            _write_owned_lock(prefix, {"launcher": str(launcher), "external_tools": []})
             plan = uninstall_plan(prefix=prefix)
             self.assertFalse(plan["launcher_ownership_known"])
             self.assertNotIn(str(launcher), plan["core_paths"])
             self.assertNotIn(str(launcher), "\n".join(plan["core_commands"]))
+
+    def test_uninstall_plan_rejects_forgeable_python_layout_without_bound_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "unrelated-python"
+            (prefix / "app" / "manageroo").mkdir(parents=True)
+            (prefix / "venv").mkdir()
+            (prefix / "app" / "manageroo" / "__init__.py").write_text("", encoding="utf-8")
+            (prefix / "venv" / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"prefix": str(prefix), "external_tools": []}),
+                encoding="utf-8",
+            )
+
+            plan = uninstall_plan(prefix=prefix)
+
+            self.assertFalse(plan["prefix_ownership_known"])
+            self.assertEqual(plan["core_commands"], [])
+            self.assertIn("cryptographically bound", plan["prefix_error"])
+
+    def test_uninstall_plan_fails_closed_on_invalid_marker_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            prefix.mkdir()
+            _write_owned_lock(prefix, {"external_tools": []})
+            marker = prefix / INSTALL_OWNERSHIP_MARKER
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+            payload["prefix"] = "invalid\u0000prefix"
+            marker.write_text(json.dumps(payload), encoding="utf-8")
+            lock_path = prefix / "install-lock.json"
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            lock["installation_ownership"]["marker_sha256"] = hashlib.sha256(
+                marker.read_bytes()
+            ).hexdigest()
+            lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+            plan = uninstall_plan(prefix=prefix)
+
+            self.assertFalse(plan["prefix_ownership_known"])
+            self.assertEqual(plan["core_commands"], [])
 
 
 if __name__ == "__main__":

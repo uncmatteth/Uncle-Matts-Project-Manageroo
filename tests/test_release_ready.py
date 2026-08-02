@@ -135,29 +135,46 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertFalse(run_item["ok"])
             self.assertIn("does not match", run_item["detail"])
 
-    def test_release_ready_rejects_gate_that_commits_source_change(self):
+    def test_release_ready_rejects_gate_mutation_inside_disposable_checkout(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             gate_script = (
                 "from pathlib import Path; import subprocess; "
                 "Path('README.md').write_text('changed by gate\\n', encoding='utf-8'); "
                 "subprocess.run(['git', 'add', 'README.md'], check=True); "
-                "subprocess.run(['git', 'commit', '-q', '-m', 'gate mutation'], check=True)"
+                "subprocess.run(['git', '-c', 'user.name=Gate', "
+                "'-c', 'user.email=gate@example.invalid', 'commit', '-q', "
+                "'-m', 'gate mutation'], check=True)"
             )
             add_check_gate(repo, gate_id="mutating", argv=[sys.executable, "-c", gate_script])
             subprocess.run(["git", "add", ".manageroo/config.toml"], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-q", "-m", "add mutating gate"], cwd=repo, check=True)
             self._completed_run(repo)
+            original_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
 
             report = self._release_ready(repo)
 
-            self.assertFalse(report["ok"])
-            integrity_item = {item["name"]: item for item in report["items"]}[
-                "source integrity after verification gates"
+            self.assertFalse(report["ok"], report)
+            gate_item = {item["name"]: item for item in report["items"]}[
+                "verification gates pass"
             ]
-            self.assertFalse(integrity_item["ok"])
-            self.assertIn("HEAD changed", integrity_item["detail"])
-            self.assertIn("source tree changed", integrity_item["detail"])
+            self.assertFalse(gate_item["ok"])
+            self.assertIn("mutated its disposable release checkout", gate_item["detail"])
+            current_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            self.assertEqual(current_head, original_head)
+            self.assertEqual((repo / "README.md").read_text(encoding="utf-8"), "fixture\n")
             status = subprocess.run(
                 ["git", "status", "--porcelain", "--untracked-files=all"],
                 cwd=repo,

@@ -172,32 +172,50 @@ def install_stack_update_policy(module: Any) -> None:
             }
         destination.parent.mkdir(parents=True, exist_ok=True)
         stage: Path | None = None
-        backup: Path | None = None
+        rollback_root: Path | None = None
+        previous: Path | None = None
         try:
             with _destination_lock(destination):
                 stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.manageroo-stage-", dir=str(destination.parent)))
                 shutil.rmtree(stage)
                 shutil.copytree(source, stage)
                 if destination.exists():
-                    backup = module._unique_backup(destination)
-                    destination.rename(backup)
+                    rollback_root, previous = module._temporary_rollback_path(destination)
+                    destination.rename(previous)
                 try:
                     stage.rename(destination)
                 except Exception as swap_exc:
                     restore_error: Exception | None = None
-                    if backup and backup.exists() and not destination.exists():
+                    if previous and previous.exists() and not destination.exists():
                         try:
-                            backup.rename(destination)
+                            previous.rename(destination)
                         except Exception as exc:
                             restore_error = exc
                     if restore_error:
-                        raise RuntimeError(f"update failed: {swap_exc}; rollback failed: {restore_error}") from swap_exc
+                        raise RuntimeError(
+                            f"update failed: {swap_exc}; rollback failed: {restore_error}; "
+                            f"recovery data remains at {rollback_root}"
+                        ) from swap_exc
                     raise
+                if rollback_root is not None:
+                    try:
+                        shutil.rmtree(rollback_root)
+                    except OSError as cleanup_exc:
+                        return {
+                            "ok": True,
+                            "name": "autoreview",
+                            "path": str(destination),
+                            "backup": str(previous) if previous else None,
+                            "cleanup_warning": (
+                                "The update was installed, but old rollback storage could not be removed: "
+                                f"{cleanup_exc}"
+                            ),
+                        }
                 return {
                     "ok": True,
                     "name": "autoreview",
                     "path": str(destination),
-                    "backup": str(backup) if backup else None,
+                    "backup": None,
                 }
         except Exception as exc:
             return {
@@ -213,6 +231,12 @@ def install_stack_update_policy(module: Any) -> None:
                         shutil.rmtree(stage)
                     else:
                         stage.unlink()
+                except OSError:
+                    pass
+            if rollback_root is not None and rollback_root.exists():
+                try:
+                    if not any(rollback_root.iterdir()):
+                        rollback_root.rmdir()
                 except OSError:
                     pass
 

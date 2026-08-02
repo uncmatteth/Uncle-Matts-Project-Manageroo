@@ -131,6 +131,17 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
         self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
 
+    def test_bundled_playwright_skills_do_not_ship_decorative_images(self):
+        included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
+        image_suffixes = {".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
+        for skill_name in ("playwright", "playwright-interactive"):
+            skill_root = ROOT / "src" / "manageroo" / "assets" / "skills" / skill_name
+            skill_prefix = f"{skill_root.relative_to(ROOT).as_posix()}/"
+            self.assertFalse(any(path.startswith(skill_prefix) and Path(path).suffix.lower() in image_suffixes for path in included))
+            metadata = (skill_root / "agents" / "openai.yaml").read_text(encoding="utf-8")
+            self.assertNotIn("icon_small:", metadata)
+            self.assertNotIn("icon_large:", metadata)
+
     def test_package_release_requires_distribution_and_end_user_smoke_proofs(self):
         project_version = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
         package_text = (ROOT / "scripts" / "package_release.py").read_text(encoding="utf-8")

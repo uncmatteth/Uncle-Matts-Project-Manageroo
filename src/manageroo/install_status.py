@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import shlex
@@ -7,7 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .branding import PUBLIC_COMMAND
+from .branding import FULL_NAME, PUBLIC_COMMAND
 from .token_modes import CORE_HELPER_SKILLS, token_mode_skills_dir
 
 
@@ -15,7 +17,9 @@ DEFAULT_PREFIX = Path.home() / ".local" / "share" / PUBLIC_COMMAND
 DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
 LAUNCHER_BASENAMES = {PUBLIC_COMMAND, f"{PUBLIC_COMMAND}.cmd"}
 LAUNCHER_MARKER = "MANAGEROO-LAUNCHER-V1"
+INSTALL_OWNERSHIP_MARKER = ".manageroo-install-owner.json"
 _MAX_LAUNCHER_CHARACTERS = 8192
+_MAX_INSTALL_MARKER_BYTES = 4096
 
 
 def default_prefix() -> Path:
@@ -282,7 +286,7 @@ def _safe_uninstall_prefix(prefix: Path) -> tuple[Path | None, str | None]:
             Path.home().resolve(strict=False),
             Path.cwd().resolve(strict=False),
         }
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         return None, f"the prefix could not be resolved safely: {exc}"
     if resolved in dangerous:
         return None, "the prefix is the filesystem root, home directory, or current working directory"
@@ -291,19 +295,124 @@ def _safe_uninstall_prefix(prefix: Path) -> tuple[Path | None, str | None]:
     return resolved, None
 
 
-def _has_manageroo_install_marker(prefix: Path) -> bool:
-    markers = (
-        prefix / "app" / "manageroo" / "__init__.py",
-        prefix / "venv" / "pyvenv.cfg",
-    )
+def _legacy_installed_tree_sha256(root: Path) -> str:
+    """Reproduce the pre-ownership-marker installer's installed-app digest."""
+    digest = hashlib.sha256()
+    excluded = {".git", ".venv", "__pycache__", "dist", "build"}
+    paths = sorted(item for item in root.rglob("*") if item.is_file() and not item.is_symlink())
+    for path in paths:
+        relative = path.relative_to(root)
+        if any(part in excluded for part in relative.parts):
+            continue
+        digest.update(relative.as_posix().encode())
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _legacy_launcher_matches_prefix(path: Path, prefix: Path) -> bool:
     try:
-        return all(
-            marker.is_file()
-            and not marker.is_symlink()
-            and marker.resolve(strict=True).is_relative_to(prefix)
-            for marker in markers
+        if not launcher_is_manageroo_owned(path):
+            return False
+        app_root = prefix / "app"
+        if path.name == PUBLIC_COMMAND:
+            python = prefix / "venv" / "bin" / "python"
+            expected = (
+                "#!/bin/sh\n"
+                f"# {LAUNCHER_MARKER}\n"
+                f"export PYTHONPATH={shlex.quote(str(app_root))}${{PYTHONPATH:+:$PYTHONPATH}}\n"
+                f"export MANAGEROO_PREFIX={shlex.quote(str(prefix))}\n"
+                f"exec {shlex.quote(str(python))} -m manageroo \"$@\"\n"
+            )
+        else:
+            python = prefix / "venv" / "Scripts" / "python.exe"
+            unsafe = ('"', "%", "\r", "\n")
+            if any(character in str(value) for value in (app_root, prefix, python) for character in unsafe):
+                return False
+            expected = (
+                f"@rem {LAUNCHER_MARKER}\n"
+                f'@set "PYTHONPATH={app_root}"\n'
+                f'@set "MANAGEROO_PREFIX={prefix}"\n'
+                f'@"{python}" -m manageroo %*\n'
+            )
+        return path.read_text(encoding="utf-8") == expected
+    except (OSError, UnicodeError, ValueError):
+        return False
+
+
+def _has_verified_legacy_install(prefix: Path, lock: dict[str, Any]) -> bool:
+    """Accept old installer locks only when every legacy ownership signal agrees."""
+    if "installation_ownership" in lock:
+        return False
+    digest = lock.get("installed_app_sha256")
+    launcher_value, launcher_problem = _validated_launcher_value(lock.get("launcher"))
+    if not (
+        lock.get("product") == FULL_NAME
+        and isinstance(digest, str)
+        and len(digest) == 64
+        and all(character in "0123456789abcdef" for character in digest)
+        and launcher_value
+        and launcher_problem is None
+    ):
+        return False
+    app_root = prefix / "app"
+    python = prefix / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    pyvenv = prefix / "venv" / "pyvenv.cfg"
+    try:
+        if any(path.is_symlink() or not path.is_file() for path in (python, pyvenv)):
+            return False
+        if app_root.is_symlink() or not app_root.is_dir():
+            return False
+        actual_digest = _legacy_installed_tree_sha256(app_root)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return bool(
+        hmac.compare_digest(actual_digest, digest)
+        and _legacy_launcher_matches_prefix(Path(launcher_value), prefix)
+    )
+
+
+def _has_manageroo_install_marker(prefix: Path, lock: dict[str, Any]) -> bool:
+    binding = lock.get("installation_ownership")
+    if not isinstance(binding, dict):
+        return False
+    installation_id = binding.get("installation_id")
+    expected_digest = binding.get("marker_sha256")
+    if not (
+        binding.get("schema_version") == 1
+        and binding.get("marker") == INSTALL_OWNERSHIP_MARKER
+        and isinstance(installation_id, str)
+        and len(installation_id) == 64
+        and all(character in "0123456789abcdef" for character in installation_id)
+        and isinstance(expected_digest, str)
+        and len(expected_digest) == 64
+        and all(character in "0123456789abcdef" for character in expected_digest)
+    ):
+        return False
+    marker = prefix / INSTALL_OWNERSHIP_MARKER
+    try:
+        if marker.is_symlink() or not marker.is_file():
+            return False
+        if marker.resolve(strict=True).parent != prefix:
+            return False
+        contents = marker.read_bytes()
+        if len(contents) > _MAX_INSTALL_MARKER_BYTES:
+            return False
+        if not hmac.compare_digest(hashlib.sha256(contents).hexdigest(), expected_digest):
+            return False
+        payload = json.loads(contents)
+        recorded_prefix = payload.get("prefix") if isinstance(payload, dict) else None
+        return bool(
+            isinstance(recorded_prefix, str)
+            and Path(recorded_prefix).expanduser().resolve(strict=False) == prefix
+            and payload.get("schema_version") == 1
+            and payload.get("product") == FULL_NAME
+            and hmac.compare_digest(str(payload.get("installation_id") or ""), installation_id)
         )
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
         return False
 
 
@@ -317,13 +426,20 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
         if isinstance(recorded_prefix, str) and Path(recorded_prefix).expanduser().is_absolute():
             try:
                 lock_matches_prefix = Path(recorded_prefix).expanduser().resolve(strict=False) == prefix
-            except (OSError, RuntimeError):
+            except (OSError, RuntimeError, ValueError):
                 pass
-    prefix_ownership_known = bool(
-        prefix and (lock_matches_prefix or _has_manageroo_install_marker(prefix))
+    bound_ownership = bool(
+        prefix and lock_matches_prefix and _has_manageroo_install_marker(prefix, loaded["lock"])
     )
+    legacy_ownership = bool(
+        prefix and lock_matches_prefix and _has_verified_legacy_install(prefix, loaded["lock"])
+    )
+    prefix_ownership_known = bound_ownership or legacy_ownership
     if prefix and not prefix_ownership_known:
-        prefix_problem = "no matching Manageroo install lock or installation marker was found"
+        prefix_problem = (
+            "no matching Manageroo install lock with a cryptographically bound ownership marker "
+            "or fully verified legacy installation was found"
+        )
 
     launchers: list[Path] = []
     manageroo_owned_external_paths: list[Path] = []
@@ -374,6 +490,7 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
         ),
         "core_commands": core_commands,
         "prefix_ownership_known": prefix_ownership_known,
+        "ownership_proof": "bound-marker" if bound_ownership else "verified-legacy" if legacy_ownership else "none",
         "prefix_error": prefix_problem,
         "launcher_ownership_known": bool(launchers),
         "manageroo_owned_external_paths": [str(path) for path in manageroo_owned_external_paths],

@@ -15,6 +15,49 @@ from manageroo.util import atomic_write_text
 
 
 class ArtifactConcurrencyTests(unittest.TestCase):
+    def test_crashed_reclaimer_claim_does_not_permanently_wedge_store(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "artifacts"
+            store = ArtifactStore(root)
+            lock_path = root / ".artifact-ledger.lock"
+            lock_path.mkdir()
+            (lock_path / "owner").write_text(
+                "pid=99999999\ntoken=abandoned-lock\n",
+                encoding="utf-8",
+            )
+            claim_path = lock_path / "reclaim"
+            claim_path.mkdir()
+            (claim_path / "owner").write_text(
+                "pid=99999999\ntoken=abandoned-reclaimer\n",
+                encoding="utf-8",
+            )
+            stale_time = time.time() - 10
+            os.utime(lock_path, (stale_time, stale_time))
+            os.utime(claim_path, (stale_time, stale_time))
+
+            store.write_text("recovered.txt", "ok\n")
+
+            self.assertEqual((root / "recovered.txt").read_text(encoding="utf-8"), "ok\n")
+            self.assertFalse(lock_path.exists())
+
+    def test_stale_lock_recovery_does_not_require_hard_link_support(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "artifacts"
+            store = ArtifactStore(root)
+            lock_path = root / ".artifact-ledger.lock"
+            lock_path.mkdir()
+            (lock_path / "owner").write_text(
+                "pid=99999999\ntoken=abandoned-lock\n",
+                encoding="utf-8",
+            )
+            stale_time = time.time() - 10
+            os.utime(lock_path, (stale_time, stale_time))
+
+            with mock.patch("manageroo.artifacts.os.link", side_effect=OSError("unsupported")):
+                store.write_text("portable.txt", "ok\n")
+
+            self.assertEqual((root / "portable.txt").read_text(encoding="utf-8"), "ok\n")
+
     def test_release_does_not_remove_replacement_lock_from_same_process(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "artifacts"

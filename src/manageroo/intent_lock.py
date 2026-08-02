@@ -74,7 +74,7 @@ def _lock_markdown(lock: dict[str, Any]) -> str:
         "## Scope Boundaries", "", *_bullets(lock.get("scopes", [])), "",
         "## Open Questions", "", *_bullets(lock.get("questions", [])), "",
         "## Anti-BS Rule", "",
-        "- Do not claim best, smartest, perfect, guaranteed complete, production-ready, or 100% done unless the evidence is listed here or in the current run report.",
+        "- Do not claim best, smartest, perfect, guaranteed complete, production-ready, or 100% done unless affirmative evidence is listed here or in the current run report.",
         "- Ordinary uses of words such as ready, complete, or finished are not automatically completion claims.",
         "- If evidence is missing, say it is a recommendation or partial status.",
         "- Current disk, repo, command output, and locked artifacts beat memory and old chat.", "",

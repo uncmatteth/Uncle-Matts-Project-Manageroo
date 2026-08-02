@@ -23,7 +23,10 @@ Not every control is equally strong. This document distinguishes prevention from
 | Concurrent callers cannot allocate the same worker attempt | Per-job interprocess lock plus exclusive attempt-file reservation | Preventive |
 | Cached references cannot bypass project config mutation locking | Lock inside each public read-modify-write mutation entry point | Preventive |
 | Concurrent adapters cannot exceed the durable worker-call budget | Interprocess ledger lock around reload, limit check, increment, and atomic write | Preventive |
+| Concurrent skill installers cannot overlap or overwrite a linked lock target | Permanent cross-platform advisory lock on a validated private regular file; existing contents are not rewritten | Preventive |
 | Concurrent worker attempts cannot share one repository transaction | Interprocess lock keyed to the canonical Git common directory, held from pristine check through validation or rollback | Preventive |
+| Git metadata snapshots consume unbounded memory | Explicit entry, file, and aggregate-byte limits before worker launch | Preventive, fails closed |
+| A crashed artifact-lock reclaimer wedges the store | Portable atomic claim directory plus incomplete-publication grace and stale-owner recovery | Preventive and recoverable |
 | Completed worker job is not casually repeated | Completed job artifact hash check | Detective, blocks stale reuse |
 | Continue cannot shift later failed job IDs | Replay matches worker calls to saved job spec hashes | Preventive in controller |
 | Unresolved product decision cannot be skipped on continue | `planning/blocking-decisions.json` blocks replay | Preventive in controller |
@@ -32,6 +35,8 @@ Not every control is equally strong. This document distinguishes prevention from
 | Required context cannot disappear | Budget compiler raises instead of truncating | Preventive |
 | Model cannot mark run complete | Controller state machine | Preventive |
 | Unverified patch cannot reach source | Apply only after COMPLETE path and source hash check | Preventive |
+| Release verification gate mutates source used by later gates | Exact-HEAD disposable clone plus post-gate HEAD, tracked, untracked, and ignored mutation checks | Preventive |
+| Uninstall plan targets a lookalike Python prefix | Matching resolved install lock plus SHA-256-bound random ownership marker; old locks require matching app digest, launcher, venv, and prefix | Preventive |
 | Crash during final apply loses proof | Final result/report/patch are written before source apply; continue retries apply only | Detective and recoverable |
 | Acceptance cannot be auto-passed | `verification/acceptance-evidence.json` binds outcomes to gates, demo evidence, and review | Preventive in controller |
 | Release-ready cannot ship without a valid Manageroo run | Fail-closed final-result schema validation, latest completed run proof, post-gate HEAD and source-tree proof, approved review, final report, final patch, and boolean applied-source status | Preventive release gate |

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import shlex
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config import load_config
-from .errors import MANAGEROOError
+from .errors import MANAGEROOError, SafetyError
 from .gates import GateRunner, gates_from_config
 from .policy import CommandPolicy
 from .project import git_root
@@ -77,6 +79,84 @@ def _git_head_summary(repo: Path) -> dict[str, Any]:
         "subject": _git_output(repo, ["git", "log", "-1", "--pretty=%s"]),
         "files": [line for line in files_text.splitlines() if line.strip()],
     }
+
+
+@contextmanager
+def _isolated_gate_checkout(repo: Path, head: str) -> Iterator[Path]:
+    """Run release gates against an exact disposable copy of the release commit."""
+    with tempfile.TemporaryDirectory(prefix="manageroo-release-ready-") as temp:
+        checkout = Path(temp) / "repo"
+        runner = CommandRunner()
+        cloned = runner.run(
+            [
+                "git",
+                "clone",
+                "--quiet",
+                "--no-local",
+                "--no-hardlinks",
+                "--no-checkout",
+                str(repo),
+                str(checkout),
+            ],
+            cwd=Path(temp),
+            timeout_seconds=300,
+        )
+        if not cloned.passed:
+            raise SafetyError(
+                "Could not create the disposable release-check checkout: "
+                + (cloned.stderr or cloned.stdout)
+            )
+        checked_out = runner.run(
+            ["git", "checkout", "--quiet", "--detach", head],
+            cwd=checkout,
+            timeout_seconds=120,
+        )
+        if not checked_out.passed or _git_output(checkout, ["git", "rev-parse", "HEAD"]) != head:
+            raise SafetyError(
+                "Could not check out the exact release commit in the disposable release-check checkout: "
+                + (checked_out.stderr or checked_out.stdout)
+            )
+        yield checkout
+
+
+def _assert_gate_checkout_unchanged(
+    checkout: Path,
+    *,
+    expected_head: str,
+    expected_tree_digest: str,
+    gate_id: str,
+) -> None:
+    """Fail closed when a release gate mutates its disposable source tree."""
+    failures: list[str] = []
+    if _git_output(checkout, ["git", "rev-parse", "HEAD"]) != expected_head:
+        failures.append("HEAD changed")
+    try:
+        current_digest = source_tree_digest(checkout, CommandRunner())
+    except Exception as exc:
+        failures.append(f"source-tree digest failed: {exc}")
+    else:
+        if current_digest != expected_tree_digest:
+            failures.append("tracked or untracked source changed")
+    ignored_status = CommandRunner().run(
+        [
+            "git",
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ],
+        cwd=checkout,
+        timeout_seconds=120,
+    )
+    if not ignored_status.passed:
+        failures.append(ignored_status.stderr or "git status failed")
+    elif ignored_status.stdout.strip():
+        failures.append("the checkout contains tracked, untracked, or ignored mutations")
+    if failures:
+        raise SafetyError(
+            f"Verification gate {gate_id!r} mutated its disposable release checkout: "
+            + "; ".join(failures)
+        )
 
 
 def _clawpatch_release_proof(repo: Path) -> dict[str, Any]:
@@ -329,7 +409,17 @@ def release_ready(
             repo / PROJECT_DIR / "cache" / "release-ready-logs",
         )
         try:
-            outcomes = runner.run(gates, repo, require_one=True)
+            with _isolated_gate_checkout(repo, initial_head) as gate_repo:
+                gate_tree_digest = source_tree_digest(gate_repo, CommandRunner())
+                outcomes = []
+                for gate in gates:
+                    outcomes.extend(runner.run([gate], gate_repo, require_one=True))
+                    _assert_gate_checkout_unchanged(
+                        gate_repo,
+                        expected_head=initial_head,
+                        expected_tree_digest=gate_tree_digest,
+                        gate_id=gate.id,
+                    )
             gate_runs = [outcome.to_dict() for outcome in outcomes]
             items.append(_item("verification gates pass", True, ", ".join(outcome.gate.id for outcome in outcomes)))
         except MANAGEROOError as exc:

@@ -4,7 +4,6 @@ import platform
 import shutil
 import subprocess
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -298,14 +297,15 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     }
 
 
-def _unique_backup(destination: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}")
-    index = 2
-    while candidate.exists():
-        candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}-{index}")
-        index += 1
-    return candidate
+def _temporary_rollback_path(destination: Path) -> tuple[Path, Path]:
+    """Create same-filesystem rollback storage outside the discovered skills root."""
+    rollback_root = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.manageroo-rollback-",
+            dir=str(destination.parent.parent),
+        )
+    )
+    return rollback_root, rollback_root / destination.name
 
 
 def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
@@ -321,31 +321,61 @@ def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
     stage = destination.with_name(destination.name + ".manageroo-stage")
     if stage.exists():
         shutil.rmtree(stage)
-    backup: Path | None = None
+    rollback_root: Path | None = None
+    previous: Path | None = None
     try:
         shutil.copytree(source, stage)
         if destination.exists():
-            backup = _unique_backup(destination)
-            destination.rename(backup)
+            rollback_root, previous = _temporary_rollback_path(destination)
+            destination.rename(previous)
         stage.rename(destination)
+        if rollback_root is not None:
+            try:
+                shutil.rmtree(rollback_root)
+            except OSError as cleanup_exc:
+                return {
+                    "ok": True,
+                    "name": "autoreview",
+                    "path": str(destination),
+                    "backup": str(previous) if previous else None,
+                    "cleanup_warning": (
+                        "The update was installed, but old rollback storage could not be removed: "
+                        f"{cleanup_exc}"
+                    ),
+                }
         return {
             "ok": True,
             "name": "autoreview",
             "path": str(destination),
-            "backup": str(backup) if backup else None,
+            "backup": None,
         }
     except Exception as exc:
-        try:
-            if stage.exists():
+        rollback_errors: list[str] = []
+        if stage.exists():
+            try:
                 shutil.rmtree(stage)
-            if backup and backup.exists() and not destination.exists():
-                backup.rename(destination)
-        except OSError as rollback_exc:
+            except OSError as cleanup_exc:
+                rollback_errors.append(f"stage cleanup failed: {cleanup_exc}")
+        if previous and previous.exists() and not destination.exists():
+            try:
+                previous.rename(destination)
+            except OSError as restore_exc:
+                rollback_errors.append(f"original restoration failed: {restore_exc}")
+        if rollback_root and rollback_root.exists():
+            try:
+                if not any(rollback_root.iterdir()):
+                    rollback_root.rmdir()
+            except OSError as cleanup_exc:
+                rollback_errors.append(f"rollback cleanup failed: {cleanup_exc}")
+        if rollback_errors:
             return {
                 "ok": False,
                 "name": "autoreview",
                 "path": str(destination),
-                "error": f"update failed: {exc}; rollback failed: {rollback_exc}",
+                "error": (
+                    f"update failed: {exc}; {'; '.join(rollback_errors)}; "
+                    f"recovery data may remain at {rollback_root}"
+                ),
             }
         return {
             "ok": False,

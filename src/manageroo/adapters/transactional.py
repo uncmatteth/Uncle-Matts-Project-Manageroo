@@ -17,6 +17,11 @@ from ..runner import CommandRunner
 from ..util import atomic_write_json, sha256_file, utc_now
 
 
+MAX_GIT_METADATA_FILES = 50_000
+MAX_GIT_METADATA_ENTRIES = 100_000
+MAX_GIT_METADATA_BYTES = 128 * 1024 * 1024
+
+
 class TransactionalAdapter(AgentAdapter):
     """Rollback failed attempts and protect controller-owned run truth."""
 
@@ -227,16 +232,65 @@ class TransactionalAdapter(AgentAdapter):
         state: dict[str, tuple[str, int, bytes]] = {}
         if not git_dir.exists() or git_dir.is_symlink() or not git_dir.is_dir():
             return state
-        for path in [git_dir, *sorted(git_dir.rglob("*"))]:
+        file_count = 0
+        entry_count = 0
+        total_bytes = 0
+
+        def record(path: Path) -> bool:
+            nonlocal entry_count, file_count, total_bytes
             relative = "." if path == git_dir else path.relative_to(git_dir).as_posix()
             metadata = path.lstat()
             mode = stat.S_IMODE(metadata.st_mode)
+            if path != git_dir:
+                entry_count += 1
+                if entry_count > MAX_GIT_METADATA_ENTRIES:
+                    raise SafetyError(
+                        "Git metadata exceeds the transactional entry limit of "
+                        f"{MAX_GIT_METADATA_ENTRIES}."
+                    )
             if stat.S_ISDIR(metadata.st_mode):
                 state[relative] = ("directory", mode, b"")
+                return True
             elif stat.S_ISREG(metadata.st_mode):
-                state[relative] = ("file", mode, path.read_bytes())
+                file_count += 1
+                if file_count > MAX_GIT_METADATA_FILES:
+                    raise SafetyError(
+                        "Git metadata exceeds the transactional file limit of "
+                        f"{MAX_GIT_METADATA_FILES}."
+                    )
+                if metadata.st_size < 0 or total_bytes + metadata.st_size > MAX_GIT_METADATA_BYTES:
+                    raise SafetyError(
+                        "Git metadata exceeds the transactional byte limit of "
+                        f"{MAX_GIT_METADATA_BYTES}."
+                    )
+                chunks: list[bytes] = []
+                with path.open("rb") as handle:
+                    while True:
+                        chunk = handle.read(65_536)
+                        if not chunk:
+                            break
+                        total_bytes += len(chunk)
+                        if total_bytes > MAX_GIT_METADATA_BYTES:
+                            raise SafetyError(
+                                "Git metadata exceeds the transactional byte limit of "
+                                f"{MAX_GIT_METADATA_BYTES}."
+                            )
+                        chunks.append(chunk)
+                state[relative] = ("file", mode, b"".join(chunks))
+                return False
             else:
                 state[relative] = ("unsupported", mode, b"")
+                return False
+
+        record(git_dir)
+        pending = [git_dir]
+        while pending:
+            current = pending.pop()
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    path = Path(entry.path)
+                    if record(path):
+                        pending.append(path)
         return state
 
     def _snapshot_git_metadata(
@@ -264,7 +318,7 @@ class TransactionalAdapter(AgentAdapter):
         git_dir, expected = snapshot
         try:
             current = self._git_metadata_state(git_dir)
-        except OSError:
+        except (OSError, SafetyError):
             current = {}
         if current == expected:
             return False

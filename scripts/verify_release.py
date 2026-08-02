@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,9 +56,10 @@ def stable_command_output(output: str) -> str:
     return re.sub(r"Ran ([0-9]+) tests? in [0-9.]+s", r"Ran \1 tests in <elapsed>s", output)
 
 
-def run(argv: list[str], timeout: int = 300) -> dict:
+def run(argv: list[str], timeout: int = 300, *, env_overrides: dict[str, str] | None = None) -> dict:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    env.update(env_overrides or {})
     try:
         completed = subprocess.run(
             argv,
@@ -247,11 +249,19 @@ def structural_checks() -> list[dict]:
     return checks
 
 
-def main() -> int:
-    commands = [
-        run([sys.executable, "-m", "compileall", "-q", "src"]),
-        run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"]),
-    ]
+def main(*, write_report: bool = True) -> int:
+    with tempfile.TemporaryDirectory(prefix="manageroo-verify-bytecode-") as bytecode_cache:
+        isolated_python_env = {"PYTHONPYCACHEPREFIX": bytecode_cache}
+        commands = [
+            run(
+                [sys.executable, "-m", "compileall", "-q", "src"],
+                env_overrides=isolated_python_env,
+            ),
+            run(
+                [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+                env_overrides=isolated_python_env,
+            ),
+        ]
     if shutil.which("sh"):
         commands.append(run(["sh", "-n", "install.sh", "scripts/install.sh"]))
 
@@ -265,10 +275,17 @@ def main() -> int:
         "source_tree_sha256": tree_hash(),
         "source_selection": "scripts/package_release.py included_files minus generated outputs",
     }
-    (ROOT / "BUILD-VALIDATION.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if write_report:
+        (ROOT / "BUILD-VALIDATION.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     print(json.dumps(report, indent=2))
     return 0 if report["ok"] else 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    arguments = sys.argv[1:]
+    if any(argument != "--check-only" for argument in arguments) or arguments.count("--check-only") > 1:
+        raise SystemExit("usage: verify_release.py [--check-only]")
+    raise SystemExit(main(write_report="--check-only" not in arguments))

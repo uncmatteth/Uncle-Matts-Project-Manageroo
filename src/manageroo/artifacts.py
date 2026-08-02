@@ -33,12 +33,8 @@ class ArtifactStore:
             if not self.ledger_path.exists():
                 atomic_write_json(self.ledger_path, {"artifacts": {}})
 
-    def _lock_owner(self) -> tuple[int, str] | None:
-        owner = self.lock_path / "owner"
-        try:
-            lines = owner.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            return None
+    @staticmethod
+    def _owner_from_lines(lines: list[str]) -> tuple[int, str] | None:
         pid: int | None = None
         token = ""
         for line in lines:
@@ -50,6 +46,29 @@ class ArtifactStore:
             elif line.startswith("token="):
                 token = line.split("=", 1)[1].strip()
         return (pid, token) if pid is not None and pid > 0 else None
+
+    @classmethod
+    def _directory_owner(cls, directory: Path) -> tuple[int, str] | None:
+        try:
+            lines = (directory / "owner").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        return cls._owner_from_lines(lines)
+
+    @classmethod
+    def _claim_owner(cls, claim_path: Path) -> tuple[int, str] | None:
+        if claim_path.is_dir() and not claim_path.is_symlink():
+            return cls._directory_owner(claim_path)
+        try:
+            if claim_path.is_symlink() or not claim_path.is_file():
+                return None
+            lines = claim_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        return cls._owner_from_lines(lines)
+
+    def _lock_owner(self) -> tuple[int, str] | None:
+        return self._directory_owner(self.lock_path)
 
     @staticmethod
     def _pid_is_live(pid: int) -> bool:
@@ -82,14 +101,25 @@ class ArtifactStore:
             return False
 
         claim_path = self.lock_path / "reclaim"
-        try:
-            claim_path.mkdir()
-        except FileNotFoundError:
-            return True
-        except FileExistsError:
-            return False
-        except OSError:
-            return False
+        while True:
+            claim_token = secrets.token_hex(16)
+            try:
+                claim_path.mkdir()
+                atomic_write_text(
+                    claim_path / "owner",
+                    (
+                        f"pid={os.getpid()}\ntoken={claim_token}\n"
+                        f"created_at={utc_now()}\n"
+                    ),
+                )
+                break
+            except FileNotFoundError:
+                return True
+            except FileExistsError:
+                if not self._reclaim_abandoned_claim(claim_path):
+                    return False
+            except OSError:
+                return False
 
         lock_identity = (lock_stat.st_dev, lock_stat.st_ino)
         claimed = False
@@ -116,10 +146,50 @@ class ArtifactStore:
             if not claimed:
                 try:
                     current_stat = self.lock_path.stat()
-                    if (current_stat.st_dev, current_stat.st_ino) == lock_identity:
-                        claim_path.rmdir()
+                    if (
+                        (current_stat.st_dev, current_stat.st_ino) == lock_identity
+                        and self._claim_owner(claim_path) == (os.getpid(), claim_token)
+                    ):
+                        shutil.rmtree(claim_path)
                 except OSError:
                     pass
+
+    def _reclaim_abandoned_claim(self, claim_path: Path) -> bool:
+        owner = self._claim_owner(claim_path)
+        if owner is not None and self._pid_is_live(owner[0]):
+            return False
+        try:
+            if claim_path.is_symlink() or not (claim_path.is_file() or claim_path.is_dir()):
+                return False
+            claim_stat = claim_path.stat()
+            if owner is None and time.time() - claim_stat.st_mtime < 2.0:
+                return False
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+
+        claim_identity = (claim_stat.st_dev, claim_stat.st_ino)
+        quarantine = self.lock_path / f".reclaim-abandoned-{secrets.token_hex(16)}"
+        try:
+            current_stat = claim_path.stat()
+            if (current_stat.st_dev, current_stat.st_ino) != claim_identity:
+                return False
+            current_owner = self._claim_owner(claim_path)
+            if current_owner != owner:
+                return False
+            if current_owner is not None and self._pid_is_live(current_owner[0]):
+                return False
+            os.rename(claim_path, quarantine)
+            if quarantine.is_dir():
+                shutil.rmtree(quarantine, ignore_errors=True)
+            else:
+                quarantine.unlink(missing_ok=True)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
 
     @contextmanager
     def _transaction_lock(self, *, timeout_seconds: float = 30.0) -> Iterator[None]:

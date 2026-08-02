@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import platform
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -24,6 +25,7 @@ from manageroo.branding import FULL_NAME, print_banner, status_line  # noqa: E40
 from manageroo.chiptune import ThemePlayback, play_once  # noqa: E402
 from manageroo.credits import format_special_thanks  # noqa: E402
 from manageroo.install_status import (  # noqa: E402
+    INSTALL_OWNERSHIP_MARKER,
     LAUNCHER_MARKER,
     summarize_external_tools,
     uninstall_plan,
@@ -594,16 +596,6 @@ def install_gitnexus(downloads: list[dict]) -> dict:
     }
 
 
-def _backup_path(path: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    candidate = path.with_name(f"{path.name}.manageroo-backup-{stamp}")
-    index = 2
-    while candidate.exists():
-        candidate = path.with_name(f"{path.name}.manageroo-backup-{stamp}-{index}")
-        index += 1
-    return candidate
-
-
 def _run_checked(argv: list[str], *, cwd: Path, timeout: int = 300) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         argv,
@@ -691,7 +683,16 @@ def install_autoreview(downloads: list[dict], prefix: Path) -> dict:
             }
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
-            destination.rename(_backup_path(destination))
+            return {
+                "name": "autoreview",
+                "installed": False,
+                "configured": False,
+                "error": (
+                    "An incomplete AUTOREVIEW directory already exists. Manageroo left it "
+                    f"untouched: {destination}"
+                ),
+                "reference": AUTOREVIEW_REFERENCE,
+            }
         shutil.copytree(source, destination)
         downloads.append(
             {
@@ -1303,6 +1304,17 @@ def main() -> int:
             else run([str(python), "-m", "manageroo", "self-test"], cwd=prefix, env=installed_env).stdout.strip()
         )
 
+        installation_id = secrets.token_hex(32)
+        ownership_marker = prefix / INSTALL_OWNERSHIP_MARKER
+        atomic_write_json(
+            ownership_marker,
+            {
+                "schema_version": 1,
+                "product": FULL_NAME,
+                "prefix": str(prefix),
+                "installation_id": installation_id,
+            },
+        )
         lock = {
             "product": FULL_NAME,
             "installed_at": datetime.now(timezone.utc).isoformat(),
@@ -1321,12 +1333,19 @@ def main() -> int:
             "helper_skills": helper_skills_record,
             "external_tools": external_tools,
             "stack_summary": stack_summary,
-            "uninstall_plan": uninstall_plan(prefix, args.bin_dir.expanduser().resolve()),
+            "installation_ownership": {
+                "schema_version": 1,
+                "marker": INSTALL_OWNERSHIP_MARKER,
+                "marker_sha256": hashlib.sha256(ownership_marker.read_bytes()).hexdigest(),
+                "installation_id": installation_id,
+            },
             "network_downloads": downloads,
             "dependency_policy": (
                 "Manageroo is the portable controller. Executable or copied third-party sources selected by this installer are pinned by the Manageroo release; operating-system package-manager installs remain explicit operator-selected lanes. GitNexus is first-class recommended repository intelligence in the full stack; GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian are surrounding lanes. External tools never replace Manageroo completion authority."
             ),
         }
+        atomic_write_json(prefix / "install-lock.json", lock)
+        lock["uninstall_plan"] = uninstall_plan(prefix, args.bin_dir.expanduser().resolve())
         atomic_write_json(prefix / "install-lock.json", lock)
 
     status_line("INSTALLED", str(launcher), ok=True)

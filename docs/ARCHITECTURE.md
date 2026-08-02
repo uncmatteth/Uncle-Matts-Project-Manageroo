@@ -172,6 +172,17 @@ each call site.
 Controller policies and saved prose preferences are not ordinary task
 capabilities. In particular, `use-installed-skills-first` is native Manageroo
 behavior, while normal/Caveman/Caveman Curse remains installer-selected state.
+Skill-pack and token-mode installation is serialized with a permanent advisory
+file lock, so another process cannot enter while owner diagnostics are still
+being published. Existing lock inodes must be private regular files and are
+never truncated or rewritten.
+
+`release-ready` executes configured verification gates in a disposable local
+clone checked out at the exact candidate commit. After every gate, Manageroo
+rejects any HEAD, tracked, untracked, or ignored mutation before another gate
+can run or the release can be authorized. The repository's configured gate uses
+`verify_release.py --check-only` and an isolated bytecode cache; the normal
+operator invocation still refreshes `BUILD-VALIDATION.json`.
 
 ## Proactive learning, no silent self-mutation
 

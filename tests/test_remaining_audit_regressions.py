@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import tempfile
@@ -7,7 +8,12 @@ from unittest.mock import patch
 
 from manageroo.acceptance import _needs_demonstration
 from manageroo.errors import SafetyError
-from manageroo.install_status import LAUNCHER_MARKER, stack_status, uninstall_plan
+from manageroo.install_status import (
+    INSTALL_OWNERSHIP_MARKER,
+    LAUNCHER_MARKER,
+    stack_status,
+    uninstall_plan,
+)
 from manageroo.jobs import JobStore
 from manageroo.policy import ScopePolicy, validate_allowed_scope_patterns
 from manageroo.readiness import _mentions
@@ -15,6 +21,32 @@ from manageroo.runner import CommandRunner
 from manageroo.skill_pack import import_skill_folder
 from manageroo.stack_update import stack_update_plan
 from manageroo.util import redact_text
+
+
+def _write_owned_install_lock(prefix: Path, payload: dict) -> None:
+    installation_id = "b" * 64
+    marker = prefix / INSTALL_OWNERSHIP_MARKER
+    marker.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "product": "Uncle Matt's Project Manageroo",
+                "prefix": str(prefix.resolve()),
+                "installation_id": installation_id,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    lock = {"prefix": str(prefix.resolve()), **payload}
+    lock["installation_ownership"] = {
+        "schema_version": 1,
+        "marker": INSTALL_OWNERSHIP_MARKER,
+        "marker_sha256": hashlib.sha256(marker.read_bytes()).hexdigest(),
+        "installation_id": installation_id,
+    }
+    (prefix / "install-lock.json").write_text(json.dumps(lock), encoding="utf-8")
 
 
 class RemainingAuditRegressionTests(unittest.TestCase):
@@ -88,7 +120,10 @@ class RemainingAuditRegressionTests(unittest.TestCase):
                 'exec python3 -m manageroo "$@"\n',
                 encoding="utf-8",
             )
-            (prefix / "install-lock.json").write_text(json.dumps({"prefix": str(prefix), "launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
+            _write_owned_install_lock(
+                prefix,
+                {"launcher": str(custom_launcher), "external_tools": []},
+            )
             plan = uninstall_plan(prefix=prefix)
             self.assertIn(str(custom_launcher), plan["core_paths"])
             self.assertTrue(plan["launcher_ownership_known"])

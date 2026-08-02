@@ -223,7 +223,12 @@ manageroo uninstall-plan
 ```
 
 `uninstall-plan` emits removal commands only for an absolute, non-root prefix whose
-ownership is proven by a matching install lock or bounded Manageroo installation markers.
+ownership is proven by a matching resolved install lock and the installer's random
+ownership marker bound into that lock with SHA-256. Python package and virtual-environment
+files by themselves never prove ownership. Installs made before the ownership marker
+remain supported only when the legacy lock's product, resolved prefix, installed-app
+digest, exact generated launcher, Python executable, and virtual-environment marker all
+match the current files.
 It includes a launcher only when the file has Manageroo's versioned ownership marker and
 matches the complete generated POSIX or Windows launcher structure.
 

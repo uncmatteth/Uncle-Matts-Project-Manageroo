@@ -1,4 +1,5 @@
 import json
+import multiprocessing
 import os
 import shutil
 import tempfile
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from manageroo.token_modes import (
     CORE_HELPER_SKILLS,
     _copy_skill_tree,
+    _skill_install_lock,
     _skill_tree_sha256,
     install_core_helper_skills,
     install_token_skills,
@@ -18,7 +20,101 @@ from manageroo.token_modes import (
 )
 
 
+def _hold_skill_lock_before_owner_publication(root, publication_paused, release) -> None:
+    import manageroo.token_modes as token_modes
+
+    original_write = token_modes.os.write
+
+    def delayed_write(descriptor, data):
+        publication_paused.set()
+        if not release.wait(timeout=5):
+            raise TimeoutError("test did not release skill-lock owner publication")
+        return original_write(descriptor, data)
+
+    token_modes.os.write = delayed_write
+    with token_modes._skill_install_lock(Path(root)):
+        pass
+
+
+def _enter_skill_lock(root, lock_opened, entered) -> None:
+    import manageroo.token_modes as token_modes
+
+    original_open = token_modes.os.open
+
+    def observed_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        lock_opened.set()
+        return descriptor
+
+    token_modes.os.open = observed_open
+    with token_modes._skill_install_lock(Path(root)):
+        entered.set()
+
+
 class TokenModeTests(unittest.TestCase):
+    def test_contender_waits_while_skill_lock_owner_metadata_is_unpublished(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            context = multiprocessing.get_context("spawn")
+            publication_paused = context.Event()
+            release = context.Event()
+            contender_opened = context.Event()
+            contender_entered = context.Event()
+            owner = context.Process(
+                target=_hold_skill_lock_before_owner_publication,
+                args=(root, publication_paused, release),
+            )
+            contender = context.Process(
+                target=_enter_skill_lock,
+                args=(root, contender_opened, contender_entered),
+            )
+
+            try:
+                owner.start()
+                self.assertTrue(publication_paused.wait(timeout=5))
+                contender.start()
+                self.assertTrue(contender_opened.wait(timeout=5))
+                self.assertFalse(contender_entered.wait(timeout=0.3))
+                release.set()
+                owner.join(timeout=5)
+                contender.join(timeout=5)
+                self.assertEqual(owner.exitcode, 0)
+                self.assertEqual(contender.exitcode, 0)
+                self.assertTrue(contender_entered.is_set())
+            finally:
+                release.set()
+                for process in (owner, contender):
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
+
+    @unittest.skipIf(os.name == "nt", "hard-link setup is platform-dependent on Windows")
+    def test_skill_lock_rejects_hard_link_without_overwriting_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "do-not-overwrite.txt"
+            target.write_text("keep me\n", encoding="utf-8")
+            os.link(target, root / ".manageroo-skill-install.lock")
+
+            with self.assertRaisesRegex(OSError, "private regular file"):
+                with _skill_install_lock(root):
+                    self.fail("hard-linked lock must not be acquired")
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "keep me\n")
+
+    def test_existing_skill_lock_contents_are_not_rewritten(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lock = root / ".manageroo-skill-install.lock"
+            lock.write_text("existing user data\n", encoding="utf-8")
+
+            with _skill_install_lock(root):
+                pass
+
+            self.assertEqual(lock.read_text(encoding="utf-8"), "existing user data\n")
+
     def test_public_token_mode_apis_import_and_core_is_18_skills(self):
         self.assertEqual(len(CORE_HELPER_SKILLS), 18)
         self.assertIn("skill-vetter", CORE_HELPER_SKILLS)

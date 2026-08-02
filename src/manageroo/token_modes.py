@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import errno
+import hashlib
 import json
 import os
-import hashlib
 import shutil
+import stat
 import tempfile
 import time
 from contextlib import contextmanager
@@ -415,50 +417,91 @@ def _existing_skill_in_roots(skill_name: str, roots: list[Path]) -> Path | None:
     return None
 
 
-def _pid_live(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except (PermissionError, OSError):
-        return True
-    return True
+def _try_lock_file(descriptor: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_file(descriptor: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 
 @contextmanager
 def _skill_install_lock(root_real: Path, *, timeout: float = 30.0):
     lock = root_real / ".manageroo-skill-install.lock"
-    deadline = time.monotonic() + timeout
-    fd: int | None = None
-    while fd is None:
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            try:
-                text = lock.read_text(encoding="utf-8").strip()
-                pid = int(text.split("=", 1)[1]) if text.startswith("pid=") else 0
-            except (OSError, ValueError):
-                pid = 0
-            if not pid or not _pid_live(pid):
-                try:
-                    lock.unlink()
-                    continue
-                except OSError:
-                    pass
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Timed out waiting for skill install lock: {lock}")
-            time.sleep(0.05)
+    common_flags = os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    created = False
     try:
-        os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
-        os.fsync(fd)
+        descriptor = os.open(lock, common_flags | os.O_CREAT | os.O_EXCL, 0o600)
+        created = True
+    except FileExistsError:
+        try:
+            descriptor = os.open(lock, common_flags)
+        except OSError as exc:
+            raise OSError(f"Could not open skill install lock: {lock}: {exc}") from exc
+    except OSError as exc:
+        raise OSError(f"Could not open skill install lock: {lock}: {exc}") from exc
+    acquired = False
+    try:
+        lock_state = os.fstat(descriptor)
+        try:
+            path_state = lock.lstat()
+        except OSError as exc:
+            raise OSError(f"Could not validate skill install lock path: {lock}: {exc}") from exc
+        is_reparse_point = bool(
+            getattr(path_state, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        )
+        if (
+            lock.is_symlink()
+            or is_reparse_point
+            or not stat.S_ISREG(lock_state.st_mode)
+            or not stat.S_ISREG(path_state.st_mode)
+            or lock_state.st_nlink != 1
+            or path_state.st_nlink != 1
+            or (lock_state.st_dev, lock_state.st_ino) != (path_state.st_dev, path_state.st_ino)
+        ):
+            raise OSError(f"Skill install lock path is not a private regular file: {lock}")
+
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                _try_lock_file(descriptor)
+                acquired = True
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise OSError(f"Could not acquire skill install lock: {lock}: {exc}") from exc
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for skill install lock: {lock}") from exc
+                time.sleep(0.05)
+
+        # Existing lock files are never rewritten: even a valid regular file may be
+        # unexpected user data. Only publish metadata to the inode created above.
+        if created:
+            os.write(descriptor, f"pid={os.getpid()}\n".encode("utf-8"))
+            os.fsync(descriptor)
         yield
     finally:
-        os.close(fd)
         try:
-            if lock.read_text(encoding="utf-8").strip() == f"pid={os.getpid()}":
-                lock.unlink()
-        except FileNotFoundError:
-            pass
+            if acquired:
+                _unlock_file(descriptor)
+        finally:
+            os.close(descriptor)
 
 
 def _tree_identity(path: Path) -> tuple[int, int, str]:

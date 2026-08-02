@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -281,6 +282,16 @@ class StackUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual((codex_target / "SKILL.md").read_text(encoding="utf-8"), "new\n")
             self.assertFalse((home / ".agents" / "skills" / "autoreview").exists())
+            self.assertEqual(
+                list(codex_target.parent.glob("autoreview.manageroo-backup-*")),
+                [],
+            )
+            self.assertEqual(
+                list((home / ".codex").glob(".autoreview.manageroo-rollback-*")),
+                [],
+            )
+            installation = result["results"][0]["installations"][0]
+            self.assertIsNone(installation["backup"])
 
     def test_autoreview_update_omits_only_the_known_claude_compatibility_alias(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -367,6 +378,31 @@ class StackUpdateTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertEqual((destination / "SKILL.md").read_text(encoding="utf-8"), "old\n")
             self.assertEqual((prior_backup / "SKILL.md").read_text(encoding="utf-8"), "older\n")
+            self.assertEqual(list(root.glob(".autoreview.manageroo-rollback-*")), [])
+
+    def test_autoreview_cleanup_failure_reports_installed_update_with_warning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source"
+            source.mkdir()
+            (source / "SKILL.md").write_text("new\n", encoding="utf-8")
+            destination = root / "skills" / "autoreview"
+            destination.mkdir(parents=True)
+            (destination / "SKILL.md").write_text("old\n", encoding="utf-8")
+            real_rmtree = shutil.rmtree
+
+            def fail_rollback_cleanup(path, *args, **kwargs):
+                if ".manageroo-rollback-" in Path(path).name:
+                    raise OSError("simulated cleanup failure")
+                return real_rmtree(path, *args, **kwargs)
+
+            with patch("manageroo.stack_update_policy.shutil.rmtree", side_effect=fail_rollback_cleanup):
+                result = _replace_autoreview(source, destination)
+
+            self.assertTrue(result["ok"], result)
+            self.assertIn("update was installed", result["cleanup_warning"].lower())
+            self.assertEqual((destination / "SKILL.md").read_text(encoding="utf-8"), "new\n")
+            self.assertTrue(Path(result["backup"]).is_dir())
 
     def test_autoreview_lock_blocks_contender_before_owner_metadata_is_published(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -186,7 +186,7 @@ Manageroo reconciles completion against:
 
 A passing unit test does not automatically prove a browser flow. A worker saying something was deployed does not prove deployment. A model claiming something is secure does not make it secure.
 
-Claims that require observable evidence remain unproven until matching evidence exists.
+Claims that require observable evidence remain unproven until matching affirmative evidence exists and records a successful outcome; quoted, negated, or failed-outcome claim text does not count as proof.
 
 # How to actually use Manageroo
 

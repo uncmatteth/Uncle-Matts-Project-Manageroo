@@ -40,6 +40,39 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_autoreview_install_refuses_incomplete_existing_directory_without_backup(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            destination = home / ".agents" / "skills" / "autoreview"
+            destination.mkdir(parents=True)
+            (destination / "SKILL.md").write_text("existing partial install\n", encoding="utf-8")
+
+            def fake_checkout(**kwargs):
+                source = kwargs["destination"] / "skills" / "autoreview"
+                (source / "scripts").mkdir(parents=True)
+                (source / "SKILL.md").write_text("downloaded\n", encoding="utf-8")
+                (source / "scripts" / "autoreview").write_text("tool\n", encoding="utf-8")
+                return {"resolved_commit": kwargs["commit"]}
+
+            with patch.object(install.Path, "home", return_value=home), patch.object(
+                install.shutil,
+                "which",
+                return_value="/usr/bin/git",
+            ), patch.object(install, "_checkout_pinned_git_source", side_effect=fake_checkout):
+                result = install.install_autoreview([], home / "prefix")
+
+            self.assertFalse(result["installed"])
+            self.assertIn("left it untouched", result["error"])
+            self.assertEqual(
+                (destination / "SKILL.md").read_text(encoding="utf-8"),
+                "existing partial install\n",
+            )
+            self.assertEqual(
+                list(destination.parent.glob("autoreview.manageroo-backup-*")),
+                [],
+            )
+
     def test_generated_launchers_have_verified_manageroo_ownership(self):
         install = load_install_script()
         with tempfile.TemporaryDirectory() as temp:

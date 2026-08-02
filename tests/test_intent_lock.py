@@ -95,6 +95,62 @@ class IntentLockTests(unittest.TestCase):
             report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: The release gate and smoke tests have not run.", "Status: Production-ready."]))
             self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); self.assertTrue(report["confidence_claims_blocking"]); self.assertFalse(report["missing"])
 
+    def test_audit_rejects_negated_or_quoted_confidence_claims_as_proof(self):
+        cases = (
+            "We cannot claim production-ready because the release gate has not run.",
+            'The documentation uses "production-ready" only as an example label.',
+            "Production-ready is not proven by the current evidence.",
+            "Production-ready.",
+            "Production-ready because no checks passed.",
+            "Production-ready because every verification gate failed.",
+            "Production-ready after tests fail.",
+            'The document says "apparently production-ready and verified".',
+            'The report says "production-ready because every gate passed',
+            "Production-ready remains pending although an unrelated unit test passed.",
+        )
+        for proof in cases:
+            with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+                report = audit_compaction_text(
+                    repo,
+                    f"Intent: Ship the release.\nProof: {proof}\nStatus: Production-ready.",
+                )
+                self.assertFalse(report["ok"], report)
+                self.assertTrue(report["confidence_claims_blocking"])
+
+    def test_audit_allows_success_with_explicitly_zero_failures(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            proof = "Production-ready after all release gates passed with no failures."
+            capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+            report = audit_compaction_text(
+                repo,
+                f"Intent: Ship the release.\nProof: {proof}",
+            )
+
+            self.assertTrue(report["ok"], report)
+            self.assertFalse(report["confidence_claims_blocking"])
+
+    def test_audit_allows_successful_outcome_before_claim(self):
+        proofs = (
+            "All release gates passed, therefore production-ready.",
+            "All checks passed. The build is production-ready.",
+        )
+        for proof in proofs:
+            with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+                report = audit_compaction_text(
+                    repo,
+                    f"Intent: Ship the release.\nProof: {proof}",
+                )
+
+                self.assertTrue(report["ok"], report)
+                self.assertFalse(report["confidence_claims_blocking"])
+
     def test_cli_capture_and_compact_audit_json(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); stdout = io.StringIO()
@@ -110,7 +166,7 @@ class IntentLockTests(unittest.TestCase):
 
     def test_public_docs_explain_intent_lock_and_compaction_audit(self):
         surfaces = {
-            "README.md": [".manageroo/intent/INTENT-LOCK.md", "manageroo compact audit", "remain unproven until matching evidence exists"],
+            "README.md": [".manageroo/intent/INTENT-LOCK.md", "manageroo compact audit", "remain unproven until matching affirmative evidence exists and records a successful outcome"],
             "docs/CONTEXT_COMPILER.md": ["Chat compaction is not the source of truth", "strict phrase-preservation audit"],
             "docs/ENFORCEMENT_MATRIX.md": ["Compaction cannot drop must-not rules", "Intent lock plus compaction audit"],
             "docs/SOLO_OPERATOR_MODE.md": ["solo captures an intent lock", "compact audit"],

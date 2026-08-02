@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.adapters.transactional import TransactionalAdapter
@@ -225,6 +226,25 @@ class TransactionalAdapterHardeningTests(unittest.TestCase):
 
                 self.assertEqual(git_metadata(repo), before)
                 self.assertEqual(git(repo, "status", "--porcelain", "--ignored"), "")
+
+    def test_git_metadata_snapshot_fails_closed_at_file_and_byte_limits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = make_repo(Path(temp))
+            adapter = TransactionalAdapter(FailingWorker(), CommandRunner())
+
+            with mock.patch(
+                "manageroo.adapters.transactional.MAX_GIT_METADATA_FILES",
+                0,
+            ):
+                with self.assertRaisesRegex(SafetyError, "file limit"):
+                    adapter._snapshot_git_metadata(repo)
+
+            with mock.patch(
+                "manageroo.adapters.transactional.MAX_GIT_METADATA_BYTES",
+                0,
+            ):
+                with self.assertRaisesRegex(SafetyError, "byte limit"):
+                    adapter._snapshot_git_metadata(repo)
 
     def test_read_only_committed_mutation_is_rejected_and_head_restored(self):
         with tempfile.TemporaryDirectory() as temp:
