@@ -27,6 +27,23 @@ class PlanProofPolicyTests(unittest.TestCase):
         )
         self.assertTrue(any(item["id"].startswith("PROOF-UNKNOWN-GATES") for item in findings))
 
+    def test_empty_gate_binding_is_rejected(self):
+        findings = proof_binding_findings(
+            product={"acceptance_outcomes": ["Configured tests pass"]},
+            plan={
+                "demonstration": {
+                    "gate_ids": [],
+                    "product_evidence": [
+                        {"outcome": "Configured tests pass", "gate_ids": []}
+                    ],
+                }
+            },
+            available_gate_ids={"tests"},
+        )
+        empty = [item for item in findings if item["id"].startswith("PROOF-EMPTY-GATES")]
+        self.assertEqual(len(empty), 1)
+        self.assertEqual(empty[0]["severity"], "high")
+
     def test_user_journey_requires_bound_demonstration_gate(self):
         findings = proof_binding_findings(
             product={"acceptance_outcomes": ["User can log in"]},

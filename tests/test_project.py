@@ -1,8 +1,10 @@
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+from manageroo.errors import SafetyError
 from manageroo.project import create_project_repo, initialize_project
 from manageroo.project_memory import ensure_project_memory
 
@@ -66,6 +68,22 @@ class ProjectInitializationTests(unittest.TestCase):
                 "Add the commands or manual checks that prove the current state.",
             ):
                 self.assertNotIn(placeholder, text)
+
+    def test_project_memory_refuses_symlinked_manageroo_parent_without_external_write(self):
+        if os.name == "nt":
+            self.skipTest("symlink semantics vary on Windows")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            outside = root / "outside"
+            repo.mkdir()
+            outside.mkdir()
+            (repo / ".manageroo").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaises(SafetyError):
+                ensure_project_memory(repo)
+
+            self.assertFalse((outside / "PROJECT-MEMORY.md").exists())
 
     def test_create_project_repo_initializes_missing_folder_with_first_commit(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -140,6 +158,51 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertFalse((repo / ".manageroo").exists())
             self.assertFalse((repo / ".agents").exists())
             self.assertFalse((repo / "CONTEXT.md").exists())
+
+    def test_initialization_preflights_non_utf8_project_memory_before_mutating_repo(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            manageroo = repo / ".manageroo"
+            manageroo.mkdir()
+            memory = manageroo / "PROJECT-MEMORY.md"
+            memory.write_bytes(b"prefix\xffsuffix")
+            before = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in repo.rglob("*")
+                if path.is_file() and ".git" not in path.parts
+            }
+
+            with self.assertRaises(ValueError):
+                initialize_project(repo, agent="mock")
+
+            after = {
+                path.relative_to(repo).as_posix(): path.read_bytes()
+                for path in repo.rglob("*")
+                if path.is_file() and ".git" not in path.parts
+            }
+            self.assertEqual(after, before)
+            self.assertFalse((manageroo / "config.toml").exists())
+            self.assertFalse((manageroo / "PRODUCT-BRIEF.md").exists())
+
+    def test_initialization_preserves_existing_instruction_context_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            (repo / "AGENTS.md").write_text("# My rules\n\nKeep this rule.\n", encoding="utf-8")
+            (repo / "CONTEXT.md").write_text("# My context\n\nKeep this language.\n", encoding="utf-8")
+
+            initialize_project(repo, agent="mock")
+            initialize_project(repo, agent="mock")
+
+            agents_text = (repo / "AGENTS.md").read_text(encoding="utf-8")
+            context_text = (repo / "CONTEXT.md").read_text(encoding="utf-8")
+            self.assertIn("Keep this rule.", agents_text)
+            self.assertIn("Keep this language.", context_text)
+            self.assertEqual(agents_text.count("<!-- MANAGEROO:BEGIN -->"), 1)
+            self.assertEqual(context_text.count("<!-- MANAGEROO-CONTEXT:BEGIN -->"), 1)
 
     def test_create_project_repo_refuses_non_empty_non_git_folder(self):
         with tempfile.TemporaryDirectory() as temp:

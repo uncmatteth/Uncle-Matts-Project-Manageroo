@@ -239,7 +239,25 @@ manageroo clawpatch release-sweep --repo .
 manageroo clawpatch release-sweep --repo . --apply
 ```
 
-The default is read-only. Applied runs create a dedicated branch when starting from `main` or `master`; pushing still requires `--push each` or `--push final`. Require its zero-open, final-HEAD proof in the release gate with `--require-clawpatch` or `require_clawpatch_release_sweep = true` in project config.
+The default is read-only. Applied runs review all pending features and automate
+Clawpatch's one-finding `next`, `show`, `fix`, and revalidation loop. Each
+Clawpatch child process group has a 15-minute watchdog. A timeout, provider,
+quota, validation, project-gate, or non-`fixed` revalidation failure is
+preserved in a named Git stash, reconciled through Clawpatch, and retried as the
+same current finding. Durable progress supports resumption after the controller
+is relaunched; Manageroo does not install an OS restart daemon. Missing tools,
+authentication failure, malformed or contradictory state, unsafe paths, and
+Git failures still stop immediately. Applied runs create a dedicated branch
+when starting from `main` or `master`; pushing still requires `--push each` or
+`--push final`.
+Require its zero-open, zero-uncertain, final-HEAD proof in the release gate with
+`--require-clawpatch` or `require_clawpatch_release_sweep = true` in project
+config.
+
+If trusted code is already isolated by the host and nested Codex sandboxing
+prevents Clawpatch from applying its own finding, add
+`--trusted-host-codex-sandbox-bypass`. The override applies only to Clawpatch
+children for that invocation and must not be used on untrusted source.
 
 ```bash
 manageroo release-ready \

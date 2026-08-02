@@ -6,14 +6,18 @@ from collections.abc import Iterable
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _CLAUSE_SPLIT_RE = re.compile(r"[;,.!?]\s*")
+_DENIAL_SAFE_TOKEN = (
+    r"(?!(?:lack(?:s|ed|ing)?|fail(?:s|ed|ing)?|den(?:y|ies|ied|ying)|no|not|never|only)\b)"
+    r"[a-z0-9_-]+"
+)
 _DENIAL_SUFFIX_PATTERNS = (
     re.compile(
         r"\b(?:does|do|did|is|are|was|were|can|could|must|will|would|should)\s+not"
-        r"(?:\s+[a-z0-9_-]+){0,4}\s+$",
+        rf"(?:\s+{_DENIAL_SAFE_TOKEN}){{0,4}}\s+$",
         re.IGNORECASE,
     ),
-    re.compile(r"\bcannot(?:\s+[a-z0-9_-]+){0,4}\s+$", re.IGNORECASE),
-    re.compile(r"\bnever(?:\s+[a-z0-9_-]+){0,4}\s+$", re.IGNORECASE),
+    re.compile(rf"\bcannot(?:\s+{_DENIAL_SAFE_TOKEN}){{0,4}}\s+$", re.IGNORECASE),
+    re.compile(rf"\bnever(?:\s+{_DENIAL_SAFE_TOKEN}){{0,4}}\s+$", re.IGNORECASE),
     # `no` and `without` must directly govern the prohibited capability. Broad
     # windows such as "no setup for <claim>" are affirmative capability claims.
     re.compile(r"\bno\s+$", re.IGNORECASE),

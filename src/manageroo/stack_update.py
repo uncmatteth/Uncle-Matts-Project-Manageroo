@@ -4,17 +4,22 @@ import platform
 import shutil
 import subprocess
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from .trufflehog import (
+    TRUFFLEHOG_REFERENCE,
+    TRUFFLEHOG_VERSION,
+    install_trufflehog_binary,
+)
+
 
 GBRAIN_REFERENCE = "https://github.com/garrytan/gbrain"
-GBRAIN_COMMIT = "3cc34c92eec2540ef36d2513eff8d4e4bf73bad9"
+GBRAIN_COMMIT = "f84bfb57f2ab9294ea9c4bb33e40dec75dab41bf"
 GITNEXUS_REFERENCE = "https://github.com/abhigyanpatwari/GitNexus"
 GITNEXUS_PACKAGE = "gitnexus@1.6.9"
 AUTOREVIEW_REPO = "https://github.com/openclaw/agent-skills.git"
-AUTOREVIEW_COMMIT = "c4ab5e7f999cf504890986322473d3e7afd373af"
+AUTOREVIEW_COMMIT = "4b79fc967ba4d7c5231f99dd27bb1372c83e9430"
 AUTOREVIEW_REFERENCE = (
     "https://github.com/openclaw/agent-skills/tree/"
     f"{AUTOREVIEW_COMMIT}/skills/autoreview"
@@ -22,7 +27,7 @@ AUTOREVIEW_REFERENCE = (
 CLAWPATCH_PACKAGE = "clawpatch@0.7.1"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
-STACK_TOOL_NAMES = ("gbrain", "gitnexus", "autoreview", "clawpatch", "obsidian")
+STACK_TOOL_NAMES = ("gbrain", "gitnexus", "trufflehog", "autoreview", "clawpatch", "obsidian")
 
 
 def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 900) -> dict[str, Any]:
@@ -95,6 +100,40 @@ def _autoreview_installations() -> list[Path]:
     return resolved
 
 
+def _manageroo_owned_trufflehog_path(active_path: str | None) -> Path | None:
+    """Return the active binary only when the install lock proves Manageroo ownership."""
+    if not active_path:
+        return None
+    from .install_status import read_install_lock
+
+    loaded = read_install_lock()
+    if not loaded.get("ok"):
+        return None
+    lock = loaded["lock"]
+    launcher = lock.get("launcher")
+    if not isinstance(launcher, str) or not Path(launcher).is_absolute():
+        return None
+    active = Path(active_path).expanduser()
+    try:
+        active_resolved = active.resolve(strict=True)
+        launcher_parent = Path(launcher).expanduser().parent.resolve(strict=False)
+    except OSError:
+        return None
+    if active_resolved.parent != launcher_parent or active_resolved.name.lower() not in {"trufflehog", "trufflehog.exe"}:
+        return None
+    for tool in lock.get("external_tools", []):
+        if not isinstance(tool, dict) or tool.get("name") != "trufflehog" or not tool.get("manageroo_owned"):
+            continue
+        recorded = tool.get("path")
+        if isinstance(recorded, str):
+            try:
+                if Path(recorded).expanduser().resolve(strict=True) == active_resolved:
+                    return active_resolved
+            except OSError:
+                return None
+    return None
+
+
 def _pinned_package_commands(
     *,
     executable: str | None,
@@ -163,6 +202,8 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     pnpm = shutil.which("pnpm")
     clawpatch = shutil.which("clawpatch")
     obsidian = shutil.which("obsidian")
+    trufflehog = shutil.which("trufflehog")
+    owned_trufflehog = _manageroo_owned_trufflehog_path(trufflehog)
     autoreview_paths = _autoreview_installations()
 
     gitnexus_commands = _pinned_package_commands(
@@ -208,6 +249,19 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
             gitnexus_note,
         ),
         _tool(
+            "trufflehog",
+            bool(trufflehog),
+            [],
+            TRUFFLEHOG_REFERENCE,
+            (
+                f"Updates the Manageroo-owned binary only to release pin {TRUFFLEHOG_VERSION}."
+                if owned_trufflehog
+                else "Automatic update skipped because Manageroo ownership of the active TruffleHog binary was not proven."
+            ),
+            install_paths=[str(owned_trufflehog)] if owned_trufflehog else [],
+            pinned_version=TRUFFLEHOG_VERSION,
+        ),
+        _tool(
             "autoreview",
             bool(autoreview_paths),
             [],
@@ -243,14 +297,15 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     }
 
 
-def _unique_backup(destination: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}")
-    index = 2
-    while candidate.exists():
-        candidate = destination.with_name(f"{destination.name}.manageroo-backup-{stamp}-{index}")
-        index += 1
-    return candidate
+def _temporary_rollback_path(destination: Path) -> tuple[Path, Path]:
+    """Create same-filesystem rollback storage outside the discovered skills root."""
+    rollback_root = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.manageroo-rollback-",
+            dir=str(destination.parent.parent),
+        )
+    )
+    return rollback_root, rollback_root / destination.name
 
 
 def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
@@ -266,31 +321,61 @@ def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
     stage = destination.with_name(destination.name + ".manageroo-stage")
     if stage.exists():
         shutil.rmtree(stage)
-    backup: Path | None = None
+    rollback_root: Path | None = None
+    previous: Path | None = None
     try:
         shutil.copytree(source, stage)
         if destination.exists():
-            backup = _unique_backup(destination)
-            destination.rename(backup)
+            rollback_root, previous = _temporary_rollback_path(destination)
+            destination.rename(previous)
         stage.rename(destination)
+        if rollback_root is not None:
+            try:
+                shutil.rmtree(rollback_root)
+            except OSError as cleanup_exc:
+                return {
+                    "ok": True,
+                    "name": "autoreview",
+                    "path": str(destination),
+                    "backup": str(previous) if previous else None,
+                    "cleanup_warning": (
+                        "The update was installed, but old rollback storage could not be removed: "
+                        f"{cleanup_exc}"
+                    ),
+                }
         return {
             "ok": True,
             "name": "autoreview",
             "path": str(destination),
-            "backup": str(backup) if backup else None,
+            "backup": None,
         }
     except Exception as exc:
-        try:
-            if stage.exists():
+        rollback_errors: list[str] = []
+        if stage.exists():
+            try:
                 shutil.rmtree(stage)
-            if backup and backup.exists() and not destination.exists():
-                backup.rename(destination)
-        except OSError as rollback_exc:
+            except OSError as cleanup_exc:
+                rollback_errors.append(f"stage cleanup failed: {cleanup_exc}")
+        if previous and previous.exists() and not destination.exists():
+            try:
+                previous.rename(destination)
+            except OSError as restore_exc:
+                rollback_errors.append(f"original restoration failed: {restore_exc}")
+        if rollback_root and rollback_root.exists():
+            try:
+                if not any(rollback_root.iterdir()):
+                    rollback_root.rmdir()
+            except OSError as cleanup_exc:
+                rollback_errors.append(f"rollback cleanup failed: {cleanup_exc}")
+        if rollback_errors:
             return {
                 "ok": False,
                 "name": "autoreview",
                 "path": str(destination),
-                "error": f"update failed: {exc}; rollback failed: {rollback_exc}",
+                "error": (
+                    f"update failed: {exc}; {'; '.join(rollback_errors)}; "
+                    f"recovery data may remain at {rollback_root}"
+                ),
             }
         return {
             "ok": False,
@@ -329,13 +414,32 @@ def _update_autoreview(destinations: Iterable[Path]) -> dict[str, Any]:
         source = checkout / "skills" / "autoreview"
         if not (source / "SKILL.md").is_file():
             return {"ok": False, "name": "autoreview", "error": "pinned autoreview skill was not found"}
-        if source.is_symlink() or any(path.is_symlink() for path in source.rglob("*")):
-            return {"ok": False, "name": "autoreview", "error": "pinned autoreview tree contains symlinks"}
-        results = [_replace_autoreview(source, destination) for destination in targets]
+        symlinks = [path for path in source.rglob("*") if path.is_symlink()]
+        allowed_alias = source / "CLAUDE.md"
+        if source.is_symlink() or any(
+            path != allowed_alias or path.readlink() != Path("AGENTS.md") for path in symlinks
+        ):
+            return {
+                "ok": False,
+                "name": "autoreview",
+                "error": "pinned autoreview tree contains an unapproved symlink",
+            }
+        sanitized = Path(temp) / "autoreview-sanitized"
+        shutil.copytree(
+            source,
+            sanitized,
+            ignore=lambda directory, names: [
+                name for name in names if (Path(directory) / name).is_symlink()
+            ],
+        )
+        if not (sanitized / "SKILL.md").is_file() or (sanitized / "CLAUDE.md").exists():
+            return {"ok": False, "name": "autoreview", "error": "sanitized autoreview tree is invalid"}
+        results = [_replace_autoreview(sanitized, destination) for destination in targets]
         return {
             "ok": all(item.get("ok") for item in results),
             "name": "autoreview",
             "pinned_commit": AUTOREVIEW_COMMIT,
+            "omitted_compatibility_aliases": ["CLAUDE.md"] if symlinks else [],
             "installations": results,
         }
 
@@ -344,6 +448,18 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
     plan = stack_update_plan(only)
     results: list[dict[str, Any]] = []
     for tool in plan["tools"]:
+        if tool["name"] == "trufflehog":
+            paths = [Path(path) for path in tool.get("install_paths", [])]
+            if not paths:
+                results.append({"name": "trufflehog", "ok": True, "skipped": True, "reason": "Manageroo ownership was not proven"})
+                continue
+            try:
+                installations = [install_trufflehog_binary(path) for path in paths]
+            except (OSError, RuntimeError) as exc:
+                results.append({"name": "trufflehog", "ok": False, "error": str(exc)})
+            else:
+                results.append({"name": "trufflehog", "ok": True, "pinned_version": TRUFFLEHOG_VERSION, "installations": installations})
+            continue
         if tool["name"] == "autoreview":
             results.append(_update_autoreview(Path(path) for path in tool.get("install_paths", [])))
             continue

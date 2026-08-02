@@ -1,6 +1,6 @@
+import hashlib
 import json
 import os
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +8,12 @@ from unittest.mock import patch
 
 from manageroo.acceptance import _needs_demonstration
 from manageroo.errors import SafetyError
-from manageroo.install_status import stack_status, uninstall_plan
+from manageroo.install_status import (
+    INSTALL_OWNERSHIP_MARKER,
+    LAUNCHER_MARKER,
+    stack_status,
+    uninstall_plan,
+)
 from manageroo.jobs import JobStore
 from manageroo.policy import ScopePolicy, validate_allowed_scope_patterns
 from manageroo.readiness import _mentions
@@ -16,6 +21,32 @@ from manageroo.runner import CommandRunner
 from manageroo.skill_pack import import_skill_folder
 from manageroo.stack_update import stack_update_plan
 from manageroo.util import redact_text
+
+
+def _write_owned_install_lock(prefix: Path, payload: dict) -> None:
+    installation_id = "b" * 64
+    marker = prefix / INSTALL_OWNERSHIP_MARKER
+    marker.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "product": "Uncle Matt's Project Manageroo",
+                "prefix": str(prefix.resolve()),
+                "installation_id": installation_id,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    lock = {"prefix": str(prefix.resolve()), **payload}
+    lock["installation_ownership"] = {
+        "schema_version": 1,
+        "marker": INSTALL_OWNERSHIP_MARKER,
+        "marker_sha256": hashlib.sha256(marker.read_bytes()).hexdigest(),
+        "installation_id": installation_id,
+    }
+    (prefix / "install-lock.json").write_text(json.dumps(lock), encoding="utf-8")
 
 
 class RemainingAuditRegressionTests(unittest.TestCase):
@@ -82,10 +113,17 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             custom_launcher = root / "custom-bin" / "manageroo"
             custom_launcher.parent.mkdir()
             custom_launcher.write_text(
-                '#!/bin/sh\nexport MANAGEROO_PREFIX="/tmp/manageroo"\nexec python3 -m manageroo "$@"\n',
+                "#!/bin/sh\n"
+                f"# {LAUNCHER_MARKER}\n"
+                "export PYTHONPATH=/tmp/manageroo/app${PYTHONPATH:+:$PYTHONPATH}\n"
+                "export MANAGEROO_PREFIX=/tmp/manageroo\n"
+                'exec python3 -m manageroo "$@"\n',
                 encoding="utf-8",
             )
-            (prefix / "install-lock.json").write_text(json.dumps({"launcher": str(custom_launcher), "external_tools": []}), encoding="utf-8")
+            _write_owned_install_lock(
+                prefix,
+                {"launcher": str(custom_launcher), "external_tools": []},
+            )
             plan = uninstall_plan(prefix=prefix)
             self.assertIn(str(custom_launcher), plan["core_paths"])
             self.assertTrue(plan["launcher_ownership_known"])
@@ -143,16 +181,18 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             (destination / "SKILL.md").write_text("old skill\n", encoding="utf-8")
             (destination / "keep.txt").write_text("keep\n", encoding="utf-8")
             before = {path.relative_to(destination).as_posix(): path.read_bytes() for path in destination.rglob("*") if path.is_file()}
-            real_copy2 = shutil.copy2
+            import manageroo.skill_pack as skill_pack
+
+            real_copy = skill_pack._copy_validated_source_file
             calls = {"count": 0}
 
             def fail_second(source_path, destination_path, *args, **kwargs):
                 calls["count"] += 1
                 if calls["count"] == 2:
                     raise OSError("simulated staged copy failure")
-                return real_copy2(source_path, destination_path, *args, **kwargs)
+                return real_copy(source_path, destination_path, *args, **kwargs)
 
-            with patch("manageroo.skill_pack.shutil.copy2", side_effect=fail_second):
+            with patch("manageroo.skill_pack._copy_validated_source_file", side_effect=fail_second):
                 with self.assertRaises(OSError):
                     import_skill_folder(source, skills_dir=target_root, apply=True)
             after = {path.relative_to(destination).as_posix(): path.read_bytes() for path in destination.rglob("*") if path.is_file()}

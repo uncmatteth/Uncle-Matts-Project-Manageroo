@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..errors import AgentExecutionError, ConfigurationError
@@ -40,6 +40,11 @@ class GenericAdapter(AgentAdapter):
         }
         self.doctor_argv = [str(item) for item in (doctor_argv or [])]
         self.required_help_flags = [str(item) for item in (required_help_flags or [])]
+        self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
+
+    def set_before_worker_launch(self, callback: Callable[[AgentRequest], AgentRequest]) -> None:
+        """Install a controller hook after safety validation and before the process."""
+        self._before_worker_launch = callback
 
     def _protocol_prompt(self, request: AgentRequest) -> tuple[str, Path]:
         prompt_text = request.prompt_path.read_text(encoding="utf-8", errors="replace")
@@ -130,8 +135,12 @@ class GenericAdapter(AgentAdapter):
                 raise AgentExecutionError(f"Could not clear stale generic-worker output before launch: {path}: {exc}") from exc
 
     def run(self, request: AgentRequest) -> AgentResponse:
+        if request.before_launch is not None:
+            request = request.before_launch(request, False)
         self._clear_prior_outputs(request)
         argv, input_text, expects_output_file = self._render(request)
+        if self._before_worker_launch is not None:
+            request = self._before_worker_launch(request)
         result = self.runner.run(
             argv,
             cwd=request.cwd,

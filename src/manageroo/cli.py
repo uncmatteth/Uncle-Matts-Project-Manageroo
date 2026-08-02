@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from . import __version__
 from .branding import FULL_ACRONYM, PROJECT_DIR, PUBLIC_COMMAND, print_banner
 from .brief_builder import build_product_brief, default_brief_path, write_product_brief
+from .capability_router import capability_route_record, format_capability_route, route_capabilities
 from .checks import (
     add_check_gate,
     add_first_suggested_check_gate,
@@ -20,7 +22,7 @@ from .checks import (
     suggest_check_gates,
 )
 from .chiptune import play_once
-from .config import AGENT_PRESETS, apply_agent_preset
+from .config import AGENT_PRESETS, DEFAULT_CONFIG, apply_agent_preset, load_config
 from .doctor import doctor
 from .errors import ConfigurationError, MANAGEROOError
 from .gbrain_setup import format_gbrain_setup, gbrain_setup_status
@@ -513,6 +515,26 @@ def parser() -> argparse.ArgumentParser:
     )
     skills_reconcile.add_argument("--limit", type=int, default=80, help="Plain-text item limit. Use 0 for all.")
     skills_reconcile.add_argument("--json", action="store_true")
+    skills_explain = skills_sub.add_parser(
+        "explain",
+        help="Explain the automatic capability route for a normal-language task.",
+    )
+    skills_explain.add_argument("task")
+    skills_explain.add_argument("--repo", default=".")
+    skills_explain.add_argument("--role", default="")
+    skills_explain.add_argument(
+        "--sandbox",
+        choices=("read-only", "workspace-write", "danger-full-access"),
+        default="read-only",
+    )
+    skills_explain.add_argument("--root", action="append", type=Path, default=[])
+    skills_explain.add_argument(
+        "--max-selected",
+        type=int,
+        default=None,
+        help="Override the repository capability limit for this diagnostic only.",
+    )
+    skills_explain.add_argument("--json", action="store_true")
 
     stack = sub.add_parser("stack-status", help="Show installed/skipped/fix-next status for the guided local stack.")
     stack.add_argument("--lock", type=Path)
@@ -807,7 +829,8 @@ def main(argv: list[str] | None = None) -> int:
                 for item in setup_results:
                     print(f"[x] {item['name']}")
                     print(f"    Path: {item['path']}")
-                    print(f"    Next: {PUBLIC_COMMAND} next {item['path']}")
+                    print(f"    Context files: created or safely updated")
+                    print(f"    Next: {PUBLIC_COMMAND} solo {shlex.quote(item['path'])}")
                 return 0
             print(format_project_discovery(result), end="")
             if args.pick:
@@ -1172,6 +1195,46 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps(result, indent=2))
                 else:
                     print(format_skill_reconcile(result, limit=args.limit), end="")
+                return 0 if result.get("ok") else 2
+            elif args.skills_command == "explain":
+                repo = Path(args.repo).expanduser().resolve()
+                config_path = repo / PROJECT_DIR / "config.toml"
+                config = load_config(repo) if config_path.is_file() else DEFAULT_CONFIG
+                capability_config = config.get("capabilities", {})
+                enabled = bool(capability_config.get("enabled", True))
+                max_selected = (
+                    args.max_selected
+                    if args.max_selected is not None
+                    else int(capability_config.get("max_selected", 4))
+                )
+                result = route_capabilities(
+                    args.task,
+                    roots=args.root or None,
+                    role=args.role,
+                    sandbox=args.sandbox,
+                    repo=repo,
+                    max_selected=max_selected if enabled else 0,
+                    max_prompt_chars=(
+                        int(capability_config.get("max_prompt_chars", 24_000))
+                        if enabled
+                        else 0
+                    ),
+                )
+                result["routing_enabled"] = enabled
+                if not enabled:
+                    result["automatic"] = False
+                    result["omitted"] = []
+                    result["blocking_errors"] = [
+                        item
+                        for item in result.get("blocking_errors", [])
+                        if item.startswith("capability-")
+                    ]
+                    result["ok"] = not result["blocking_errors"]
+                record = capability_route_record(result)
+                if args.json:
+                    print(json.dumps(record, indent=2))
+                else:
+                    print(format_capability_route(record), end="")
                 return 0 if result.get("ok") else 2
             else:
                 print(json.dumps({"bundled_skills": sorted(CORE_HELPER_SKILLS)}, indent=2))

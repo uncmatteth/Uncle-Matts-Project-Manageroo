@@ -29,6 +29,22 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             ScopePolicy((".manageroo/**",)).validate_paths([".manageroo/config.toml"])
 
+    def test_mixed_case_sensitive_paths_are_forbidden(self):
+        for path in ("Secrets.txt", "CONFIG/CREDENTIALS.JSON", "src/ApiSecret.py"):
+            with self.subTest(path=path):
+                with self.assertRaises(SafetyError):
+                    validate_allowed_scope_patterns([path])
+                with self.assertRaises(SafetyError):
+                    ScopePolicy((path,)).validate_paths([path])
+
+    def test_allowed_scope_matching_remains_case_sensitive(self):
+        self.assertEqual(
+            ScopePolicy(("src/App.py",)).validate_paths(["src/App.py"]),
+            ["src/App.py"],
+        )
+        with self.assertRaises(SafetyError):
+            ScopePolicy(("src/App.py",)).validate_paths(["src/app.py"])
+
     def test_command_allowlist(self):
         CommandPolicy(("python",)).validate(["python", "-m", "unittest"])
         with self.assertRaises(SafetyError):

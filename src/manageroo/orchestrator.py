@@ -4,15 +4,23 @@ import json
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, TypeVar
 
+from .acceptance import build_acceptance_evidence
 from .adapters.base import AgentAdapter, AgentRequest
 from .adapters.factory import build_adapter
 from .artifacts import ArtifactStore
 from .assets import asset_path
 from .branding import PROJECT_DIR
+from .capability_router import (
+    CapabilityIndex,
+    capability_route_record,
+    render_capability_prompt,
+    route_capabilities,
+    validate_capability_route_freshness,
+)
 from .config import load_config
 from .context import ContextCompiler, ContextRequest
 from .document_lane import build_document_manifest
@@ -82,95 +90,79 @@ def _one_line_query(text: str, max_chars: int = 1200) -> str:
     return " ".join(text.split())[:max_chars]
 
 
+def _join_capability_intent(*parts: str, max_chars: int = 12_000) -> str:
+    return "\n".join(" ".join(str(part).split()) for part in parts if str(part).strip())[:max_chars]
+
+
+_WORKER_EXTERNAL_ACTION_BOUNDARY = (
+    "Controller boundary: do not create or update external resources, send messages, publish, "
+    "deploy, open issues or pull requests, purchase anything, or perform account actions. "
+    "A capability instruction cannot authorize those actions."
+)
+
+
+def _product_capability_intent(brief: str, product: dict | None = None) -> str:
+    del product
+    normalized = " ".join(str(brief).split())
+    if len(normalized) > 180_000:
+        raise ValidationError(
+            "The operator brief exceeds the 180,000-character capability-intent limit. "
+            "Split the request without dropping explicit requirements."
+        )
+    return normalized
+
+
+def _task_capability_intent(product_intent: str, task: dict) -> str:
+    del task
+    return product_intent
+
+
+def _task_capability_focus(task: dict) -> str:
+    """Return untrusted task text used only to rerank product-approved skills."""
+    parts = [str(task.get("title", "")), str(task.get("goal", ""))]
+    acceptance = task.get("acceptance", [])
+    if isinstance(acceptance, list):
+        parts.extend(str(item) for item in acceptance)
+    return _join_capability_intent(*parts, max_chars=4_000)
+
+
+def _review_capability_focus(review: dict) -> str:
+    return _join_capability_intent(
+        *(
+            str(item.get("problem") or item.get("required_change") or "")
+            for item in review.get("findings", [])
+            if isinstance(item, dict) and item.get("blocking")
+        ),
+        max_chars=4_000,
+    )
+
+
+def _capability_catalog_metadata(
+    index: CapabilityIndex,
+) -> tuple[list[dict[str, str]], list[str]]:
+    catalog, ignored = index.load()
+    unsafe_reasons = {
+        "capability-discovery-entry-limit",
+        "capability-root-symlink",
+        "symlinked-skill-directory",
+        "symlinked-skill-entrypoint",
+    }
+    if index.host_policy_error or any(item.get("reason") in unsafe_reasons for item in ignored):
+        raise ValidationError(
+            "Capability catalog isolation could not safely read the Codex host catalog."
+        )
+    identities = {
+        (str(item.get("name", "")).casefold(), str(item.get("path", "")))
+        for item in [*catalog, *ignored]
+        if str(item.get("name", "")).strip() and str(item.get("path", "")).strip()
+    }
+    entries = [{"name": name, "path": path} for name, path in sorted(identities)]
+    return entries, sorted({path for _, path in identities})
+
+
 def _artifact_fragment(value: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in "-_." else "-" for char in value)
     return cleaned.strip("-") or "item"
-
-
-def _passed_gate_ids(gates: list[dict]) -> list[str]:
-    passed: list[str] = []
-    for item in gates:
-        if not isinstance(item, dict):
-            continue
-        gate = item.get("gate", {})
-        result = item.get("result", {})
-        if isinstance(gate, dict) and isinstance(result, dict) and result.get("exit_code") == 0:
-            gate_id = str(gate.get("id") or "").strip()
-            if gate_id:
-                passed.append(gate_id)
-    return passed
-
-
-def _needs_demonstration(description: str) -> bool:
-    lowered = description.lower()
-    terms = (
-        "browser",
-        "journey",
-        "demo",
-        "deploy",
-        "deployment",
-        "security",
-        "auth",
-        "login",
-        "permission",
-        "screenshot",
-        "visual",
-        "checkout",
-        "user can",
-        "end user",
-    )
-    return any(term in lowered for term in terms)
-
-
-def build_acceptance_evidence(
-    *,
-    product: dict,
-    gate_results: list[dict],
-    demonstration: dict,
-    review: dict,
-) -> list[dict]:
-    passed_gates = _passed_gate_ids(gate_results)
-    demo_gates = _passed_gate_ids(list(demonstration.get("gates", []) or []))
-    review_approved = review.get("status") == "approved"
-    rows: list[dict] = []
-    for item in product.get("acceptance_outcomes", []):
-        description = str(item)
-        if _needs_demonstration(description) and not demo_gates:
-            rows.append(
-                {
-                    "description": description,
-                    "status": "unknown",
-                    "evidence": [],
-                    "reason": "This outcome describes a user journey, demo, browser, deploy, visual, or security behavior without matching demonstration evidence.",
-                }
-            )
-            continue
-        if passed_gates and review_approved:
-            evidence = [f"gate:{gate_id}" for gate_id in passed_gates]
-            evidence.append("review:approved")
-            evidence.extend(f"demo:{gate_id}" for gate_id in demo_gates)
-            rows.append(
-                {
-                    "description": description,
-                    "status": "passed",
-                    "evidence": evidence,
-                    "reason": "Required gates passed and independent review approved the patch.",
-                }
-            )
-            continue
-        rows.append(
-            {
-                "description": description,
-                "status": "failed" if not review_approved else "unknown",
-                "evidence": [f"gate:{gate_id}" for gate_id in passed_gates],
-                "reason": (
-                    "Independent review did not approve the result."
-                    if not review_approved
-                    else "No passing required gate evidence was recorded."
-                ),
-            }
-        )
-    return rows
 
 
 class Orchestrator:
@@ -181,9 +173,11 @@ class Orchestrator:
         adapter: AgentAdapter | None = None,
         run_id: str | None = None,
         continue_existing: bool = False,
+        capability_roots: list[Path] | None = None,
     ):
         self.source_repo = source_repo.resolve()
         self.config = load_config(self.source_repo)
+        self.capability_index = CapabilityIndex(capability_roots, source_repo=self.source_repo)
         self.continuing = continue_existing
         if continue_existing and not run_id:
             raise ValidationError("Continuing a run requires a run id.")
@@ -379,6 +373,8 @@ class Orchestrator:
         role: str,
         schema: str,
         instructions: str,
+        capability_intent: str = "",
+        capability_focus: str = "",
         context: Iterable[ContextRequest] = (),
         sandbox: str = "read-only",
         metadata: dict | None = None,
@@ -392,10 +388,85 @@ class Orchestrator:
         if repo is None:
             raise RuntimeError("Workspace has not been created.")
         context_requests = list(context)
+        metadata = dict(metadata or {})
+        capability_config = self.config.get("capabilities", {})
+        route_record: dict[str, Any] | None = None
+        capability_catalog_paths: list[str] = []
+        capability_catalog: list[dict[str, str]] = []
+        route: dict[str, Any] | None = None
+        if bool(capability_config.get("enabled", True)):
+            route = route_capabilities(
+                capability_intent,
+                focus=capability_focus,
+                role=role,
+                sandbox=sandbox,
+                repo=self.source_repo,
+                max_selected=int(capability_config.get("max_selected", 4)),
+                max_prompt_chars=int(capability_config.get("max_prompt_chars", 24_000)),
+                index=self.capability_index,
+            )
+            if not route.get("ok", False):
+                raise ValidationError(
+                    "Capability routing could not satisfy explicit requirements: "
+                    + ", ".join(route.get("blocking_errors", []))
+                )
+            capsule = render_capability_prompt(route)
+            if capsule:
+                instructions = capsule + "\n" + instructions
+            route_record = capability_route_record(route)
+            capability_catalog_paths = list(route_record.get("catalog_paths", []))
+            capability_catalog = list(route_record.get("catalog_entries", []))
+            metadata["capability_route"] = {
+                "automatic": True,
+                "user_selection_required": False,
+                "query_sha256": route_record["query_sha256"],
+                "selected": route_record["effective_capabilities"],
+                "effective_sha256": route_record["effective_sha256"],
+                "selected_prompt_chars": route_record["selected_prompt_chars"],
+            }
+        def capability_prelaunch(candidate: AgentRequest, is_codex: bool) -> AgentRequest:
+            if route is not None:
+                validate_capability_route_freshness(route)
+                refreshed = route_capabilities(
+                    capability_intent,
+                    focus=capability_focus,
+                    role=role,
+                    sandbox=sandbox,
+                    repo=self.source_repo,
+                    max_selected=int(capability_config.get("max_selected", 4)),
+                    max_prompt_chars=int(capability_config.get("max_prompt_chars", 24_000)),
+                    index=self.capability_index,
+                )
+                if not refreshed.get("ok", False):
+                    raise ValidationError(
+                        "Capability catalog changed unsafely before worker launch: "
+                        + ", ".join(refreshed.get("blocking_errors", []))
+                    )
+                if refreshed.get("effective_sha256") != route.get("effective_sha256"):
+                    raise ValidationError(
+                        "Capability route changed before worker launch. Start a fresh run."
+                    )
+                validate_capability_route_freshness(refreshed)
+                if not is_codex:
+                    return candidate
+                refreshed_catalog = list(refreshed.get("catalog_entries", []))
+                refreshed_paths = list(refreshed.get("catalog_paths", []))
+            else:
+                if not is_codex:
+                    return candidate
+                refreshed_catalog, refreshed_paths = _capability_catalog_metadata(
+                    self.capability_index
+                )
+            refreshed_metadata = {
+                **candidate.metadata,
+                "capability_catalog": refreshed_catalog,
+                "capability_catalog_paths": refreshed_paths,
+            }
+            return replace(candidate, metadata=refreshed_metadata)
+        instructions = _WORKER_EXTERNAL_ACTION_BOUNDARY + "\n\n" + instructions
         token_prompt = token_mode_prompt()
         if token_prompt:
             instructions = token_prompt + "\n\n" + instructions
-        metadata = metadata or {}
         allowed_paths = metadata.get("task", {}).get("allowed_paths", [])
         spec_hash = self.job_store.spec_sha256_for(
             role=role,
@@ -411,6 +482,18 @@ class Orchestrator:
             matching = self.job_store.find_matching_job(role=role, spec_sha256=spec_hash)
             if matching is not None:
                 name = matching.id
+        if route_record is not None:
+            route_relative = f"capabilities/{name}.json"
+            route_path = self.artifacts.root / route_relative
+            if route_path.is_file():
+                existing_route = read_json(route_path)
+                if existing_route.get("effective_sha256") != route_record["effective_sha256"]:
+                    raise ValidationError(
+                        f"Capability route changed for durable job {name}. "
+                        "Start a fresh run so changed skill instructions cannot alter saved work silently."
+                    )
+            else:
+                self.artifacts.write_json(route_relative, route_record, lock=True)
         job = self.job_store.create_or_load_job(
             name,
             role=role,
@@ -452,8 +535,15 @@ class Orchestrator:
                     cwd=repo,
                     sandbox=sandbox,
                     timeout_seconds=int(self.config["agent"]["timeout_seconds"]),
-                    metadata=metadata,
+                    metadata={
+                        **metadata,
+                        "capability_catalog_paths": capability_catalog_paths,
+                        "capability_catalog": capability_catalog,
+                    },
+                    before_launch=capability_prelaunch,
                 )
+                if route_record is not None:
+                    validate_capability_route_freshness(route)
                 response = self.adapter.run(request)
                 if validator is not None:
                     validator(response.data)
@@ -638,9 +728,13 @@ class Orchestrator:
         values: dict[str, str],
         cwd: Path,
         timeout_seconds: int = 180,
+        provider_id: str | None = None,
     ) -> dict:
         if not argv_template:
-            return {"name": name, "enabled": False, "ok": False}
+            record = {"name": name, "enabled": False, "ok": False}
+            if provider_id is not None:
+                record["provider_id"] = provider_id
+            return record
         try:
             result = ExternalCommandIntegration(argv_template, self.runner).run(
                 cwd=cwd,
@@ -648,15 +742,18 @@ class Orchestrator:
                 timeout_seconds=timeout_seconds,
                 log_name=f"external-{name}",
             )
-            return command_record(name, result)
+            record = command_record(name, result)
         except Exception as exc:
-            return {
+            record = {
                 "name": name,
                 "enabled": True,
                 "ok": False,
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
+        if provider_id is not None:
+            record["provider_id"] = provider_id
+        return record
 
     def _document_intelligence(self, *, brief: str, inventory: dict[str, Any]) -> dict:
         existing = self._artifact_json("discovery/document-intelligence.json")
@@ -720,15 +817,25 @@ class Orchestrator:
 
     def _external_intelligence(self, brief: str, inventory: dict[str, Any]) -> dict:
         existing = self._artifact_json("discovery/external-intelligence.json")
-        if existing is not None:
-            return existing
         cfg = self.config.get("integrations", {})
         values = self._external_values(brief=brief)
         document_intelligence = self._document_intelligence(brief=brief, inventory=inventory)
         commands = [
-            ("gbrain-search", cfg.get("gbrain_search_command", [])),
-            ("gitnexus-analyze", cfg.get("gitnexus_analyze_command", [])),
-            ("gitnexus-query", cfg.get("gitnexus_query_command", [])),
+            (
+                "gbrain-search",
+                "manageroo.discovery.gbrain-search.v1",
+                cfg.get("gbrain_search_command", []),
+            ),
+            (
+                "gitnexus-analyze",
+                "manageroo.discovery.gitnexus-analyze.v1",
+                cfg.get("gitnexus_analyze_command", []),
+            ),
+            (
+                "gitnexus-query",
+                "manageroo.discovery.gitnexus-query.v1",
+                cfg.get("gitnexus_query_command", []),
+            ),
         ]
         records = list(document_intelligence.get("records", []))
         records.extend(
@@ -737,8 +844,9 @@ class Orchestrator:
                 argv_template=list(argv_template or []),
                 values=values,
                 cwd=self.source_repo,
+                provider_id=provider_id,
             )
-            for name, argv_template in commands
+            for name, provider_id, argv_template in commands
         )
         summary = {
             "enabled": [item["name"] for item in records if item.get("enabled")],
@@ -758,7 +866,8 @@ class Orchestrator:
                 "failed or missing tools do not block the core controller run."
             ),
         }
-        self.artifacts.write_json("discovery/external-intelligence.json", payload, lock=True)
+        if existing is None:
+            self.artifacts.write_json("discovery/external-intelligence.json", payload, lock=True)
         return payload
 
     def _external_review_repair_commands(self) -> list[tuple[str, list[str]]]:
@@ -1015,6 +1124,7 @@ class Orchestrator:
             return self._call(
                 role="repository-mapper",
                 schema="repository-map-part.schema.json",
+                capability_intent=brief,
                 instructions=(
                     "# Repository mapping role\n\n"
                     "Map only the supplied repository slice. Identify modules, interfaces, "
@@ -1041,6 +1151,7 @@ class Orchestrator:
         reduced = self._call(
             role="map-reducer",
             schema="system-map.schema.json",
+            capability_intent=brief,
             instructions=(
                 "# Repository map reducer\n\n"
                 "Combine the independently produced map parts into one canonical system map. "
@@ -1066,6 +1177,8 @@ class Orchestrator:
         product: dict,
         gates: list[dict],
         changed_paths: list[str],
+        *,
+        capability_intent: str,
     ) -> dict:
         assert self.workspace is not None
         review_repo = self.mirror.clone_for_review(self.run_root / "review-workspace")
@@ -1139,9 +1252,6 @@ class Orchestrator:
                 f"Review chunk {index}/{len(chunks)} paths: {chunk_paths}\n\n"
                 f"Patch diff for this chunk:\n```diff\n{diff_result.stdout}\n```"
             )
-            token_prompt = token_mode_prompt()
-            if token_prompt:
-                instructions = token_prompt + "\n\n" + instructions
             name = names[offset]
             before = inventory_hashes(review_repo, self.runner)
 
@@ -1157,6 +1267,7 @@ class Orchestrator:
                 role="reviewer",
                 schema="review.schema.json",
                 instructions=instructions,
+                capability_intent=capability_intent,
                 context=context,
                 cwd=review_repo,
                 sandbox="read-only",
@@ -1284,6 +1395,7 @@ class Orchestrator:
                 product = self._call(
                     role="product-analyst",
                     schema="product-model.schema.json",
+                    capability_intent=brief,
                     instructions=(
                         "# Product analysis role\n\n"
                         "Convert the operator's normal-language brief into a complete product model. "
@@ -1315,11 +1427,13 @@ class Orchestrator:
                 )
 
             self._transition(Phase.REUSE_RESEARCH, "Evaluating reuse before custom implementation")
+            product_capability_intent = _product_capability_intent(brief, product)
             reuse = self._artifact_json("planning/reuse-report.json")
             if reuse is None:
                 reuse = self._call(
                     role="reuse-researcher",
                     schema="reuse-report.schema.json",
+                    capability_intent=product_capability_intent,
                     instructions=(
                         "# Reuse-first research role\n\n"
                         "Before custom code is authorized, inspect the repository and identify existing "
@@ -1346,6 +1460,7 @@ class Orchestrator:
                 plan = self._call(
                     role="plan-compiler",
                     schema="task-plan.schema.json",
+                    capability_intent=product_capability_intent,
                     instructions=(
                         "# Plan compiler role\n\n"
                         "Compile the entire requested change before implementation. Produce bounded, "
@@ -1373,6 +1488,7 @@ class Orchestrator:
                     plan_review = self._call(
                         role="plan-reviewer",
                         schema="plan-review.schema.json",
+                        capability_intent=product_capability_intent,
                         instructions=(
                             "# Adversarial plan review\n\n"
                             "Review the complete plan before code exists. Look for missing product "
@@ -1407,6 +1523,7 @@ class Orchestrator:
                     plan = self._call(
                         role="plan-compiler",
                         schema="task-plan.schema.json",
+                        capability_intent=product_capability_intent,
                         instructions=(
                             "# Plan repair\n\n"
                             "Repair the proposed plan using the verified review findings. Preserve the "
@@ -1458,6 +1575,8 @@ class Orchestrator:
                 implementation = self._call(
                     role="implementer",
                     schema="agent-result.schema.json",
+                    capability_intent=_task_capability_intent(product_capability_intent, task),
+                    capability_focus=_task_capability_focus(task),
                     instructions=(
                         "# Bounded implementation role\n\n"
                         "Implement exactly one locked task. You may inspect the repository, but may "
@@ -1521,7 +1640,13 @@ class Orchestrator:
 
             changed_paths = self.mirror.changed_paths(self.mirror.baseline_commit)
             self._transition(Phase.REVIEWING, "Launching isolated fresh-context review")
-            review = self._perform_review(plan, product, global_gate_results, changed_paths)
+            review = self._perform_review(
+                plan,
+                product,
+                global_gate_results,
+                changed_paths,
+                capability_intent=product_capability_intent,
+            )
 
             max_repairs = int(self.config["project"]["max_repair_cycles"])
             while any(item.get("blocking") for item in review.get("findings", [])):
@@ -1556,6 +1681,8 @@ class Orchestrator:
                 repair = self._call(
                     role="repairer",
                     schema="agent-result.schema.json",
+                    capability_intent=product_capability_intent,
+                    capability_focus=_review_capability_focus(review),
                     instructions=(
                         "# Verified-finding repair role\n\n"
                         "Repair only the verified blocking findings. Do not broaden the product, "
@@ -1580,7 +1707,13 @@ class Orchestrator:
                 global_gate_results = self._run_gates(all_gates, self.workspace)
                 changed_paths = self.mirror.changed_paths(self.mirror.baseline_commit)
                 self._transition(Phase.REVIEWING, "Re-reviewing repaired result")
-                review = self._perform_review(plan, product, global_gate_results, changed_paths)
+                review = self._perform_review(
+                    plan,
+                    product,
+                    global_gate_results,
+                    changed_paths,
+                    capability_intent=product_capability_intent,
+                )
 
             self._transition(Phase.DEMONSTRATING, "Executing product-level demonstration evidence")
             demonstration = plan["demonstration"]

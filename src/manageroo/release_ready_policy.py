@@ -33,24 +33,36 @@ def install_release_ready_policy(release_ready_module: Any) -> None:
             data = read_json(result_path)
         except Exception:
             return original_latest(repo)
-        if not isinstance(data, dict):
+
+        def invalid_schema(detail: str) -> dict[str, Any]:
             return {
                 "ok": False,
                 "run_id": run_id,
                 "result_path": str(result_path),
-                "detail": "latest run final-result.json has an invalid schema: top-level value must be an object",
+                "detail": f"latest run final-result.json has an invalid schema: {detail}",
                 "next": continuation,
             }
+
+        if not isinstance(data, dict):
+            return invalid_schema("top-level value must be an object")
         for field in ("evidence_paths", "review"):
-            value = data.get(field, {})
-            if value is not None and not isinstance(value, dict):
-                return {
-                    "ok": False,
-                    "run_id": run_id,
-                    "result_path": str(result_path),
-                    "detail": f"latest run final-result.json has an invalid schema: {field} must be an object",
-                    "next": continuation,
-                }
+            if not isinstance(data.get(field), dict):
+                return invalid_schema(f"{field} must be an object")
+
+        evidence_paths = data["evidence_paths"]
+        expected_strings = (
+            ("status", data.get("status")),
+            ("review.status", data["review"].get("status")),
+            ("verified_source_tree_sha256", data.get("verified_source_tree_sha256")),
+            ("final_patch_sha256", data.get("final_patch_sha256")),
+        )
+        for field, value in expected_strings:
+            if not isinstance(value, str):
+                return invalid_schema(f"{field} must be a string")
+        if "patch" in evidence_paths and not isinstance(evidence_paths["patch"], str):
+            return invalid_schema("evidence_paths.patch must be a string")
+        if not isinstance(data.get("applied_to_source"), bool):
+            return invalid_schema("applied_to_source must be a boolean")
         return original_latest(repo)
 
     def release_ready_hardened(*args: Any, **kwargs: Any) -> dict[str, Any]:

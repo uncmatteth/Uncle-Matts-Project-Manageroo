@@ -12,6 +12,22 @@ The platform launcher checks these requirements and, in an interactive terminal,
 
 For real AI work, at least one compatible agent path must also be available, such as Codex, Claude Code, Gemini, or a configured generic CLI. The installer detects the three built-in CLI paths. One detected tool requires no question; several detected tools produce a short preference choice; no detected tool produces an optional Codex install offer. Installing Codex also installs Node.js/npm through a supported platform package path when needed.
 
+When Codex is detected or installed, Manageroo runs Codex's native sandbox helper
+before recording it as configured. The helper is selected by the host platform:
+
+- Linux and WSL2 use Codex's `bwrap` and seccomp sandbox. Linux must provide
+  bubblewrap and usable unprivileged user namespaces; Ubuntu 24.04 may also need
+  the `bwrap-userns-restrict` AppArmor profile.
+- macOS uses the built-in Seatbelt sandbox. Linux setup commands never apply.
+- native Windows uses the Windows sandbox from PowerShell; the elevated mode is
+  preferred when available. WSL2 follows the Linux path, while WSL1 is not
+  supported by current Codex releases.
+
+A failed native sandbox preflight leaves Codex marked as needing action and prints
+only the remediation for that platform. Manageroo never silently disables Codex
+sandboxing. OpenAI's current platform setup is documented at
+<https://learn.chatgpt.com/docs/sandboxing>.
+
 Manageroo detects coding-agent command-line tools, not the person's subscription or private account details. The selected coding tool keeps control of its own login and model configuration.
 
 Manageroo does **not** require a particular GPU, VRAM amount, CPU tier, or RAM class. A selected target project or explicitly chosen local AI tool may have separate requirements.
@@ -33,6 +49,7 @@ Windows PowerShell:
 ```
 
 The launchers install the same Manageroo product.
+On Windows, paths written into the generated command launcher cannot contain `%`, which batch files interpret as variable expansion.
 
 An AI or IDE agent can assist, but it should surface meaningful installer choices before selecting them on the user's behalf.
 
@@ -58,6 +75,12 @@ Concurrency comes from project orchestration configuration because a configured 
 
 ## Portable core skill pack
 
+Installing the pack does not make the operator choose skills manually. During a
+run, Manageroo indexes available metadata locally and automatically gives each
+worker only the relevant bounded capability capsule. The installer token-mode
+question separately saves whether agent prose is normal, Caveman, or Caveman
+Curse.
+
 Manageroo installs a small portable core by default:
 
 1. `uncle-matts-project-manageroo`
@@ -81,6 +104,18 @@ Manageroo installs a small portable core by default:
 
 The repository may ship additional optional skill assets, but they are not Manageroo-owned default dependencies.
 
+Installation inventories the standard `.agents/skills` and `.codex/skills`
+roots before writing the portable core. An existing same-name skill is reused in
+place, including a differing host-owned version; setup does not create a second
+copy or a backup-file trail. Manageroo records ownership only for skill trees it
+actually creates. A later install may update that owned tree only while its
+digest still matches the last Manageroo install. If the operator edits it,
+Manageroo preserves the edit and stops treating the tree as Manageroo-owned.
+Known pre-ledger Manageroo bundle digests are migrated once so an upgrade from
+an older Manageroo release does not become permanently stale. The complete pack
+and its ownership ledger update transactionally: a later failure restores every
+earlier tree. Existing trees are hashed under hard file, entry, and byte limits.
+
 Inspect what the current host already has without changing anything:
 
 ```bash
@@ -88,7 +123,7 @@ manageroo host-skills
 manageroo host-skills --json
 ```
 
-`use-installed-skills-first` lets compatible workers use relevant host-installed skills when present. Manageroo does not copy, delete, upgrade, or claim ownership of the whole host skill environment.
+Automatic selection is controller-owned during Manageroo runs. `use-installed-skills-first` remains useful compatibility guidance for supported agents working outside a Manageroo run. Manageroo does not copy, delete, upgrade, or claim ownership of the whole host skill environment.
 
 Reconcile the Manageroo core later if needed:
 
@@ -102,6 +137,7 @@ Manageroo can install and integrate with a recommended surrounding stack:
 
 - **GitNexus** for repository and code-graph intelligence;
 - **GBrain** for external durable knowledge when explicitly relevant;
+- **TruffleHog** for the local secret scan required by AUTOREVIEW;
 - **AUTOREVIEW** for an external review lane;
 - **Clawpatch** for an external review/repair lane;
 - **Obsidian** for human-readable Markdown knowledge.
@@ -132,6 +168,8 @@ manageroo stack-update --apply
 ```
 
 The updater does not use absence as permission to install every optional component.
+
+The recommended installer is the exception for TruffleHog because current AUTOREVIEW cannot run without it. Manageroo first reuses an existing command. If none exists, it selects the official pinned release asset for Linux, macOS, or Windows and the current CPU architecture, verifies its SHA-256 checksum, installs only the binary beside the Manageroo launcher, and records that exact path as Manageroo-owned.
 
 ## Installer controls
 
@@ -173,6 +211,8 @@ Start Manageroo in an existing repo:
 manageroo solo /absolute/path/to/product
 ```
 
+`solo` creates or updates the repo's `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, intent lock, configuration, and repo-local Manageroo skill from plain-English answers. Existing human-written instruction and context content is preserved; the operator does not need to remember or hand-fill these files.
+
 Create a new missing or empty repo:
 
 ```bash
@@ -195,7 +235,18 @@ manageroo token-mode status
 manageroo stack-status
 manageroo stack-doctor
 manageroo repair-install --no-apply
+manageroo uninstall-plan
 ```
+
+`uninstall-plan` emits removal commands only for an absolute, non-root prefix whose
+ownership is proven by a matching resolved install lock and the installer's random
+ownership marker bound into that lock with SHA-256. Python package and virtual-environment
+files by themselves never prove ownership. Installs made before the ownership marker
+remain supported only when the legacy lock's product, resolved prefix, installed-app
+digest, exact generated launcher, Python executable, and virtual-environment marker all
+match the current files.
+It includes a launcher only when the file has Manageroo's versioned ownership marker and
+matches the complete generated POSIX or Windows launcher structure.
 
 ## Release proof
 
@@ -216,7 +267,7 @@ Manageroo core
     = portable controller and its small core skill pack
 
 Recommended surrounding stack
-    = GitNexus, GBrain, AUTOREVIEW, Clawpatch, Obsidian when selected
+    = GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, Obsidian when selected
 
 Host environment
     = additional independently owned skills and tools

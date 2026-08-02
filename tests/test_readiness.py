@@ -90,6 +90,28 @@ class ReadinessTests(unittest.TestCase):
             self.assertFalse(memory["ok"])
             self.assertIn("manageroo memory init", memory["next"])
 
+    def test_readiness_reports_directory_at_product_brief_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._ready_repo(Path(temp), "# Product brief\n\nMake it work.\n")
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            brief.unlink()
+            brief.mkdir()
+            with patch(
+                "manageroo.readiness.helper_skill_items",
+                return_value=[],
+            ), patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ):
+                report = readiness(repo)
+            product_brief = [
+                item for item in report["items"] if item["name"] == "product brief"
+            ][0]
+            self.assertFalse(report["ok"])
+            self.assertEqual(report["status"], "NOT READY")
+            self.assertFalse(product_brief["ok"])
+            self.assertIn(product_brief["next"], report["next_commands"])
+
     def test_explicit_document_request_blocks_when_document_lane_is_unconfigured(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._ready_repo(

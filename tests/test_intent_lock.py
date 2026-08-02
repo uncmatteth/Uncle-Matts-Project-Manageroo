@@ -2,12 +2,16 @@ import io
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from manageroo.cli import main
+from manageroo.errors import ConfigurationError
 from manageroo.intent_lock import audit_compaction_text, capture_intent_lock, format_compaction_audit, intent_lock_path
+from manageroo.util import atomic_write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,6 +26,51 @@ class IntentLockTests(unittest.TestCase):
             result = capture_intent_lock(repo, want="Build the release helper without pretending it deploys.", outcomes=["Writes a release handoff"], must_not=["Do not deploy production"], proof=["release-ready reports READY"], corrections=["The command name is manageroo"], rejected=["Do not add GitHub Actions"], questions=["Which deployment target should the operator use?"], scopes=["Only this Git repo"], source="operator-chat")
             self.assertTrue(result["ok"]); lock = intent_lock_path(repo); self.assertTrue(lock.is_file()); payload = json.loads(lock.read_text(encoding="utf-8")); self.assertEqual(payload["want"], "Build the release helper without pretending it deploys."); self.assertIn("Do not deploy production", payload["must_not"]); self.assertIn("Do not add GitHub Actions", payload["rejected"]); markdown = lock.with_suffix(".md").read_text(encoding="utf-8"); self.assertIn("## Must Not Happen", markdown); self.assertIn("Do not deploy production", markdown); self.assertIn("## Rejected Ideas", markdown)
 
+    def test_concurrent_capture_allows_exactly_one_non_force_writer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            first_write_started = threading.Event()
+            release_first_write = threading.Event()
+            second_completed = threading.Event()
+            results: dict[str, object] = {}
+
+            def delayed_json_write(path, payload):
+                if payload["want"] == "First intent wins.":
+                    first_write_started.set()
+                    if not release_first_write.wait(timeout=5):
+                        raise TimeoutError("test did not release first intent write")
+                atomic_write_json(path, payload)
+
+            def capture(name: str, want: str) -> None:
+                try:
+                    results[name] = capture_intent_lock(repo, want=want)
+                except BaseException as exc:
+                    results[name] = exc
+                finally:
+                    if name == "second":
+                        second_completed.set()
+
+            with mock.patch("manageroo.intent_lock.atomic_write_json", side_effect=delayed_json_write):
+                first = threading.Thread(target=capture, args=("first", "First intent wins."))
+                second = threading.Thread(target=capture, args=("second", "Second intent loses."))
+                first.start()
+                self.assertTrue(first_write_started.wait(timeout=5))
+                second.start()
+                self.assertFalse(second_completed.wait(timeout=0.2))
+                release_first_write.set()
+                first.join(timeout=5)
+                second.join(timeout=5)
+
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            self.assertIsInstance(results["first"], dict)
+            self.assertIsInstance(results["second"], ConfigurationError)
+            lock = intent_lock_path(repo)
+            self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["want"], "First intent wins.")
+            markdown = lock.with_suffix(".md").read_text(encoding="utf-8")
+            self.assertIn("First intent wins.", markdown)
+            self.assertNotIn("Second intent loses.", markdown)
+
     def test_audit_blocks_when_compaction_drops_must_not_rules(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Build the release helper.", must_not=["Do not deploy production"], rejected=["Do not add GitHub Actions"], proof=["release-ready reports READY"], scopes=["Only this Git repo"])
@@ -33,6 +82,74 @@ class IntentLockTests(unittest.TestCase):
             repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Build the release helper.", outcomes=["Writes a release handoff"], must_not=["Do not deploy production"], proof=["release-ready reports READY"], corrections=["The command name is manageroo"])
             report = audit_compaction_text(repo, "\n".join(["Intent: Build the release helper.", "Outcome: Writes a release handoff.", "Must not: Do not deploy production.", "Proof: release-ready reports READY.", "Correction: The command name is manageroo."]))
             self.assertTrue(report["ok"], report); self.assertEqual(report["status"], "passed"); self.assertFalse(report["missing"])
+
+    def test_audit_allows_confidence_claim_supported_by_locked_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Ship the release.", proof=["Production-ready because the release gate and smoke tests passed."])
+            report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: Production-ready because the release gate and smoke tests passed."]))
+            self.assertTrue(report["ok"], report); self.assertEqual(report["status"], "passed"); self.assertFalse(report["confidence_claims_blocking"]); self.assertTrue(report["warnings"])
+
+    def test_audit_blocks_confidence_claim_without_matching_locked_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Ship the release.", proof=["The release gate and smoke tests have not run."])
+            report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: The release gate and smoke tests have not run.", "Status: Production-ready."]))
+            self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); self.assertTrue(report["confidence_claims_blocking"]); self.assertFalse(report["missing"])
+
+    def test_audit_rejects_negated_or_quoted_confidence_claims_as_proof(self):
+        cases = (
+            "We cannot claim production-ready because the release gate has not run.",
+            'The documentation uses "production-ready" only as an example label.',
+            "Production-ready is not proven by the current evidence.",
+            "Production-ready.",
+            "Production-ready because no checks passed.",
+            "Production-ready because every verification gate failed.",
+            "Production-ready after tests fail.",
+            'The document says "apparently production-ready and verified".',
+            'The report says "production-ready because every gate passed',
+            "Production-ready remains pending although an unrelated unit test passed.",
+        )
+        for proof in cases:
+            with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+                report = audit_compaction_text(
+                    repo,
+                    f"Intent: Ship the release.\nProof: {proof}\nStatus: Production-ready.",
+                )
+                self.assertFalse(report["ok"], report)
+                self.assertTrue(report["confidence_claims_blocking"])
+
+    def test_audit_allows_success_with_explicitly_zero_failures(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            proof = "Production-ready after all release gates passed with no failures."
+            capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+            report = audit_compaction_text(
+                repo,
+                f"Intent: Ship the release.\nProof: {proof}",
+            )
+
+            self.assertTrue(report["ok"], report)
+            self.assertFalse(report["confidence_claims_blocking"])
+
+    def test_audit_allows_successful_outcome_before_claim(self):
+        proofs = (
+            "All release gates passed, therefore production-ready.",
+            "All checks passed. The build is production-ready.",
+        )
+        for proof in proofs:
+            with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+                report = audit_compaction_text(
+                    repo,
+                    f"Intent: Ship the release.\nProof: {proof}",
+                )
+
+                self.assertTrue(report["ok"], report)
+                self.assertFalse(report["confidence_claims_blocking"])
 
     def test_cli_capture_and_compact_audit_json(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -49,7 +166,7 @@ class IntentLockTests(unittest.TestCase):
 
     def test_public_docs_explain_intent_lock_and_compaction_audit(self):
         surfaces = {
-            "README.md": [".manageroo/intent/INTENT-LOCK.md", "manageroo compact audit", "remain unproven until matching evidence exists"],
+            "README.md": [".manageroo/intent/INTENT-LOCK.md", "manageroo compact audit", "remain unproven until matching affirmative evidence exists and records a successful outcome"],
             "docs/CONTEXT_COMPILER.md": ["Chat compaction is not the source of truth", "strict phrase-preservation audit"],
             "docs/ENFORCEMENT_MATRIX.md": ["Compaction cannot drop must-not rules", "Intent lock plus compaction audit"],
             "docs/SOLO_OPERATOR_MODE.md": ["solo captures an intent lock", "compact audit"],

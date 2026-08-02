@@ -68,7 +68,8 @@ Do not invent selections or bypass explicit choices.
 
 Manageroo owns a small portable 18-skill core. Do not load the whole pack for every job. Route only to relevant helpers.
 
-- Use `$use-installed-skills-first` before non-trivial local work when the host supports skills.
+- Manageroo-controlled workers receive automatic capability capsules. Do not ask the operator to choose or remember skills.
+- Outside a Manageroo-controlled run, use `$use-installed-skills-first` before non-trivial local work when the host supports skills.
 - Use `$skill-vetter` before adopting or installing third-party skills from external sources.
 - Use `$pimp-my-prompt` when a rough or overloaded request needs exact scope, acceptance criteria, proof, and stop rules.
 - Use `$to-prd`, `$to-issues`, `$grill-me`, or `$grill-with-docs` for product definition, issue breakdown, and requirement pressure.
@@ -129,7 +130,24 @@ For a final Clawpatch closeout, preview the native cross-platform workflow first
 manageroo clawpatch release-sweep --repo .
 ```
 
-Only run it with `--apply` when the operator has authorized repository changes. The controller must select one fresh open finding at a time, revalidate it as `fixed` before staging, stage only that finding's exact paths, commit it separately, and stop on any ambiguous result. Pushing requires the separate explicit choice `--push each` or `--push final`. A valid final proof requires zero open findings, passing configured gates, clean Git state, and an exact final-HEAD binding.
+Only run it with `--apply` when the operator has authorized repository changes.
+Clawpatch owns review, finding selection, and repair. Manageroo reviews every
+pending mapped feature, verifies no review work remains, selects one current
+open finding with `next --json`, records `show --json`, and automatically invokes
+that finding's Clawpatch `fix`. The `show` triage template is human guidance, not
+an executable repair. Never build a report-derived queue or hand-repair a
+finding. Every Clawpatch child process group has a 15-minute watchdog. On a
+retryable timeout, provider, quota, validation, project-gate, or non-`fixed`
+revalidation failure, preserve source edits in a verified named Git stash,
+reconcile with `show`, reopen through Clawpatch when necessary, require `next`
+to return the same finding, and invoke that finding's Clawpatch `fix` again.
+Durable progress under `.manageroo/cache` supports the same reconciliation when
+the release sweep is relaunched after interruption. After success, require the
+matching patch attempt, complete project validation, and exact `fixed`
+revalidation before staging only that attempt's source paths. Pushing requires
+`--push each` or `--push final`. A valid final proof requires zero pending review
+work, zero open or uncertain findings, zero locks, passing gates, clean Git
+state, and an exact final-HEAD binding.
 
 ## Role separation
 

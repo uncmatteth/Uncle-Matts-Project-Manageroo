@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -42,6 +43,25 @@ class SkillPackImportTests(unittest.TestCase):
             backup = Path(applied["backups"][0])
             self.assertTrue(backup.is_dir())
             self.assertIn("current", (backup / "SKILL.md").read_text(encoding="utf-8"))
+
+    def test_generated_backup_is_excluded_from_scan_and_reconcile(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); source = root / "source"; target = root / "target"; source.mkdir(); target.mkdir()
+            _skill(source, "existing-skill", "incoming\n"); _skill(target, "existing-skill", "current\n")
+            applied = import_skill_folder(source, skills_dir=target, apply=True)
+            backup = Path(applied["backups"][0])
+            self.assertTrue((backup / "SKILL.md").is_file())
+
+            scan = scan_skill_folder(target, skills_dir=target)
+            self.assertEqual(scan["candidate_count"], 1)
+            self.assertEqual(scan["candidates"][0]["path"], str(target / "existing-skill" / "SKILL.md"))
+            reconcile = reconcile_skill_pack(skills_dir=target, apply=False, scan_default_roots=False)
+            self.assertEqual(reconcile["duplicate_count"], 0)
+
+            shutil.rmtree(target / "existing-skill")
+            self.assertEqual(scan_skill_folder(target, skills_dir=target)["candidate_count"], 0)
+            reconcile = reconcile_skill_pack(skills_dir=target, apply=False, scan_default_roots=False)
+            self.assertEqual(reconcile["duplicate_count"], 0)
 
     def test_reconcile_installs_portable_core_without_manual_copying(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass
@@ -16,6 +16,10 @@ class AgentRequest:
     sandbox: str
     timeout_seconds: int = 300
     metadata: dict[str, Any] = field(default_factory=dict)
+    before_launch: Callable[[AgentRequest, bool], AgentRequest] | None = field(
+        default=None,
+        repr=False,
+    )
 
 
 @dataclass
@@ -29,6 +33,11 @@ class AgentResponse:
 
 
 class AgentAdapter(ABC):
+    @property
+    def requires_host_capability_catalog(self) -> bool:
+        """Whether this adapter can auto-load host skills that must be isolated."""
+        return False
+
     @abstractmethod
     def run(self, request: AgentRequest) -> AgentResponse:
         raise NotImplementedError

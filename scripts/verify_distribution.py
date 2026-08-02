@@ -43,27 +43,49 @@ def _run(argv: list[str], *, cwd: Path, timeout: int = 300) -> subprocess.Comple
     return result
 
 
+def _build_wheel(wheel_dir: Path) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            sys.executable,
+            "-I",
+            "-m",
+            "pip",
+            "--isolated",
+            "wheel",
+            "--disable-pip-version-check",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheel_dir),
+            str(ROOT),
+        ],
+        cwd=ROOT,
+        timeout=600,
+    )
+
+
+def _install_wheel(python: Path, wheel: Path, root: Path) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            str(python),
+            "-I",
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-deps",
+            str(wheel),
+        ],
+        cwd=root,
+        timeout=300,
+    )
+
+
 def verify_distribution() -> dict:
     with tempfile.TemporaryDirectory(prefix="manageroo-distribution-proof-") as temp:
         root = Path(temp)
         wheel_dir = root / "wheel"
         wheel_dir.mkdir()
-        build = _run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "wheel",
-                "--disable-pip-version-check",
-                "--no-deps",
-                "--no-build-isolation",
-                "--wheel-dir",
-                str(wheel_dir),
-                str(ROOT),
-            ],
-            cwd=ROOT,
-            timeout=600,
-        )
+        build = _build_wheel(wheel_dir)
         wheels = sorted(wheel_dir.glob("*.whl"))
         if len(wheels) != 1:
             raise RuntimeError(f"Expected exactly one built wheel, found: {[path.name for path in wheels]}")
@@ -76,19 +98,7 @@ def verify_distribution() -> dict:
         if not python.is_file():
             raise RuntimeError(f"Distribution verification venv Python is missing: {python}")
 
-        _run(
-            [
-                str(python),
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--no-deps",
-                str(wheel),
-            ],
-            cwd=root,
-            timeout=300,
-        )
+        _install_wheel(python, wheel, root)
         if not manageroo.is_file():
             raise RuntimeError(f"Installed wheel did not create the manageroo console entry point: {manageroo}")
 

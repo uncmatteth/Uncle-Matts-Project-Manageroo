@@ -28,6 +28,11 @@ FORBIDDEN_SCOPE_PATTERNS = (
 PYTHON_EXECUTABLE_RE = re.compile(r"^python(?:3(?:\.\d+)?)?(?:\.exe)?$", re.IGNORECASE)
 
 
+def _matches_forbidden(path: str, patterns: Iterable[str]) -> bool:
+    folded_path = path.casefold()
+    return any(fnmatch.fnmatchcase(folded_path, pattern.casefold()) for pattern in patterns)
+
+
 def validate_allowed_scope_patterns(patterns: Iterable[str]) -> list[str]:
     """Validate locked plan/edit scopes before any worker can use them."""
     accepted: list[str] = []
@@ -41,7 +46,7 @@ def validate_allowed_scope_patterns(patterns: Iterable[str]) -> list[str]:
             raise SafetyError(f"Allowed scope must be an exact task-owned file path: {raw!r}")
         if path in broad or "*" in path or "?" in path or "[" in path or "]" in path:
             raise SafetyError(f"Allowed scope is too broad: {raw!r}")
-        if any(fnmatch.fnmatch(path, pattern) for pattern in FORBIDDEN_SCOPE_PATTERNS):
+        if _matches_forbidden(path, FORBIDDEN_SCOPE_PATTERNS):
             raise SafetyError(f"Allowed scope points at a forbidden path: {path}")
         accepted.append(path)
     if not accepted:
@@ -55,7 +60,7 @@ class ScopePolicy:
     forbidden: tuple[str, ...] = FORBIDDEN_SCOPE_PATTERNS
 
     def _matches(self, path: str, patterns: Iterable[str]) -> bool:
-        return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+        return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
 
     def validate_paths(self, changed_paths: Iterable[str]) -> list[str]:
         changed = list(changed_paths)
@@ -64,7 +69,7 @@ class ScopePolicy:
         violations: list[str] = []
         for raw in changed:
             path = safe_repo_relative(raw)
-            if self._matches(path, self.forbidden):
+            if _matches_forbidden(path, self.forbidden):
                 violations.append(f"{path}: forbidden")
                 continue
             if not self._matches(path, self.allowed):

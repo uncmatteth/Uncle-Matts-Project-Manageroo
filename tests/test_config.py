@@ -1,12 +1,84 @@
+import multiprocessing
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from manageroo.config import apply_agent_preset, config_template
+from manageroo.config_lock import config_mutation_lock
+
+
+def _hold_lock_before_owner_publication(config_path, publication_paused, release) -> None:
+    import manageroo.config_lock as config_lock
+
+    original_write = config_lock.os.write
+
+    def delayed_write(descriptor, data):
+        publication_paused.set()
+        if not release.wait(timeout=5):
+            raise TimeoutError("test did not release owner publication")
+        return original_write(descriptor, data)
+
+    config_lock.os.write = delayed_write
+    with config_lock.config_mutation_lock(Path(config_path)):
+        pass
+
+
+def _enter_config_lock(config_path, lock_opened, entered) -> None:
+    import manageroo.config_lock as config_lock
+
+    original_open = config_lock.os.open
+
+    def observed_open(*args, **kwargs):
+        descriptor = original_open(*args, **kwargs)
+        lock_opened.set()
+        return descriptor
+
+    config_lock.os.open = observed_open
+    with config_lock.config_mutation_lock(Path(config_path)):
+        entered.set()
 
 
 class ConfigTests(unittest.TestCase):
+    def test_contender_waits_while_owner_metadata_is_unpublished(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config_path = Path(temp) / "config.toml"
+            context = multiprocessing.get_context("spawn")
+            publication_paused = context.Event()
+            release = context.Event()
+            contender_opened = context.Event()
+            contender_entered = context.Event()
+            owner = context.Process(
+                target=_hold_lock_before_owner_publication,
+                args=(config_path, publication_paused, release),
+            )
+            contender = context.Process(
+                target=_enter_config_lock,
+                args=(config_path, contender_opened, contender_entered),
+            )
+
+            try:
+                owner.start()
+                self.assertTrue(publication_paused.wait(timeout=5))
+                contender.start()
+                self.assertTrue(contender_opened.wait(timeout=5))
+                self.assertFalse(contender_entered.wait(timeout=0.3))
+                release.set()
+                owner.join(timeout=5)
+                contender.join(timeout=5)
+                self.assertEqual(owner.exitcode, 0)
+                self.assertEqual(contender.exitcode, 0)
+                self.assertTrue(contender_entered.is_set())
+            finally:
+                release.set()
+                for process in (owner, contender):
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
+
     def test_config_template_writes_generic_agent_argv_template(self):
         config = tomllib.loads(config_template("generic", []))
         self.assertEqual(config["agent"]["adapter"], "generic")
@@ -71,6 +143,18 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config["budget"]["max_runtime_minutes"], 33)
             self.assertEqual(config["integrations"]["custom_tool_command"], ["custom", "--flag"])
             self.assertEqual(config["verification"]["gates"][0]["id"], "custom-smoke")
+
+    def test_directly_imported_apply_agent_preset_acquires_mutation_lock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            config_path = repo / ".manageroo" / "config.toml"
+            config_path.parent.mkdir()
+            config_path.write_text(config_template("codex", []), encoding="utf-8")
+
+            with mock.patch("manageroo.config.config_mutation_lock", wraps=config_mutation_lock) as lock:
+                apply_agent_preset(repo, "gemini")
+
+            lock.assert_called_once_with(config_path)
 
 
 if __name__ == "__main__":

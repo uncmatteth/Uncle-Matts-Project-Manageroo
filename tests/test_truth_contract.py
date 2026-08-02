@@ -55,7 +55,7 @@ class TruthContractTests(unittest.TestCase):
             "README.md": [
                 "It does not get to certify its own work",
                 "These integrations add capabilities. They do not become the authority over Manageroo completion",
-                "remain unproven until matching evidence exists",
+                "remain unproven until matching affirmative evidence exists",
             ],
             "docs/00_START_HERE.md": [
                 "The controller, not the worker, decides whether the job is complete",
@@ -112,6 +112,18 @@ class TruthContractTests(unittest.TestCase):
             '"truth:production-overclaim-checker"',
         ], "scripts/verify_release.py")
 
+    def test_release_ready_gate_uses_non_mutating_validation_mode(self):
+        self.assertContainsAll(
+            _read(".manageroo/config.toml"),
+            ['"-B"', '"--check-only"'],
+            ".manageroo/config.toml",
+        )
+        self.assertContainsAll(
+            _read("scripts/verify_release.py"),
+            ["write_report", "PYTHONPYCACHEPREFIX", 'argument != "--check-only"'],
+            "scripts/verify_release.py",
+        )
+
     def test_public_markdown_avoids_specific_overclaim_phrases(self):
         public_files = ["README.md", "docs/00_START_HERE.md", "docs/INSTALLATION.md", "docs/LIMITATIONS.md", "docs/ARCHITECTURE.md", "docs/DOCUMENT_LANE.md", "docs/EXTERNAL_INTEGRATIONS.md", "docs/REVIEW_REPAIR_LANES.md", "docs/SOLO_OPERATOR_MODE.md", "docs/STATELESS_ORCHESTRATION.md"]
         banned_phrases = ["full vision support", "real vision support", "understands screenshots", "understands images", "guaranteed production ready", "one-button production deploy", "autonomous production deploy", "real subagent swarm", "parallel implementation branches", "ai can fix autoreview findings", "ai can fix clawpatch findings", "silently self-improves"]
@@ -144,6 +156,21 @@ class TruthContractTests(unittest.TestCase):
             ["full vision support"],
         )
         self.assertEqual(len(offenders), 1)
+
+    def test_overclaim_guard_rejects_negation_reversals(self):
+        sentences = [
+            "Manageroo does not lack full vision support.",
+            "Manageroo does not only provide full vision support.",
+            "Manageroo does not fail to provide full vision support.",
+            "Manageroo does not not provide full vision support.",
+            "Manageroo does not deny having full vision support.",
+        ]
+        for sentence in sentences:
+            with self.subTest(sentence=sentence):
+                self.assertFalse(claim_is_explicitly_denied(sentence, "full vision support"))
+                self.assertEqual(
+                    len(find_overclaim_offenders(sentence, ["full vision support"])), 1
+                )
 
     def test_project_manageroo_rename_has_no_old_public_brand_surface(self):
         old_title = _fixture([85,110,99,108,101,32,77,97,116,116,39,115,32,83,117,112,101,114,32,77,101,103,97,32,70,111,114,119,97,114,100,32,66,117,105,108,100,32,85,108,116,105,109,97,116,101,32,82,101,109,105,120,32,65,108,108,45,83,116,97,114,32,66,111,111,116,121,32,111,102,32,70,105,114,101,32,69,100,105,116,105,111,110])

@@ -25,8 +25,12 @@ def _validate_existing_evidence(path, brief: str) -> None:
     if not isinstance(payload, dict):
         raise SafetyError("Persisted discovery evidence must be a JSON object.")
     schema_version = payload.get("schema_version", 1)
-    if schema_version != 1:
+    if schema_version not in {1, 2}:
         raise SafetyError(f"Persisted discovery evidence uses unsupported schema version: {schema_version!r}")
+    if schema_version == 2:
+        identity = str(payload.get("discovery_identity") or "")
+        if len(identity) != 64 or any(character not in "0123456789abcdef" for character in identity):
+            raise SafetyError("Persisted discovery evidence has an invalid discovery identity.")
     if str(payload.get("query") or "") != str(brief):
         raise SafetyError(
             "Persisted discovery evidence belongs to a different product brief and cannot be reused."
@@ -54,10 +58,31 @@ def _validate_existing_evidence(path, brief: str) -> None:
     for index, contradiction in enumerate(contradictions):
         if not isinstance(contradiction, dict):
             raise SafetyError(f"Persisted discovery evidence contradiction {index} must be an object.")
-        referenced = contradiction.get("evidence_hashes", [])
-        if not isinstance(referenced, (list, tuple)) or any(str(value) not in hashes for value in referenced):
+        if not isinstance(contradiction.get("claim_key"), str) or not isinstance(
+            contradiction.get("reason"), str
+        ):
             raise SafetyError(
-                f"Persisted discovery evidence contradiction {index} references missing evidence."
+                f"Persisted discovery evidence contradiction {index} has invalid text fields."
+            )
+        referenced = contradiction.get("evidence_hashes", [])
+        if not isinstance(referenced, (list, tuple)):
+            raise SafetyError(
+                f"Persisted discovery evidence contradiction {index} has invalid evidence hashes."
+            )
+        referenced_hashes = [str(value) for value in referenced]
+        referenced_set = set(referenced_hashes)
+        if (
+            len(referenced_set) < 2
+            or len(referenced_set) != len(referenced_hashes)
+            or any(value not in hashes for value in referenced_set)
+        ):
+            raise SafetyError(
+                f"Persisted discovery evidence contradiction {index} has invalid evidence hashes."
+            )
+        preferred = contradiction.get("preferred_hash")
+        if not isinstance(preferred, str) or not preferred or preferred not in referenced_set:
+            raise SafetyError(
+                f"Persisted discovery evidence contradiction {index} has invalid preferred evidence."
             )
 
 

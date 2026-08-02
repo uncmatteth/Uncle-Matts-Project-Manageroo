@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
+from ..config_lock import config_mutation_lock
 from ..errors import AgentExecutionError, SafetyError
 from ..util import atomic_write_json, read_json, utc_now
 
@@ -35,6 +36,10 @@ class BudgetedAdapter(AgentAdapter):
         self._lock = threading.RLock()
         self.calls = self._load_calls()
         self._concrete_launch_hook_installed = self._install_launch_hook(inner)
+
+    @property
+    def requires_host_capability_catalog(self) -> bool:
+        return self.inner.requires_host_capability_catalog
 
     def _install_launch_hook(self, adapter: Any, seen: set[int] | None = None) -> bool:
         seen = seen or set()
@@ -100,18 +105,26 @@ class BudgetedAdapter(AgentAdapter):
 
     def _reserve_call(self) -> float | None:
         with self._lock:
-            if self.max_total_worker_calls and self.calls >= self.max_total_worker_calls:
-                raise AgentExecutionError(
-                    f"Manageroo worker-call budget exhausted at {self.calls} calls."
-                )
-            remaining = self._remaining_runtime_seconds()
-            if remaining is not None and remaining <= 0:
-                raise AgentExecutionError(
-                    "Manageroo runtime budget exhausted before launching another worker."
-                )
-            self.calls += 1
-            self._persist()
-            return remaining
+            if self.state_path is not None:
+                self.state_path.parent.mkdir(parents=True, exist_ok=True)
+                with config_mutation_lock(self.state_path):
+                    self.calls = self._load_calls()
+                    return self._reserve_call_locked()
+            return self._reserve_call_locked()
+
+    def _reserve_call_locked(self) -> float | None:
+        if self.max_total_worker_calls and self.calls >= self.max_total_worker_calls:
+            raise AgentExecutionError(
+                f"Manageroo worker-call budget exhausted at {self.calls} calls."
+            )
+        remaining = self._remaining_runtime_seconds()
+        if remaining is not None and remaining <= 0:
+            raise AgentExecutionError(
+                "Manageroo runtime budget exhausted before launching another worker."
+            )
+        self.calls += 1
+        self._persist()
+        return remaining
 
     def _reserve_and_bound(self, request: AgentRequest) -> AgentRequest:
         remaining = self._reserve_call()

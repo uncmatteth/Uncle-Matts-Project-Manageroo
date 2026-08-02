@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .install_status import _validated_launcher_value, launcher_is_manageroo_owned
+from .install_status import LAUNCHER_MARKER, _validated_launcher_value, launcher_is_manageroo_owned
 from .token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, token_mode_skills_dir
 
 
@@ -43,14 +43,16 @@ def _write_launcher(launcher: Path, *, python: Path, app_root: Path, prefix: Pat
         prefix_text = _safe_launcher_text(prefix)
         python_text = _safe_launcher_text(python)
         launcher.write_text(
-            f'@set "PYTHONPATH={app_text}"\r\n'
-            f'@set "MANAGEROO_PREFIX={prefix_text}"\r\n'
-            f'@"{python_text}" -m manageroo %*\r\n',
+            f"@rem {LAUNCHER_MARKER}\n"
+            f'@set "PYTHONPATH={app_text}"\n'
+            f'@set "MANAGEROO_PREFIX={prefix_text}"\n'
+            f'@"{python_text}" -m manageroo %*\n',
             encoding="utf-8",
         )
     else:
         launcher.write_text(
             "#!/bin/sh\n"
+            f"# {LAUNCHER_MARKER}\n"
             f"export PYTHONPATH={shlex.quote(str(app_root))}${{PYTHONPATH:+:$PYTHONPATH}}\n"
             f"export MANAGEROO_PREFIX={shlex.quote(str(prefix))}\n"
             f"exec {shlex.quote(str(python))} -m manageroo \"$@\"\n",

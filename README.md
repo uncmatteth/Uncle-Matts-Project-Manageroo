@@ -18,10 +18,18 @@
 > ```
 >
 > If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
+
+When Codex is selected, setup also verifies Codex's own native sandbox before
+calling it ready: `bwrap`/seccomp on Linux and WSL2, Seatbelt on macOS, and the
+native Windows sandbox from PowerShell. Failures stop with instructions for that
+platform; Manageroo does not apply Linux fixes to macOS or Windows and does not
+silently turn the sandbox off.
 >
 > **2. Follow the guided setup**
 >
 > Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, optional supporting tools, token style, project discovery, and a read-only stack check.
+>
+> Project discovery itself is read-only. Manageroo shows what it found and asks which projects to enroll. Only selected projects receive the context bundle; everything else is left alone.
 >
 > **3. Point Manageroo at a project**
 >
@@ -32,6 +40,8 @@
 > ```
 >
 > Answer the questions in plain English: what you want built or fixed, who it is for, what must not change, and what proof should count. If you are ever unsure what comes next, run `manageroo next`.
+>
+> You do **not** have to create or fill agent context files yourself. `solo` safely creates or updates `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, the current intent lock, Manageroo configuration, and the repo-local Manageroo skill. Existing human-written `AGENTS.md` and `CONTEXT.md` content is preserved.
 >
 > **Manageroo for beginners:** Think of Manageroo as the project foreman above your coding agent. You describe the result you want; Manageroo records the mission, maps the repository, gives the coding agent bounded jobs in an isolated workspace, runs the project's checks, performs separate review, and produces evidence and a patch. It does not treat the worker saying “done” as proof. Use `manageroo run --apply` when you want a successfully verified patch applied to your project. Use `manageroo status RUN_ID --repo .` to check a run and `manageroo report RUN_ID --repo .` to read what happened.
 
@@ -182,7 +192,7 @@ Manageroo reconciles completion against:
 
 A passing unit test does not automatically prove a browser flow. A worker saying something was deployed does not prove deployment. A model claiming something is secure does not make it secure.
 
-Claims that require observable evidence remain unproven until matching evidence exists.
+Claims that require observable evidence remain unproven until matching affirmative evidence exists and records a successful outcome; quoted, negated, or failed-outcome claim text does not count as proof.
 
 # How to actually use Manageroo
 
@@ -200,7 +210,7 @@ For one specific existing repository:
 manageroo solo /absolute/path/to/product
 ```
 
-`solo` prepares the repository for Manageroo. It sets up the project configuration, product brief, project memory, intent lock, readiness state, and tells you the next useful action.
+`solo` prepares the repository for Manageroo. It safely creates or updates `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, the current intent lock, project configuration, the repo-local Manageroo skill, and readiness state, then tells you the next useful action. You answer normal questions; you do not hand-build or remember these files. Existing human-written instruction and context content is preserved.
 
 For a brand-new project that does not exist yet, or an empty directory:
 
@@ -340,9 +350,74 @@ Execute it on a dedicated branch:
 manageroo clawpatch release-sweep --repo . --apply
 ```
 
-The applied sweep runs Clawpatch doctor, initialization when needed, map, and review. For a project without existing Clawpatch state, Manageroo keeps that new state under Git's private directory so setup does not dirty the source tree. It then asks Clawpatch for one fresh open finding at a time, shows and applies that finding, runs the project's Manageroo verification gates, requires Clawpatch to revalidate the finding as fixed, stages only the exact changed paths, and creates one commit. It checkpoints between findings so a validated partial sweep can resume. At the end it revalidates every open finding, requires a zero-open report, reruns the gates, requires clean Git state, and writes proof tied to the exact final commit.
+When Clawpatch runs inside a trusted project and the host already supplies the
+required isolation, its Codex worker can be allowed to edit without nested
+sandbox failures:
 
-Dry-run is the default. `--apply` is required for local changes. Nothing is pushed unless you explicitly add `--push each` or `--push final`. On `main` or `master`, the default `--branch auto` creates a timestamped `clawpatch/release-sweep-*` branch; use `--branch current` only when you deliberately want the current branch.
+```bash
+manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
+```
+
+That flag is deliberately explicit. It disables Codex approval prompts and
+sandboxing only for the Clawpatch child processes in this sweep; it is not saved
+as a global setting. Do not use it for untrusted code. Manageroo still runs the
+project's configured verification gates, requires Clawpatch revalidation, stages
+only the exact changed paths, and commits one cleared finding at a time.
+
+Clawpatch owns finding selection and repair. Manageroo runs `clawpatch status
+--json`, clears only proven-stale locks, maps the repository, reviews every
+pending feature through Clawpatch, and proves no reviewable feature remains.
+It then uses `clawpatch next --json` for exactly one current open finding,
+records `clawpatch show --json`, and automatically runs Clawpatch's explicit
+finding-scoped `fix`. It never builds a queue from a report, substitutes a
+Manageroo-written repair, triages a finding as resolved, or hand-repairs source.
+
+Every Clawpatch child command has a 15-minute watchdog. A timeout kills the
+complete Clawpatch/Codex process group. Timeout, provider, quota, validation,
+project-gate, and non-`fixed` revalidation failures do not advance the queue:
+Manageroo preserves source edits in a verified named Git stash, reconciles the
+finding through `show`, reopens it through Clawpatch when necessary, proves
+`next` still returns that same finding, and invokes Clawpatch's own `fix` again.
+There is no overall retry count or release-sweep deadline. Hard prerequisites
+such as missing executables, authentication failure, malformed JSON, unsafe
+paths, or contradictory state still stop with an explicit error.
+
+After a successful fix, Manageroo requires the matching patch-attempt record,
+runs every configured project gate, requires revalidation for the same finding
+with the exact outcome `fixed`, and stages only source files recorded by that
+patch attempt. It never creates a partial or metadata-only repair commit.
+
+Clawpatch's `show` output ends with a human triage template. That template is
+not an executable workflow command. Manageroo preserves the inspection output
+for the audit record and applies its explicit release policy: every current
+open finding is sent to `clawpatch fix`; findings are never automatically
+hidden or marked resolved. An `uncertain` repair is reopened as the same current
+finding and retried rather than skipped.
+
+Release sweeps give every Clawpatch child command a 15-minute watchdog and set
+the same 15-minute default for Clawpatch's Codex worker. An existing
+`CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins for the inner worker,
+but the outer watchdog remains 15 minutes.
+
+Before each finding-scoped fix, Manageroo writes durable progress under
+`.manageroo/cache`. If the controller process is interrupted, rerunning the same
+release-sweep command preserves any interrupted source attempt, reconciles the
+recorded finding from Clawpatch's existing `.clawpatch` state, and resumes that
+finding. Manageroo does not install an operating-system daemon; a stopped
+controller must still be relaunched by the operator or an external service.
+
+At closure, Manageroo proves no mapped feature remains pending, revalidates all
+open findings, requires an empty open report, requires zero findings and locks
+in status, reruns every project gate, and requires a clean Git worktree.
+Tracked `.clawpatch/**` state is never mixed
+into a source-repair commit. To publish tracked state after closure, explicitly
+add `--publish-clawpatch-state` together with a push mode; Manageroo creates one
+separate final state-only commit and verifies the live remote SHA.
+
+Dry-run is the default. `--apply` explicitly authorizes fixes and exact-path
+source commits. Nothing is pushed unless you add `--push each` or `--push final`.
+On `main` or `master`, `--branch auto` creates a timestamped
+`clawpatch/release-sweep-*` branch; use `--branch current` only deliberately.
 
 To make the normal release gate require that proof, use:
 
@@ -369,6 +444,18 @@ The hardware profile is informational context. Manageroo does not silently rewri
 
 # Skills: exactly what is included
 
+Users do not need to remember or type skill names. Before every worker job,
+Manageroo indexes installed skill metadata locally, matches the normal-language
+assignment, and injects only the strongest relevant full instructions into a
+bounded task packet. The route is automatic and never asks the operator to
+choose implementation machinery. The operator's original brief controls which
+skills are eligible; an implementation task may only rerank that approved set,
+so model-generated plan text cannot activate a new capability.
+
+The installer's **normal**, **Caveman**, and **Caveman Curse** choice is a
+separate saved communication preference. It is selected once during setup and
+applied automatically; those modes do not compete in task routing.
+
 This repository currently contains **50 bundled skill packages**.
 
 That does **not** mean Manageroo installs all 50 by default.
@@ -378,6 +465,12 @@ The boundary is:
 - **18 portable core skills** are the recommended/default Manageroo-owned pack;
 - **32 additional bundled skills** ship in the repository as optional capabilities;
 - **host-installed skills** can also be discovered and used when relevant, but Manageroo does not claim ownership of the user's entire skill environment.
+
+Before installing a core skill, setup checks the standard agent skill roots. It
+reuses an existing same-name skill instead of creating another copy, and it does
+not overwrite a differing host-owned skill. Manageroo updates only skill trees
+recorded in its ownership ledger and still unchanged since Manageroo installed
+them; a user edit revokes that ownership automatically.
 
 ## 18 portable core skills installed by default
 
@@ -450,7 +543,13 @@ manageroo host-skills
 manageroo host-skills --json
 ```
 
-`use-installed-skills-first` lets compatible workers use relevant host capabilities when appropriate. Manageroo does not copy, delete, upgrade, or pretend it owns the whole host skill environment.
+Automatic capability routing is native controller behavior. `use-installed-skills-first` remains a portable compatibility policy for work that happens outside a Manageroo-controlled run. Manageroo does not copy, delete, upgrade, or pretend it owns the whole host skill environment.
+
+Advanced diagnostics can explain the same decision without changing it:
+
+```bash
+manageroo skills explain "describe the job normally"
+```
 
 `skill-vetter` exists so third-party skills can be reviewed before adoption instead of being treated as trusted just because somebody put a `SKILL.md` in a folder.
 
@@ -462,6 +561,7 @@ Manageroo is the controller. It can also work with optional tools that add speci
 Manageroo
 ├── GitNexus   → repository and code-graph intelligence
 ├── GBrain     → external durable knowledge and retrieval
+├── TruffleHog → local secret scanning required by AUTOREVIEW
 ├── AUTOREVIEW → structured external review
 ├── Clawpatch  → evidence-driven findings and repair loops
 └── Obsidian   → human-readable Markdown knowledge
@@ -492,6 +592,10 @@ Apply supported updates explicitly:
 ```bash
 manageroo stack-update --apply
 ```
+
+For npm/pnpm command-line tools, Manageroo updates through the package manager proven to own the active executable and tries the other supported manager only when ownership is verified there. It refuses ambiguous installations instead of guessing.
+
+AUTOREVIEW requires TruffleHog. When the recommended stack is selected, Manageroo reuses an existing `trufflehog` command or installs the release-pinned official binary for Linux, macOS, or Windows after SHA-256 verification. Manageroo records ownership only for the copy it installed, so stack updates and uninstall planning do not overwrite or remove a user-managed copy.
 
 GitNexus is treated as a first-class recommended repository-intelligence integration when selected during installation. Manageroo can still operate when optional surrounding tools are intentionally skipped or unavailable.
 

@@ -83,19 +83,19 @@ def discover_projects(
     bounded_limit = max(0, int(limit))
     for root in selected_roots:
         root_depth = len(root.parts)
-        for current, dirs, _files in os.walk(root):
+        for current, dirs, files in os.walk(root):
             current_path = Path(current)
             depth = len(current_path.parts) - root_depth
             if depth >= max_depth:
                 dirs[:] = []
-            if ".git" not in dirs:
+            if ".git" not in dirs and ".git" not in files:
                 continue
             try:
                 repo = git_root(current_path)
             except Exception:
-                repo = current_path.resolve()
+                continue
             discovered.setdefault(repo, _project_record(repo, agent=agent))
-            dirs[:] = [name for name in dirs if name != ".git"]
+            dirs[:] = []
             if bounded_limit and len(discovered) >= bounded_limit:
                 break
         if bounded_limit and len(discovered) >= bounded_limit:
@@ -140,7 +140,14 @@ def format_project_discovery(report: dict) -> str:
 
 def format_project_add_checklist(report: dict) -> str:
     projects = list(report.get("projects", []) or [])
-    lines = ["PROJECT SETUP CHECKLIST", "", "Pick the projects Manageroo should initialize:"]
+    lines = [
+        "PROJECT SETUP CHECKLIST",
+        "",
+        "Discovery is read-only. Pick only the projects Manageroo should initialize.",
+        "Selected projects keep their existing AGENTS.md and CONTEXT.md content; Manageroo adds its",
+        "managed guidance and creates any missing project context files. Unselected projects are unchanged.",
+        "",
+    ]
     for index, project in enumerate(projects, start=1):
         lines.extend(
             [

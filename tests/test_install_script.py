@@ -2,10 +2,13 @@ import importlib.util
 import io
 import re
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
+
+from manageroo.install_status import launcher_is_manageroo_owned
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +40,68 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_autoreview_install_refuses_incomplete_existing_directory_without_backup(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            destination = home / ".agents" / "skills" / "autoreview"
+            destination.mkdir(parents=True)
+            (destination / "SKILL.md").write_text("existing partial install\n", encoding="utf-8")
+
+            def fake_checkout(**kwargs):
+                source = kwargs["destination"] / "skills" / "autoreview"
+                (source / "scripts").mkdir(parents=True)
+                (source / "SKILL.md").write_text("downloaded\n", encoding="utf-8")
+                (source / "scripts" / "autoreview").write_text("tool\n", encoding="utf-8")
+                return {"resolved_commit": kwargs["commit"]}
+
+            with patch.object(install.Path, "home", return_value=home), patch.object(
+                install.shutil,
+                "which",
+                return_value="/usr/bin/git",
+            ), patch.object(install, "_checkout_pinned_git_source", side_effect=fake_checkout):
+                result = install.install_autoreview([], home / "prefix")
+
+            self.assertFalse(result["installed"])
+            self.assertIn("left it untouched", result["error"])
+            self.assertEqual(
+                (destination / "SKILL.md").read_text(encoding="utf-8"),
+                "existing partial install\n",
+            )
+            self.assertEqual(
+                list(destination.parent.glob("autoreview.manageroo-backup-*")),
+                [],
+            )
+
+    def test_generated_launchers_have_verified_manageroo_ownership(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            python = root / "python"
+            app_root = root / "app"
+            prefix = root / "prefix"
+            launcher = install.install_launcher(root / "posix-bin", python, app_root, prefix)
+            self.assertTrue(launcher_is_manageroo_owned(launcher))
+
+            with patch.object(install.os, "name", "nt"):
+                launcher = install.install_launcher(root / "windows-bin", python, app_root, prefix)
+            self.assertTrue(launcher_is_manageroo_owned(launcher))
+
+    def test_windows_launcher_rejects_percent_expansion_in_each_interpolated_path(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            safe = root / "safe"
+            path_arguments = {
+                "python": (root / "%TESTVAR%" / "python.exe", safe, safe),
+                "app_root": (safe, root / "%TESTVAR%" / "app", safe),
+                "prefix": (safe, safe, root / "%TESTVAR%" / "prefix"),
+            }
+            for name, arguments in path_arguments.items():
+                with self.subTest(path=name), patch.object(install.os, "name", "nt"):
+                    with self.assertRaisesRegex(SystemExit, "unsafe for a Windows command launcher"):
+                        install.install_launcher(root / name / "bin", *arguments)
+
     def test_agent_detection_reports_supported_coding_tools_already_on_the_machine(self):
         install = load_install_script()
         paths = {
@@ -136,6 +201,22 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn('"name": "coding-agent"', source)
         self.assertIn("No supported coding-agent CLI was detected or installed", source)
         self.assertNotIn("Codex is an adapter choice, not a core requirement", source)
+
+    def test_codex_install_status_requires_native_sandbox_preflight(self):
+        install = load_install_script()
+        failed = {
+            "ok": False,
+            "platform": "Windows",
+            "guidance": "Use the native Windows sandbox from PowerShell.",
+            "next_commands": ["codex sandbox windows -- python -c pass"],
+            "reference": "https://learn.chatgpt.com/docs/sandboxing",
+        }
+        with patch.object(install, "codex_sandbox_preflight", return_value=failed):
+            status = install.codex_sandbox_install_status("codex")
+
+        self.assertFalse(status["configured"])
+        self.assertEqual(status["sandbox_preflight"], failed)
+        self.assertEqual(status["next_commands"], failed["next_commands"])
 
     def test_unix_launcher_offers_guided_core_requirement_install(self):
         launcher = (ROOT / "install.sh").read_text(encoding="utf-8")
@@ -309,6 +390,7 @@ class InstallScriptTests(unittest.TestCase):
             install.PNPM_PACKAGE,
             install.CLAWPATCH_PACKAGE,
             f"{install.OPENCLAW_AGENT_SKILLS_REPO}#{install.OPENCLAW_AGENT_SKILLS_COMMIT}",
+            f"{install.TRUFFLEHOG_REFERENCE}/releases/download/v{install.TRUFFLEHOG_VERSION}",
         ]
         for source in pinned:
             with self.subTest(source=source):
@@ -316,6 +398,27 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertNotIn("@latest", source.lower())
         self.assertEqual(len(install.GBRAIN_COMMIT), 40)
         self.assertEqual(len(install.OPENCLAW_AGENT_SKILLS_COMMIT), 40)
+
+    def test_trufflehog_install_records_verified_manageroo_ownership(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / "bin"
+            downloads = []
+            report = {
+                "version": install.TRUFFLEHOG_VERSION,
+                "path": str(bin_dir / "trufflehog"),
+                "asset": "trufflehog-test.tar.gz",
+                "url": f"{install.TRUFFLEHOG_REFERENCE}/releases/download/v{install.TRUFFLEHOG_VERSION}/trufflehog-test.tar.gz",
+                "sha256": "a" * 64,
+            }
+            with patch.object(install.shutil, "which", return_value=None), patch.object(
+                install, "install_trufflehog_binary", return_value=report
+            ):
+                result = install.install_trufflehog(downloads, bin_dir)
+        self.assertTrue(result["configured"])
+        self.assertTrue(result["manageroo_owned"])
+        self.assertTrue(downloads[0]["immutable"])
+        self.assertEqual(downloads[0]["sha256"], "a" * 64)
 
     def test_pinned_git_checkout_verifies_exact_commit(self):
         install = load_install_script()

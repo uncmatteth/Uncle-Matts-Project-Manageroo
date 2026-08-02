@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -88,17 +89,26 @@ class WorkspaceMirror:
     def _workspace_state_digest(self, head: str) -> str:
         digest = hashlib.sha256()
         diff = self._git(["diff", "--binary", head, "--"])
-        digest.update(diff.stdout.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"manageroo-workspace-state-v2\0")
+
+        def update_field(value: bytes) -> None:
+            digest.update(len(value).to_bytes(8, "big"))
+            digest.update(value)
+
+        digest.update(b"tracked-diff\0")
+        update_field(diff.stdout.encode("utf-8", errors="surrogateescape"))
         untracked = self._git(["ls-files", "-z", "--others", "--exclude-standard"])
         for relative in sorted(item for item in untracked.stdout.split("\0") if item):
             path = self.workspace / relative
-            if path.is_symlink():
+            metadata = path.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
                 raise SafetyError(f"Pending workspace contains unsupported symlink: {relative}")
-            if path.is_file():
-                digest.update(relative.encode("utf-8", errors="surrogateescape"))
-                digest.update(b"\0")
-                digest.update(sha256_file(path).encode("ascii"))
-                digest.update(b"\0")
+            if stat.S_ISREG(metadata.st_mode):
+                digest.update(b"untracked-file\0")
+                update_field(relative.encode("utf-8", errors="surrogateescape"))
+                update_field(stat.S_IFMT(metadata.st_mode).to_bytes(4, "big"))
+                update_field(stat.S_IMODE(metadata.st_mode).to_bytes(4, "big"))
+                update_field(bytes.fromhex(sha256_file(path)))
         return digest.hexdigest()
 
     def _completed_write_job_owns_pending_state(self) -> bool:

@@ -81,7 +81,7 @@ SKIP_PARTS = {".git", ".manageroo", "node_modules", ".venv", "dist", "build"}
 def _signal_present(corpus: str, term: str) -> bool:
     if any(char in term for char in " ._-\""):
         return term in corpus
-    return re.search(rf"\b{re.escape(term)}\b", corpus) is not None
+    return re.search(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", corpus) is not None
 
 
 def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) -> str:

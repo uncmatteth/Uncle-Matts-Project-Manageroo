@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from .branding import PROJECT_DIR
-from .clawpatch_batch import batch_fix_open_findings, format_batch_fix
 from .clawpatch_release import format_release_sweep, release_sweep
 from .cli import main as cli_main
 from .cli import parser as cli_parser
@@ -139,21 +138,10 @@ def _clawpatch_main(argv: list[str]) -> int:
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    fix_open = sub.add_parser(
-        "fix-open",
-        description=(
-            "Read only Clawpatch findings with status=open, fix them one at a time, and stop fail-closed on the first failure."
-        ),
-    )
-    fix_open.add_argument("--repo", default=".")
-    fix_open.add_argument("--limit", type=int, default=0, help="Maximum findings to process; 0 means all open findings.")
-    fix_open.add_argument("--apply", action="store_true", help="Actually run fixes. Without this flag, print the plan only.")
-    fix_open.add_argument("--no-commit", action="store_true", help="Do not create one Git commit per successful finding.")
-    fix_open.add_argument("--json", action="store_true")
     release = sub.add_parser(
         "release-sweep",
         description=(
-            "Run the full Clawpatch final-release lifecycle with validation before one exact-path commit per finding."
+            "Run Clawpatch's complete review and supervised one-finding repair lifecycle; reconcile and retry the same current finding."
         ),
     )
     release.add_argument("--repo", default=".")
@@ -164,10 +152,19 @@ def _clawpatch_main(argv: list[str]) -> int:
         help="auto creates a release-sweep branch from main/master; current stays on the current branch; any other value creates that branch.",
     )
     release.add_argument("--push", choices=("none", "each", "final"), default="none")
-    release.add_argument("--review-limit", type=int, default=100)
-    release.add_argument("--jobs", type=int, default=3)
-    release.add_argument("--max-findings", type=int, default=0, help="0 processes every open finding.")
-    release.add_argument("--skip-review", action="store_true", help="Use existing findings after map instead of running a new review.")
+    release.add_argument(
+        "--publish-clawpatch-state",
+        action="store_true",
+        help="Create the separately gated final .clawpatch-only state commit; requires --push each or --push final.",
+    )
+    release.add_argument(
+        "--trusted-host-codex-sandbox-bypass",
+        action="store_true",
+        help=(
+            "Run Clawpatch Codex workers without Codex approvals or sandboxing. "
+            "Use only for trusted code on a host that already provides isolation."
+        ),
+    )
     release.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -178,22 +175,10 @@ def _clawpatch_main(argv: list[str]) -> int:
                 apply=args.apply,
                 branch=args.branch,
                 push_mode=args.push,
-                review_limit=args.review_limit,
-                jobs=args.jobs,
-                max_findings=args.max_findings,
-                skip_review=args.skip_review,
+                publish_clawpatch_state=args.publish_clawpatch_state,
+                trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
             )
             formatter = format_release_sweep
-        elif args.command == "fix-open":
-            if args.limit < 0:
-                parser.error("--limit must be 0 or greater.")
-            report = batch_fix_open_findings(
-                Path(args.repo),
-                apply=args.apply,
-                limit=args.limit,
-                commit_each=not args.no_commit,
-            )
-            formatter = format_batch_fix
         else:
             parser.error("Unknown Clawpatch command.")
     except SafetyError as exc:
@@ -224,17 +209,25 @@ def _run_root(repo: Path, run_id: str) -> Path:
     return resolved
 
 
-def _blocking_decisions(run_root: Path) -> list[dict]:
+def _blocking_decisions(run_root: Path) -> list[object]:
     if decisions_fully_resolved(run_root):
         return []
     path = run_root / "artifacts" / "planning" / "blocking-decisions.json"
     if not path.is_file():
         return []
-    payload = read_json(path)
-    return list(payload.get("decisions", []) or [])
+    try:
+        payload = read_json(path)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise SafetyError(f"Blocking decision artifact is unreadable: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SafetyError(f"Blocking decision artifact must contain a JSON object: {path}")
+    decisions = payload.get("decisions", [])
+    if not isinstance(decisions, list):
+        raise SafetyError(f"Blocking decision artifact field 'decisions' must be an array: {path}")
+    return decisions
 
 
-def _validated_decisions(decisions: list[dict]) -> tuple[list[dict], str | None]:
+def _validated_decisions(decisions: list[object]) -> tuple[list[dict], str | None]:
     validated: list[dict] = []
     for index, decision in enumerate(decisions, 1):
         if not isinstance(decision, dict):
@@ -271,7 +264,25 @@ def _decisions_main(argv: list[str]) -> int:
         run_root = _run_root(Path(args.repo), args.run_id)
     except SafetyError as exc:
         parser.error(str(exc))
-    decisions = _blocking_decisions(run_root)
+    try:
+        decisions = _blocking_decisions(run_root)
+    except SafetyError as exc:
+        error = f"Cannot read blocking decisions: {exc}"
+        if args.command == "show" and args.json:
+            print(json.dumps({"ok": False, "error": error}, indent=2))
+        else:
+            print(error, file=sys.stderr)
+        return 2
+
+    decisions, validation_error = _validated_decisions(decisions)
+    if validation_error:
+        error = f"Cannot read blocking decisions: {validation_error}"
+        if args.command == "show" and args.json:
+            print(json.dumps({"ok": False, "error": error}, indent=2))
+        else:
+            print(error, file=sys.stderr)
+        return 2
+
     if not decisions:
         if args.command == "show" and args.json:
             print(json.dumps({"run_id": args.run_id, "decisions": []}, indent=2))
@@ -287,11 +298,6 @@ def _decisions_main(argv: list[str]) -> int:
             text = markdown.read_text(encoding="utf-8") if markdown else "No blocking questions found."
             print(text, end="")
         return 0
-
-    decisions, validation_error = _validated_decisions(decisions)
-    if validation_error:
-        print(f"Cannot answer blocking decisions: {validation_error}", file=sys.stderr)
-        return 2
 
     answers: list[dict[str, str]] = []
     for index, decision in enumerate(decisions, 1):
@@ -348,9 +354,9 @@ def _root_help() -> str:
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
         + "  host-skills           Inspect host skills without modifying or owning them.\n"
         + "\nCommand-owned repair automation:\n"
-        + "  clawpatch release-sweep  Strict final-release loop: map, review, fix, validate, exact-path commit, and prove zero open.\n"
+        + "  clawpatch release-sweep  Automate Clawpatch review/fix/revalidation across the full queue.\n"
+        + "                            Preserve, reconcile, and retry the same current finding.\n"
         + "                            Dry-run by default; --apply mutates; --push is always explicit.\n"
-        + "  clawpatch fix-open    Plan or apply every currently open Clawpatch finding serially.\n"
         + "                        Cross-platform; one commit per successful fix by default.\n"
         + "\nRecommended stack maintenance:\n"
         + "  stack-update          Dry-run upstream-supported updates; optionally name tools; pass --apply explicitly.\n"
@@ -358,6 +364,9 @@ def _root_help() -> str:
 
 
 def main() -> int:
+    from .entrypoint_policy import install_entrypoint_policy
+
+    install_entrypoint_policy(sys.modules[__name__])
     argv = sys.argv[1:]
     if argv and argv[0] == "prove":
         return _prove_main(argv[1:])

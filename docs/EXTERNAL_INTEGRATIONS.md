@@ -1,6 +1,6 @@
 # External integrations
 
-Manageroo is the controller. GitNexus, GBrain, AUTOREVIEW, Clawpatch, and Obsidian provide surrounding capabilities. Current repository truth, Manageroo's locked run artifacts, deterministic gates, and evidence remain authoritative.
+Manageroo is the controller. GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian provide surrounding capabilities. Current repository truth, Manageroo's locked run artifacts, deterministic gates, and evidence remain authoritative.
 
 ## Recommended full stack
 
@@ -8,6 +8,7 @@ The intended full installation can include:
 
 - GitNexus for repository/code-graph intelligence;
 - GBrain for external durable knowledge when explicitly relevant;
+- TruffleHog for AUTOREVIEW's local pre-review secret scan;
 - AUTOREVIEW for external review;
 - Clawpatch for external review and repair;
 - Obsidian for human-readable knowledge.
@@ -122,22 +123,29 @@ Project: https://github.com/garrytan/gbrain
 
 AUTOREVIEW is a command-owned closeout review lane. The canonical source is `openclaw/agent-skills`.
 
-Manageroo's stack updater refreshes an existing AUTOREVIEW installation from the canonical `skills/autoreview` tree, rejects symlinked downloaded content, and preserves a backup of the previous installed copy before replacement.
+Current AUTOREVIEW requires TruffleHog and fails closed when the binary is missing. The recommended Manageroo installer therefore reuses an existing TruffleHog or installs a release-pinned official binary with a pinned per-platform SHA-256 checksum. Supported release assets cover Linux, macOS, and Windows on amd64 and arm64. A Manageroo-owned copy is recorded in `install-lock.json`; an existing user-owned copy is reused without Manageroo claiming update or uninstall ownership.
+
+Manageroo's stack updater refreshes an existing AUTOREVIEW installation from the canonical `skills/autoreview` tree and rejects symlinked downloaded content. Replacement uses same-filesystem rollback storage outside the discovered skills root; it restores the prior copy on a failed swap and removes the rollback storage after a successful update, so normal updates do not create duplicate `autoreview` skill folders. If only that final cleanup fails, the updater reports the already-installed update as successful, returns the retained rollback path, and surfaces a cleanup warning instead of falsely reporting that the swap failed.
 
 AUTOREVIEW findings do not become unconstrained freehand AI repair prompts. When configured as a Manageroo command-owned lane, its command owns its result and Manageroo scope-checks any resulting edits.
 
 Project: https://github.com/openclaw/agent-skills/tree/main/skills/autoreview
 
+TruffleHog project: https://github.com/trufflesecurity/trufflehog
+
 ## Clawpatch
 
 Clawpatch is a command-owned review and repair lane.
 
-For an existing pnpm-managed installation, Manageroo's supported update path is:
+For an existing npm- or pnpm-managed installation, Manageroo proves which package manager owns the active executable and uses that same manager. The supported pinned update is one of:
 
 ```bash
+npm install -g clawpatch@0.7.1
 pnpm add -g clawpatch@0.7.1
 clawpatch doctor
 ```
+
+Manageroo refuses the update if neither ownership lane can be proved. It does not move an installation between npm and pnpm merely because both tools exist.
 
 Manageroo does not claim Clawpatch is healthy merely because the executable exists. The post-update doctor remains part of the update result.
 
@@ -154,9 +162,62 @@ manageroo clawpatch release-sweep --repo . --apply
 
 # Push only when explicitly requested
 manageroo clawpatch release-sweep --repo . --apply --push final
+
+# Trusted code on an already-isolated host: avoid a nested Codex sandbox
+manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
 ```
 
-The sweep follows Clawpatch's own lifecycle: doctor, init when needed, map, review, fresh `next`, show, fix, and revalidate. Existing Clawpatch projects retain their state choice; a first-time sweep keeps new Clawpatch state under Git's private directory so initialization does not dirty source. Manageroo adds fail-closed Git boundaries, configured project gates, one exact-path commit per finding, a repository-private resume checkpoint, final all-open revalidation, a zero-open report, and proof bound to the final Git HEAD. A finding that remains `open`, `uncertain`, or otherwise fails to revalidate as `fixed` is left uncommitted for inspection.
+The sweep first proves repository, process, Git, status, and lock state. It maps
+the repository, asks Clawpatch to review every pending feature, and verifies a
+review dry-run has zero remaining work. It then repeats Clawpatch's documented
+one-finding lifecycle: `next --json`, `show --json`, `fix`, validation, and
+revalidation. There is no report-derived queue, cached finding list, status
+triage, manual repair, or concurrent Clawpatch process. Manageroo adds project
+validation, exact patch-attempt path staging, authorized commit/push boundaries,
+final zero-open and zero-lock proof, and remote-SHA verification without
+replacing Clawpatch's command-owned repair.
+
+The trusted-host bypass is explicit and temporary. It sets Clawpatch's documented
+Codex sandbox override only in child-process environment and never persists it.
+It removes the nested Codex approval/sandbox boundary, so use it only for trusted
+source on a host that already supplies isolation. Manageroo's path restrictions,
+project gates, revalidation, and exact-path commit rules still apply.
+
+Every Clawpatch child command has a 15-minute process-group watchdog. Timeout,
+provider, quota, validation, configured project-gate, and non-`fixed`
+revalidation failures preserve source edits in a verified named Git stash and
+retry the same finding through Clawpatch. Manageroo uses `show`, reopens an
+`uncertain` finding to `open` through Clawpatch, requires `next` to return the
+same finding, and invokes Clawpatch's finding-scoped `fix` again. It does not
+advance to the remaining queue until that finding reaches `fixed` or Clawpatch
+revalidation identifies it as `false-positive`. Missing executables,
+authentication failure, malformed output, unsafe paths, and contradictory state
+still stop immediately.
+
+Tracked Clawpatch state is never mixed into a repair commit. To publish it after
+all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
+Manageroo creates one separate `.clawpatch/**`-only final state commit.
+
+Clawpatch 0.7.1's `show` output includes a human triage template. Manageroo
+records that inspection but does not execute or fill in the template. Its
+explicit release policy sends every current open finding to Clawpatch's own
+finding-scoped `fix`. Failed attempts are never called fixed or skipped:
+Manageroo preserves them, reconciles Clawpatch's current state, and retries the
+same finding.
+
+The implementation is native Python and uses argv-only subprocesses. It does
+not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports
+Windows, macOS, and Linux. On Windows, Manageroo resolves command shims and uses
+native PowerShell process inspection conservatively to prevent concurrent
+Clawpatch execution.
+
+Manageroo gives each Clawpatch child process group a 15-minute watchdog and sets
+the same default for its Codex worker. A user-supplied
+`CLAWPATCH_CODEX_TIMEOUT_MS` value takes precedence inside Clawpatch, but does
+not extend Manageroo's outer watchdog. Durable progress in `.manageroo/cache`
+lets a relaunched release sweep reconcile and resume an interrupted current
+finding from the existing `.clawpatch` queue; Manageroo is not an OS daemon and
+cannot relaunch its own terminated controller process.
 
 The proof can be made mandatory for the final operator gate with `manageroo release-ready --require-clawpatch` or the `[project]` setting `require_clawpatch_release_sweep = true`.
 

@@ -1,3 +1,5 @@
+import json
+import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,6 +48,24 @@ def _request(root: Path, *, timeout_seconds: int = 60) -> AgentRequest:
         sandbox="workspace-write",
         timeout_seconds=timeout_seconds,
     )
+
+
+def _reserve_shared_budget(ledger: Path, ready, start, results) -> None:
+    adapter = BudgetedAdapter(
+        _Worker(),
+        max_total_worker_calls=1,
+        state_path=ledger,
+    )
+    ready.put(True)
+    if not start.wait(timeout=5):
+        results.put("timeout")
+        return
+    try:
+        adapter._reserve_call()
+    except AgentExecutionError:
+        results.put("exhausted")
+    else:
+        results.put("reserved")
 
 
 class WorkerPoolTests(unittest.TestCase):
@@ -106,6 +126,36 @@ class WorkerPoolTests(unittest.TestCase):
             self.assertEqual(resumed.calls, 1)
             with self.assertRaisesRegex(AgentExecutionError, "budget exhausted"):
                 resumed.run(_request(root))
+
+    def test_worker_call_budget_is_atomic_across_processes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ledger = root / "controller" / "budget.json"
+            context = multiprocessing.get_context("spawn")
+            ready = context.Queue()
+            start = context.Event()
+            results = context.Queue()
+            processes = [
+                context.Process(
+                    target=_reserve_shared_budget,
+                    args=(ledger, ready, start, results),
+                )
+                for _ in range(2)
+            ]
+
+            for process in processes:
+                process.start()
+            self.assertEqual([ready.get(timeout=5) for _ in processes], [True, True])
+            start.set()
+            outcomes = sorted(results.get(timeout=5) for _ in processes)
+            for process in processes:
+                process.join(timeout=5)
+
+            self.assertTrue(all(not process.is_alive() for process in processes))
+            self.assertEqual([process.exitcode for process in processes], [0, 0])
+            self.assertEqual(outcomes, ["exhausted", "reserved"])
+            payload = json.loads(ledger.read_text(encoding="utf-8"))
+            self.assertEqual(payload["worker_calls_consumed"], 1)
 
     def test_runtime_budget_clamps_worker_timeout_to_remaining_time(self):
         with tempfile.TemporaryDirectory() as temp:

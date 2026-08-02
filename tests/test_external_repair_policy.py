@@ -3,9 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from manageroo.artifacts import ArtifactStore
-from manageroo.errors import ValidationError
+from manageroo.errors import SafetyError, ValidationError
 from manageroo.external_repair_policy import run_external_review_repair_lanes
 from manageroo.runner import CommandRunner
 from manageroo.util import atomic_write_json
@@ -59,6 +60,76 @@ def fake_orchestrator(root: Path, source: Path, run_id: str, command):
 
 
 class ExternalRepairPolicyTests(unittest.TestCase):
+    def test_checkpoint_path_inspection_failure_restores_exact_clean_baseline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            baseline = fake.mirror.head()
+
+            with patch(
+                "manageroo.external_repair_policy._actual_checkpoint_paths",
+                side_effect=SafetyError("checkpoint path inspection failed"),
+            ):
+                with self.assertRaisesRegex(SafetyError, "rollback was verified"):
+                    run_external_review_repair_lanes(
+                        fake,
+                        brief="repair",
+                        plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                        gate_results=[],
+                    )
+
+            self.assertEqual(fake.mirror.head(), baseline)
+            self.assertEqual(
+                (fake.workspace / "tracked.txt").read_text(encoding="utf-8"), "baseline\n"
+            )
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
+    def test_checkpoint_manifest_write_failure_restores_exact_clean_baseline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            baseline = fake.mirror.head()
+
+            with patch(
+                "manageroo.external_repair_policy.atomic_write_json",
+                side_effect=OSError("manifest write failed"),
+            ):
+                with self.assertRaisesRegex(SafetyError, "rollback was verified"):
+                    run_external_review_repair_lanes(
+                        fake,
+                        brief="repair",
+                        plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                        gate_results=[],
+                    )
+
+            self.assertEqual(fake.mirror.head(), baseline)
+            self.assertEqual(
+                (fake.workspace / "tracked.txt").read_text(encoding="utf-8"), "baseline\n"
+            )
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
     def test_out_of_scope_failure_restores_exact_clean_baseline(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

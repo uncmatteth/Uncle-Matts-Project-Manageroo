@@ -133,6 +133,12 @@ This is intentional. Missing proof is a blocker, not a reason to lower the stand
 
 At least one supported real coding-agent command must already be installed and authenticated. Manageroo does not fake this lane or silently substitute the mock adapter.
 
+For Codex, product proof first runs the official native sandbox diagnostic for the
+current host (`linux`, `macos`, or `windows`). A failed diagnostic blocks before a
+live model is asked to work and returns platform-specific setup guidance. This
+preflight does not weaken the separate rule that a release ZIP must be smoke-tested
+on every operating system the release claims to support.
+
 By default Manageroo chooses any available supported worker. `--live-agent` exists only as an override when the operator wants to certify a specific preset.
 
 A release can be certified against more than one worker by running the command separately with explicit overrides.
@@ -148,6 +154,8 @@ python3 scripts/release.py
 ```
 
 The release driver runs product proof first and proceeds to verification, packaging, checksum generation, and clean-install ZIP smoke only when proof is complete. It fails closed and does not create release artifacts when certification is partial or failed.
+
+Distribution verification builds through isolated PEP 517 mode, so pip provisions the build requirements declared in `pyproject.toml` instead of relying on globally installed build tools. Its build and clean-install Python processes also use isolated mode so an inherited `PYTHONPATH` cannot make pip mistake the source checkout for an installed wheel.
 
 The lower-level diagnostic sequence remains available:
 

@@ -14,7 +14,7 @@ Deterministic properties:
 - allowlisted gate commands;
 - bounded repair and plan-review cycles;
 - exact changed-file comparison;
-- reviewer evidence validation;
+- binary reviewer status derived from validated findings, never model-reported confidence;
 - source freshness check before patch application;
 - complete run ledger.
 

@@ -1,0 +1,8 @@
+# Project Manageroo controller-owned release proof.
+
+[[verification.gates]]
+id = "manageroo-release"
+kind = "test"
+required = true
+timeout_seconds = 1800
+argv = ["python3", "-B", "scripts/verify_release.py", "--check-only"]

@@ -1,4 +1,4 @@
-"""Bootstrap the repository's src-layout package before the rest of unittest discovery."""
+"""Bootstrap the repository's src-layout package before unittest discovery."""
 
 from __future__ import annotations
 

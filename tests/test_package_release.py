@@ -12,6 +12,13 @@ SPEC = importlib.util.spec_from_file_location("package_release", ROOT / "scripts
 assert SPEC and SPEC.loader
 package_release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package_release)
+VERIFY_SPEC = importlib.util.spec_from_file_location(
+    "verify_distribution",
+    ROOT / "scripts" / "verify_distribution.py",
+)
+assert VERIFY_SPEC and VERIFY_SPEC.loader
+verify_distribution = importlib.util.module_from_spec(VERIFY_SPEC)
+VERIFY_SPEC.loader.exec_module(verify_distribution)
 
 
 def _fixture(codes: list[int]) -> str:
@@ -124,6 +131,17 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
         self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
 
+    def test_bundled_playwright_skills_do_not_ship_decorative_images(self):
+        included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
+        image_suffixes = {".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
+        for skill_name in ("playwright", "playwright-interactive"):
+            skill_root = ROOT / "src" / "manageroo" / "assets" / "skills" / skill_name
+            skill_prefix = f"{skill_root.relative_to(ROOT).as_posix()}/"
+            self.assertFalse(any(path.startswith(skill_prefix) and Path(path).suffix.lower() in image_suffixes for path in included))
+            metadata = (skill_root / "agents" / "openai.yaml").read_text(encoding="utf-8")
+            self.assertNotIn("icon_small:", metadata)
+            self.assertNotIn("icon_large:", metadata)
+
     def test_package_release_requires_distribution_and_end_user_smoke_proofs(self):
         project_version = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
         package_text = (ROOT / "scripts" / "package_release.py").read_text(encoding="utf-8")
@@ -140,6 +158,39 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("EXPECTED_CORE_SKILLS = 18", distribution_text)
         self.assertIn("EXPECTED_OPTIONAL_SKILLS = 32", distribution_text)
         self.assertIn("Installed wheel did not create the manageroo console entry point", distribution_text)
+
+    def test_distribution_build_uses_isolated_declared_requirements(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wheel_dir = Path(temp) / "wheel"
+            with patch.object(verify_distribution, "_run") as run:
+                verify_distribution._build_wheel(wheel_dir)
+
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[1:6], ["-I", "-m", "pip", "--isolated", "wheel"])
+        self.assertNotIn("--no-build-isolation", argv)
+        self.assertEqual(run.call_args.kwargs, {"cwd": ROOT, "timeout": 600})
+
+    def test_distribution_install_ignores_inherited_pythonpath(self):
+        python = Path("venv") / "bin" / "python"
+        wheel = Path("wheel") / "manageroo.whl"
+        root = Path("proof")
+        with patch.object(verify_distribution, "_run") as run:
+            verify_distribution._install_wheel(python, wheel, root)
+
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                str(python),
+                "-I",
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-deps",
+                str(wheel),
+            ],
+        )
+        self.assertEqual(run.call_args.kwargs, {"cwd": root, "timeout": 300})
 
     def test_write_archive_failure_preserves_existing_published_archive(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -199,6 +250,56 @@ class PackageReleaseTests(unittest.TestCase):
                     package_release.refresh_drop_folder(drop, end_user_archive, source_archive)
             after = {path.name: path.read_bytes() for path in drop.iterdir() if path.is_file()}
             self.assertEqual(after, before)
+
+    def test_drop_refresh_preserves_interrupted_transaction_backup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            end_user_archive = root / "end-user.zip"
+            source_archive = root / "source.zip"
+            drop = root / "drop"
+            backup = root / "drop.manageroo-previous"
+            backup.mkdir()
+            (backup / "operator-note.txt").write_text("keep me", encoding="utf-8")
+            end_user_archive.write_bytes(b"new-end-user")
+            source_archive.write_bytes(b"new-source")
+
+            with self.assertRaisesRegex(RuntimeError, "Interrupted release-drop transaction"):
+                package_release.refresh_drop_folder(drop, end_user_archive, source_archive)
+
+            self.assertFalse(drop.exists())
+            self.assertEqual(
+                (backup / "operator-note.txt").read_text(encoding="utf-8"),
+                "keep me",
+            )
+            self.assertEqual(list(root.glob(".drop.stage-*")), [])
+
+    def test_archive_pair_publish_preserves_interrupted_transaction_backups(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "release.zip"
+            source_output = root / "release-source.zip"
+            output_backup = root / "release.zip.manageroo-previous"
+            source_backup = root / "release-source.zip.manageroo-previous"
+            candidate_output = root / "candidate-release.zip"
+            candidate_source = root / "candidate-source.zip"
+            output_backup.write_bytes(b"old-end-user")
+            source_backup.write_bytes(b"old-source")
+            candidate_output.write_bytes(b"new-end-user")
+            candidate_source.write_bytes(b"new-source")
+
+            with (
+                patch.object(package_release, "OUTPUT", output),
+                patch.object(package_release, "SOURCE_OUTPUT", source_output),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Interrupted release archive transaction"):
+                    package_release._publish_archive_pair(candidate_output, candidate_source)
+
+            self.assertFalse(output.exists())
+            self.assertFalse(source_output.exists())
+            self.assertEqual(output_backup.read_bytes(), b"old-end-user")
+            self.assertEqual(source_backup.read_bytes(), b"old-source")
+            self.assertEqual(candidate_output.read_bytes(), b"new-end-user")
+            self.assertEqual(candidate_source.read_bytes(), b"new-source")
 
     def test_drop_folder_removes_stale_release_files(self):
         with tempfile.TemporaryDirectory() as temp:

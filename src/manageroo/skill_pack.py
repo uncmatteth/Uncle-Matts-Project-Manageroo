@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import shutil
+import stat
+import tempfile
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,6 +17,29 @@ from .token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, token_m
 from .util import sha256_file
 
 _VALID_SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}[A-Za-z0-9]$|^[A-Za-z0-9]$")
+
+
+@dataclass(frozen=True)
+class _ValidatedSourceFile:
+    path: Path
+    device: int
+    inode: int
+    mode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+    atime_ns: int = field(compare=False)
+
+
+def _iter_skill_candidate_paths(root: Path) -> Iterator[Path]:
+    for path in sorted(root.rglob("SKILL.md")):
+        directory_names = (root.name, *path.parent.relative_to(root).parts)
+        if path.is_symlink() or any(
+            ".manageroo-backup-" in name or ".manageroo-stage" in name
+            for name in directory_names
+        ):
+            continue
+        yield path
 
 
 def _backup_path(destination: Path) -> Path:
@@ -55,16 +83,94 @@ def _safe_target_root(skills_dir: Path | None, *, create: bool = False) -> Path:
     return resolved
 
 
-def _validate_source_tree(source_dir: Path) -> list[Path]:
+def _source_file_matches(source_file: _ValidatedSourceFile, status: os.stat_result) -> bool:
+    return (
+        stat.S_ISREG(status.st_mode)
+        and status.st_dev == source_file.device
+        and status.st_ino == source_file.inode
+        and status.st_mode == source_file.mode
+        and status.st_size == source_file.size
+        and status.st_mtime_ns == source_file.mtime_ns
+        and status.st_ctime_ns == source_file.ctime_ns
+    )
+
+
+def _validate_source_tree(source_dir: Path) -> list[_ValidatedSourceFile]:
     if source_dir.is_symlink():
         raise ValueError(f"Refusing to import from symlinked skill source directory: {source_dir}")
-    files: list[Path] = []
-    for path in source_dir.rglob("*"):
-        if path.is_symlink():
+    files: list[_ValidatedSourceFile] = []
+    paths = sorted(
+        source_dir.rglob("*"),
+        key=lambda item: item.relative_to(source_dir).as_posix(),
+    )
+    for path in paths:
+        status = path.lstat()
+        if stat.S_ISLNK(status.st_mode):
             raise ValueError(f"Refusing to copy symlinked skill content: {path}")
-        if path.is_file():
-            files.append(path)
+        if stat.S_ISREG(status.st_mode):
+            files.append(_ValidatedSourceFile(
+                path=path,
+                device=status.st_dev,
+                inode=status.st_ino,
+                mode=status.st_mode,
+                size=status.st_size,
+                mtime_ns=status.st_mtime_ns,
+                ctime_ns=status.st_ctime_ns,
+                atime_ns=status.st_atime_ns,
+            ))
     return files
+
+
+def _copy_validated_source_file(source_file: _ValidatedSourceFile, destination: Path) -> None:
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        source_fd = os.open(source_file.path, flags)
+    except OSError as exc:
+        raise ValueError(f"Skill source changed during import: {source_file.path}") from exc
+    try:
+        with os.fdopen(source_fd, "rb") as source_handle:
+            source_fd = -1
+            if not _source_file_matches(source_file, os.fstat(source_handle.fileno())):
+                raise ValueError(f"Skill source changed during import: {source_file.path}")
+            destination_flags = (
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_BINARY", 0)
+                | getattr(os, "O_CLOEXEC", 0)
+            )
+            destination_fd = os.open(destination, destination_flags, stat.S_IMODE(source_file.mode))
+            with os.fdopen(destination_fd, "wb") as destination_handle:
+                shutil.copyfileobj(source_handle, destination_handle, length=1024 * 1024)
+                if not _source_file_matches(source_file, os.fstat(source_handle.fileno())):
+                    raise ValueError(f"Skill source changed during import: {source_file.path}")
+                if hasattr(os, "fchmod"):
+                    os.fchmod(destination_handle.fileno(), stat.S_IMODE(source_file.mode))
+                else:
+                    os.chmod(destination, stat.S_IMODE(source_file.mode))
+        os.utime(destination, ns=(source_file.atime_ns, source_file.mtime_ns))
+    finally:
+        if source_fd >= 0:
+            os.close(source_fd)
+
+
+def _copy_validated_source_tree(
+    source_dir: Path,
+    source_files: list[_ValidatedSourceFile],
+    stage: Path,
+) -> None:
+    for source_file in source_files:
+        relative = source_file.path.relative_to(source_dir)
+        destination = stage / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _copy_validated_source_file(source_file, destination)
+    if _validate_source_tree(source_dir) != source_files:
+        raise ValueError(f"Skill source changed during import: {source_dir}")
 
 
 def _validate_destination_tree(target_dir: Path, target_root: Path) -> None:
@@ -89,36 +195,41 @@ def _transactional_replace_skill(source_dir: Path, target_dir: Path, target_root
     """Stage a complete skill and swap it atomically at directory granularity."""
     source_files = _validate_source_tree(source_dir)
     _validate_destination_tree(target_dir, target_root)
-    stage = target_root / f".{target_dir.name}.manageroo-stage"
-    if stage.exists() or stage.is_symlink():
-        if stage.is_dir() and not stage.is_symlink():
-            shutil.rmtree(stage)
-        else:
-            stage.unlink()
+    stage = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.manageroo-stage-", dir=str(target_root)))
     backup: Path | None = None
     try:
-        stage.mkdir(parents=False, exist_ok=False)
-        for source_file in source_files:
-            relative = source_file.relative_to(source_dir)
-            destination = stage / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_file, destination)
+        _copy_validated_source_tree(source_dir, source_files, stage)
         if not (stage / "SKILL.md").is_file():
             raise ValueError(f"Staged skill is missing SKILL.md: {source_dir}")
         if target_dir.exists():
             backup = _backup_path(target_dir)
             target_dir.rename(backup)
-        stage.rename(target_dir)
-        return str(backup) if backup else ""
-    except Exception:
         try:
-            if stage.exists() and stage.is_dir() and not stage.is_symlink():
-                shutil.rmtree(stage)
+            stage.rename(target_dir)
+        except Exception as swap_exc:
+            restore_error: Exception | None = None
             if backup and backup.exists() and not target_dir.exists():
-                backup.rename(target_dir)
-        except OSError:
-            pass
-        raise
+                try:
+                    backup.rename(target_dir)
+                except Exception as exc:
+                    restore_error = exc
+            if restore_error is not None:
+                raise RuntimeError(
+                    f"Skill replacement failed: {swap_exc}; previous skill restoration failed: {restore_error}"
+                ) from swap_exc
+            raise
+        return str(backup) if backup else ""
+    finally:
+        if stage.exists() and stage != target_dir:
+            try:
+                if stage.is_dir() and not stage.is_symlink():
+                    shutil.rmtree(stage)
+                else:
+                    stage.unlink()
+            except OSError:
+                # Restoration is attempted before cleanup so a cleanup failure cannot
+                # leave the previous live skill missing or hide a restoration failure.
+                pass
 
 
 def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str]) -> dict[str, Any]:
@@ -174,8 +285,7 @@ def scan_skill_folder(source: Path, *, skills_dir: Path | None = None) -> dict[s
     seen: set[str] = set()
     candidates = [
         _candidate(path, source_root, target_root, seen)
-        for path in sorted(source_root.rglob("SKILL.md"))
-        if not path.is_symlink()
+        for path in _iter_skill_candidate_paths(source_root)
     ]
     counts: dict[str, int] = {}
     for item in candidates:
@@ -215,9 +325,7 @@ def _all_skill_candidates(roots: list[Path], target_root: Path) -> list[dict[str
         if not root.exists() or not root.is_dir() or root.is_symlink():
             continue
         seen: set[str] = set()
-        for path in sorted(root.rglob("SKILL.md")):
-            if path.is_symlink():
-                continue
+        for path in _iter_skill_candidate_paths(root):
             item = _candidate(path, root.resolve(), target_root, seen)
             item["root"] = str(root.resolve())
             item["in_target"] = path.resolve().is_relative_to(target_root)
@@ -243,7 +351,16 @@ def reconcile_skill_pack(
         if expanded not in source_roots:
             source_roots.append(expanded)
 
-    installed = install_core_helper_skills(target_root) if apply else {}
+    reuse_roots = [
+        root
+        for root in source_roots
+        if root != target_root and root.parent.name in {".agents", ".codex"}
+    ]
+    installed = (
+        install_core_helper_skills(target_root, search_roots=reuse_roots)
+        if apply
+        else {}
+    )
     import_reports: list[dict[str, Any]] = []
     if apply and include_external:
         for source in source_roots:
@@ -262,7 +379,12 @@ def reconcile_skill_pack(
         name: items for name, items in sorted(by_name.items())
         if len({item["sha256"] for item in items}) > 1 or len(items) > 1
     }
-    missing_bundled = [name for name in sorted(CORE_HELPER_SKILLS) if not (target_root / name / "SKILL.md").exists()]
+    missing_bundled = [
+        name
+        for name in sorted(CORE_HELPER_SKILLS)
+        if not str(installed.get(name, "")).strip()
+        or not Path(installed[name]).is_file()
+    ] if apply else []
     return {
         "ok": not missing_bundled if apply else True,
         "applied": apply,
@@ -276,8 +398,8 @@ def reconcile_skill_pack(
         "external_imports": import_reports,
         "next_command": "" if apply else shlex.join([PUBLIC_COMMAND, "skills", "reconcile", "--apply"]),
         "note": (
-            "Reconcile installs one active Manageroo-managed copy of each bundled skill under the target skills directory. "
-            "It reports duplicate names in other agent skill roots instead of deleting outside directories."
+            "Reconcile reuses an existing same-name skill across standard agent roots and installs only missing bundled skills. "
+            "It reports pre-existing duplicate names instead of deleting or manufacturing another copy."
         ),
     }
 

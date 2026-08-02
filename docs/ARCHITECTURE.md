@@ -12,6 +12,7 @@ CLI
      ├─ Source mirror
      ├─ Evidence retrieval and provenance ranking
      ├─ Context compiler
+     ├─ Automatic capability router and bounded task capsules
      ├─ Durable worker job store
      ├─ Agent adapter / worker pool
      ├─ Scope and command policies
@@ -100,6 +101,21 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
+Clawpatch release commits use the current successful patch-attempt record as the
+only source-path allowlist. Manageroo stages only those source paths after full
+project validation and exact `fixed` revalidation. It never builds a finding
+queue from reports, commits partial repairs, or mixes `.clawpatch/**` state into
+a repair commit. The cross-platform controller reviews all pending Clawpatch
+features, obtains one current open finding from `next --json`, records `show`
+for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
+The human triage template printed by `show` is not treated as executable and
+Manageroo never triages a finding as resolved. Failed attempts are preserved in
+verified named Git stashes, reopened through Clawpatch when necessary, and
+retried as the same current finding. A durable per-finding progress record lets
+a relaunched release sweep reconcile interrupted work against the existing
+`.clawpatch` queue. A 15-minute child-process watchdog kills the complete
+Clawpatch/Codex process group; there is no overall retry deadline.
+
 ## Parallel mapping and review, sequential implementation
 
 Tasks are dependency ordered and executed sequentially in the same isolated integration repository. This is slower than unconstrained parallel editing but avoids incompatible branches and hidden interface assumptions.
@@ -120,7 +136,7 @@ The surrounding stack provides first-class capabilities without taking control a
 These systems are capabilities, not completion authorities.
 
 ```text
-GitNexus / GBrain / AUTOREVIEW / Clawpatch / Obsidian
+GitNexus / GBrain / TruffleHog / AUTOREVIEW / Clawpatch / Obsidian
                         ↓
               evidence and capabilities
                         ↓
@@ -138,6 +154,38 @@ Manageroo writes `verification/acceptance-evidence.json` instead of auto-marking
 A user's host environment may contain additional skills and tools. Manageroo may use relevant capabilities when available, but it does not copy, delete, upgrade, or claim ownership of the entire host environment.
 
 The public Manageroo package must remain portable and free of private machine assumptions, personal paths, and user-specific configuration.
+
+Before every worker job, the capability router indexes local skill metadata,
+repository-local skills, and enabled local Codex plugin skill roots outside
+model context. It selects from controller-owned normal-language intent (never
+rendered packets or repository evidence), applies role/sandbox/interaction
+compatibility policy, injects only complete selected entrypoints within a hard
+budget, and records raw entrypoint plus full-tree digests as controller evidence.
+Generated task text can only rerank candidates already made eligible by the
+operator's original brief; it cannot activate or explicitly request another skill.
+The selected trees are rehashed immediately before every concrete provider
+launch, including fallback attempts. Codex catalog identities are refreshed at
+that same boundary before its ephemeral isolation profile is built.
+Codex workers receive a short-lived layered profile that removes the discovered
+global and repository catalog by canonical name and source path from model-visible
+context for that process. This is a deep module
+behind one automatic interface; workers and users do not implement routing at
+each call site.
+
+Controller policies and saved prose preferences are not ordinary task
+capabilities. In particular, `use-installed-skills-first` is native Manageroo
+behavior, while normal/Caveman/Caveman Curse remains installer-selected state.
+Skill-pack and token-mode installation is serialized with a permanent advisory
+file lock, so another process cannot enter while owner diagnostics are still
+being published. Existing lock inodes must be private regular files and are
+never truncated or rewritten.
+
+`release-ready` executes configured verification gates in a disposable local
+clone checked out at the exact candidate commit. After every gate, Manageroo
+rejects any HEAD, tracked, untracked, or ignored mutation before another gate
+can run or the release can be authorized. The repository's configured gate uses
+`verify_release.py --check-only` and an isolated bytecode cache; the normal
+operator invocation still refreshes `BUILD-VALIDATION.json`.
 
 ## Proactive learning, no silent self-mutation
 

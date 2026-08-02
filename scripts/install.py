@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import platform
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -22,15 +23,27 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from manageroo.branding import FULL_NAME, print_banner, status_line  # noqa: E402
 from manageroo.chiptune import ThemePlayback, play_once  # noqa: E402
+from manageroo.adapters.codex import codex_sandbox_preflight  # noqa: E402
 from manageroo.credits import format_special_thanks  # noqa: E402
-from manageroo.install_status import summarize_external_tools, uninstall_plan  # noqa: E402
+from manageroo.install_status import (  # noqa: E402
+    INSTALL_OWNERSHIP_MARKER,
+    LAUNCHER_MARKER,
+    summarize_external_tools,
+    uninstall_plan,
+)
+from manageroo.runner import CommandRunner  # noqa: E402
 from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
+from manageroo.trufflehog import (  # noqa: E402
+    TRUFFLEHOG_REFERENCE,
+    TRUFFLEHOG_VERSION,
+    install_trufflehog_binary,
+)
 from manageroo.util import atomic_write_json  # noqa: E402
 
 # Manageroo releases pin every third-party source that this installer can execute or copy.
 # Updating one of these pins is a source change that goes through Manageroo's own release proof.
 CODEX_NPM_PACKAGE = "@openai/codex@0.144.4"
-GBRAIN_COMMIT = "3cc34c92eec2540ef36d2513eff8d4e4bf73bad9"
+GBRAIN_COMMIT = "f84bfb57f2ab9294ea9c4bb33e40dec75dab41bf"
 GBRAIN_INSTALL_SOURCE = f"github:garrytan/gbrain#{GBRAIN_COMMIT}"
 GBRAIN_AGENT_INSTALL_PROTOCOL_URL = (
     f"https://raw.githubusercontent.com/garrytan/gbrain/{GBRAIN_COMMIT}/INSTALL_FOR_AGENTS.md"
@@ -40,7 +53,7 @@ GITNEXUS_VERSION = "1.6.9"
 GITNEXUS_NPM_PACKAGE = f"gitnexus@{GITNEXUS_VERSION}"
 GITNEXUS_REFERENCE = "https://github.com/abhigyanpatwari/GitNexus"
 OPENCLAW_AGENT_SKILLS_REPO = "https://github.com/openclaw/agent-skills.git"
-OPENCLAW_AGENT_SKILLS_COMMIT = "c4ab5e7f999cf504890986322473d3e7afd373af"
+OPENCLAW_AGENT_SKILLS_COMMIT = "4b79fc967ba4d7c5231f99dd27bb1372c83e9430"
 AUTOREVIEW_REFERENCE = (
     "https://github.com/openclaw/agent-skills/tree/"
     f"{OPENCLAW_AGENT_SKILLS_COMMIT}/skills/autoreview"
@@ -121,9 +134,18 @@ def command_version(executable: str) -> str:
         return f"unavailable: {exc}"
 
 
+def codex_sandbox_install_status(executable: str) -> dict:
+    preflight = codex_sandbox_preflight(executable, CommandRunner(), Path.home())
+    return {
+        "configured": bool(preflight.get("ok")),
+        "sandbox_preflight": preflight,
+        "next_commands": list(preflight.get("next_commands", [])),
+    }
+
+
 def _safe_cmd_value(path: Path) -> str:
     text = str(path)
-    if any(character in text for character in ('"', "\r", "\n")):
+    if any(character in text for character in ('"', "%", "\r", "\n")):
         raise SystemExit(f"Installer path contains characters unsafe for a Windows command launcher: {text!r}")
     return text
 
@@ -133,9 +155,10 @@ def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) 
     if os.name == "nt":
         launcher = bin_dir / "manageroo.cmd"
         launcher.write_text(
-            f'@set "PYTHONPATH={_safe_cmd_value(app_root)}"\r\n'
-            f'@set "MANAGEROO_PREFIX={_safe_cmd_value(prefix)}"\r\n'
-            f'@"{_safe_cmd_value(python)}" -m manageroo %*\r\n',
+            f"@rem {LAUNCHER_MARKER}\n"
+            f'@set "PYTHONPATH={_safe_cmd_value(app_root)}"\n'
+            f'@set "MANAGEROO_PREFIX={_safe_cmd_value(prefix)}"\n'
+            f'@"{_safe_cmd_value(python)}" -m manageroo %*\n',
             encoding="utf-8",
         )
     else:
@@ -145,6 +168,7 @@ def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) 
         python_value = shlex.quote(str(python))
         launcher.write_text(
             "#!/bin/sh\n"
+            f"# {LAUNCHER_MARKER}\n"
             f"export PYTHONPATH={app_value}${{PYTHONPATH:+:$PYTHONPATH}}\n"
             f"export MANAGEROO_PREFIX={prefix_value}\n"
             f"exec {python_value} -m manageroo \"$@\"\n",
@@ -282,7 +306,13 @@ def install_codex_latest(downloads: list[dict]) -> dict:
     prepend_tool_paths()
     after = command_version("codex")
     status_line("CODEX", after, ok=after != "not installed")
-    return {"path": shutil.which("codex"), "version": after, "source": CODEX_NPM_PACKAGE}
+    path = shutil.which("codex") or "codex"
+    return {
+        "path": path,
+        "version": after,
+        "source": CODEX_NPM_PACKAGE,
+        **codex_sandbox_install_status(path),
+    }
 
 
 def optional_run(
@@ -583,16 +613,6 @@ def install_gitnexus(downloads: list[dict]) -> dict:
     }
 
 
-def _backup_path(path: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    candidate = path.with_name(f"{path.name}.manageroo-backup-{stamp}")
-    index = 2
-    while candidate.exists():
-        candidate = path.with_name(f"{path.name}.manageroo-backup-{stamp}-{index}")
-        index += 1
-    return candidate
-
-
 def _run_checked(argv: list[str], *, cwd: Path, timeout: int = 300) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         argv,
@@ -680,7 +700,16 @@ def install_autoreview(downloads: list[dict], prefix: Path) -> dict:
             }
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
-            destination.rename(_backup_path(destination))
+            return {
+                "name": "autoreview",
+                "installed": False,
+                "configured": False,
+                "error": (
+                    "An incomplete AUTOREVIEW directory already exists. Manageroo left it "
+                    f"untouched: {destination}"
+                ),
+                "reference": AUTOREVIEW_REFERENCE,
+            }
         shutil.copytree(source, destination)
         downloads.append(
             {
@@ -701,6 +730,60 @@ def install_autoreview(downloads: list[dict], prefix: Path) -> dict:
         "path": str(script),
         "reference": AUTOREVIEW_REFERENCE,
         "pinned_commit": OPENCLAW_AGENT_SKILLS_COMMIT,
+    }
+
+
+def install_trufflehog(downloads: list[dict], bin_dir: Path) -> dict:
+    existing = shutil.which("trufflehog")
+    if existing:
+        return {
+            "name": "trufflehog",
+            "installed": True,
+            "configured": True,
+            "path": existing,
+            "version": command_version("trufflehog"),
+            "manageroo_owned": False,
+            "reference": TRUFFLEHOG_REFERENCE,
+            "pinned_version": TRUFFLEHOG_VERSION,
+        }
+    destination = bin_dir / ("trufflehog.exe" if os.name == "nt" else "trufflehog")
+    if destination.exists():
+        return {
+            "name": "trufflehog",
+            "installed": False,
+            "configured": False,
+            "error": f"Refusing to overwrite an unrecognized existing path: {destination}",
+            "reference": TRUFFLEHOG_REFERENCE,
+        }
+    try:
+        report = install_trufflehog_binary(destination)
+    except (OSError, RuntimeError, TimeoutError) as exc:
+        return {
+            "name": "trufflehog",
+            "installed": False,
+            "configured": False,
+            "error": f"Pinned TruffleHog installation failed: {exc}",
+            "reference": TRUFFLEHOG_REFERENCE,
+        }
+    downloads.append(
+        {
+            "tool": "trufflehog",
+            "method": "verified-github-release-archive",
+            "source": report["url"],
+            "asset": report["asset"],
+            "sha256": report["sha256"],
+            "immutable": True,
+        }
+    )
+    return {
+        "name": "trufflehog",
+        "installed": True,
+        "configured": True,
+        "path": str(destination),
+        "version": TRUFFLEHOG_VERSION,
+        "manageroo_owned": True,
+        "reference": TRUFFLEHOG_REFERENCE,
+        "pinned_version": TRUFFLEHOG_VERSION,
     }
 
 
@@ -890,10 +973,12 @@ def install_recommended_stack(
     prefix: Path,
     gbrain_lane: str,
     clawpatch_codex_login: str,
+    bin_dir: Path,
 ) -> list[dict]:
     return [
         install_gbrain(downloads, gbrain_lane),
         install_gitnexus(downloads),
+        install_trufflehog(downloads, bin_dir),
         install_autoreview(downloads, prefix),
         install_clawpatch(downloads, clawpatch_codex_login),
         install_obsidian(downloads, obsidian_method),
@@ -1135,6 +1220,9 @@ def main() -> int:
     external_tools: list[dict] = []
     with ThemePlayback(cue="install", enabled=not args.no_music, variant=69):
         prefix = args.prefix.expanduser().resolve()
+        bin_dir = args.bin_dir.expanduser().resolve()
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["PATH"] = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
         venv_root = prefix / "venv"
         app_root = prefix / "app"
         prefix.mkdir(parents=True, exist_ok=True)
@@ -1167,16 +1255,19 @@ def main() -> int:
         else:
             detected_agents = detect_coding_agents()
             if detected_agents:
-                external_tools.extend(
-                    {
+                records = []
+                for item in detected_agents:
+                    record = {
                         "name": item["preset"],
                         "display_name": item["name"],
                         "path": item["path"],
                         "version": command_version(item["executable"]),
                         "detected": True,
                     }
-                    for item in detected_agents
-                )
+                    if item["preset"] == "codex":
+                        record.update(codex_sandbox_install_status(item["path"]))
+                    records.append(record)
+                external_tools.extend(records)
             else:
                 external_tools.append(
                     {
@@ -1196,6 +1287,7 @@ def main() -> int:
                     prefix,
                     choose_gbrain_lane(args.gbrain_lane),
                     args.clawpatch_codex_login,
+                    bin_dir,
                 )
             )
         else:
@@ -1203,7 +1295,7 @@ def main() -> int:
                 {
                     "name": "recommended-stack",
                     "skipped": True,
-                    "reason": "Stack install skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, AUTOREVIEW, Clawpatch, and Obsidian.",
+                    "reason": "Stack install skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian.",
                 }
             )
 
@@ -1223,7 +1315,7 @@ def main() -> int:
         python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")
-        launcher = install_launcher(args.bin_dir.expanduser().resolve(), python, app_root, prefix)
+        launcher = install_launcher(bin_dir, python, app_root, prefix)
         installed_env = {"PYTHONPATH": str(app_root)}
         version = run([str(python), "-m", "manageroo", "--version"], cwd=prefix, env=installed_env)
         self_test_output = (
@@ -1232,6 +1324,17 @@ def main() -> int:
             else run([str(python), "-m", "manageroo", "self-test"], cwd=prefix, env=installed_env).stdout.strip()
         )
 
+        installation_id = secrets.token_hex(32)
+        ownership_marker = prefix / INSTALL_OWNERSHIP_MARKER
+        atomic_write_json(
+            ownership_marker,
+            {
+                "schema_version": 1,
+                "product": FULL_NAME,
+                "prefix": str(prefix),
+                "installation_id": installation_id,
+            },
+        )
         lock = {
             "product": FULL_NAME,
             "installed_at": datetime.now(timezone.utc).isoformat(),
@@ -1250,12 +1353,19 @@ def main() -> int:
             "helper_skills": helper_skills_record,
             "external_tools": external_tools,
             "stack_summary": stack_summary,
-            "uninstall_plan": uninstall_plan(prefix, args.bin_dir.expanduser().resolve()),
+            "installation_ownership": {
+                "schema_version": 1,
+                "marker": INSTALL_OWNERSHIP_MARKER,
+                "marker_sha256": hashlib.sha256(ownership_marker.read_bytes()).hexdigest(),
+                "installation_id": installation_id,
+            },
             "network_downloads": downloads,
             "dependency_policy": (
-                "Manageroo is the portable controller. Executable or copied third-party sources selected by this installer are pinned by the Manageroo release; operating-system package-manager installs remain explicit operator-selected lanes. GitNexus is first-class recommended repository intelligence in the full stack; GBrain, AUTOREVIEW, Clawpatch, and Obsidian are surrounding lanes. External tools never replace Manageroo completion authority."
+                "Manageroo is the portable controller. Executable or copied third-party sources selected by this installer are pinned by the Manageroo release; operating-system package-manager installs remain explicit operator-selected lanes. GitNexus is first-class recommended repository intelligence in the full stack; GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian are surrounding lanes. External tools never replace Manageroo completion authority."
             ),
         }
+        atomic_write_json(prefix / "install-lock.json", lock)
+        lock["uninstall_plan"] = uninstall_plan(prefix, args.bin_dir.expanduser().resolve())
         atomic_write_json(prefix / "install-lock.json", lock)
 
     status_line("INSTALLED", str(launcher), ok=True)

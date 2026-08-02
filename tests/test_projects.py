@@ -8,7 +8,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.cli import main
-from manageroo.projects import default_project_roots, selected_project_command, selected_project_paths
+from manageroo.projects import (
+    default_project_roots,
+    discover_projects,
+    selected_project_command,
+    selected_project_paths,
+)
 
 
 class ProjectDiscoveryTests(unittest.TestCase):
@@ -40,6 +45,41 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 by_name["already-ready"]["next_command"],
                 f"manageroo next {initialized}",
+            )
+
+    def test_projects_discovers_linked_worktree_with_file_form_git_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._git_repo(root, "main-repo")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=MANAGEROO Tests",
+                    "-c",
+                    "user.email=tests@local.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "fixture",
+                ],
+                cwd=repo,
+                check=True,
+            )
+            worktree = root / "linked-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-q", "-b", "linked-worktree", str(worktree)],
+                cwd=repo,
+                check=True,
+            )
+
+            report = discover_projects([root])
+
+            self.assertTrue((worktree / ".git").is_file())
+            self.assertCountEqual(
+                [Path(item["path"]) for item in report["projects"]],
+                [repo.resolve(), worktree.resolve()],
             )
 
     def test_projects_text_explains_the_picker_and_new_project_path(self):
@@ -132,14 +172,26 @@ class ProjectDiscoveryTests(unittest.TestCase):
             output = stdout.getvalue()
             self.assertEqual(code, 0)
             self.assertIn("PROJECT SETUP CHECKLIST", output)
+            self.assertIn("Discovery is read-only", output)
+            self.assertIn("Unselected projects are unchanged", output)
             self.assertIn("[ ] 1.", output)
             self.assertIn("Which projects do you want to add", output)
             self.assertIn("Add another project folder path", output)
             self.assertIn("[x] alpha", output)
             self.assertIn("[x] extra", output)
-            self.assertTrue((alpha / ".manageroo" / "config.toml").exists())
-            self.assertTrue((extra / ".manageroo" / "config.toml").exists())
+            for selected in (alpha, extra):
+                self.assertTrue((selected / ".manageroo" / "config.toml").exists())
+                self.assertTrue((selected / ".manageroo" / "PROJECT-MEMORY.md").exists())
+                self.assertTrue((selected / ".manageroo" / "PRODUCT-BRIEF.md").exists())
+                self.assertTrue((selected / "AGENTS.md").exists())
+                self.assertTrue((selected / "CONTEXT.md").exists())
+                self.assertTrue(
+                    (selected / ".agents" / "skills" / "uncle-matts-project-manageroo" / "SKILL.md").exists()
+                )
+                self.assertIn(f"Next: manageroo solo {selected}", output)
             self.assertFalse((beta / ".manageroo").exists())
+            self.assertFalse((beta / "AGENTS.md").exists())
+            self.assertFalse((beta / "CONTEXT.md").exists())
 
     def test_projects_add_can_create_missing_manual_project_path(self):
         with tempfile.TemporaryDirectory() as temp:

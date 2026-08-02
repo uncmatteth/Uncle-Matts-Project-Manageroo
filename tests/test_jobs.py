@@ -1,14 +1,71 @@
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
 from manageroo.context import ContextRequest
 from manageroo.errors import SafetyError
-from manageroo.jobs import JobStatus, JobStore
+from manageroo.jobs import AttemptStatus, JobStatus, JobStore
 from manageroo.util import atomic_write_json
 
 
 class JobStoreTests(unittest.TestCase):
+    def test_running_attempt_rejects_sequential_second_begin(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = JobStore(Path(temp))
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+
+            first = store.begin_attempt(job.id)
+
+            with self.assertRaisesRegex(SafetyError, "already has a running attempt"):
+                store.begin_attempt(job.id)
+            self.assertEqual(first.attempt_id, "001")
+            self.assertEqual(len(store.attempts_for(job.id)), 1)
+
+    def test_concurrent_begin_allows_exactly_one_running_attempt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            barrier = threading.Barrier(3)
+            attempts = []
+            errors = []
+
+            def begin() -> None:
+                try:
+                    contender = JobStore(run_root)
+                    barrier.wait(timeout=5)
+                    attempts.append(contender.begin_attempt(job.id))
+                except BaseException as exc:
+                    errors.append(exc)
+
+            threads = [threading.Thread(target=begin) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            barrier.wait(timeout=5)
+            for thread in threads:
+                thread.join(timeout=10)
+
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(len(attempts), 1)
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], SafetyError)
+            persisted = store.attempts_for(job.id)
+            self.assertEqual(len(persisted), 1)
+            self.assertEqual(persisted[0].attempt_id, attempts[0].attempt_id)
+            self.assertEqual(persisted[0].status, AttemptStatus.RUNNING.value)
+            self.assertEqual(store.load_job(job.id).status, JobStatus.RUNNING.value)
+
     def test_job_attempts_and_completion_are_persisted(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)

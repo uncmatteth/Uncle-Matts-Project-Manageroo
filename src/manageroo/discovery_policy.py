@@ -33,8 +33,10 @@ def decisions_fully_resolved(run_root: Path) -> bool:
     product = read_json(product_path)
     if not isinstance(product, dict):
         return False
-    decisions = list(product.get("blocking_decisions", []) or [])
-    return bool(decisions) and all(bool(item.get("chosen")) for item in decisions if isinstance(item, dict))
+    decisions, _ = _normalized_product_decisions(product)
+    return bool(decisions) and all(
+        bool(str(item.get("chosen") or "").strip()) for item in decisions
+    )
 
 
 def render_blocking_questions(run_root: Path) -> Path | None:

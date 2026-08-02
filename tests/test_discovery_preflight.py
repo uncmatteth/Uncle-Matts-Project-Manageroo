@@ -4,10 +4,25 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from manageroo.discovery_preflight import _repo_text, build_discovery_preflight
+from manageroo.discovery_preflight import _repo_text, _signal_present, build_discovery_preflight
 
 
 class DiscoveryPreflightTests(unittest.TestCase):
+    def test_repo_signals_treat_underscores_as_term_boundaries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / "signals.py").write_text(
+                "auth_required = True\npayment_processor = None\ndeploy_config = {}\n",
+                encoding="utf-8",
+            )
+            preflight = build_discovery_preflight(repo, "Update internal settings.", {"notes": []})
+
+        categories = {item["category"] for item in preflight["repo_signals"]}
+        self.assertIn("identity-and-access", categories)
+        self.assertIn("money-and-billing", categories)
+        self.assertIn("deployment-and-runtime", categories)
+        self.assertFalse(_signal_present("reauthorize", "auth"))
+
     def test_repo_signals_surface_relevant_unknown_unknown_categories(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

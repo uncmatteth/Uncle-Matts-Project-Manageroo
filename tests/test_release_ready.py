@@ -11,7 +11,7 @@ from manageroo.project import initialize_project
 from manageroo.release_proof_policy import source_tree_digest
 from manageroo.release_ready import format_release_ready, release_ready
 from manageroo.runner import CommandRunner
-from manageroo.util import atomic_write_json, sha256_file
+from manageroo.util import atomic_write_json, read_json, sha256_file
 
 
 class ReleaseReadyTests(unittest.TestCase):
@@ -135,6 +135,55 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertFalse(run_item["ok"])
             self.assertIn("does not match", run_item["detail"])
 
+    def test_release_ready_rejects_gate_mutation_inside_disposable_checkout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            gate_script = (
+                "from pathlib import Path; import subprocess; "
+                "Path('README.md').write_text('changed by gate\\n', encoding='utf-8'); "
+                "subprocess.run(['git', 'add', 'README.md'], check=True); "
+                "subprocess.run(['git', '-c', 'user.name=Gate', "
+                "'-c', 'user.email=gate@example.invalid', 'commit', '-q', "
+                "'-m', 'gate mutation'], check=True)"
+            )
+            add_check_gate(repo, gate_id="mutating", argv=[sys.executable, "-c", gate_script])
+            subprocess.run(["git", "add", ".manageroo/config.toml"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "add mutating gate"], cwd=repo, check=True)
+            self._completed_run(repo)
+            original_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+
+            report = self._release_ready(repo)
+
+            self.assertFalse(report["ok"], report)
+            gate_item = {item["name"]: item for item in report["items"]}[
+                "verification gates pass"
+            ]
+            self.assertFalse(gate_item["ok"])
+            self.assertIn("mutated its disposable release checkout", gate_item["detail"])
+            current_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            self.assertEqual(current_head, original_head)
+            self.assertEqual((repo / "README.md").read_text(encoding="utf-8"), "fixture\n")
+            status = subprocess.run(
+                ["git", "status", "--porcelain", "--untracked-files=all"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            )
+            self.assertEqual(status.stdout.strip(), "")
+
     def test_release_ready_rejects_tampered_final_patch(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
@@ -147,6 +196,33 @@ class ReleaseReadyTests(unittest.TestCase):
             run_item = {item["name"]: item for item in report["items"]}["completed Manageroo run"]
             self.assertFalse(run_item["ok"])
             self.assertIn("patch bytes", run_item["detail"])
+
+    def test_release_ready_rejects_malformed_completed_proof_without_raising(self):
+        cases = (
+            ("null evidence_paths", "evidence_paths", None),
+            ("null review", "review", None),
+            ("non-string patch path", "evidence_paths.patch", ["final.patch"]),
+            ("string applied state", "applied_to_source", "false"),
+        )
+        for label, field, value in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                run_root = self._completed_run(repo)
+                result_path = run_root / "delivery" / "final-result.json"
+                proof = read_json(result_path)
+                if field == "evidence_paths.patch":
+                    proof["evidence_paths"]["patch"] = value
+                else:
+                    proof[field] = value
+                atomic_write_json(result_path, proof)
+
+                report = self._release_ready(repo)
+
+                self.assertFalse(report["ok"])
+                run_proof = report["manageroo_run"]
+                self.assertFalse(run_proof["ok"])
+                self.assertIn("invalid schema", run_proof["detail"])
+                self.assertIn(field, run_proof["detail"])
 
     def test_release_ready_fails_without_completed_manageroo_run(self):
         with tempfile.TemporaryDirectory() as temp:

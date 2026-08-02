@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
+from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
 from .project import git_root
 from .util import atomic_write_json, atomic_write_text, read_json, sha256_file, sha256_text, utc_now
@@ -73,7 +74,7 @@ def _lock_markdown(lock: dict[str, Any]) -> str:
         "## Scope Boundaries", "", *_bullets(lock.get("scopes", [])), "",
         "## Open Questions", "", *_bullets(lock.get("questions", [])), "",
         "## Anti-BS Rule", "",
-        "- Do not claim best, smartest, perfect, guaranteed complete, production-ready, or 100% done unless the evidence is listed here or in the current run report.",
+        "- Do not claim best, smartest, perfect, guaranteed complete, production-ready, or 100% done unless affirmative evidence is listed here or in the current run report.",
         "- Ordinary uses of words such as ready, complete, or finished are not automatically completion claims.",
         "- If evidence is missing, say it is a recommendation or partial status.",
         "- Current disk, repo, command output, and locked artifacts beat memory and old chat.", "",
@@ -98,12 +99,14 @@ def _lock_payload(repo: Path, *, want: str = "", outcomes: list[str] | None = No
 def capture_intent_lock(repo_path: Path, *, want: str = "", outcomes: list[str] | None = None, must_not: list[str] | None = None, proof: list[str] | None = None, corrections: list[str] | None = None, rejected: list[str] | None = None, questions: list[str] | None = None, scopes: list[str] | None = None, source: str = "", force: bool = False) -> dict[str, Any]:
     repo = git_root(repo_path)
     path = intent_lock_path(repo)
-    if path.exists() and not force:
-        raise ConfigurationError(f"Intent lock already exists: {path}. Use `--force` only when replacing the current locked intent.")
-    lock = _lock_payload(repo, want=want, outcomes=outcomes, must_not=must_not, proof=proof, corrections=corrections, rejected=rejected, questions=questions, scopes=scopes, source=source)
-    atomic_write_json(path, lock)
-    markdown_path = intent_lock_markdown_path(repo)
-    atomic_write_text(markdown_path, _lock_markdown(lock))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with config_mutation_lock(path):
+        if path.exists() and not force:
+            raise ConfigurationError(f"Intent lock already exists: {path}. Use `--force` only when replacing the current locked intent.")
+        lock = _lock_payload(repo, want=want, outcomes=outcomes, must_not=must_not, proof=proof, corrections=corrections, rejected=rejected, questions=questions, scopes=scopes, source=source)
+        atomic_write_json(path, lock)
+        markdown_path = intent_lock_markdown_path(repo)
+        atomic_write_text(markdown_path, _lock_markdown(lock))
     return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(markdown_path), "lock_hash": sha256_file(path), "next_command": f"{PUBLIC_COMMAND} compact audit {repo} --summary SUMMARY.md", "lock": lock}
 
 

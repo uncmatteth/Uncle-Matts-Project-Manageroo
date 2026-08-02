@@ -99,7 +99,7 @@ class StackDoctorTests(unittest.TestCase):
         self.assertFalse(payload["executes_changes"])
         self.assertEqual(calls, [])
         by_name = {item["name"]: item for item in payload["items"]}
-        for name in ("gbrain", "gitnexus", "autoreview", "clawpatch", "obsidian", "codex"):
+        for name in ("gbrain", "gitnexus", "trufflehog", "autoreview", "clawpatch", "obsidian", "codex"):
             with self.subTest(name=name):
                 self.assertFalse(by_name[name]["installed"])
                 self.assertEqual(by_name[name]["status"], "missing")
@@ -109,7 +109,9 @@ class StackDoctorTests(unittest.TestCase):
             home = Path(temp)
             script = home / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview"
             script.mkdir(parents=True)
-            report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=home)
+            which = lambda name: "/usr/bin/trufflehog" if name == "trufflehog" else None
+            runner = lambda argv, _timeout: {"ok": True, "exit_code": 0, "output": "trufflehog 3.96.0"} if Path(argv[0]).name == "trufflehog" else {}
+            report = stack_doctor(which=which, runner=runner, home=home)
             autoreview = next(item for item in report["items"] if item["name"] == "autoreview")
             self.assertFalse(autoreview["configured"])
             self.assertEqual(autoreview["status"], "missing")
@@ -118,15 +120,28 @@ class StackDoctorTests(unittest.TestCase):
             script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             if os.name != "nt":
                 script.chmod(0o644)
-                report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=home)
+                report = stack_doctor(which=which, runner=runner, home=home)
                 autoreview = next(item for item in report["items"] if item["name"] == "autoreview")
                 self.assertFalse(autoreview["configured"])
                 script.chmod(0o755)
 
-            report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=home)
+            report = stack_doctor(which=which, runner=runner, home=home)
             autoreview = next(item for item in report["items"] if item["name"] == "autoreview")
             self.assertTrue(autoreview["configured"])
             self.assertEqual(autoreview["status"], "ok")
+
+    def test_autoreview_is_not_configured_without_trufflehog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            script = home / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview"
+            script.parent.mkdir(parents=True)
+            script.write_text("#!/bin/sh\n", encoding="utf-8")
+            script.chmod(0o755)
+            report = stack_doctor(which=lambda _name: None, runner=lambda _argv, _timeout: {}, home=home)
+        autoreview = next(item for item in report["items"] if item["name"] == "autoreview")
+        self.assertFalse(autoreview["configured"])
+        self.assertEqual(autoreview["status"], "needs_action")
+        self.assertIn("TruffleHog", autoreview["detail"])
 
     def test_codex_login_probe_is_shared_with_clawpatch_dependency_status(self):
         calls: dict[tuple[str, ...], int] = {}

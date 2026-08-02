@@ -1,10 +1,21 @@
+import hashlib
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from manageroo.evidence_policy import install_evidence_policy
+from manageroo.adapters.mock import MockAdapter
+from manageroo.errors import SafetyError
+from manageroo.evidence_artifact_guard import (
+    _validate_existing_evidence,
+    install_evidence_artifact_guard,
+)
+from manageroo.evidence_policy import _bundle_from_discovery, install_evidence_policy
+from manageroo.orchestrator import Orchestrator
+from manageroo.project import initialize_project
 
 
 class _Artifacts:
@@ -27,12 +38,17 @@ class _FakeOrchestrator:
         self.run_root = run_root
         self.artifacts = _Artifacts(run_root / "artifacts")
         self.call_payloads = []
+        self.external_records = []
 
     def _artifact_json(self, relative: str):
-        return self.artifacts.saved.get(relative)
+        saved = getattr(self.artifacts, "saved", None)
+        if isinstance(saved, dict):
+            return saved.get(relative)
+        path = self.artifacts.root / relative
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
     def _external_intelligence(self, brief: str, inventory: dict):
-        return {"summary": {}, "records": [], "note": "base"}
+        return {"summary": {}, "records": list(self.external_records), "note": "base"}
 
     def _call(self, *args, **kwargs):
         self.call_payloads.append((args, kwargs))
@@ -46,6 +62,7 @@ class EvidencePolicyTests(unittest.TestCase):
 
         module = SimpleNamespace(Orchestrator=Fake)
         install_evidence_policy(module)
+        install_evidence_artifact_guard(module)
         return module.Orchestrator
 
     def test_discovery_writes_ranked_evidence_and_planning_call_receives_bounded_items(self):
@@ -90,6 +107,173 @@ class EvidencePolicyTests(unittest.TestCase):
             instance._external_intelligence("relevant project", {})
             result = instance._call(role="implementer", metadata={})
             self.assertNotIn("_evidence_items", result["metadata"])
+
+    def test_persisted_contradictions_require_valid_distinct_referenced_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "evidence.json"
+            first = "first evidence"
+            second = "second evidence"
+            first_hash = hashlib.sha256(first.encode("utf-8")).hexdigest()
+            second_hash = hashlib.sha256(second.encode("utf-8")).hexdigest()
+            payload = {
+                "schema_version": 1,
+                "query": "brief",
+                "controller_authority": True,
+                "items": [
+                    {
+                        "content": first,
+                        "content_sha256": first_hash,
+                        "authority": "current_repo",
+                    },
+                    {
+                        "content": second,
+                        "content_sha256": second_hash,
+                        "authority": "historical",
+                    },
+                ],
+                "contradictions": [],
+            }
+            valid = {
+                "claim_key": "shared-claim",
+                "evidence_hashes": [first_hash, second_hash],
+                "preferred_hash": first_hash,
+                "reason": "Current repository evidence is preferred.",
+            }
+            malformed = {
+                "empty": {**valid, "evidence_hashes": []},
+                "singleton": {**valid, "evidence_hashes": [first_hash]},
+                "duplicate": {**valid, "evidence_hashes": [first_hash, first_hash]},
+                "missing": {**valid, "evidence_hashes": [first_hash, "0" * 64]},
+                "preferred-out-of-set": {**valid, "preferred_hash": "0" * 64},
+                "claim-key-type": {**valid, "claim_key": []},
+                "reason-type": {**valid, "reason": []},
+            }
+
+            payload["contradictions"] = [valid]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            _validate_existing_evidence(path, "brief")
+
+            for name, contradiction in malformed.items():
+                with self.subTest(name=name):
+                    payload["contradictions"] = [contradiction]
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    with self.assertRaises(SafetyError):
+                        _validate_existing_evidence(path, "brief")
+
+    def test_provider_display_names_cannot_grant_current_repository_authority(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = root / "run"
+            repo.mkdir()
+            run_root.mkdir()
+            instance = _FakeOrchestrator(repo, run_root)
+            records = [
+                {
+                    "name": name,
+                    "enabled": True,
+                    "ok": True,
+                    "stdout": f"untrusted evidence from {name}",
+                }
+                for name in ("gitnexus-untrusted", "gitnexus-lookalike", "gitnexus-query")
+            ]
+
+            bundle = _bundle_from_discovery(instance, "provider authority", {"records": records})
+
+            self.assertEqual(len(bundle.items), 3)
+            for item in bundle.items:
+                self.assertEqual(item.authority, "external_knowledge")
+                self.assertEqual(item.confidence, 0.70)
+                self.assertEqual(item.freshness, 0.70)
+
+    def test_controller_owned_provider_id_grants_configured_authority(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = root / "run"
+            repo.mkdir()
+            run_root.mkdir()
+            instance = _FakeOrchestrator(repo, run_root)
+            record = {
+                "name": "display-name-is-not-authority",
+                "provider_id": "manageroo.discovery.gitnexus-query.v1",
+                "enabled": True,
+                "ok": True,
+                "stdout": "trusted repository evidence",
+            }
+
+            bundle = _bundle_from_discovery(
+                instance,
+                "provider authority",
+                {"records": [record]},
+            )
+
+            self.assertEqual(len(bundle.items), 1)
+            self.assertEqual(bundle.items[0].authority, "current_repo")
+            self.assertEqual(bundle.items[0].confidence, 0.92)
+            self.assertEqual(bundle.items[0].freshness, 1.0)
+
+    def test_repeated_discovery_replaces_stale_repository_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir(parents=True)
+            for argv in (
+                ["git", "init", "-q", "-b", "main"],
+                ["git", "config", "user.name", "MANAGEROO Tests"],
+                ["git", "config", "user.email", "tests@local.invalid"],
+            ):
+                subprocess.run(argv, cwd=repo, check=True)
+            snapshot = repo / "snapshot.txt"
+            snapshot.write_text("old repository snapshot\n", encoding="utf-8")
+            subprocess.run(["git", "add", "snapshot.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
+            initialize_project(repo, agent="mock")
+            config = repo / ".manageroo" / "config.toml"
+            command = [
+                sys.executable,
+                "-c",
+                "from pathlib import Path; import sys; print(Path(sys.argv[1]).read_text())",
+                "{repo}/snapshot.txt",
+            ]
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "gitnexus_query_command = []",
+                    "gitnexus_query_command = "
+                    + "[" + ", ".join(json.dumps(item) for item in command) + "]",
+                ),
+                encoding="utf-8",
+            )
+
+            instance = Orchestrator(repo, adapter=MockAdapter())
+            instance.workspace = instance.mirror.create()
+            inventory = {"files": []}
+            instance._external_intelligence("repository architecture", inventory)
+            self.assertEqual(
+                instance._planning_evidence_items[0]["content"],
+                "old repository snapshot",
+            )
+
+            snapshot.write_text("new repository snapshot\n", encoding="utf-8")
+            continued = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=instance.run_id,
+                continue_existing=True,
+            )
+            continued._external_intelligence("repository architecture", inventory)
+
+            persisted = json.loads(
+                (continued.artifacts.root / "discovery" / "evidence.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(persisted["schema_version"], 2)
+            self.assertEqual(len(persisted["discovery_identity"]), 64)
+            self.assertEqual(persisted["items"][0]["content"], "new repository snapshot")
+            self.assertEqual(persisted["items"][0]["authority"], "current_repo")
+            self.assertEqual(
+                continued._planning_evidence_items[0]["content"],
+                "new repository snapshot",
+            )
 
 
 if __name__ == "__main__":

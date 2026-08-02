@@ -86,6 +86,28 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertGreater(payload["jobs"]["completed_jobs"], 0)
             self.assertEqual(payload["jobs"]["failed_attempts"], 0)
 
+    def test_saved_installer_token_mode_is_injected_exactly_once_per_worker_packet(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            marker = "MANAGEROO-SAVED-TOKEN-MODE-MARKER"
+            with patch("manageroo.orchestrator.token_mode_prompt", return_value=marker):
+                result = Orchestrator(
+                    repo,
+                    adapter=MockAdapter(),
+                    capability_roots=[],
+                ).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+            run_root = Path(result["evidence_paths"]["run_root"])
+            prompts = list((run_root / "packets").glob("**/prompt.md"))
+            prompts.extend((run_root / "review-packets").glob("**/prompt.md"))
+            self.assertTrue(prompts)
+            for prompt in prompts:
+                self.assertEqual(prompt.read_text(encoding="utf-8").count(marker), 1, prompt)
+
     def test_run_continue_uses_continue_id_without_resume_command(self):
         help_stdout = io.StringIO()
         with redirect_stdout(help_stdout), self.assertRaises(SystemExit):
