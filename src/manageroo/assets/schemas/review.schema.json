@@ -1,4 +1,5 @@
 {
+  "additionalProperties": false,
   "properties": {
     "findings": {
       "items": {
@@ -11,9 +12,6 @@
           },
           "category": {
             "type": "string"
-          },
-          "confidence": {
-            "type": "number"
           },
           "end_line": {
             "type": "integer"
@@ -46,7 +44,6 @@
         "required": [
           "id",
           "severity",
-          "confidence",
           "category",
           "path",
           "start_line",
@@ -56,7 +53,8 @@
           "action",
           "blocking"
         ],
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false
       },
       "type": "array"
     },

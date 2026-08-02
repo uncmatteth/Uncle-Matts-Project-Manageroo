@@ -2,11 +2,57 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from manageroo.assets import asset_path
 from manageroo.errors import ValidationError
 from manageroo.review import validate_review_evidence
+from manageroo.schema import load_schema, validate
 
 
 class ReviewTests(unittest.TestCase):
+    def test_review_contract_is_binary_and_rejects_confidence_scores(self):
+        schema = load_schema(asset_path("schemas/review.schema.json"))
+        validate(
+            {"status": "approved", "summary": "No blocking defects.", "findings": []},
+            schema,
+        )
+
+        with self.assertRaisesRegex(ValidationError, "unknown property 'overall_confidence'"):
+            validate(
+                {
+                    "status": "approved",
+                    "summary": "No blocking defects.",
+                    "findings": [],
+                    "overall_confidence": 0.94,
+                },
+                schema,
+            )
+
+        finding = {
+            "id": "review-1",
+            "severity": "high",
+            "category": "correctness",
+            "path": "a.py",
+            "start_line": 1,
+            "end_line": 1,
+            "quote": "broken",
+            "reason": "The normal path fails.",
+            "action": "Repair the normal path.",
+            "blocking": True,
+        }
+        validate(
+            {"status": "changes-required", "summary": "Blocking defect.", "findings": [finding]},
+            schema,
+        )
+        with self.assertRaisesRegex(ValidationError, "unknown property 'confidence'"):
+            validate(
+                {
+                    "status": "changes-required",
+                    "summary": "Blocking defect.",
+                    "findings": [{**finding, "confidence": 0.94}],
+                },
+                schema,
+            )
+
     def test_valid_finding(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
