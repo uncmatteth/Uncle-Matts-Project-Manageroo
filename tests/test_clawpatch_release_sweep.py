@@ -304,6 +304,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     def test_fix_flow_uses_only_execute_fix_contract(
         self, _version, _processes, json_clawpatch, execute_fix, final_closure
     ):
+        progress_events = []
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             self.init_repo(repo)
@@ -330,7 +331,12 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             )
             final_closure.return_value = {"pushed": False}
 
-            report = release_sweep(repo, apply=True, branch="current")
+            report = release_sweep(
+                repo,
+                apply=True,
+                branch="current",
+                progress=progress_events.append,
+            )
 
         self.assertEqual(report["finding_count"], 1)
         self.assertEqual(execute_fix.call_args.args[1], "fnd_one")
@@ -339,6 +345,12 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             "clawpatch triage --finding fnd_one --status <status>",
         )
         self.assertNotIn("publish_clawpatch_state", execute_fix.call_args.kwargs)
+        finding_event = next(event for event in progress_events if event["phase"] == "finding")
+        self.assertEqual(finding_event["current"], 1)
+        self.assertEqual(finding_event["total"], 1)
+        self.assertEqual(finding_event["finding_id"], "fnd_one")
+        self.assertEqual(finding_event["command"], "clawpatch show --finding fnd_one")
+        self.assertEqual(finding_event["inspection"]["finding"]["id"], "fnd_one")
 
     @patch("manageroo.clawpatch_release.time.sleep")
     @patch("manageroo.clawpatch_release._reopen_current_finding")
@@ -365,6 +377,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         reopen,
         sleep,
     ):
+        progress_events = []
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             self.init_repo(repo)
@@ -406,7 +419,12 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             reopen.return_value = inspected
             final_closure.return_value = {"pushed": False}
 
-            report = release_sweep(repo, apply=True, branch="current")
+            report = release_sweep(
+                repo,
+                apply=True,
+                branch="current",
+                progress=progress_events.append,
+            )
 
         self.assertTrue(report["ok"])
         self.assertEqual(report["finding_count"], 1)
@@ -415,6 +433,15 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         reopen.assert_called_once_with(repo.resolve(), "fnd_one", env=json_clawpatch.call_args_list[0].kwargs["env"])
         self.assertIn(call(1), sleep.call_args_list)
         final_closure.assert_called_once()
+        retry_event = next(event for event in progress_events if event["phase"] == "retry")
+        self.assertEqual(retry_event["current"], 1)
+        self.assertEqual(retry_event["total"], 1)
+        self.assertEqual(retry_event["finding_id"], "fnd_one")
+        self.assertEqual(retry_event["retry"], 1)
+        self.assertEqual(
+            [event["finding_id"] for event in progress_events if event["phase"] == "finding"],
+            ["fnd_one"],
+        )
 
     @patch("manageroo.clawpatch_release._next_finding")
     @patch("manageroo.clawpatch_release._json_clawpatch")

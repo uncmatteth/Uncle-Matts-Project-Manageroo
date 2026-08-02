@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 361 | Project metadata or handoff |
 | `AGENTS.md` | 647 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 122276 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 122684 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8282 | Project metadata or handoff |
@@ -14,7 +14,7 @@ This manifest is generated from the release source tree.
 | `LICENSE` | 1067 | Project metadata or handoff |
 | `LOCAL_SETUP.md` | 5333 | Project metadata or handoff |
 | `PUBLISH_TO_GITHUB.md` | 3883 | Project metadata or handoff |
-| `README.md` | 28236 | Project metadata or handoff |
+| `README.md` | 28843 | Project metadata or handoff |
 | `SECURITY.md` | 719 | Project metadata or handoff |
 | `clawpatch.config.json` | 724 | Project metadata or handoff |
 | `docs/00_START_HERE.md` | 8412 | Operator and engineering documentation |
@@ -30,7 +30,7 @@ This manifest is generated from the release source tree.
 | `docs/DOCUMENT_LANE.md` | 3286 | Operator and engineering documentation |
 | `docs/ENFORCEMENT_MATRIX.md` | 6223 | Operator and engineering documentation |
 | `docs/EVIDENCE_RETRIEVAL.md` | 4547 | Operator and engineering documentation |
-| `docs/EXTERNAL_INTEGRATIONS.md` | 12381 | Operator and engineering documentation |
+| `docs/EXTERNAL_INTEGRATIONS.md` | 13079 | Operator and engineering documentation |
 | `docs/HOST_INTEGRATION.md` | 1814 | Operator and engineering documentation |
 | `docs/HOST_SKILL_ECOSYSTEM.md` | 6452 | Operator and engineering documentation |
 | `docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md` | 5487 | Operator and engineering documentation |
@@ -54,7 +54,7 @@ This manifest is generated from the release source tree.
 | `examples/product-brief-repair.md` | 888 | Example product input |
 | `install.ps1` | 5485 | Installation, validation, or packaging |
 | `install.sh` | 4782 | Installation, validation, or packaging |
-| `pyproject.toml` | 1204 | Project metadata or handoff |
+| `pyproject.toml` | 1262 | Project metadata or handoff |
 | `scripts/finalize_gitnexus.py` | 4307 | Installation, validation, or packaging |
 | `scripts/install.ps1` | 99 | Installation, validation, or packaging |
 | `scripts/install.py` | 54289 | Installation, validation, or packaging |
@@ -175,7 +175,7 @@ This manifest is generated from the release source tree.
 | `src/manageroo/chiptune.py` | 10452 | Harness runtime source |
 | `src/manageroo/chiptune_policy.py` | 1439 | Harness runtime source |
 | `src/manageroo/clawpatch_batch.py` | 779 | Harness runtime source |
-| `src/manageroo/clawpatch_release.py` | 44045 | Harness runtime source |
+| `src/manageroo/clawpatch_release.py` | 46550 | Harness runtime source |
 | `src/manageroo/cli.py` | 57219 | Harness runtime source |
 | `src/manageroo/config.py` | 9690 | Harness runtime source |
 | `src/manageroo/config_lock.py` | 3088 | Harness runtime source |
@@ -260,7 +260,7 @@ This manifest is generated from the release source tree.
 | `tests/test_clawpatch_batch.py` | 708 | Deterministic harness test |
 | `tests/test_clawpatch_completion_contracts.py` | 6150 | Deterministic harness test |
 | `tests/test_clawpatch_regressions.py` | 12583 | Deterministic harness test |
-| `tests/test_clawpatch_release_sweep.py` | 24546 | Deterministic harness test |
+| `tests/test_clawpatch_release_sweep.py` | 25727 | Deterministic harness test |
 | `tests/test_clawpatch_remaining_regressions.py` | 7762 | Deterministic harness test |
 | `tests/test_cli_checks.py` | 3364 | Deterministic harness test |
 | `tests/test_cli_entrypoint_smoke.py` | 2182 | Deterministic harness test |

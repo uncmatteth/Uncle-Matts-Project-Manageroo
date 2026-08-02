@@ -154,6 +154,10 @@ Clawpatch findings remain command-owned. Manageroo must not hand them to a worke
 For final project closeout, use Manageroo's cross-platform native sweep instead of manually copying one finding at a time:
 
 ```bash
+# Dedicated external terminal command with live [current/total] output, same-finding retries,
+# exact-path commits, and a verified push after each repair
+clawpatch-supervise --repo . --branch current --push each
+
 # Read-only plan
 manageroo clawpatch release-sweep --repo .
 
@@ -166,6 +170,8 @@ manageroo clawpatch release-sweep --repo . --apply --push final
 # Trusted code on an already-isolated host: avoid a nested Codex sandbox
 manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
 ```
+
+`clawpatch-supervise` is a separate installed console command for an operator who wants to launch and watch the workflow directly rather than enter through the `manageroo` command tree. It prints the full current inspection, the exact finding-scoped ClawPatch command, the stable queue position during retries, the resulting commit, and a 30-second heartbeat during long-running child work. It uses the same durable reconciliation and command-owned repair controller described below.
 
 The sweep first proves repository, process, Git, status, and lock state. It maps
 the repository, asks Clawpatch to review every pending feature, and verifies a

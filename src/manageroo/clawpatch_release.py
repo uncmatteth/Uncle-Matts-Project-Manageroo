@@ -9,7 +9,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, Callable
 
 from .branding import PROJECT_DIR
 from .config import load_config
@@ -867,6 +867,7 @@ def release_sweep(
     push_mode: str = "none",
     publish_clawpatch_state: bool = False,
     trusted_host_codex_sandbox_bypass: bool = False,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Automate Clawpatch's documented one-finding workflow without automatic triage."""
     root = _git_root(repo)
@@ -894,41 +895,41 @@ def release_sweep(
         return report
 
     _require_no_process(root)
-    progress = _load_release_progress(root)
+    durable_progress = _load_release_progress(root)
     preexisting_source = _source_paths(root)
-    if progress is not None:
-        if progress["branch"] != current_branch:
+    if durable_progress is not None:
+        if durable_progress["branch"] != current_branch:
             raise SafetyError(
                 "Interrupted Clawpatch release progress is bound to branch "
-                f"{progress['branch']!r}, not {current_branch!r}."
+                f"{durable_progress['branch']!r}, not {current_branch!r}."
             )
-        if progress["head_before"] != head_before:
+        if durable_progress["head_before"] != head_before:
             subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
-            expected = f"clawpatch fix: {progress['finding_id']}"
+            expected = f"clawpatch fix: {durable_progress['finding_id']}"
             if preexisting_source or subject != expected:
                 raise SafetyError(
                     "Interrupted Clawpatch release progress no longer matches the current Git HEAD."
                 )
             _clear_release_progress(root)
-            progress = None
-    if preexisting_source and progress is None:
+            durable_progress = None
+    if preexisting_source and durable_progress is None:
         raise SafetyError("Clawpatch release sweep found pre-existing source changes: " + ", ".join(preexisting_source))
-    if preexisting_source and progress is not None:
+    if preexisting_source and durable_progress is not None:
         _preserve_unresolved_source(
             root,
-            str(progress["finding_id"]),
+            str(durable_progress["finding_id"]),
             "controller-interrupted",
         )
 
     selected_branch = current_branch
-    if progress is not None and branch not in {"auto", "current", current_branch}:
+    if durable_progress is not None and branch not in {"auto", "current", current_branch}:
         raise SafetyError(
             "Cannot create a different branch while resuming interrupted Clawpatch release progress."
         )
-    if progress is None and branch == "auto" and current_branch in {"main", "master", "HEAD"}:
+    if durable_progress is None and branch == "auto" and current_branch in {"main", "master", "HEAD"}:
         selected_branch = "clawpatch/release-sweep-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
-    elif progress is None and branch not in {"auto", "current"}:
+    elif durable_progress is None and branch not in {"auto", "current"}:
         selected_branch = branch
         _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
     elif branch == "current" and current_branch == "HEAD":
@@ -954,11 +955,21 @@ def release_sweep(
     review = _review_all_features(root, env=env, mapped_features=mapped_features)
     report["map"] = mapped
     report["review"] = review
+    open_findings = status.get("openFindings")
+    reviewed_findings = review.get("review", {}).get("findings", 0)
+    total_findings = (
+        open_findings
+        if isinstance(open_findings, int) and not isinstance(open_findings, bool)
+        else reviewed_findings
+    )
+    if not isinstance(total_findings, int) or isinstance(total_findings, bool) or total_findings < 0:
+        raise SafetyError("Clawpatch returned an invalid open-finding count for progress reporting.")
+    current_finding = 0
 
     pushed = False
     recovered_finding: tuple[str, dict[str, Any], dict[str, Any]] | None = None
-    if progress is not None:
-        recovery_id = str(progress["finding_id"])
+    if durable_progress is not None:
+        recovery_id = str(durable_progress["finding_id"])
         recovery_show = _show_finding(root, recovery_id, env=env, required_status=None)
         recovery_status = recovery_show["finding"].get("status")
         if recovery_status == "false-positive":
@@ -971,7 +982,7 @@ def release_sweep(
                 }
             )
             _clear_release_progress(root)
-            progress = None
+            durable_progress = None
         else:
             recovered_inspection = _reopen_current_finding(root, recovery_id, env=env)
             recovered_finding = (
@@ -989,9 +1000,21 @@ def release_sweep(
             if finding_id is None:
                 break
             inspected = _show_finding(root, finding_id, env=env, required_status="open")
+        current_finding += 1
+        if progress is not None:
+            progress(
+                {
+                    "phase": "finding",
+                    "current": current_finding,
+                    "total": total_findings,
+                    "finding_id": finding_id,
+                    "command": f"clawpatch show --finding {finding_id}",
+                    "inspection": inspected,
+                }
+            )
         retry_count = (
-            int(progress["retry_count"])
-            if progress is not None and progress["finding_id"] == finding_id
+            int(durable_progress["retry_count"])
+            if durable_progress is not None and durable_progress["finding_id"] == finding_id
             else 0
         )
         while True:
@@ -1004,6 +1027,17 @@ def release_sweep(
                 retry_count=retry_count,
                 phase="fix",
             )
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "fix",
+                        "current": current_finding,
+                        "total": total_findings,
+                        "finding_id": finding_id,
+                        "retry": retry_count,
+                        "command": f"clawpatch fix --finding {finding_id}",
+                    }
+                )
             try:
                 record, pushed = _execute_fix(
                     root,
@@ -1027,11 +1061,23 @@ def release_sweep(
                 if exc.outcome == "false-positive":
                     report["false_positives"].append(failed_record)
                     _clear_release_progress(root)
-                    progress = None
+                    durable_progress = None
                     break
                 retry_count += 1
                 failed_record["retry_count"] = retry_count
                 report["retries"].append(failed_record)
+                if progress is not None:
+                    progress(
+                        {
+                            "phase": "retry",
+                            "current": current_finding,
+                            "total": total_findings,
+                            "finding_id": finding_id,
+                            "retry": retry_count,
+                            "outcome": exc.outcome,
+                            "error": str(exc),
+                        }
+                    )
                 _write_release_progress(
                     root,
                     finding_id=finding_id,
@@ -1042,12 +1088,22 @@ def release_sweep(
                 )
                 inspected = _reopen_current_finding(root, finding_id, env=env)
                 time.sleep(min(2 ** min(retry_count - 1, 6), 60))
-                progress = _load_release_progress(root)
+                durable_progress = _load_release_progress(root)
                 continue
             _clear_release_progress(root)
-            progress = None
+            durable_progress = None
             record["queue"] = queue
             report["results"].append(record)
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "fixed",
+                        "current": current_finding,
+                        "total": total_findings,
+                        "finding_id": finding_id,
+                        "commit": record.get("commit", ""),
+                    }
+                )
             break
 
     closure = _final_closure(
