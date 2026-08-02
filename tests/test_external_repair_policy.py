@@ -60,45 +60,6 @@ def fake_orchestrator(root: Path, source: Path, run_id: str, command):
 
 
 class ExternalRepairPolicyTests(unittest.TestCase):
-    def test_clawpatch_executable_uses_internal_sequential_controller(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            source = source_repo(root)
-            one_shot_calls = []
-
-            def one_shot(**kwargs):
-                one_shot_calls.append(kwargs)
-                return {"name": "clawpatch", "ok": True, "exit_code": 0}
-
-            fake, _run_root = fake_orchestrator(root, source, "run-one", one_shot)
-            fake._external_review_repair_commands = lambda: [("clawpatch", ["clawpatch"])]
-            fake._gate_catalog = lambda: {"tests": object()}
-            fake._run_gates = lambda _gates, _workspace: [{"ok": True}]
-            sequential = {
-                "ok": True,
-                "sequential_clawpatch_lifecycle": True,
-                "clawpatch_owns_repairs": True,
-                "fixed": [],
-                "unresolved": [],
-                "commands": [],
-            }
-
-            with patch(
-                "manageroo.external_repair_policy.run_internal_clawpatch",
-                return_value=sequential,
-            ) as internal:
-                result = run_external_review_repair_lanes(
-                    fake,
-                    brief="repair",
-                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
-                    gate_results=[],
-                )
-
-            self.assertEqual(one_shot_calls, [])
-            internal.assert_called_once()
-            self.assertTrue(result["records"][0]["sequential_clawpatch_lifecycle"])
-            self.assertTrue(result["records"][0]["clawpatch_owns_repairs"])
-
     def test_checkpoint_path_inspection_failure_restores_exact_clean_baseline(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

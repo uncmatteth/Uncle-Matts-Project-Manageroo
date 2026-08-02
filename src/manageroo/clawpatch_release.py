@@ -6,6 +6,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -21,11 +22,13 @@ from .util import atomic_write_json, utc_now
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
 CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 900_000
+CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
+RELEASE_PROGRESS_VERSION = 1
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "
-    "complete project gates -> exact fixed revalidation -> exact-path commit/push when authorized -> "
-    "repeat the open queue -> final closure"
+    "complete project gates -> exact fixed revalidation -> on retryable failure preserve/reopen/retry "
+    "the same finding -> exact-path commit/push when authorized -> repeat the open queue -> final closure"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
 
@@ -51,8 +54,23 @@ def _run(
     cwd: Path,
     timeout: int = 1800,
     env: dict[str, str] | None = None,
+    kill_process_group: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     command = _platform_command(argv, platform_name=os.name)
+    if kill_process_group:
+        result = CommandRunner().run(
+            command,
+            cwd=cwd,
+            timeout_seconds=timeout,
+            env=env,
+            kill_process_group=True,
+        )
+        output = result.stdout
+        if result.stderr:
+            output = output + ("\n" if output else "") + result.stderr
+        if result.timed_out:
+            output = output + ("\n" if output else "") + "TIMEOUT"
+        return subprocess.CompletedProcess(command, result.exit_code, output, None)
     try:
         return subprocess.run(
             command,
@@ -252,24 +270,48 @@ def _run_clawpatch(
     argv: list[str],
     *,
     env: dict[str, str],
-    timeout: int = 7200,
+    timeout: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     _require_no_process(repo)
-    return _run(argv, cwd=repo, timeout=timeout, env=env)
+    return _run(
+        argv,
+        cwd=repo,
+        timeout=timeout,
+        env=env,
+        kill_process_group=True,
+    )
 
 
-def _must_clawpatch(repo: Path, argv: list[str], *, env: dict[str, str], timeout: int = 7200) -> str:
-    result = _run_clawpatch(repo, argv, env=env, timeout=timeout)
-    if result.returncode:
+def _must_clawpatch(
+    repo: Path,
+    argv: list[str],
+    *,
+    env: dict[str, str],
+    timeout: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+) -> str:
+    retry_count = 0
+    while True:
+        result = _run_clawpatch(repo, argv, env=env, timeout=timeout)
+        if not result.returncode:
+            return result.stdout
+        if result.returncode in {1, 5, 6, 124}:
+            retry_count += 1
+            time.sleep(min(2 ** min(retry_count - 1, 6), 60))
+            continue
         raise SafetyError(
             f"phase: Clawpatch command\ncommand: {shlex.join(argv)}\nfinding ID: N/A\n"
             f"exit code: {result.returncode}\nfailed requirement: command must exit 0\n"
             f"changed source paths: {_source_paths(repo)}\noutput:\n{result.stdout[-6000:]}"
         )
-    return result.stdout
 
 
-def _json_clawpatch(repo: Path, argv: list[str], *, env: dict[str, str], timeout: int = 7200) -> dict[str, Any]:
+def _json_clawpatch(
+    repo: Path,
+    argv: list[str],
+    *,
+    env: dict[str, str],
+    timeout: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+) -> dict[str, Any]:
     output = _must_clawpatch(repo, argv, env=env, timeout=timeout)
     return _parse_json_output(output, command=" ".join(argv[1:]))
 
@@ -341,7 +383,12 @@ def _with_json(argv: list[str]) -> list[str]:
 def _fix_command(repo: Path, argv: list[str], *, env: dict[str, str] | None = None) -> dict[str, Any]:
     finding_id = _finding_from_fix_argv(argv)
     command = _with_json(argv)
-    result = _run(command, cwd=repo, timeout=3600, env=env)
+    result = _run_clawpatch(
+        repo,
+        command,
+        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+        env=env or dict(os.environ),
+    )
     if result.returncode:
         requirement = "clawpatch fix validation passed" if result.returncode == 6 else "clawpatch fix exited 0"
         message = (
@@ -350,8 +397,18 @@ def _fix_command(repo: Path, argv: list[str], *, env: dict[str, str] | None = No
             f"changed source paths: {_source_paths(repo) if repo.exists() else []}\n"
             f"output:\n{result.stdout[-6000:]}"
         )
-        if result.returncode == 6:
-            raise _UnresolvedFinding(message, finding_id=finding_id)
+        retry_outcomes = {
+            1: "provider-failed",
+            5: "provider-quota",
+            6: "fix-validation-failed",
+            124: "timeout",
+        }
+        if result.returncode in retry_outcomes:
+            raise _UnresolvedFinding(
+                message,
+                finding_id=finding_id,
+                outcome=retry_outcomes[result.returncode],
+            )
         raise SafetyError(message)
     payload = _parse_json_output(result.stdout, command="fix")
     if payload.get("finding") != finding_id:
@@ -440,7 +497,12 @@ def _run_project_gates(repo: Path, *, finding_id: str) -> list[dict[str, Any]]:
 
 def _revalidate(repo: Path, finding_id: str, *, env: dict[str, str]) -> dict[str, Any]:
     argv = ["clawpatch", "revalidate", "--finding", finding_id, "--json"]
-    payload = _json_clawpatch(repo, argv, env=env, timeout=3600)
+    payload = _json_clawpatch(
+        repo,
+        argv,
+        env=env,
+        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    )
     outcome = payload.get("outcome")
     if payload.get("finding") != finding_id or outcome not in {
         "fixed",
@@ -484,27 +546,101 @@ def _preserve_unresolved_source(repo: Path, finding_id: str, reason: str) -> dic
     return {"created": True, "ref": ref, "sha": sha, "paths": paths, "message": message}
 
 
-def _triage_unresolved(
-    repo: Path, finding_id: str, note: str, *, env: dict[str, str]
+def _release_progress_path(repo: Path) -> Path:
+    return repo / PROJECT_DIR / "cache" / "clawpatch-release-progress.json"
+
+
+def _write_release_progress(
+    repo: Path,
+    *,
+    finding_id: str,
+    branch: str,
+    head_before: str,
+    retry_count: int,
+    phase: str,
 ) -> dict[str, Any]:
-    payload = _json_clawpatch(
-        repo,
-        [
-            "clawpatch",
-            "triage",
-            "--finding",
-            finding_id,
-            "--status",
-            "uncertain",
-            "--note",
-            note,
-            "--json",
-        ],
-        env=env,
-    )
-    if payload.get("finding") != finding_id or payload.get("status") != "uncertain":
-        raise SafetyError(f"Clawpatch did not preserve {finding_id} as uncertain.")
-    return payload
+    if not _FINDING_ID.fullmatch(finding_id):
+        raise SafetyError(f"Cannot checkpoint invalid Clawpatch finding ID {finding_id!r}.")
+    if not branch or not head_before or retry_count < 0 or not phase:
+        raise SafetyError("Cannot checkpoint malformed Clawpatch release progress.")
+    progress = {
+        "version": RELEASE_PROGRESS_VERSION,
+        "repo": str(repo.resolve()),
+        "finding_id": finding_id,
+        "branch": branch,
+        "head_before": head_before,
+        "retry_count": retry_count,
+        "phase": phase,
+        "updated_at": utc_now(),
+    }
+    atomic_write_json(_release_progress_path(repo), progress)
+    return progress
+
+
+def _load_release_progress(repo: Path) -> dict[str, Any] | None:
+    path = _release_progress_path(repo)
+    if not path.is_file():
+        return None
+    try:
+        progress = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SafetyError(f"Clawpatch release progress is unreadable: {path}") from exc
+    if not isinstance(progress, dict):
+        raise SafetyError("Clawpatch release progress is malformed.")
+    required_strings = ("repo", "finding_id", "branch", "head_before", "phase", "updated_at")
+    if (
+        progress.get("version") != RELEASE_PROGRESS_VERSION
+        or any(not isinstance(progress.get(field), str) or not progress[field] for field in required_strings)
+        or not _FINDING_ID.fullmatch(str(progress.get("finding_id", "")))
+        or isinstance(progress.get("retry_count"), bool)
+        or not isinstance(progress.get("retry_count"), int)
+        or progress["retry_count"] < 0
+    ):
+        raise SafetyError("Clawpatch release progress is malformed.")
+    if Path(progress["repo"]).resolve() != repo.resolve():
+        raise SafetyError("Clawpatch release progress belongs to a different repository.")
+    return progress
+
+
+def _clear_release_progress(repo: Path) -> None:
+    _release_progress_path(repo).unlink(missing_ok=True)
+
+
+def _reopen_current_finding(
+    repo: Path, finding_id: str, *, env: dict[str, str]
+) -> dict[str, Any]:
+    current = _show_finding(repo, finding_id, env=env, required_status=None)
+    finding = current["finding"]
+    status = finding.get("status") if isinstance(finding, dict) else None
+    if status != "open":
+        if status not in {"uncertain", "fixed"}:
+            raise SafetyError(
+                f"Clawpatch retry recovery cannot reopen {finding_id} from status {status!r}."
+            )
+        note = "Manageroo retry recovery: the previous Clawpatch-owned repair did not reach fixed."
+        payload = _json_clawpatch(
+            repo,
+            [
+                "clawpatch",
+                "triage",
+                "--finding",
+                finding_id,
+                "--status",
+                "open",
+                "--note",
+                note,
+                "--json",
+            ],
+            env=env,
+        )
+        if payload.get("finding") != finding_id or payload.get("status") != "open":
+            raise SafetyError(f"Clawpatch did not reopen {finding_id} for retry.")
+    current_id, _queue = _next_finding(repo, env=env)
+    if current_id != finding_id:
+        raise SafetyError(
+            f"Clawpatch retry recovery expected {finding_id} to remain current, found {current_id!r}."
+        )
+    return _show_finding(repo, finding_id, env=env, required_status="open")
 
 
 def _commit_attempt(repo: Path, finding_id: str, files: list[str], *, branch: str) -> str:
@@ -590,7 +726,14 @@ def _execute_fix(
     patch = _patch_attempt_from_show(post_fix_show, str(fixed["patchAttempt"]), finding_id)
     files = [str(path) for path in patch["filesChanged"]]
     _validate_attempt_paths(repo, files)
-    gate_runs = _run_project_gates(repo, finding_id=finding_id)
+    try:
+        gate_runs = _run_project_gates(repo, finding_id=finding_id)
+    except SafetyError as exc:
+        raise _UnresolvedFinding(
+            str(exc),
+            finding_id=finding_id,
+            outcome="project-gates-failed",
+        ) from exc
     _validate_attempt_paths(repo, files)
     validation = _revalidate(repo, finding_id, env=env)
     commit = _commit_attempt(repo, finding_id, files, branch=branch)
@@ -646,7 +789,7 @@ def _review_all_features(
         repo,
         ["clawpatch", "review", "--limit", str(review_limit), "--json"],
         env=env,
-        timeout=7200,
+        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
     )
     reviewed = _required_int(review, "reviewed")
     findings = _required_int(review, "findings")
@@ -669,7 +812,10 @@ def _final_closure(
     _require_no_process(repo)
     review_completion = _review_completion(repo, env=env, review_limit=review_limit)
     all_validation = _json_clawpatch(
-        repo, ["clawpatch", "revalidate", "--all", "--status", "open", "--json"], env=env, timeout=3600
+        repo,
+        ["clawpatch", "revalidate", "--all", "--status", "open", "--json"],
+        env=env,
+        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
     )
     report = _json_clawpatch(repo, ["clawpatch", "report", "--status", "open", "--json"], env=env)
     if report.get("total") != 0 or report.get("items") != []:
@@ -741,22 +887,48 @@ def release_sweep(
         "publish_clawpatch_state": publish_clawpatch_state,
         "results": [],
         "false_positives": [],
-        "unresolved": [],
+        "retries": [],
     }
     if not apply:
         report["planned_branch"] = branch
         return report
 
     _require_no_process(root)
+    progress = _load_release_progress(root)
     preexisting_source = _source_paths(root)
-    if preexisting_source:
+    if progress is not None:
+        if progress["branch"] != current_branch:
+            raise SafetyError(
+                "Interrupted Clawpatch release progress is bound to branch "
+                f"{progress['branch']!r}, not {current_branch!r}."
+            )
+        if progress["head_before"] != head_before:
+            subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
+            expected = f"clawpatch fix: {progress['finding_id']}"
+            if preexisting_source or subject != expected:
+                raise SafetyError(
+                    "Interrupted Clawpatch release progress no longer matches the current Git HEAD."
+                )
+            _clear_release_progress(root)
+            progress = None
+    if preexisting_source and progress is None:
         raise SafetyError("Clawpatch release sweep found pre-existing source changes: " + ", ".join(preexisting_source))
+    if preexisting_source and progress is not None:
+        _preserve_unresolved_source(
+            root,
+            str(progress["finding_id"]),
+            "controller-interrupted",
+        )
 
     selected_branch = current_branch
-    if branch == "auto" and current_branch in {"main", "master", "HEAD"}:
+    if progress is not None and branch not in {"auto", "current", current_branch}:
+        raise SafetyError(
+            "Cannot create a different branch while resuming interrupted Clawpatch release progress."
+        )
+    if progress is None and branch == "auto" and current_branch in {"main", "master", "HEAD"}:
         selected_branch = "clawpatch/release-sweep-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
-    elif branch not in {"auto", "current"}:
+    elif progress is None and branch not in {"auto", "current"}:
         selected_branch = branch
         _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)
     elif branch == "current" and current_branch == "HEAD":
@@ -772,84 +944,111 @@ def release_sweep(
         _require_no_process(root)
         _json_clawpatch(root, ["clawpatch", "clean-locks", "--json"], env=env)
 
-    mapped = _json_clawpatch(root, ["clawpatch", "map", "--json"], env=env, timeout=1800)
+    mapped = _json_clawpatch(
+        root,
+        ["clawpatch", "map", "--json"],
+        env=env,
+        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    )
     mapped_features = _required_int(mapped, "features")
     review = _review_all_features(root, env=env, mapped_features=mapped_features)
     report["map"] = mapped
     report["review"] = review
 
     pushed = False
-    while True:
-        finding_id, queue = _next_finding(root, env=env)
-        if finding_id is None:
-            break
-        inspected = _show_finding(root, finding_id, env=env, required_status="open")
-        try:
-            record, pushed = _execute_fix(
-                root,
-                finding_id,
-                inspected=inspected,
-                env=env,
-                push_mode=push_mode,
-                branch=selected_branch,
-                pushed=pushed,
+    recovered_finding: tuple[str, dict[str, Any], dict[str, Any]] | None = None
+    if progress is not None:
+        recovery_id = str(progress["finding_id"])
+        recovery_show = _show_finding(root, recovery_id, env=env, required_status=None)
+        recovery_status = recovery_show["finding"].get("status")
+        if recovery_status == "false-positive":
+            report["false_positives"].append(
+                {
+                    "finding_id": recovery_id,
+                    "inspection": recovery_show,
+                    "outcome": "false-positive",
+                    "recovered_after_interruption": True,
+                }
             )
-        except _UnresolvedFinding as exc:
-            reason = exc.outcome or "fix-validation-failed"
-            preserved = _preserve_unresolved_source(root, finding_id, reason)
-            unresolved_record = {
-                "finding_id": finding_id,
-                "inspection": inspected,
-                "outcome": exc.outcome,
-                "error": str(exc),
-                "preserved_source": preserved,
-            }
-            if exc.outcome == "false-positive":
-                report["false_positives"].append(unresolved_record)
-            else:
-                note = (
-                    f"Manageroo automated repair ended as {reason}; source changes were "
-                    "preserved in the recorded Git stash for manual review."
-                )
-                unresolved_record["triage"] = _triage_unresolved(
-                    root, finding_id, note, env=env
-                )
-                report["unresolved"].append(unresolved_record)
-            continue
-        record["queue"] = queue
-        report["results"].append(record)
+            _clear_release_progress(root)
+            progress = None
+        else:
+            recovered_inspection = _reopen_current_finding(root, recovery_id, env=env)
+            recovered_finding = (
+                recovery_id,
+                {"recovered_after_interruption": True},
+                recovered_inspection,
+            )
 
-    if report["unresolved"]:
-        open_report = _json_clawpatch(
-            root, ["clawpatch", "report", "--status", "open", "--json"], env=env
+    while True:
+        if recovered_finding is not None:
+            finding_id, queue, inspected = recovered_finding
+            recovered_finding = None
+        else:
+            finding_id, queue = _next_finding(root, env=env)
+            if finding_id is None:
+                break
+            inspected = _show_finding(root, finding_id, env=env, required_status="open")
+        retry_count = (
+            int(progress["retry_count"])
+            if progress is not None and progress["finding_id"] == finding_id
+            else 0
         )
-        uncertain_report = _json_clawpatch(
-            root, ["clawpatch", "report", "--status", "uncertain", "--json"], env=env
-        )
-        status = _json_clawpatch(root, ["clawpatch", "status", "--json"], env=env)
-        if open_report.get("total") != 0 or open_report.get("items") != []:
-            raise SafetyError("The exhausted Clawpatch queue still contains open findings.")
-        for field in ("activeLocks", "lockFiles"):
-            if _required_int(status, field) != 0:
-                raise SafetyError(f"Clawpatch unresolved closure requires {field}=0.")
-        if _source_paths(root):
-            raise SafetyError("Unresolved Clawpatch source changes were not preserved cleanly.")
-        report.update(
-            {
-                "ok": False,
-                "status": "NEEDS_REVIEW",
-                "branch": selected_branch,
-                "git_head": _git_text(root, ["git", "rev-parse", "HEAD"]),
-                "finding_count": len(report["results"]),
-                "false_positive_count": len(report["false_positives"]),
-                "unresolved_count": len(report["unresolved"]),
-                "open_findings": 0,
-                "uncertain_findings": uncertain_report.get("total"),
-                "final_status": status,
-                "proof_path": "",
-            }
-        )
-        return report
+        while True:
+            attempt_head = _git_text(root, ["git", "rev-parse", "HEAD"])
+            _write_release_progress(
+                root,
+                finding_id=finding_id,
+                branch=selected_branch,
+                head_before=attempt_head,
+                retry_count=retry_count,
+                phase="fix",
+            )
+            try:
+                record, pushed = _execute_fix(
+                    root,
+                    finding_id,
+                    inspected=inspected,
+                    env=env,
+                    push_mode=push_mode,
+                    branch=selected_branch,
+                    pushed=pushed,
+                )
+            except _UnresolvedFinding as exc:
+                reason = exc.outcome or "fix-validation-failed"
+                preserved = _preserve_unresolved_source(root, finding_id, reason)
+                failed_record = {
+                    "finding_id": finding_id,
+                    "inspection": inspected,
+                    "outcome": exc.outcome,
+                    "error": str(exc),
+                    "preserved_source": preserved,
+                }
+                if exc.outcome == "false-positive":
+                    report["false_positives"].append(failed_record)
+                    _clear_release_progress(root)
+                    progress = None
+                    break
+                retry_count += 1
+                failed_record["retry_count"] = retry_count
+                report["retries"].append(failed_record)
+                _write_release_progress(
+                    root,
+                    finding_id=finding_id,
+                    branch=selected_branch,
+                    head_before=attempt_head,
+                    retry_count=retry_count,
+                    phase="retry",
+                )
+                inspected = _reopen_current_finding(root, finding_id, env=env)
+                time.sleep(min(2 ** min(retry_count - 1, 6), 60))
+                progress = _load_release_progress(root)
+                continue
+            _clear_release_progress(root)
+            progress = None
+            record["queue"] = queue
+            report["results"].append(record)
+            break
 
     closure = _final_closure(
         root,
@@ -898,17 +1097,6 @@ def format_release_sweep(report: dict[str, Any]) -> str:
             f"Clawpatch: {report['clawpatch_version']}\n"
             f"Lifecycle: {report['lifecycle']}\n"
             "No repository changes were made. Run again with --apply to execute.\n"
-        )
-    if report.get("status") == "NEEDS_REVIEW":
-        return (
-            "CLAWPATCH RELEASE SWEEP: QUEUE PROCESSED, REVIEW STILL REQUIRED\n"
-            f"Findings fixed and committed: {report.get('finding_count', 0)}\n"
-            f"False positives: {report.get('false_positive_count', 0)}\n"
-            f"Unresolved findings preserved: {report.get('unresolved_count', 0)}\n"
-            f"Open findings: {report.get('open_findings', 0)}\n"
-            f"Uncertain findings: {report.get('uncertain_findings', 0)}\n"
-            "Successful repairs were kept. Unresolved source attempts are named Git stashes.\n"
-            "No COMPLETE release proof was written.\n"
         )
     return (
         "CLAWPATCH RELEASE SWEEP: COMPLETE\n"

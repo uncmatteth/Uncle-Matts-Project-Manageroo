@@ -135,15 +135,19 @@ Clawpatch owns review, finding selection, and repair. Manageroo reviews every
 pending mapped feature, verifies no review work remains, selects one current
 open finding with `next --json`, records `show --json`, and automatically invokes
 that finding's Clawpatch `fix`. The `show` triage template is human guidance, not
-an executable command. Exit code 6 ends that repair attempt: preserve source
-edits in a named Git stash, mark the finding visibly uncertain, and continue the
-remaining queue without committing or retrying it. Never build a report-derived
-queue or hand-repair a finding. After exit 0, require the matching patch attempt,
-complete project validation, and exact `fixed` revalidation before staging only
-that attempt's source paths. Pushing requires `--push each` or `--push final`.
-Any unresolved finding returns `NEEDS_REVIEW`; a valid final proof requires zero
-pending review work, zero open or uncertain findings, zero locks, passing gates,
-clean Git state, and an exact final-HEAD binding.
+an executable repair. Never build a report-derived queue or hand-repair a
+finding. Every Clawpatch child process group has a 15-minute watchdog. On a
+retryable timeout, provider, quota, validation, project-gate, or non-`fixed`
+revalidation failure, preserve source edits in a verified named Git stash,
+reconcile with `show`, reopen through Clawpatch when necessary, require `next`
+to return the same finding, and invoke that finding's Clawpatch `fix` again.
+Durable progress under `.manageroo/cache` supports the same reconciliation when
+the release sweep is relaunched after interruption. After success, require the
+matching patch attempt, complete project validation, and exact `fixed`
+revalidation before staging only that attempt's source paths. Pushing requires
+`--push each` or `--push final`. A valid final proof requires zero pending review
+work, zero open or uncertain findings, zero locks, passing gates, clean Git
+state, and an exact final-HEAD binding.
 
 ## Role separation
 

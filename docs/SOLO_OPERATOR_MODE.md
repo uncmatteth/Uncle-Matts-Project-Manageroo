@@ -240,13 +240,16 @@ manageroo clawpatch release-sweep --repo . --apply
 ```
 
 The default is read-only. Applied runs review all pending features and automate
-Clawpatch's one-finding `next`, `show`, `fix`, and revalidation loop. A fix that
-exits 6, remains open, or revalidates uncertain is preserved in a named Git
-stash and marked visibly uncertain so the remaining queue can run. Manageroo
-returns `NEEDS_REVIEW` and writes no release proof while any such item remains.
-Global command failures, malformed state, failed project gates, and Git failures
-still stop immediately. Applied runs create a dedicated branch when starting
-from `main` or `master`; pushing still requires `--push each` or `--push final`.
+Clawpatch's one-finding `next`, `show`, `fix`, and revalidation loop. Each
+Clawpatch child process group has a 15-minute watchdog. A timeout, provider,
+quota, validation, project-gate, or non-`fixed` revalidation failure is
+preserved in a named Git stash, reconciled through Clawpatch, and retried as the
+same current finding. Durable progress supports resumption after the controller
+is relaunched; Manageroo does not install an OS restart daemon. Missing tools,
+authentication failure, malformed or contradictory state, unsafe paths, and
+Git failures still stop immediately. Applied runs create a dedicated branch
+when starting from `main` or `master`; pushing still requires `--push each` or
+`--push final`.
 Require its zero-open, zero-uncertain, final-HEAD proof in the release gate with
 `--require-clawpatch` or `require_clawpatch_release_sweep = true` in project
 config.

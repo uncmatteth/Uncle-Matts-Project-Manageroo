@@ -142,16 +142,6 @@ the result in `review/external-review-repair.json`, scope-checks any edits, and
 blocks on command failure. The AI repairer must not freehand fixes from those
 tool findings.
 
-`clawpatch_command = ["clawpatch"]` activates Manageroo's internal sequential
-Clawpatch supervisor. The array is intentionally only the executable: Manageroo
-owns the `status`, `map`, baseline-bounded `review --since`, `next`, `show`, one-finding `fix`,
-gate, checkpoint, revalidation, and closure commands. Each child process has a
-15-minute watchdog, but a timeout is reconciled against Clawpatch state and
-retried; it is not an overall repair deadline. Progress survives
-`run --continue` in the run-owned external state directory. Map, review, and
-revalidation retain Codex read-only sandboxing; only Clawpatch's own `fix` gets
-workspace-write access to the isolated mirror.
-
 Discovery command placeholders:
 
 ```text
@@ -207,5 +197,5 @@ gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
 gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
 document_analysis_command = ["python3", "scripts/document_intel.py", "{document_manifest_file}", "{document_state_dir}"]
 autoreview_command = []
-clawpatch_command = ["clawpatch"]
+clawpatch_command = []
 ```
