@@ -63,6 +63,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
                     "finding_id": "fnd_one",
                     "retry": 0,
                     "attempt": 1,
+                    "max_attempts": 3,
                     "command": "clawpatch fix --finding fnd_one",
                 }
             )
@@ -111,7 +112,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertIn("clawpatch show --finding fnd_one", rendered)
         self.assertIn("Broken rollback", rendered)
         self.assertIn("release.py:10-20", rendered)
-        self.assertIn("[1/88] FIX", rendered)
+        self.assertIn("[1/88] FIX (attempt 1/3)", rendered)
         self.assertIn("clawpatch fix --finding fnd_one", rendered)
         self.assertIn("[1/88] RETRY 1", rendered)
         self.assertIn("same finding", rendered)
@@ -120,6 +121,24 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertIn("[1/88] FIXED", rendered)
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
+
+    def test_terminal_command_requests_a_fresh_run_and_one_hour_shared_timeout(self):
+        calls = []
+
+        def fake_sweep(repo: Path, **kwargs):
+            calls.append((repo, kwargs))
+            return {"ok": True, "finding_count": 0, "open_findings": 0, "git_head": "abc123"}
+
+        with redirect_stdout(StringIO()):
+            code = main(
+                ["--repo", ".", "--fresh", "--timeout-minutes", "60"],
+                run_sweep=fake_sweep,
+                heartbeat_seconds=0,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertTrue(calls[0][1]["fresh"])
+        self.assertEqual(calls[0][1]["child_timeout_seconds"], 3600)
 
 
 if __name__ == "__main__":

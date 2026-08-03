@@ -70,6 +70,22 @@ class RemainingAuditRegressionTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 127)
         self.assertIn("Could not launch command", result.stderr)
 
+    @unittest.skipUnless(os.name == "nt", "Windows command-shim resolution")
+    def test_windows_runner_resolves_bare_cmd_shim_from_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            shim = root / "manageroo-proof-shim.cmd"
+            shim.write_text("@echo off\r\necho shim-ok %1\r\n", encoding="utf-8")
+            env = {"PATH": str(root) + os.pathsep + os.environ.get("PATH", "")}
+            result = CommandRunner().run(
+                ["manageroo-proof-shim", "hello"],
+                cwd=root,
+                env=env,
+                timeout_seconds=5,
+            )
+        self.assertTrue(result.passed, result.stderr)
+        self.assertIn("shim-ok hello", result.stdout)
+
     def test_top_level_and_nested_secret_and_credential_paths_are_forbidden(self):
         sensitive = ("client-secret.json", "credentials.toml", "config/client-secret.json", "config/service-credential.txt")
         for path in sensitive:

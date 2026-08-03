@@ -136,11 +136,13 @@ pending mapped feature, verifies no review work remains, selects one current
 open finding with `next --json`, records `show --json`, and automatically invokes
 that finding's Clawpatch `fix`. The `show` triage template is human guidance, not
 an executable repair. Never build a report-derived queue or hand-repair a
-finding. Every Clawpatch child process group has a 15-minute watchdog. On a
-retryable timeout, provider, quota, validation, project-gate, or non-`fixed`
-revalidation failure, preserve source edits in a verified named Git stash,
-reconcile with `show`, reopen through Clawpatch when necessary, require `next`
-to return the same finding, and invoke that finding's Clawpatch `fix` again.
+finding. Every Clawpatch child process group uses the supervisor's shared
+watchdog, which defaults to 60 minutes. Provider, quota, and timeout failures
+stop immediately instead of being mislabeled as uncertain. On a retryable
+validation, project-gate, or non-`fixed` revalidation failure, preserve source
+edits in a verified named Git stash, reconcile with `show`, reopen through
+Clawpatch when necessary, require `next` to return the same finding, and invoke
+that finding's Clawpatch `fix` again, for no more than three total attempts.
 Durable progress under `.manageroo/cache` supports the same reconciliation when
 the release sweep is relaunched after interruption. After success, require the
 matching patch attempt, complete project validation, and exact `fixed`

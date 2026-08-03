@@ -241,9 +241,9 @@ manageroo clawpatch release-sweep --repo . --apply
 
 The default is read-only. Applied runs review all pending features and automate
 Clawpatch's one-finding `next`, `show`, `fix`, and revalidation loop. Each
-Clawpatch child process group has a 15-minute watchdog. Timed-out non-fix
+Clawpatch child process group and provider share one explicit timeout. Timed-out non-fix
 commands stop immediately; other transient command attempts are capped at three.
-Finding-scoped source fixes run in one continuous, visibly numbered attempt sequence.
+Finding-scoped source fixes stop after three total attempts.
 Failed source attempts are preserved in named Git stashes, their stash/path evidence
 is fed back to Clawpatch, and the live supervisor retries only that same finding
 with bounded backoff without resetting the attempt number, advancing, final closure,

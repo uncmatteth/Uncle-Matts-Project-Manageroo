@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .clawpatch_release import CLAWPATCH_CHILD_WATCHDOG_SECONDS, release_sweep
+from .clawpatch_release import release_sweep
 from .errors import SafetyError
 
 
@@ -88,7 +88,11 @@ def _render_event(event: dict[str, Any]) -> str:
         return _render_inspection(event)
     if phase == "fix":
         attempt = int(event.get("attempt", int(event.get("retry", 0) or 0) + 1))
-        suffix = f" (attempt {attempt})" if attempt > 1 else ""
+        maximum = event.get("max_attempts")
+        if maximum:
+            suffix = f" (attempt {attempt}/{maximum})"
+        else:
+            suffix = f" (attempt {attempt})" if attempt > 1 else ""
         return f"\n{_counter(event)} FIX{suffix}\n$ {event.get('command', '')}"
     if phase == "retry":
         return (
@@ -118,7 +122,12 @@ def main(
     parser.add_argument("--push", choices=("none", "each", "final"), default="each")
     parser.add_argument("--publish-clawpatch-state", action="store_true")
     parser.add_argument("--trusted-host-codex-sandbox-bypass", action="store_true")
+    parser.add_argument("--fresh", action="store_true")
+    parser.add_argument("--timeout-minutes", type=int, default=60)
     args = parser.parse_args(argv)
+    if args.timeout_minutes < 1:
+        parser.error("--timeout-minutes must be at least 1")
+    watchdog_seconds = args.timeout_minutes * 60
 
     state: dict[str, Any] = {
         "phase": "starting",
@@ -153,7 +162,7 @@ def main(
             lines = [
                 f"{_counter(snapshot)} still running: {phase}{attempt_text}{finding}",
                 f"({elapsed}s in this displayed phase; child watchdog is "
-                f"{CLAWPATCH_CHILD_WATCHDOG_SECONDS}s)",
+                f"{watchdog_seconds}s)",
             ]
             if snapshot.get("command"):
                 lines.append(f"$ {snapshot['command']}")
@@ -166,7 +175,8 @@ def main(
 
     print(
         f"ClawPatch external supervisor: repo={Path(args.repo).resolve()} "
-        f"branch={args.branch} push={args.push}",
+        f"branch={args.branch} push={args.push} fresh={args.fresh} "
+        f"timeout={args.timeout_minutes}m",
         flush=True,
     )
     try:
@@ -177,13 +187,15 @@ def main(
             push_mode=args.push,
             publish_clawpatch_state=args.publish_clawpatch_state,
             trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
+            fresh=args.fresh,
+            child_timeout_seconds=watchdog_seconds,
             progress=display,
         )
     except SafetyError as exc:
         print(f"\nSTOPPED: {exc}", flush=True)
         return 2
     except KeyboardInterrupt:
-        print("\nINTERRUPTED: rerun the same command to reconcile and resume.", flush=True)
+        print("\nINTERRUPTED: stopped safely; use --fresh to start a new run.", flush=True)
         return 130
     finally:
         stopped.set()

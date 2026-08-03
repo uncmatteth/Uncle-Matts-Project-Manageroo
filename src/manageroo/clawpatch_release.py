@@ -21,15 +21,15 @@ from .util import atomic_write_json, utc_now
 
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
-CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 900_000
-CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
+CLAWPATCH_CHILD_WATCHDOG_SECONDS = 3_600
 CLAWPATCH_TRANSIENT_MAX_ATTEMPTS = 3
+CLAWPATCH_FIX_MAX_ATTEMPTS = 3
 RELEASE_PROGRESS_VERSION = 1
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "
     "complete project gates -> exact fixed revalidation -> on retryable failure preserve/reopen/retry "
-    "the same finding with one continuous attempt count -> exact-path commit/push when authorized -> repeat the "
+    "the same finding for at most three total attempts -> exact-path commit/push when authorized -> repeat the "
     "open queue -> final closure"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
@@ -73,13 +73,33 @@ class _MissingFinding(SafetyError):
         self.finding_id = finding_id
 
 
-def _release_clawpatch_env(*, trusted_host_codex_sandbox_bypass: bool) -> dict[str, str]:
+def _release_clawpatch_env(
+    *,
+    trusted_host_codex_sandbox_bypass: bool,
+    child_timeout_seconds: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+) -> dict[str, str]:
+    if child_timeout_seconds < 60:
+        raise SafetyError("Clawpatch child timeout must be at least 60 seconds.")
     child_env = dict(os.environ)
-    child_env.setdefault("CLAWPATCH_CODEX_TIMEOUT_MS", str(CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS))
+    child_env["CLAWPATCH_CODEX_TIMEOUT_MS"] = str(child_timeout_seconds * 1_000)
+    child_env["MANAGEROO_CLAWPATCH_CHILD_TIMEOUT_SECONDS"] = str(child_timeout_seconds)
     child_env.pop("CLAWPATCH_CODEX_SANDBOX", None)
     if trusted_host_codex_sandbox_bypass:
         child_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
     return child_env
+
+
+def _child_timeout_seconds(env: dict[str, str]) -> int:
+    raw = env.get("MANAGEROO_CLAWPATCH_CHILD_TIMEOUT_SECONDS")
+    if raw is None:
+        return CLAWPATCH_CHILD_WATCHDOG_SECONDS
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise SafetyError("Manageroo received an invalid Clawpatch child timeout.") from exc
+    if value < 60:
+        raise SafetyError("Clawpatch child timeout must be at least 60 seconds.")
+    return value
 
 
 def _run(
@@ -351,13 +371,14 @@ def _run_clawpatch(
     argv: list[str],
     *,
     env: dict[str, str],
-    timeout: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
     _require_no_process(repo)
+    resolved_timeout = _child_timeout_seconds(env) if timeout is None else timeout
     return _run(
         argv,
         cwd=repo,
-        timeout=timeout,
+        timeout=resolved_timeout,
         env=env,
         kill_process_group=True,
     )
@@ -368,13 +389,14 @@ def _must_clawpatch(
     argv: list[str],
     *,
     env: dict[str, str],
-    timeout: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    timeout: int | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
     phase: str | None = None,
     current: int | str = "?",
     total: int | str = "?",
     finding_id: str = "",
 ) -> str:
+    resolved_timeout = _child_timeout_seconds(env) if timeout is None else timeout
     command_phase = phase or _clawpatch_command_phase(argv)
     for attempt in range(1, CLAWPATCH_TRANSIENT_MAX_ATTEMPTS + 1):
         if progress is not None:
@@ -389,7 +411,7 @@ def _must_clawpatch(
                     "max_attempts": CLAWPATCH_TRANSIENT_MAX_ATTEMPTS,
                 }
             )
-        result = _run_clawpatch(repo, argv, env=env, timeout=timeout)
+        result = _run_clawpatch(repo, argv, env=env, timeout=resolved_timeout)
         if not result.returncode:
             return result.stdout
         output = result.stdout or ""
@@ -411,7 +433,7 @@ def _must_clawpatch(
             raise SafetyError(
                 f"phase: Clawpatch command\ncommand: {shlex.join(argv)}\nfinding ID: "
                 f"{finding_id or 'N/A'}\nexit code: 124\nfailed requirement: the "
-                f"{timeout}-second child watchdog expired; timed-out commands are not retried\n"
+                f"{resolved_timeout}-second child watchdog expired; timed-out commands are not retried\n"
                 f"changed source paths: {_source_paths(repo)}\noutput:\n{output[-6000:]}"
             )
         if result.returncode in {1, 5, 6} and attempt < CLAWPATCH_TRANSIENT_MAX_ATTEMPTS:
@@ -443,7 +465,7 @@ def _json_clawpatch(
     argv: list[str],
     *,
     env: dict[str, str],
-    timeout: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    timeout: int | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
     phase: str | None = None,
     current: int | str = "?",
@@ -555,7 +577,6 @@ def _fix_command(repo: Path, argv: list[str], *, env: dict[str, str] | None = No
     result = _run_clawpatch(
         repo,
         command,
-        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
         env=env or dict(os.environ),
     )
     if result.returncode:
@@ -577,6 +598,7 @@ def _fix_command(repo: Path, argv: list[str], *, env: dict[str, str] | None = No
                 message,
                 finding_id=finding_id,
                 outcome=retry_outcomes[result.returncode],
+                retryable=result.returncode not in {1, 5, 124},
             )
         raise SafetyError(message)
     payload = _parse_json_output(result.stdout, command="fix")
@@ -702,7 +724,6 @@ def _revalidation_payload(
         repo,
         argv,
         env=env,
-        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
         progress=progress,
         phase=phase,
         current=current,
@@ -921,8 +942,12 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
         raise SafetyError("Clawpatch release progress is malformed.")
     if legacy_cycle_count > 1:
         progress["retry_count"] += (legacy_cycle_count - 1) * 3
-    if progress["phase"] in {"fix-attempts-exhausted", "fix-cycle-recovery"}:
-        progress["phase"] = "retry"
+    if progress["phase"] == "fix-cycle-recovery":
+        progress["phase"] = (
+            "fix-attempts-exhausted"
+            if progress["retry_count"] >= CLAWPATCH_FIX_MAX_ATTEMPTS
+            else "retry"
+        )
     if Path(progress["repo"]).resolve() != repo.resolve():
         raise SafetyError("Clawpatch release progress belongs to a different repository.")
     return progress
@@ -977,6 +1002,63 @@ def _checkpoint_can_follow_supervisor_upgrade(
 
 def _clear_release_progress(repo: Path) -> None:
     _release_progress_path(repo).unlink(missing_ok=True)
+
+
+def _committed_clawpatch_config(repo: Path) -> str | None:
+    current = repo / ".clawpatch" / "config.json"
+    if current.is_file():
+        return current.read_text(encoding="utf-8")
+    result = _run(
+        ["git", "show", "HEAD:.clawpatch/config.json"],
+        cwd=repo,
+        timeout=60,
+    )
+    return result.stdout if result.returncode == 0 and result.stdout.strip() else None
+
+
+def _prepare_fresh_release(
+    repo: Path,
+    *,
+    env: dict[str, str],
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> None:
+    """Delete only Clawpatch run state, preserve project configuration, and initialize again."""
+    _require_no_process(repo)
+    source_changes = _source_paths(repo)
+    if source_changes:
+        raise SafetyError(
+            "A fresh Clawpatch run refuses pre-existing source changes: " + ", ".join(source_changes)
+        )
+    state_root = repo / ".clawpatch"
+    if state_root.is_symlink() or state_root.resolve().parent != repo.resolve():
+        raise SafetyError("The .clawpatch state path is not a safe repository-owned directory.")
+    config_text = _committed_clawpatch_config(repo)
+    if state_root.exists():
+        if not state_root.is_dir():
+            raise SafetyError("The .clawpatch state path is not a directory.")
+        shutil.rmtree(state_root)
+    _clear_release_progress(repo)
+    (repo / PROJECT_DIR / "cache" / "clawpatch-release-proof.json").unlink(missing_ok=True)
+    if progress is not None:
+        progress(
+            {
+                "phase": "fresh",
+                "current": "?",
+                "total": "?",
+                "command": "clawpatch init --json",
+                "attempt": 1,
+                "max_attempts": 1,
+            }
+        )
+    _json_clawpatch(
+        repo,
+        ["clawpatch", "init", "--json"],
+        env=env,
+        progress=None,
+    )
+    if config_text is not None:
+        config_path = state_root / "config.json"
+        config_path.write_text(config_text, encoding="utf-8")
 
 
 def _reopen_current_finding(
@@ -1063,14 +1145,19 @@ def _commit_attempt(repo: Path, finding_id: str, files: list[str], *, branch: st
         ["git", "diff", "--cached", "--name-only", "--no-renames", "-z"], cwd=repo, timeout=120
     )
     staged_paths = sorted(path for path in staged.split("\0") if path)
-    if staged_paths != sorted(files) or any(path.startswith(".clawpatch/") for path in staged_paths):
+    reported_paths = set(files)
+    if any(path not in reported_paths or path.startswith(".clawpatch/") for path in staged_paths):
         raise SafetyError("The staged paths do not exactly match the current Clawpatch patch attempt.")
+    if _source_paths(repo) != staged_paths:
+        raise SafetyError("The staged repair does not contain every current source change.")
+    if not staged_paths:
+        return ""
     _must_run(["git", "diff", "--cached", "--check"], cwd=repo, timeout=120)
     _require_branch(repo, branch, phase="source commit")
     _must_run(["git", "commit", "-m", f"clawpatch fix: {finding_id}"], cwd=repo, timeout=300)
     commit = _git_text(repo, ["git", "rev-parse", "HEAD"])
     committed = _git_text(repo, ["git", "show", "--pretty=", "--name-only", "--no-renames", commit]).splitlines()
-    if sorted(path for path in committed if path) != sorted(files):
+    if sorted(path for path in committed if path) != staged_paths:
         raise SafetyError("The resulting commit does not contain exactly the verified source repair.")
     return commit
 
@@ -1091,18 +1178,7 @@ def _publish_final_state(repo: Path, *, branch: str) -> str:
     if not state_paths:
         return ""
     _require_branch(repo, branch, phase="state publication")
-    tracked = set(
-        path
-        for path in _must_run(["git", "ls-files", "-z", "--", ".clawpatch"], cwd=repo, timeout=120).split("\0")
-        if path
-    )
-    untracked = sorted(set(state_paths) - tracked)
-    if untracked:
-        raise SafetyError(
-            "Final Clawpatch state includes untracked paths; state publication covers tracked state only: "
-            + ", ".join(untracked)
-        )
-    _must_run(["git", "add", "--", *state_paths], cwd=repo, timeout=120)
+    _must_run(["git", "add", "-A", "--", *state_paths], cwd=repo, timeout=120)
     staged = sorted(
         path
         for path in _must_run(
@@ -1111,7 +1187,7 @@ def _publish_final_state(repo: Path, *, branch: str) -> str:
         if path
     )
     if staged != sorted(state_paths) or any(not path.startswith(".clawpatch/") for path in staged):
-        raise SafetyError("Final state commit is not exactly limited to tracked .clawpatch paths.")
+        raise SafetyError("Final state commit is not exactly limited to authorized .clawpatch paths.")
     _must_run(["git", "commit", "-m", "clawpatch state: final closure"], cwd=repo, timeout=300)
     return _git_text(repo, ["git", "rev-parse", "HEAD"])
 
@@ -1219,7 +1295,6 @@ def _review_all_features(
         repo,
         ["clawpatch", "review", "--limit", str(review_limit), "--json"],
         env=env,
-        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
         progress=progress,
     )
     reviewed = _required_int(review, "reviewed")
@@ -1259,7 +1334,6 @@ def _final_closure(
         repo,
         ["clawpatch", "revalidate", "--all", "--status", "open", "--json"],
         env=env,
-        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
         progress=progress,
         current=current,
         total=total,
@@ -1333,6 +1407,8 @@ def release_sweep(
     push_mode: str = "none",
     publish_clawpatch_state: bool = False,
     trusted_host_codex_sandbox_bypass: bool = False,
+    fresh: bool = False,
+    child_timeout_seconds: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
     progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Automate Clawpatch's documented one-finding workflow without automatic triage."""
@@ -1366,12 +1442,19 @@ def release_sweep(
         "results": [],
         "false_positives": [],
         "retries": [],
+        "stale_refreshes": [],
     }
     if not apply:
         report["planned_branch"] = branch
         return report
 
     _require_no_process(root)
+    env = _release_clawpatch_env(
+        trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass,
+        child_timeout_seconds=child_timeout_seconds,
+    )
+    if fresh:
+        _prepare_fresh_release(root, env=env, progress=progress)
     durable_progress = _load_release_progress(root)
     preexisting_source = _source_paths(root)
     if durable_progress is not None:
@@ -1421,9 +1504,6 @@ def release_sweep(
     if push_mode != "none":
         _must_run(["git", "remote", "get-url", "origin"], cwd=root, timeout=60)
 
-    env = _release_clawpatch_env(
-        trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass
-    )
     status = _json_clawpatch(
         root,
         ["clawpatch", "status", "--json"],
@@ -1466,7 +1546,6 @@ def release_sweep(
         root,
         ["clawpatch", "map", "--json"],
         env=env,
-        timeout=CLAWPATCH_CHILD_WATCHDOG_SECONDS,
         progress=progress,
     )
     mapped_features = _required_int(mapped, "features")
@@ -1491,6 +1570,7 @@ def release_sweep(
 
     pushed = False
     recovered_finding: tuple[str, dict[str, Any], dict[str, Any]] | None = None
+    refreshed_missing_ids: set[str] = set()
     if durable_progress is not None:
         recovery_id = str(durable_progress["finding_id"])
         try:
@@ -1566,15 +1646,58 @@ def release_sweep(
             )
             if finding_id is None:
                 break
-            inspected = _show_finding(
-                root,
-                finding_id,
-                env=env,
-                required_status="open",
-                progress=progress,
-                current=current_finding + 1,
-                total=total_findings,
-            )
+            try:
+                inspected = _show_finding(
+                    root,
+                    finding_id,
+                    env=env,
+                    required_status="open",
+                    progress=progress,
+                    current=current_finding + 1,
+                    total=total_findings,
+                )
+            except _MissingFinding as exc:
+                if _source_paths(root):
+                    raise SafetyError(
+                        f"Clawpatch selected stale finding {finding_id}, but source changes exist; "
+                        "Manageroo will not remap over them."
+                    ) from exc
+                if finding_id in refreshed_missing_ids:
+                    raise SafetyError(
+                        f"Clawpatch still selected missing finding {finding_id} after one live-state refresh."
+                    ) from exc
+                refreshed_missing_ids.add(finding_id)
+                if progress is not None:
+                    progress(
+                        {
+                            "phase": "stale-refresh",
+                            "current": current_finding + 1,
+                            "total": total_findings,
+                            "finding_id": finding_id,
+                            "command": "clawpatch map --json; clawpatch review",
+                        }
+                    )
+                refreshed_map = _json_clawpatch(
+                    root,
+                    ["clawpatch", "map", "--json"],
+                    env=env,
+                    progress=progress,
+                )
+                refreshed_feature_count = _required_int(refreshed_map, "features")
+                refreshed_review = _review_all_features(
+                    root,
+                    env=env,
+                    mapped_features=refreshed_feature_count,
+                    progress=progress,
+                )
+                report["stale_refreshes"].append(
+                    {
+                        "missing_finding_id": finding_id,
+                        "map": refreshed_map,
+                        "review": refreshed_review,
+                    }
+                )
+                continue
         current_finding += 1
         if progress is not None:
             progress(
@@ -1592,6 +1715,16 @@ def release_sweep(
             if durable_progress is not None and durable_progress["finding_id"] == finding_id
             else 0
         )
+        if (
+            durable_progress is not None
+            and durable_progress.get("phase") == "fix-attempts-exhausted"
+            and retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS
+        ):
+            raise SafetyError(
+                f"Clawpatch previously stopped after {CLAWPATCH_FIX_MAX_ATTEMPTS} total fix attempts "
+                f"for {finding_id}. The finding remains open and was not triaged. Start an explicit "
+                "fresh run to try it again."
+            )
         while True:
             attempt_head = _git_text(root, ["git", "rev-parse", "HEAD"])
             _write_release_progress(
@@ -1611,6 +1744,7 @@ def release_sweep(
                         "finding_id": finding_id,
                         "retry": retry_count,
                         "attempt": retry_count + 1,
+                        "max_attempts": CLAWPATCH_FIX_MAX_ATTEMPTS,
                         "command": f"clawpatch fix --finding {finding_id}",
                     }
                 )
@@ -1643,13 +1777,18 @@ def release_sweep(
                     durable_progress = None
                     break
                 if not exc.retryable:
+                    blocked_phase = (
+                        "revalidation-blocked"
+                        if reason.startswith("revalidation") or reason == "uncertain"
+                        else "infrastructure-blocked"
+                    )
                     _write_release_progress(
                         root,
                         finding_id=finding_id,
                         branch=selected_branch,
                         head_before=attempt_head,
                         retry_count=retry_count,
-                        phase="revalidation-blocked",
+                        phase=blocked_phase,
                         last_stash_ref=str(preserved.get("ref") or ""),
                         last_stash_paths=list(preserved.get("paths") or []),
                     )
@@ -1661,15 +1800,14 @@ def release_sweep(
                                 "total": total_findings,
                                 "finding_id": finding_id,
                                 "outcome": exc.outcome,
-                                "detail": "revalidation blocked; source repair preserved",
+                                "detail": f"{reason} stopped; no automatic retry",
                             }
                         )
                     preserved_ref = preserved.get("ref") or "no source changes"
                     raise SafetyError(
-                        f"Clawpatch revalidation for {finding_id} remained {reason!r} after "
-                        "the controlled sandbox escalation. Manageroo preserved the repair at "
-                        f"{preserved_ref} and will not rerun the source fix for a validation-"
-                        "infrastructure failure.\n"
+                        f"Clawpatch stopped on {reason!r} for {finding_id}. Manageroo preserved "
+                        f"any repair at {preserved_ref}, did not triage the finding, and will not "
+                        "retry an infrastructure or revalidation failure automatically.\n"
                         f"{exc}"
                     ) from exc
                 retry_count += 1
@@ -1709,6 +1847,34 @@ def release_sweep(
                     current_number=current_finding,
                     total=total_findings,
                 )
+                if retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS:
+                    _write_release_progress(
+                        root,
+                        finding_id=finding_id,
+                        branch=selected_branch,
+                        head_before=attempt_head,
+                        retry_count=retry_count,
+                        phase="fix-attempts-exhausted",
+                        last_stash_ref=str(preserved.get("ref") or ""),
+                        last_stash_paths=list(preserved_paths),
+                    )
+                    if progress is not None:
+                        progress(
+                            {
+                                "phase": "stopped",
+                                "current": current_finding,
+                                "total": total_findings,
+                                "finding_id": finding_id,
+                                "outcome": exc.outcome,
+                                "detail": "three total fix attempts exhausted; finding remains open",
+                            }
+                        )
+                    raise SafetyError(
+                        f"Manageroo stopped after {CLAWPATCH_FIX_MAX_ATTEMPTS} total Clawpatch fix "
+                        f"attempts for {finding_id}. The finding remains open, the last source attempt "
+                        f"is preserved at {preserved_ref}, and nothing was triaged, committed, pushed, "
+                        "or advanced."
+                    ) from exc
                 time.sleep(min(2 ** min(max(retry_count - 1, 0), 6), 60))
                 durable_progress = _load_release_progress(root)
                 continue

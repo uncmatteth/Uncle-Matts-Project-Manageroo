@@ -111,20 +111,18 @@ for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
 Manageroo never triages a finding as resolved. Failed attempts are preserved in
 verified named Git stashes, reopened through Clawpatch when necessary, and
-retried as the same current finding with one continuous, visibly numbered attempt
-sequence. Every failed attempt preserves its last Clawpatch-owned stash reference and
-changed paths in the finding's retry evidence before the next attempt begins;
-that evidence is written through Clawpatch even when a timed-out finding remains
-`open`, so the next repair attempt receives the prior failure and stash context.
-Retryable source failures do not terminate the live supervisor. Read-only
-revalidation that cannot execute targeted tests gets one
+retried as the same current finding for at most three total attempts. The third
+failure preserves the Clawpatch-owned stash reference and changed paths, keeps
+the finding open, and stops without advancing, committing, pushing, or triaging.
+Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
 it cannot silently modify the repair. A durable per-finding progress record lets
 a relaunched release sweep reconcile interrupted work against the existing
-`.clawpatch` queue. A 15-minute child-process watchdog kills the complete
-Clawpatch/Codex process group. Operator interruption also terminates and reaps
-that complete child group before the supervisor exits. Timed-out non-fix commands
-stop immediately;
+`.clawpatch` queue. One explicit timeout controls both the child-process watchdog
+and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
+Operator interruption also terminates and reaps that complete child group before
+the supervisor exits.
+Timed-out non-fix commands stop immediately;
 other transient command retries are capped at three attempts.
 
 ## Parallel mapping and review, sequential implementation

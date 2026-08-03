@@ -266,6 +266,7 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         self.assertIn("cleanup", result.stdout)
         self.assertEqual(taskkill.call_args.kwargs["timeout"], 10)
 
+    @unittest.skipIf(os.name == "nt", "POSIX process-group API")
     def test_posix_keyboard_interrupt_terminates_and_reaps_the_child_process_group(self):
         process = _InterruptedProcessGroup()
         with tempfile.TemporaryDirectory() as temp:

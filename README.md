@@ -341,10 +341,10 @@ This is useful when a long project history has been summarized and you want to c
 To run the supervisor directly from a terminal, outside the `manageroo` command tree, use:
 
 ```bash
-clawpatch-supervise --repo . --branch current --push each
+clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minutes 60
 ```
 
-This displays the exact current finding as `[current/total] SHOW`, where `total` combines findings already open before review with findings created by the current review, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. Retryable source failures run in visibly numbered three-attempt recovery cycles without advancing the queue or terminating the supervisor. Interrupting the command preserves durable progress; rerun the same command to reconcile and resume. A recovery checkpoint can also survive a clean, descendant supervisor-only upgrade when every intervening path is an approved supervisor path and is disjoint from the finding evidence.
+This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 60-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Retryable source failures stop after three total attempts without advancing or triaging the finding. A stale selected finding triggers one fresh map/review/queue lookup; selecting the same missing ID again stops safely.
 
 Preview the complete closeout lifecycle without changing the repository:
 
@@ -380,16 +380,15 @@ records `clawpatch show --json`, and automatically runs Clawpatch's explicit
 finding-scoped `fix`. It never builds a queue from a report, substitutes a
 Manageroo-written repair, triages a finding as resolved, or hand-repairs source.
 
-Every Clawpatch child command has a 15-minute watchdog. A timeout kills that
-complete Clawpatch/Codex process group. Other transient non-fix failures get at
-most three announced attempts. Finding-scoped source repairs run in bounded
-three-attempt recovery cycles while the external supervisor remains alive. Each
-failed source attempt is preserved in a verified named Git stash, its stash
-reference and changed paths are fed back into Clawpatch's finding state, and the
-same finding is reopened. After a cycle, Manageroo visibly starts another cycle
-on that finding with bounded backoff; it does not advance, run final closure,
-commit, or push the failed repair. Missing executables, authentication failure,
-malformed JSON, unsafe paths, or contradictory state still stop immediately.
+The external command's `--timeout-minutes` value controls both the complete
+Clawpatch/Codex process-group watchdog and ClawPatch's Codex provider timeout.
+Other transient non-fix failures get at most three announced attempts.
+Finding-scoped source repairs get three total attempts. Each failed source
+attempt is preserved in a verified named Git stash and the same finding is
+reopened. The third failure stops with the finding still open; it never advances,
+runs final closure, commits, pushes, or labels infrastructure failure as a
+finding outcome. Missing executables, authentication failure, provider quota,
+timeouts, malformed JSON, unsafe paths, or contradictory state stop immediately.
 
 After a successful fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, requires revalidation for the same finding
@@ -407,10 +406,10 @@ fingerprint prevents that validation pass from changing the repair. A still
 `uncertain` or source-mutating validation is preserved and stopped; it does not
 trigger another source fix.
 
-Release sweeps give every Clawpatch child command a 15-minute watchdog and set
-the same 15-minute default for Clawpatch's Codex worker. An existing
-`CLAWPATCH_CODEX_TIMEOUT_MS` environment setting still wins for the inner worker,
-but the outer watchdog remains 15 minutes.
+Release sweeps default every Clawpatch child command and the Codex worker to a
+shared 60-minute timeout. `clawpatch-supervise --timeout-minutes N` changes both
+limits together, so the terminal never advertises a different timeout from the
+one actually enforced.
 
 Before each finding-scoped fix, Manageroo writes durable progress under
 `.manageroo/cache`. If the controller process is interrupted, rerunning the same

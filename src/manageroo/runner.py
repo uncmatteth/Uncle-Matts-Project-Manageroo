@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 from dataclasses import asdict, dataclass
@@ -97,6 +98,20 @@ def _terminate_process_group(
     return stdout, stderr
 
 
+def _platform_argv(argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
+    resolved = list(argv)
+    if os.name != "nt":
+        return resolved
+    program = resolved[0]
+    program_path = Path(program)
+    if program_path.is_absolute() or "/" in program or "\\" in program:
+        return resolved
+    discovered = shutil.which(program, path=env.get("PATH"))
+    if discovered:
+        resolved[0] = discovered
+    return resolved
+
+
 class CommandRunner:
     """Executes argv directly. shell=True is intentionally unavailable."""
 
@@ -124,10 +139,11 @@ class CommandRunner:
         process_env = os.environ.copy()
         if env:
             process_env.update({str(k): str(v) for k, v in env.items()})
+        launch_argv = _platform_argv(argv, process_env)
         try:
             if kill_process_group:
                 completed, timed_out = self._run_process_group(
-                    list(argv),
+                    launch_argv,
                     cwd=cwd,
                     env=process_env,
                     input_text=input_text,
@@ -135,7 +151,7 @@ class CommandRunner:
                 )
             else:
                 completed = subprocess.run(
-                    list(argv),
+                    launch_argv,
                     cwd=str(cwd),
                     env=process_env,
                     input=input_text,
