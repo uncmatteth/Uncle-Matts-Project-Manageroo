@@ -245,6 +245,59 @@ class IntentLockTests(unittest.TestCase):
             report = audit_compaction_text(repo, "Current task: build the release helper. Proof: release-ready reports READY.")
             self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); missing = {(item["category"], item["text"]) for item in report["missing"]}; self.assertIn(("must_not", "Do not deploy production"), missing); self.assertIn(("rejected", "Do not add GitHub Actions"), missing)
 
+    def test_malformed_intent_locks_are_blocked_configuration_reports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Build the release helper.")
+            path = intent_lock_path(repo)
+            valid = json.loads(path.read_text(encoding="utf-8"))
+            invalid_payloads = (
+                ([], "top-level value must be a JSON object"),
+                (None, "top-level value must be a JSON object"),
+                ({**valid, "schema_version": 2}, "schema_version must be the integer 1"),
+                ({**valid, "created_at": 7}, "created_at must be a string"),
+                ({**valid, "outcomes": "one outcome"}, "outcomes must be a list of strings"),
+                ({**valid, "outcomes": ["valid", 7]}, "outcomes[1] must be a string"),
+                ({**valid, "audit_policy": None}, "audit_policy must be a JSON object"),
+                (
+                    {
+                        **valid,
+                        "audit_policy": {
+                            **valid["audit_policy"],
+                            "strict_phrase_preservation": "yes",
+                        },
+                    },
+                    "audit_policy.strict_phrase_preservation must be a boolean",
+                ),
+                (
+                    {
+                        **valid,
+                        "audit_policy": {
+                            **valid["audit_policy"],
+                            "required_categories": "want",
+                        },
+                    },
+                    "audit_policy.required_categories must be a list of strings",
+                ),
+            )
+
+            for payload, detail in invalid_payloads:
+                with self.subTest(detail=detail):
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+
+                    lock_report = read_intent_lock(repo)
+                    audit_report = audit_compaction_text(repo, "Build the release helper.")
+
+                    error = f"INTENT-LOCK.json is invalid: {detail}"
+                    self.assertFalse(lock_report["ok"])
+                    self.assertEqual(lock_report["error"], error)
+                    self.assertFalse(audit_report["ok"])
+                    self.assertEqual(audit_report["status"], "blocked")
+                    self.assertEqual(
+                        audit_report["missing"],
+                        [{"category": "intent_lock", "text": error}],
+                    )
+
     def test_audit_passes_when_pinned_truth_survives(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Build the release helper.", outcomes=["Writes a release handoff"], must_not=["Do not deploy production"], proof=["release-ready reports READY"], corrections=["The command name is manageroo"])

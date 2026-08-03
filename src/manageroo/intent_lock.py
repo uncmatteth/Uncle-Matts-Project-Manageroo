@@ -17,6 +17,11 @@ from .util import atomic_write_json, atomic_write_text, sha256_bytes, sha256_fil
 INTENT_DIR = "intent"
 INTENT_LOCK_NAME = "INTENT-LOCK.json"
 INTENT_LOCK_MARKDOWN_NAME = "INTENT-LOCK.md"
+_LOCK_STRING_FIELDS = ("created_at", "repo", "source", "want")
+_LOCK_LIST_FIELDS = (
+    "outcomes", "must_not", "proof", "corrections", "rejected", "scopes", "questions",
+)
+_LOCK_REQUIRED_CATEGORIES = ("want", *_LOCK_LIST_FIELDS)
 
 # Confidence warnings are for absolute quality/completion claims, not ordinary domain text
 # such as "ready queue", "complete record", or a locked outcome that happens to use "ready".
@@ -142,9 +147,46 @@ def _publish_lock_pair(path: Path, lock: dict[str, Any]) -> Path:
     return markdown_path
 
 
-def _read_lock_snapshot(path: Path) -> tuple[dict[str, Any], str]:
+def _read_lock_snapshot(path: Path) -> tuple[Any, str]:
     snapshot = path.read_bytes()
     return json.loads(snapshot.decode("utf-8")), sha256_bytes(snapshot)
+
+
+def _invalid_intent_lock(repo: Path, path: Path, detail: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "repo": str(repo),
+        "path": str(path),
+        "error": f"INTENT-LOCK.json is invalid: {detail}",
+        "next_command": f'{PUBLIC_COMMAND} intent capture {repo} --want "..." --must-not "..." --proof "..." --force',
+    }
+
+
+def _validate_intent_lock_payload(lock: dict[str, Any]) -> str | None:
+    if type(lock.get("schema_version")) is not int or lock["schema_version"] != 1:
+        return "schema_version must be the integer 1"
+    for field in _LOCK_STRING_FIELDS:
+        if not isinstance(lock.get(field), str):
+            return f"{field} must be a string"
+    for field in _LOCK_LIST_FIELDS:
+        values = lock.get(field)
+        if not isinstance(values, list):
+            return f"{field} must be a list of strings"
+        for index, value in enumerate(values):
+            if not isinstance(value, str):
+                return f"{field}[{index}] must be a string"
+    policy = lock.get("audit_policy")
+    if not isinstance(policy, dict):
+        return "audit_policy must be a JSON object"
+    for field in ("strict_phrase_preservation", "confidence_claims_require_evidence"):
+        if not isinstance(policy.get(field), bool):
+            return f"audit_policy.{field} must be a boolean"
+    categories = policy.get("required_categories")
+    if not isinstance(categories, list) or any(not isinstance(item, str) for item in categories):
+        return "audit_policy.required_categories must be a list of strings"
+    if categories != list(_LOCK_REQUIRED_CATEGORIES):
+        return "audit_policy.required_categories must list every supported category in schema order"
+    return None
 
 
 def capture_intent_lock(repo_path: Path, *, want: str = "", outcomes: list[str] | None = None, must_not: list[str] | None = None, proof: list[str] | None = None, corrections: list[str] | None = None, rejected: list[str] | None = None, questions: list[str] | None = None, scopes: list[str] | None = None, source: str = "", force: bool = False) -> dict[str, Any]:
@@ -166,6 +208,11 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"ok": False, "repo": str(repo), "path": str(path), "error": "No intent lock exists yet.", "next_command": f'{PUBLIC_COMMAND} intent capture {repo} --want "..." --must-not "..." --proof "..."'}
     lock, lock_hash = _read_lock_snapshot(path)
+    if not isinstance(lock, dict):
+        return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
+    problem = _validate_intent_lock_payload(lock)
+    if problem:
+        return _invalid_intent_lock(repo, path, problem)
     return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(intent_lock_markdown_path(repo)), "lock_hash": lock_hash, "lock": lock}
 
 
@@ -193,7 +240,7 @@ def audit_compaction_text(repo_path: Path, summary_text: str, *, summary_path: P
     repo = git_root(repo_path)
     lock_report = read_intent_lock(repo)
     if not lock_report.get("ok"):
-        return {"ok": False, "status": "blocked", "repo": str(repo), "lock_path": lock_report["path"], "summary_path": str(summary_path.resolve()) if summary_path else "", "summary_hash": sha256_text(summary_text), "missing": [{"category": "intent_lock", "text": "No intent lock exists yet."}], "warnings": [], "next_command": lock_report["next_command"]}
+        return {"ok": False, "status": "blocked", "repo": str(repo), "lock_path": lock_report["path"], "summary_path": str(summary_path.resolve()) if summary_path else "", "summary_hash": sha256_text(summary_text), "missing": [{"category": "intent_lock", "text": lock_report["error"]}], "warnings": [], "next_command": lock_report["next_command"]}
     lock = lock_report["lock"]
     normalized_summary = _normalize(summary_text)
     missing = [item for item in _required_phrases(lock) if _normalize(item["text"]) not in normalized_summary]
