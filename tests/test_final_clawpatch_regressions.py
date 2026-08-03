@@ -217,6 +217,22 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         self.assertIn("partial stdout", result.stdout)
         self.assertIn("partial stderr", result.stderr)
 
+    def test_command_runner_decodes_utf8_output_instead_of_windows_cp1252(self):
+        with tempfile.TemporaryDirectory() as temp:
+            payload = "ClawPatch retry: ‘same finding’"
+            script = (
+                "import sys; "
+                f"sys.stdout.buffer.write({payload!r}.encode('utf-8')); "
+                "sys.stdout.buffer.flush()"
+            )
+            result = CommandRunner().run([sys.executable, "-c", script], cwd=Path(temp))
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.stdout, payload)
+
+    def test_redact_text_treats_missing_subprocess_output_as_empty(self):
+        self.assertEqual(redact_text(None), "")
+
     @unittest.skipIf(os.name == "nt", "POSIX process-group assertion")
     def test_command_runner_timeout_kills_the_supervised_child_process_group(self):
         with tempfile.TemporaryDirectory() as temp:
