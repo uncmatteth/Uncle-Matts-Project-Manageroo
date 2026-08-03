@@ -47,6 +47,12 @@ _SECRET_FLAG_RE = re.compile(
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
 
+def _redact_scalar_text(text: str) -> str:
+    redacted = _PEM_PRIVATE_KEY_RE.sub("<REDACTED>", text)
+    redacted = _BEARER_RE.sub("Bearer <REDACTED>", redacted)
+    return _SECRET_PAIR_RE.sub(lambda match: f"{match.group('prefix')}<REDACTED>", redacted)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -96,7 +102,7 @@ def _redact_json_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_redact_json_value(item) for item in value]
     if isinstance(value, str):
-        return _PEM_PRIVATE_KEY_RE.sub("<REDACTED>", value)
+        return _redact_scalar_text(value)
     return value
 
 
@@ -118,10 +124,7 @@ def redact_text(text: str) -> str:
             suffix = text[len(text.rstrip()) :]
             return prefix + redacted_json + suffix
 
-    redacted = _PEM_PRIVATE_KEY_RE.sub("<REDACTED>", text)
-    redacted = _BEARER_RE.sub("Bearer <REDACTED>", redacted)
-    redacted = _SECRET_PAIR_RE.sub(lambda match: f"{match.group('prefix')}<REDACTED>", redacted)
-    return redacted
+    return _redact_scalar_text(text)
 
 
 def redact_argv(argv: Sequence[str]) -> list[str]:
