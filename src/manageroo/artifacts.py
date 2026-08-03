@@ -261,6 +261,8 @@ class ArtifactStore:
         normalized = candidate.as_posix()
         if any(part in {"", ".", ".."} for part in candidate.parts):
             raise SafetyError(f"Artifact path is unsafe: {relative}")
+        if normalized == self.ledger_path.name or candidate.parts[0] == self.lock_path.name:
+            raise SafetyError(f"Artifact path is reserved: {relative}")
         destination = (self.root / candidate).resolve()
         try:
             destination.relative_to(self.root)

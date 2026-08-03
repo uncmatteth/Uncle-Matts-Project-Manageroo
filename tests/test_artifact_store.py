@@ -9,6 +9,28 @@ from manageroo.errors import SafetyError
 
 
 class ArtifactStoreTests(unittest.TestCase):
+    def test_reserved_internal_paths_cannot_weaken_locked_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "artifacts"
+            store = ArtifactStore(root)
+            store.write_text("proof.txt", "original\n", lock=True)
+            ledger_before = (root / "artifact-ledger.json").read_bytes()
+
+            reserved_writes = (
+                (store.write_json, "artifact-ledger.json", {"artifacts": {}}),
+                (store.write_text, ".artifact-ledger.lock", "replacement\n"),
+                (store.write_text, ".artifact-ledger.lock/child", "temporary\n"),
+            )
+            for writer, relative, value in reserved_writes:
+                with self.subTest(relative=relative), self.assertRaises(SafetyError):
+                    writer(relative, value)
+
+            self.assertEqual((root / "artifact-ledger.json").read_bytes(), ledger_before)
+            self.assertEqual((root / "proof.txt").read_text(encoding="utf-8"), "original\n")
+            with self.assertRaises(SafetyError):
+                store.write_text("proof.txt", "replacement\n")
+            store.verify_locked()
+
     def test_two_store_instances_preserve_distinct_concurrent_records(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "artifacts"
