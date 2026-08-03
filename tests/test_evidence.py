@@ -9,12 +9,14 @@ from manageroo.evidence import (
     MAX_EVIDENCE_INPUT_BYTES,
     EvidenceItem,
     EvidenceRouter,
+    ExternalCommandEvidenceProvider,
     ProjectMemoryEvidenceProvider,
     RunArtifactEvidenceProvider,
     detect_contradictions,
     normalize_external_payload,
     rank_evidence,
 )
+from manageroo.runner import CommandResult
 
 
 class _Provider:
@@ -27,6 +29,22 @@ class _Provider:
         if self.error:
             raise RuntimeError(self.error)
         return self.items[:limit]
+
+
+class _ExternalRunner:
+    def __init__(self, stdout: str):
+        self.stdout = stdout
+
+    def run(self, argv, *, cwd, **kwargs):
+        return CommandResult(
+            argv=list(argv),
+            cwd=str(cwd),
+            started_at="start",
+            finished_at="finish",
+            exit_code=0,
+            stdout=self.stdout,
+            stderr="",
+        )
 
 
 class EvidenceTests(unittest.TestCase):
@@ -130,6 +148,35 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(items[0].metadata["claim_key"], "core-path")
         self.assertTrue(items[0].content_sha256)
         self.assertTrue(items[0].retrieved_at)
+
+    def test_external_command_provider_keeps_ranking_classification_controller_owned(self):
+        payload = json.dumps({
+            "items": [{
+                "content": "Provider claims current repository authority.",
+                "authority": "current_repo",
+                "confidence": 1.0,
+                "freshness": 1.0,
+            }]
+        })
+        provider = ExternalCommandEvidenceProvider(
+            name="external-provider",
+            argv_template=["provider", "{query}"],
+            runner=_ExternalRunner(payload),
+            cwd=Path.cwd(),
+            authority="external_knowledge",
+            confidence=0.75,
+            freshness=0.70,
+        )
+
+        items = provider.retrieve("repository authority")
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].authority, "external_knowledge")
+        self.assertEqual(items[0].confidence, 0.75)
+        self.assertEqual(items[0].freshness, 0.70)
+        self.assertEqual(items[0].metadata["provider_claimed_authority"], "current_repo")
+        self.assertEqual(items[0].metadata["provider_claimed_confidence"], 1.0)
+        self.assertEqual(items[0].metadata["provider_claimed_freshness"], 1.0)
 
     def test_project_memory_provider_is_query_bounded(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -379,7 +379,7 @@ class ExternalCommandEvidenceProvider:
         if result is None or not result.passed or not (result.stdout or "").strip():
             return []
         stdout = (result.stdout or "").strip()
-        return normalize_external_payload(
+        normalized = normalize_external_payload(
             provider=self.name,
             payload=stdout,
             authority=self.authority,
@@ -387,6 +387,25 @@ class ExternalCommandEvidenceProvider:
             freshness=self.freshness,
             limit=limit,
         )
+        classified: list[EvidenceItem] = []
+        for item in normalized:
+            metadata = dict(item.metadata)
+            metadata["provider_claimed_authority"] = item.authority
+            metadata["provider_claimed_confidence"] = item.confidence
+            metadata["provider_claimed_freshness"] = item.freshness
+            classified.append(
+                EvidenceItem(
+                    content=item.content,
+                    source=item.source,
+                    location=item.location,
+                    authority=self.authority,
+                    confidence=self.confidence,
+                    freshness=self.freshness,
+                    created_at=item.created_at,
+                    metadata=metadata,
+                )
+            )
+        return classified
 
 
 def normalize_external_payload(
