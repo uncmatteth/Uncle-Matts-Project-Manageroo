@@ -42,6 +42,33 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.assertIn("gate:smoke", rows[0]["evidence"])
         self.assertNotIn("gate:unrelated", rows[0]["evidence"])
 
+    def test_malformed_exit_codes_never_pass_bound_gate(self):
+        malformed_results = {
+            "false": {"exit_code": False},
+            "true": {"exit_code": True},
+            "string": {"exit_code": "0"},
+            "null": {"exit_code": None},
+            "missing": {},
+        }
+        for label, result in malformed_results.items():
+            with self.subTest(exit_code=label):
+                rows = build_acceptance_evidence(
+                    product={"acceptance_outcomes": ["Configured verification gates pass."]},
+                    gate_results=[{"gate": {"id": "smoke"}, "result": result}],
+                    demonstration={
+                        "gates": [],
+                        "product_evidence": [
+                            {
+                                "outcome": "Configured verification gates pass.",
+                                "gate_ids": ["smoke"],
+                            }
+                        ],
+                    },
+                    review={"status": "approved", "findings": []},
+                )
+                self.assertEqual(rows[0]["status"], "failed")
+                self.assertIn("smoke", rows[0]["reason"])
+
     def test_existing_but_failing_bound_gate_fails_only_its_outcome(self):
         rows = build_acceptance_evidence(
             product={"acceptance_outcomes": ["Export remains correct.", "Import remains correct."]},

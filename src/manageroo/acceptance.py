@@ -46,7 +46,12 @@ def _passed_gate_ids(gates: list[dict]) -> set[str]:
             continue
         gate = item.get("gate", {})
         result = item.get("result", {})
-        if isinstance(gate, dict) and isinstance(result, dict) and result.get("exit_code") == 0:
+        if (
+            isinstance(gate, dict)
+            and isinstance(result, dict)
+            and type(result.get("exit_code")) is int
+            and result["exit_code"] == 0
+        ):
             gate_id = str(gate.get("id") or "").strip()
             if gate_id:
                 passed.add(gate_id)
