@@ -386,7 +386,7 @@ That flag is deliberately explicit. It disables Codex approval prompts and
 sandboxing only for the Clawpatch child processes in this sweep; it is not saved
 as a global setting. Do not use it for untrusted code. Manageroo still runs the
 project's configured verification gates, requires Clawpatch revalidation, stages
-only the exact changed paths, and commits one cleared finding at a time.
+only the exact changed paths, and commits only Clawpatch-owned attempts.
 
 Clawpatch owns finding selection and repair. Manageroo runs `clawpatch status
 --json`, clears only proven-stale locks, maps the repository, reviews every
@@ -410,15 +410,19 @@ The implemented ClawPatch 0.7.2 state machine is:
 | `next` returns an open finding | Record `show`, then run that finding's `fix` once |
 | `fix` is applied and project gates pass | Run `revalidate --finding` |
 | Read-only revalidation is `uncertain` | Revalidate the same repair once with workspace-write, guarded by an exact source fingerprint |
+| Revalidation is `open` | Commit only the partial patch-attempt paths as a continuation checkpoint, verify any authorized push, then call `next`; Clawpatch selects the same open finding for another `show` and `fix` cycle |
 | Revalidation is exactly `fixed` | Commit only the patch-attempt paths, verify any authorized push, then call `next` |
-| Fix exits nonzero, gates fail, or revalidation remains `open`, `uncertain`, or `false-positive` | Stop with source edits in place and the queue unchanged |
+| Fix exits nonzero, gates fail, or revalidation remains `uncertain` or `false-positive` | Stop with source edits in place and the queue unchanged |
 | A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
 | A prior checkpoint exists | Refuse automatic continuation; Manageroo-project `--fresh` requires its exact owned paths, while external-supervisor `--fresh` discards the current source changes before reinitializing |
 
-After a successful fix, Manageroo requires the matching patch-attempt record,
-runs every configured project gate, requires revalidation for the same finding
-with the exact outcome `fixed`, and stages only source files recorded by that
-patch attempt. It never creates a partial or metadata-only repair commit.
+After each applied fix, Manageroo requires the matching patch-attempt record,
+runs every configured project gate, revalidates the same finding, and stages
+only source files recorded by that patch attempt. An `open` result creates an
+exact-path continuation commit so Clawpatch's clean-worktree requirement is met,
+then reenters `next` and the same finding without an arbitrary attempt cap. A
+finding is counted complete only after exact `fixed` revalidation. Clawpatch
+state metadata is never mixed into a source commit.
 
 Clawpatch's `show` output ends with a human triage template. That template is
 not an executable workflow command. Manageroo preserves the inspection output

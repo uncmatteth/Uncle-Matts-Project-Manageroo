@@ -101,11 +101,13 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
-Clawpatch release commits use the current successful patch-attempt record as the
+Clawpatch release commits use the current applied patch-attempt record as the
 only source-path allowlist. Manageroo stages only those source paths after full
-project validation and exact `fixed` revalidation. It never builds a finding
-queue from reports, commits partial repairs, or mixes `.clawpatch/**` state into
-a repair commit. The Manageroo project command requires configured Manageroo
+project validation and revalidation. An `open` revalidation creates an
+exact-path continuation commit, then Clawpatch's own `next` selects that same
+open finding for another `show` and `fix` cycle; only exact `fixed` completes the
+finding. It never builds a finding queue from reports or mixes `.clawpatch/**`
+state into a source commit. The Manageroo project command requires configured Manageroo
 gates and runs them against the unchanged repository baseline. The separately
 installed external supervisor is portable to any Git repository: it runs those
 gates when present, otherwise leaves validation to Clawpatch's applied `fix`
@@ -118,10 +120,13 @@ the mandatory whole-project gate. The cross-platform controller reviews all pend
 features, obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
-Manageroo never issues a triage command. Each current finding receives one
-Clawpatch-owned `fix`. Any failed or unsupported transition stops with the exact
-changed source paths visible and checkpointed; Manageroo does not stash, reopen,
-retry, skip, remap, hand-repair, advance, commit, or push that finding.
+Manageroo never issues a triage command. Each current transition receives one
+Clawpatch-owned `fix`. An `open` revalidation is a documented same-finding
+continuation, not a blind command retry: Manageroo commits only that applied
+attempt's exact paths and calls `next`, `show`, and `fix` again with no arbitrary
+cap. Any failed or unsupported transition stops with the exact changed source
+paths visible and checkpointed; Manageroo does not stash, triage, skip, remap,
+hand-repair, or advance to a different finding.
 Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
 it cannot silently modify the repair. A durable per-finding progress record binds

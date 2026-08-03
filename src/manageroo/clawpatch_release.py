@@ -30,8 +30,9 @@ LIFECYCLE = (
     "pending feature -> clawpatch next/show -> one fix -> configured project gates when present -> "
     "exact fixed revalidation "
     "(with one read-only-to-workspace-write revalidation transition when needed) -> "
-    "exact-path commit/push when authorized -> repeat the open queue; any unsupported, "
-    "failed, open, uncertain, or false-positive transition stops with source changes intact -> "
+    "exact-path commit/push when authorized -> an open revalidation commits the exact partial "
+    "attempt and reenters the same Clawpatch next/show/fix transition without a cap; any "
+    "unsupported, failed, uncertain, or false-positive transition stops with source changes intact -> "
     "final closure"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
@@ -814,7 +815,7 @@ def _revalidate(
         payload["managerooSandboxEscalated"] = True
         payload["managerooInitialOutcome"] = outcome
         outcome = escalated_outcome
-    if outcome != "fixed":
+    if outcome not in {"fixed", "open"}:
         raise _UnresolvedFinding(
             f"phase: revalidation\ncommand: {shlex.join(argv)}\nfinding ID: {finding_id}\n"
             f"exit code: 0\nfailed requirement: exact lowercase outcome fixed; received {outcome}\n"
@@ -1177,7 +1178,14 @@ def _prepare_fresh_release(
         config_path.write_text(config_text, encoding="utf-8")
 
 
-def _commit_attempt(repo: Path, finding_id: str, files: list[str], *, branch: str) -> str:
+def _commit_attempt(
+    repo: Path,
+    finding_id: str,
+    files: list[str],
+    *,
+    branch: str,
+    outcome: str = "fixed",
+) -> str:
     if not files:
         return ""
     _require_branch(repo, branch, phase="source commit")
@@ -1196,7 +1204,12 @@ def _commit_attempt(repo: Path, finding_id: str, files: list[str], *, branch: st
         return ""
     _must_run(["git", "diff", "--cached", "--check"], cwd=repo, timeout=120)
     _require_branch(repo, branch, phase="source commit")
-    _must_run(["git", "commit", "-m", f"clawpatch fix: {finding_id}"], cwd=repo, timeout=300)
+    commit_kind = "continuation" if outcome == "open" else "fix"
+    _must_run(
+        ["git", "commit", "-m", f"clawpatch {commit_kind}: {finding_id}"],
+        cwd=repo,
+        timeout=300,
+    )
     commit = _git_text(repo, ["git", "rev-parse", "HEAD"])
     committed = _git_text(repo, ["git", "show", "--pretty=", "--name-only", "--no-renames", commit]).splitlines()
     if sorted(path for path in committed if path) != staged_paths:
@@ -1280,7 +1293,21 @@ def _execute_fix(
         current=current,
         total=total,
     )
-    commit = _commit_attempt(repo, finding_id, files, branch=branch)
+    revalidation_outcome = str(validation.get("outcome"))
+    commit = _commit_attempt(
+        repo,
+        finding_id,
+        files,
+        branch=branch,
+        outcome=revalidation_outcome,
+    )
+    if revalidation_outcome == "open" and not commit:
+        raise _UnresolvedFinding(
+            f"Clawpatch revalidation kept {finding_id} open but the applied attempt produced "
+            "no source commit, so repeating it would make no progress.",
+            finding_id=finding_id,
+            outcome="open-no-progress",
+        )
     if push_mode == "each" and commit:
         _push_and_verify(repo, branch, first=not pushed)
         pushed = True
@@ -1498,6 +1525,7 @@ def release_sweep(
         "integration_mode": integration_mode,
         "publish_clawpatch_state": publish_clawpatch_state,
         "results": [],
+        "continuations": [],
         "false_positives": [],
     }
     if not apply:
@@ -1642,11 +1670,12 @@ def release_sweep(
 
     pushed = False
     while True:
+        displayed_finding = current_finding + 1
         finding_id, queue = _next_finding(
             root,
             env=env,
             progress=progress,
-            current=current_finding + 1,
+            current=displayed_finding,
             total=total_findings,
         )
         if finding_id is None:
@@ -1658,7 +1687,7 @@ def release_sweep(
                 env=env,
                 required_status="open",
                 progress=progress,
-                current=current_finding + 1,
+                current=displayed_finding,
                 total=total_findings,
             )
         except _MissingFinding as exc:
@@ -1666,12 +1695,11 @@ def release_sweep(
                 f"Clawpatch selected missing finding {finding_id}. Manageroo stopped without "
                 "remapping, reviewing, triaging, skipping, or changing the queue."
             ) from exc
-        current_finding += 1
         if progress is not None:
             progress(
                 {
                     "phase": "finding",
-                    "current": current_finding,
+                    "current": displayed_finding,
                     "total": total_findings,
                     "finding_id": finding_id,
                     "command": f"clawpatch show --finding {finding_id}",
@@ -1692,7 +1720,7 @@ def release_sweep(
             progress(
                 {
                     "phase": "fix",
-                    "current": current_finding,
+                    "current": displayed_finding,
                     "total": total_findings,
                     "finding_id": finding_id,
                     "attempt": 1,
@@ -1710,7 +1738,7 @@ def release_sweep(
                 branch=selected_branch,
                 pushed=pushed,
                 progress=progress,
-                current=current_finding,
+                current=displayed_finding,
                 total=total_findings,
                 require_project_gates=require_project_gates,
             )
@@ -1730,7 +1758,7 @@ def release_sweep(
                 progress(
                     {
                         "phase": "stopped",
-                        "current": current_finding,
+                        "current": displayed_finding,
                         "total": total_findings,
                         "finding_id": finding_id,
                         "outcome": outcome,
@@ -1748,6 +1776,21 @@ def release_sweep(
             ) from exc
         _clear_release_progress(root, state_root=state_root)
         record["queue"] = queue
+        if record.get("revalidation", {}).get("outcome") == "open":
+            report["continuations"].append(record)
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "continuing",
+                        "current": displayed_finding,
+                        "total": total_findings,
+                        "finding_id": finding_id,
+                        "commit": record.get("commit", ""),
+                        "detail": "open revalidation committed; continuing same finding",
+                    }
+                )
+            continue
+        current_finding += 1
         report["results"].append(record)
         if progress is not None:
             progress(
@@ -1782,7 +1825,8 @@ def release_sweep(
         "git_head": final_head,
         "clawpatch_version": version,
         "open_findings": 0,
-        "completed_findings": report["results"],
+            "completed_findings": report["results"],
+            "continuation_attempts": report["continuations"],
         "false_positives": report["false_positives"],
         "final_closure": closure,
     }

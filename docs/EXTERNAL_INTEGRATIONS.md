@@ -206,6 +206,13 @@ that is `uncertain` because read-only execution is blocked gets one controlled
 workspace-write revalidation guarded by an exact source fingerprint; that is a
 documented validation transition, not a new source fix.
 
+An `open` revalidation is also a documented state transition rather than a
+failed command. Manageroo commits only the current applied patch-attempt paths
+as a continuation checkpoint, verifies an authorized push, and calls
+Clawpatch's `next` again. Because the finding remains open, Clawpatch selects the
+same finding for another `show` and `fix` cycle. This has no arbitrary attempt
+cap and never substitutes a Manageroo-written repair.
+
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
 Manageroo creates one separate `.clawpatch/**`-only final state commit.
