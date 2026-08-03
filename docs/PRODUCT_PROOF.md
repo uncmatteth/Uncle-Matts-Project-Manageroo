@@ -153,7 +153,7 @@ Recommended release command:
 python3 scripts/release.py
 ```
 
-The release driver runs product proof first and proceeds to verification, packaging, checksum generation, and clean-install ZIP smoke only when proof is complete. It fails closed and does not create release artifacts when certification is partial or failed.
+The release driver runs product proof first and proceeds to verification, packaging, checksum generation, and clean-install ZIP smoke only when proof is complete. It fails closed and does not create release artifacts when certification is partial or failed. Each top-level stage runs in an isolated process group; a timeout terminates that complete process tree before the driver reports failure.
 
 Distribution verification builds through isolated PEP 517 mode, so pip provisions the build requirements declared in `pyproject.toml` instead of relying on globally installed build tools. Its build and clean-install Python processes also use isolated mode so an inherited `PYTHONPATH` cannot make pip mistake the source checkout for an installed wheel.
 

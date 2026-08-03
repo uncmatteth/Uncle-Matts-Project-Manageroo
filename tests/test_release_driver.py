@@ -1,7 +1,10 @@
 import importlib.util
 import io
 import json
+import os
 import sys
+import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -16,6 +19,51 @@ SPEC.loader.exec_module(release)
 
 
 class ReleaseDriverTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX process-group assertion")
+    def test_timeout_force_kills_sigterm_resistant_redirected_descendant(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "descendant-survived.txt"
+            pid_file = root / "descendant.pid"
+            descendant = (
+                "import signal, time; from pathlib import Path; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                f"Path({str(pid_file)!r}).write_text(str(__import__('os').getpid()), encoding='utf-8'); "
+                f"time.sleep(1); Path({str(marker)!r}).write_text('survived', encoding='utf-8'); "
+                "time.sleep(10)"
+            )
+            parent = (
+                "import subprocess, sys, time; "
+                f"subprocess.Popen([sys.executable, '-c', {descendant!r}], "
+                "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+                "time.sleep(10)"
+            )
+            with patch.object(release, "PROCESS_TREE_GRACE_SECONDS", 0.1):
+                result = release.run([sys.executable, "-c", parent], timeout=0.2)
+
+            self.assertEqual(result["exit_code"], 124)
+            self.assertIn("TIMEOUT", result["output"])
+            self.assertTrue(pid_file.is_file())
+            descendant_pid = int(pid_file.read_text(encoding="utf-8"))
+            time.sleep(1)
+            self.assertFalse(marker.exists())
+            try:
+                os.kill(descendant_pid, 0)
+            except ProcessLookupError:
+                descendant_running = False
+            else:
+                descendant_running = True
+                if Path("/proc").is_dir():
+                    try:
+                        state = Path(f"/proc/{descendant_pid}/stat").read_text(
+                            encoding="utf-8", errors="replace"
+                        ).split()[2]
+                    except FileNotFoundError:
+                        descendant_running = False
+                    else:
+                        descendant_running = state != "Z"
+            self.assertFalse(descendant_running)
+
     def test_failed_product_proof_never_runs_packaging(self):
         proof = {
             "argv": [sys.executable, "-m", "manageroo", "prove", "--json"],
