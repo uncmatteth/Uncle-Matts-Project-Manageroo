@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shlex
@@ -159,6 +160,31 @@ def _copy_validated_source_file(source_file: _ValidatedSourceFile, destination: 
             os.close(source_fd)
 
 
+def _read_validated_source_file(source_file: _ValidatedSourceFile) -> bytes:
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        source_fd = os.open(source_file.path, flags)
+    except OSError as exc:
+        raise ValueError(f"Skill source changed during import: {source_file.path}") from exc
+    try:
+        with os.fdopen(source_fd, "rb") as source_handle:
+            source_fd = -1
+            if not _source_file_matches(source_file, os.fstat(source_handle.fileno())):
+                raise ValueError(f"Skill source changed during import: {source_file.path}")
+            content = source_handle.read()
+            if not _source_file_matches(source_file, os.fstat(source_handle.fileno())):
+                raise ValueError(f"Skill source changed during import: {source_file.path}")
+            return content
+    finally:
+        if source_fd >= 0:
+            os.close(source_fd)
+
+
 def _copy_validated_source_tree(
     source_dir: Path,
     source_files: list[_ValidatedSourceFile],
@@ -191,9 +217,29 @@ def _validate_destination_tree(target_dir: Path, target_root: Path) -> None:
                 raise ValueError(f"Refusing to replace skill tree containing symlink: {path}")
 
 
-def _transactional_replace_skill(source_dir: Path, target_dir: Path, target_root: Path) -> str:
+def _transactional_replace_skill(
+    source_dir: Path,
+    target_dir: Path,
+    target_root: Path,
+    *,
+    expected_name: str | None = None,
+    expected_skill_sha256: str | None = None,
+) -> str:
     """Stage a complete skill and swap it atomically at directory granularity."""
     source_files = _validate_source_tree(source_dir)
+    if expected_name is not None or expected_skill_sha256 is not None:
+        skill_path = source_dir / "SKILL.md"
+        source_skill = next((item for item in source_files if item.path == skill_path), None)
+        if source_skill is None:
+            raise ValueError(f"Skill source changed during import: {skill_path}")
+        content = _read_validated_source_file(source_skill)
+        digest = hashlib.sha256(content).hexdigest()
+        if expected_skill_sha256 is not None and digest != expected_skill_sha256:
+            raise ValueError(f"Skill source changed after scan: {skill_path}")
+        text = content.decode("utf-8")
+        name = _frontmatter_name(text) or source_dir.name
+        if expected_name is not None and name.strip() != expected_name:
+            raise ValueError(f"Skill source changed after scan: {skill_path}")
     _validate_destination_tree(target_dir, target_root)
     stage = Path(tempfile.mkdtemp(prefix=f".{target_dir.name}.manageroo-stage-", dir=str(target_root)))
     backup: Path | None = None
@@ -423,7 +469,13 @@ def import_skill_folder(source: Path, *, skills_dir: Path | None = None, apply: 
             continue
         source_file = Path(item["path"])
         skill_dir = target_root / item["name"]
-        backup = _transactional_replace_skill(source_file.parent, skill_dir, target_root)
+        backup = _transactional_replace_skill(
+            source_file.parent,
+            skill_dir,
+            target_root,
+            expected_name=item["name"],
+            expected_skill_sha256=item["sha256"],
+        )
         if backup:
             backups.append(backup)
         imported.append({
