@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +98,49 @@ def _lock_payload(repo: Path, *, want: str = "", outcomes: list[str] | None = No
     }
 
 
+def _publish_lock_pair(path: Path, lock: dict[str, Any]) -> Path:
+    markdown_path = path.with_name(INTENT_LOCK_MARKDOWN_NAME)
+    transaction = Path(tempfile.mkdtemp(prefix=".intent-lock-", dir=str(path.parent)))
+    staged = {
+        path: transaction / path.name,
+        markdown_path: transaction / markdown_path.name,
+    }
+    backups: dict[Path, Path] = {}
+    publication_started = False
+    try:
+        atomic_write_json(staged[path], lock)
+        atomic_write_text(staged[markdown_path], _lock_markdown(lock))
+        for visible in staged:
+            if visible.exists():
+                backup = transaction / f"{visible.name}.previous"
+                shutil.copy2(visible, backup)
+                backups[visible] = backup
+        publication_started = True
+        for visible, candidate in staged.items():
+            os.replace(candidate, visible)
+    except BaseException as exc:
+        rollback_errors: list[OSError] = []
+        if publication_started:
+            for visible in reversed(tuple(staged)):
+                try:
+                    backup = backups.get(visible)
+                    if backup is not None and backup.exists():
+                        os.replace(backup, visible)
+                    elif visible not in backups:
+                        visible.unlink(missing_ok=True)
+                except OSError as rollback_exc:
+                    rollback_errors.append(rollback_exc)
+        if rollback_errors:
+            raise ConfigurationError(
+                f"Intent lock publication failed and rollback was incomplete. "
+                f"Recoverable files remain in {transaction}."
+            ) from exc
+        shutil.rmtree(transaction, ignore_errors=True)
+        raise
+    shutil.rmtree(transaction, ignore_errors=True)
+    return markdown_path
+
+
 def capture_intent_lock(repo_path: Path, *, want: str = "", outcomes: list[str] | None = None, must_not: list[str] | None = None, proof: list[str] | None = None, corrections: list[str] | None = None, rejected: list[str] | None = None, questions: list[str] | None = None, scopes: list[str] | None = None, source: str = "", force: bool = False) -> dict[str, Any]:
     repo = git_root(repo_path)
     path = intent_lock_path(repo)
@@ -103,9 +149,7 @@ def capture_intent_lock(repo_path: Path, *, want: str = "", outcomes: list[str] 
         if path.exists() and not force:
             raise ConfigurationError(f"Intent lock already exists: {path}. Use `--force` only when replacing the current locked intent.")
         lock = _lock_payload(repo, want=want, outcomes=outcomes, must_not=must_not, proof=proof, corrections=corrections, rejected=rejected, questions=questions, scopes=scopes, source=source)
-        atomic_write_json(path, lock)
-        markdown_path = intent_lock_markdown_path(repo)
-        atomic_write_text(markdown_path, _lock_markdown(lock))
+        markdown_path = _publish_lock_pair(path, lock)
     return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(markdown_path), "lock_hash": sha256_file(path), "next_command": f"{PUBLIC_COMMAND} compact audit {repo} --summary SUMMARY.md", "lock": lock}
 
 

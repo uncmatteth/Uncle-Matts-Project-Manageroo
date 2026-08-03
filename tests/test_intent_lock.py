@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import tempfile
 import threading
@@ -70,6 +71,68 @@ class IntentLockTests(unittest.TestCase):
             markdown = lock.with_suffix(".md").read_text(encoding="utf-8")
             self.assertIn("First intent wins.", markdown)
             self.assertNotIn("Second intent loses.", markdown)
+
+    def test_failed_initial_capture_can_be_retried_without_force(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            lock = intent_lock_path(repo)
+
+            with mock.patch(
+                "manageroo.intent_lock.atomic_write_text",
+                side_effect=OSError("simulated Markdown staging failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "Markdown staging failure"):
+                    capture_intent_lock(repo, want="Failed intent.")
+
+            self.assertFalse(lock.exists())
+            self.assertFalse(lock.with_suffix(".md").exists())
+            result = capture_intent_lock(repo, want="Retry succeeds.")
+            self.assertTrue(result["ok"])
+            self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["want"], "Retry succeeds.")
+
+    def test_failed_forced_capture_preserves_existing_pair(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Original intent.")
+            lock = intent_lock_path(repo)
+            markdown = lock.with_suffix(".md")
+            original_json = lock.read_bytes()
+            original_markdown = markdown.read_bytes()
+
+            with mock.patch(
+                "manageroo.intent_lock.atomic_write_text",
+                side_effect=OSError("simulated Markdown staging failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "Markdown staging failure"):
+                    capture_intent_lock(repo, want="Replacement intent.", force=True)
+
+            self.assertEqual(lock.read_bytes(), original_json)
+            self.assertEqual(markdown.read_bytes(), original_markdown)
+
+    def test_failed_second_publication_rolls_back_first_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Original intent.")
+            lock = intent_lock_path(repo)
+            markdown = lock.with_suffix(".md")
+            original_json = lock.read_bytes()
+            original_markdown = markdown.read_bytes()
+            original_replace = os.replace
+
+            def fail_markdown_publication(source, destination):
+                if Path(source).name == markdown.name and Path(destination) == markdown:
+                    raise OSError("simulated Markdown publication failure")
+                return original_replace(source, destination)
+
+            with mock.patch(
+                "manageroo.intent_lock.os.replace",
+                side_effect=fail_markdown_publication,
+            ):
+                with self.assertRaisesRegex(OSError, "Markdown publication failure"):
+                    capture_intent_lock(repo, want="Replacement intent.", force=True)
+
+            self.assertEqual(lock.read_bytes(), original_json)
+            self.assertEqual(markdown.read_bytes(), original_markdown)
 
     def test_audit_blocks_when_compaction_drops_must_not_rules(self):
         with tempfile.TemporaryDirectory() as temp:
