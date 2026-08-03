@@ -8,6 +8,7 @@ import stat
 import tempfile
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
@@ -20,6 +21,14 @@ from ..util import atomic_write_json, sha256_file, utc_now
 MAX_GIT_METADATA_FILES = 50_000
 MAX_GIT_METADATA_ENTRIES = 100_000
 MAX_GIT_METADATA_BYTES = 128 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _ControllerTruthSnapshot:
+    run_root: Path | None
+    run_root_identity: tuple[int, int] | None
+    directories: dict[Path, bool]
+    files: dict[Path, bytes | None]
 
 
 class TransactionalAdapter(AgentAdapter):
@@ -452,36 +461,142 @@ class TransactionalAdapter(AgentAdapter):
             run_root / "worker-attempts" / job_id / f"{attempt_id}.json",
         ]
 
-    def _snapshot_controller_truth(self, request: AgentRequest) -> dict[Path, bytes | None]:
-        snapshot: dict[Path, bytes | None] = {}
-        for path in self._protected_controller_paths(request):
-            if path.is_symlink():
-                raise SafetyError(f"Controller truth path must not be a symlink: {path}")
-            snapshot[path] = path.read_bytes() if path.is_file() else None
-        return snapshot
+    def _snapshot_controller_truth(self, request: AgentRequest) -> _ControllerTruthSnapshot:
+        location = self._run_location(request)
+        protected_paths = self._protected_controller_paths(request)
+        if location is None or not protected_paths:
+            return _ControllerTruthSnapshot(None, None, {}, {})
+        lexical_run_root = location[0]
+        try:
+            root_state = lexical_run_root.lstat()
+            if stat.S_ISLNK(root_state.st_mode) or not stat.S_ISDIR(root_state.st_mode):
+                raise SafetyError(
+                    f"Controller truth run root must be a real directory: {lexical_run_root}"
+                )
+            run_root = lexical_run_root.resolve(strict=True)
+            root_state = run_root.lstat()
+        except OSError as exc:
+            raise SafetyError(
+                f"Manageroo could not anchor controller truth to the run root: {lexical_run_root}: {exc}"
+            ) from exc
 
-    def _restore_controller_truth(self, snapshot: dict[Path, bytes | None]) -> list[str]:
-        changed: list[str] = []
-        for path, expected in snapshot.items():
-            current = path.read_bytes() if path.is_file() and not path.is_symlink() else None
-            current_exists = path.exists() or path.is_symlink()
-            if expected is None and not current_exists:
+        files = {
+            run_root / path.relative_to(lexical_run_root): None for path in protected_paths
+        }
+        directory_paths: set[Path] = set()
+        for path in files:
+            current = path.parent
+            while current != run_root:
+                directory_paths.add(current)
+                current = current.parent
+
+        directories: dict[Path, bool] = {}
+        for path in sorted(directory_paths, key=lambda item: len(item.relative_to(run_root).parts)):
+            try:
+                path_state = path.lstat()
+            except FileNotFoundError:
+                directories[path] = False
                 continue
-            if expected is not None and current == expected and not path.is_symlink():
+            except OSError as exc:
+                raise SafetyError(
+                    f"Controller truth directory topology is unreadable: {path}: {exc}"
+                ) from exc
+            if stat.S_ISLNK(path_state.st_mode) or not stat.S_ISDIR(path_state.st_mode):
+                raise SafetyError(f"Controller truth path component must be a real directory: {path}")
+            directories[path] = True
+
+        for path in files:
+            try:
+                path_state = path.lstat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise SafetyError(f"Controller truth path is unreadable: {path}: {exc}") from exc
+            if stat.S_ISLNK(path_state.st_mode):
+                raise SafetyError(f"Controller truth path must not be a symlink: {path}")
+            if stat.S_ISREG(path_state.st_mode):
+                files[path] = path.read_bytes()
+        return _ControllerTruthSnapshot(
+            run_root=run_root,
+            run_root_identity=(root_state.st_dev, root_state.st_ino),
+            directories=directories,
+            files=files,
+        )
+
+    def _restore_controller_truth(self, snapshot: _ControllerTruthSnapshot) -> list[str]:
+        if snapshot.run_root is None or snapshot.run_root_identity is None:
+            return []
+        changed: list[str] = []
+        try:
+            root_state = snapshot.run_root.lstat()
+        except OSError as exc:
+            raise SafetyError(
+                f"Critical controller truth run root changed and cannot be restored safely: {snapshot.run_root}: {exc}"
+            ) from exc
+        if (
+            stat.S_ISLNK(root_state.st_mode)
+            or not stat.S_ISDIR(root_state.st_mode)
+            or (root_state.st_dev, root_state.st_ino) != snapshot.run_root_identity
+        ):
+            raise SafetyError(
+                f"Critical controller truth run root changed and cannot be restored safely: {snapshot.run_root}"
+            )
+
+        for path, expected_directory in sorted(
+            snapshot.directories.items(),
+            key=lambda item: len(item[0].relative_to(snapshot.run_root).parts),
+        ):
+            try:
+                path_state = path.lstat()
+            except FileNotFoundError:
+                path_state = None
+            except OSError as exc:
+                raise SafetyError(
+                    f"Critical controller truth directory is unreadable: {path}: {exc}"
+                ) from exc
+            current_directory = bool(
+                path_state is not None
+                and stat.S_ISDIR(path_state.st_mode)
+                and not stat.S_ISLNK(path_state.st_mode)
+            )
+            if (expected_directory and current_directory) or (
+                not expected_directory and path_state is None
+            ):
                 continue
             changed.append(str(path))
             try:
-                if expected is None:
-                    if path.is_dir() and not path.is_symlink():
+                if path_state is not None and stat.S_ISDIR(path_state.st_mode):
+                    shutil.rmtree(path)
+                elif path_state is not None:
+                    path.unlink()
+                if expected_directory:
+                    path.mkdir()
+            except OSError as exc:
+                raise SafetyError(
+                    f"Critical controller truth directory changed and could not be restored: {path}: {exc}"
+                ) from exc
+
+        for path, expected in snapshot.files.items():
+            try:
+                path_state = path.lstat()
+            except FileNotFoundError:
+                path_state = None
+            except OSError as exc:
+                raise SafetyError(f"Critical controller truth is unreadable: {path}: {exc}") from exc
+            current = path.read_bytes() if path_state is not None and stat.S_ISREG(path_state.st_mode) else None
+            current_exists = path_state is not None
+            if expected is None and not current_exists:
+                continue
+            if expected is not None and current == expected:
+                continue
+            changed.append(str(path))
+            try:
+                if path_state is not None:
+                    if stat.S_ISDIR(path_state.st_mode):
                         shutil.rmtree(path)
-                    elif path.exists() or path.is_symlink():
+                    else:
                         path.unlink()
-                else:
-                    if path.is_dir() and not path.is_symlink():
-                        shutil.rmtree(path)
-                    elif path.is_symlink():
-                        path.unlink()
-                    path.parent.mkdir(parents=True, exist_ok=True)
+                if expected is not None:
                     path.write_bytes(expected)
             except OSError as exc:
                 raise SafetyError(f"Critical controller truth changed and could not be restored: {path}: {exc}") from exc

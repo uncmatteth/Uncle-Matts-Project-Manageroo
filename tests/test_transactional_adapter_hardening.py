@@ -1,4 +1,5 @@
 import multiprocessing
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -96,6 +97,20 @@ class GitMetadataMutationWorker(AgentAdapter):
         return AgentResponse(role=req.role, data={"ok": True}, raw_text="{}", command=["fake"])
 
 
+class ControllerDirectorySymlinkWorker(AgentAdapter):
+    def __init__(self, protected_directory: Path, external_directory: Path):
+        self.protected_directory = protected_directory
+        self.external_directory = external_directory
+
+    def doctor(self, cwd: Path):
+        return {"ok": True}
+
+    def run(self, req: AgentRequest):
+        shutil.rmtree(self.protected_directory)
+        self.protected_directory.symlink_to(self.external_directory, target_is_directory=True)
+        return AgentResponse(role=req.role, data={"ok": True}, raw_text="{}", command=["fake"])
+
+
 class BlockingWriteWorker(AgentAdapter):
     def __init__(self, entered, release):
         self.entered = entered
@@ -154,6 +169,39 @@ def git_metadata(repo: Path) -> dict[str, tuple[int, bytes]]:
 
 
 class TransactionalAdapterHardeningTests(unittest.TestCase):
+    def test_controller_truth_restoration_does_not_follow_symlinked_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = make_repo(root)
+            run_root = root / "run"
+            controller = run_root / "controller"
+            controller.mkdir(parents=True)
+            (controller / "truth.json").write_bytes(b'{"trusted": true}\n')
+            (run_root / "agent-output" / "job").mkdir(parents=True)
+
+            external = root / "external"
+            external.mkdir()
+            (external / "truth.json").write_bytes(b'{"external": true}\n')
+            external_before = {
+                path.name: path.read_bytes() for path in external.iterdir()
+            }
+            req = request(repo, "workspace-write")
+            req.output_path = run_root / "agent-output" / "job" / "attempt.json"
+            adapter = TransactionalAdapter(
+                ControllerDirectorySymlinkWorker(controller, external), CommandRunner()
+            )
+
+            with self.assertRaisesRegex(SafetyError, "critical Manageroo controller truth"):
+                adapter.run(req)
+
+            self.assertFalse(controller.is_symlink())
+            self.assertTrue(controller.is_dir())
+            self.assertEqual((controller / "truth.json").read_bytes(), b'{"trusted": true}\n')
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in external.iterdir()},
+                external_before,
+            )
+
     def test_repository_transactions_are_serialized_across_processes(self):
         try:
             process_context = multiprocessing.get_context("fork")

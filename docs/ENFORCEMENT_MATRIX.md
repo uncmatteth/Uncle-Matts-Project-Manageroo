@@ -40,6 +40,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Concurrent release packagers cannot publish a mixed archive pair or mismatched drop | Cross-platform advisory lock held across archive-pair publication and drop-folder refresh | Preventive |
 | Idea-inbox lock acquisition cannot overwrite a linked target | Reject symlinks, Windows reparse points, multiple links, and opened-path identity mismatches before truncation | Preventive |
 | Concurrent worker attempts cannot share one repository transaction | Interprocess lock keyed to the canonical Git common directory, held from pristine check through validation or rollback | Preventive |
+| Worker cannot redirect controller-truth restoration through a symlinked protected directory | Canonical run-root identity checkpoint plus lstat-based directory-topology restoration before protected file reads or writes | Detective, blocks acceptance and restores protected topology |
 | Git metadata snapshots consume unbounded memory | Explicit entry, file, and aggregate-byte limits before worker launch | Preventive, fails closed |
 | A crashed artifact-lock reclaimer wedges the store | Portable atomic claim directory plus incomplete-publication grace and stale-owner recovery | Preventive and recoverable |
 | Completed worker job is not casually repeated | Completed job artifact hash check | Detective, blocks stale reuse |
