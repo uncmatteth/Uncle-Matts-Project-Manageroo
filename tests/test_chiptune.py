@@ -16,11 +16,6 @@ from manageroo.chiptune import (
 )
 
 
-class _Process:
-    def poll(self):
-        return 0
-
-
 class ChiptuneTests(unittest.TestCase):
     def test_note_frequency(self):
         self.assertAlmostEqual(note_frequency("A4"), 440.0, places=4)
@@ -80,23 +75,27 @@ class ChiptuneTests(unittest.TestCase):
                     self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
                     self.assertTrue(victim.is_dir())
 
-    def test_stop_removes_only_the_recorded_temporary_root(self):
+    def test_playback_runtime_state_cannot_be_injected(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            victim = root / "victim"
+            victim = Path(temp) / "victim"
             victim.mkdir()
             marker = victim / "marker.txt"
             marker.write_text("keep me\n", encoding="utf-8")
-            owned = root / "manageroo-owned"
-            owned.mkdir()
-            (owned / "theme.wav").write_bytes(b"audio")
+
+            with self.assertRaises(TypeError):
+                ThemePlayback(temp_root=victim)  # type: ignore[call-arg]
+
             playback = ThemePlayback(cue="success")
-            playback.temp_root = owned
-            playback.path = owned / "theme.wav"
-            playback.process = _Process()
+            for name, value in (
+                ("temp_root", victim),
+                ("path", victim / "theme.wav"),
+                ("process", Mock()),
+            ):
+                with self.subTest(name=name), self.assertRaises(AttributeError):
+                    setattr(playback, name, value)
             playback.stop()
-            self.assertFalse(owned.exists())
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
+            self.assertTrue(victim.is_dir())
 
     def test_start_twice_preserves_first_playback_until_stop(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -116,7 +115,7 @@ class ChiptuneTests(unittest.TestCase):
                 first_path = playback.path
                 self.assertFalse(playback.start())
 
-            mkdtemp.assert_called_once_with(prefix="manageroo-music-")
+            mkdtemp.assert_called_once_with(None, "manageroo-music-", None)
             generate.assert_called_once()
             self.assertEqual(player_command.call_count, 2)
             popen.assert_called_once()

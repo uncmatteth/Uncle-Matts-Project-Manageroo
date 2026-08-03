@@ -9,7 +9,7 @@ import tempfile
 import wave
 from array import array
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 SAMPLE_RATE = 11_025
@@ -192,12 +192,29 @@ class ThemePlayback:
     cue: str = "install"
     enabled: bool = True
     variant: int = 0
-    process: subprocess.Popen[bytes] | None = None
-    path: Path | None = None
-    temp_root: Path | None = None
+    _process: subprocess.Popen[bytes] | None = field(init=False, default=None, repr=False)
+    _path: Path | None = field(init=False, default=None, repr=False)
+    _temp_root: Path | None = field(init=False, default=None, repr=False)
+    _temp_directory: tempfile.TemporaryDirectory[str] | None = field(
+        init=False,
+        default=None,
+        repr=False,
+    )
+
+    @property
+    def process(self) -> subprocess.Popen[bytes] | None:
+        return self._process
+
+    @property
+    def path(self) -> Path | None:
+        return self._path
+
+    @property
+    def temp_root(self) -> Path | None:
+        return self._temp_root
 
     def start(self) -> bool:
-        if self.process is not None or self.path is not None or self.temp_root is not None:
+        if self._process is not None or self._path is not None or self._temp_directory is not None:
             return False
         disabled = os.environ.get("MANAGEROO_MUSIC", "1").lower() in {"0", "false", "no", "off"}
         if not self.enabled or disabled or os.environ.get("CI") or not sys.stdout.isatty():
@@ -206,33 +223,45 @@ class ThemePlayback:
         command_probe = _player_command(Path("manageroo-theme.wav"))
         if not command_probe:
             return False
-        self.temp_root = Path(tempfile.mkdtemp(prefix="manageroo-music-")).resolve()
+        temp_directory = tempfile.TemporaryDirectory(
+            prefix="manageroo-music-",
+            ignore_cleanup_errors=True,
+        )
+        self._temp_directory = temp_directory
+        self._temp_root = Path(temp_directory.name).resolve()
         try:
-            candidate = (self.temp_root / f"{cue}.wav").resolve()
-            candidate.relative_to(self.temp_root)
-            self.path = generate_theme(candidate, cue=cue, variant=self.variant)
-            command = _player_command(self.path)
+            candidate = (self._temp_root / f"{cue}.wav").resolve()
+            candidate.relative_to(self._temp_root)
+            self._path = generate_theme(candidate, cue=cue, variant=self.variant)
+            command = _player_command(self._path)
             if not command:
                 self.stop()
                 return False
-            self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=False)
+            self._process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                shell=False,
+            )
             return True
         except Exception:
             self.stop()
             raise
 
     def stop(self) -> None:
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
+        if self._process and self._process.poll() is None:
+            self._process.terminate()
             try:
-                self.process.wait(timeout=1.5)
+                self._process.wait(timeout=1.5)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-        if self.temp_root:
-            shutil.rmtree(self.temp_root, ignore_errors=True)
-        self.path = None
-        self.temp_root = None
-        self.process = None
+                self._process.kill()
+        temp_directory = self._temp_directory
+        self._path = None
+        self._temp_root = None
+        self._temp_directory = None
+        self._process = None
+        if temp_directory:
+            temp_directory.cleanup()
 
     def __enter__(self) -> "ThemePlayback":
         self.start()

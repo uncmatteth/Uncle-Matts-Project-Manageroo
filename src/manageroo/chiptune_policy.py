@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 from typing import Any
 
@@ -10,7 +9,8 @@ def install_chiptune_policy(module: Any) -> None:
         return
 
     def stop(self) -> None:
-        process = self.process
+        process = self._process
+        temp_directory = self._temp_directory
         try:
             if process and process.poll() is None:
                 process.terminate()
@@ -23,11 +23,12 @@ def install_chiptune_policy(module: Any) -> None:
                     except (subprocess.TimeoutExpired, OSError):
                         pass
         finally:
-            if self.temp_root:
-                shutil.rmtree(self.temp_root, ignore_errors=True)
-            self.path = None
-            self.temp_root = None
-            self.process = None
+            self._path = None
+            self._temp_root = None
+            self._temp_directory = None
+            self._process = None
+            if temp_directory:
+                temp_directory.cleanup()
 
     def play_once(*, cue: str = "install", variant: int = 0) -> bool:
         playback = module.ThemePlayback(cue=module._validate_cue(cue), enabled=True, variant=variant)

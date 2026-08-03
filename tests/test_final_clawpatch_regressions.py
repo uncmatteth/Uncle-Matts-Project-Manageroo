@@ -253,7 +253,7 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
     def test_forced_chiptune_stop_reaps_killed_child(self):
         playback = ThemePlayback(enabled=False)
         process = _KilledProcess()
-        playback.process = process
+        playback._process = process
         playback.stop()
         self.assertTrue(process.terminated)
         self.assertTrue(process.killed)
