@@ -164,6 +164,36 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             self.assertTrue(report["summary"]["continuation_safe"])
             self.assertTrue(report["records"][0]["rollback_verified"])
 
+    def test_unverified_rollback_suppresses_later_repair_lanes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            calls = []
+
+            def command(*, name, **_kwargs):
+                calls.append(name)
+                return {"name": name, "ok": False, "exit_code": 1}
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            fake._external_review_repair_commands = lambda: [
+                ("first", ["fake-first"]),
+                ("second", ["fake-second"]),
+            ]
+
+            with patch(
+                "manageroo.external_repair_policy._rollback_lane",
+                side_effect=SafetyError("rollback could not be verified"),
+            ):
+                with self.assertRaisesRegex(SafetyError, "Workspace state is uncertain"):
+                    run_external_review_repair_lanes(
+                        fake,
+                        brief="repair",
+                        plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                        gate_results=[],
+                    )
+
+            self.assertEqual(calls, ["first"])
+
     def test_checkpoint_manifest_from_other_run_is_not_resumed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

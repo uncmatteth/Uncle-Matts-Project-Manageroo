@@ -346,9 +346,12 @@ def run_external_review_repair_lanes(
                 record["rollback_verified"] = True
                 record["changed_paths_after_rollback"] = []
             except SafetyError as exc:
-                rollback_verified = False
                 record["rollback_verified"] = False
                 record["rollback_error"] = str(exc)
+                raise SafetyError(
+                    f"Command-owned {name} repair lane failed and rollback could not be verified. "
+                    "Workspace state is uncertain."
+                ) from exc
             failed.append(name)
         records.append(record)
 
