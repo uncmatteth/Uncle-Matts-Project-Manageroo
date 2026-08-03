@@ -27,6 +27,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Cached references cannot bypass project config mutation locking | Lock inside each public read-modify-write mutation entry point | Preventive |
 | Concurrent adapters cannot exceed the durable worker-call budget | Interprocess ledger lock around reload, limit check, increment, and atomic write | Preventive |
 | Concurrent skill installers cannot overlap or overwrite a linked lock target | Permanent cross-platform advisory lock on a validated private regular file; existing contents are not rewritten | Preventive |
+| Idea-inbox lock acquisition cannot overwrite a linked target | Reject symlinks, Windows reparse points, multiple links, and opened-path identity mismatches before truncation | Preventive |
 | Concurrent worker attempts cannot share one repository transaction | Interprocess lock keyed to the canonical Git common directory, held from pristine check through validation or rollback | Preventive |
 | Git metadata snapshots consume unbounded memory | Explicit entry, file, and aggregate-byte limits before worker launch | Preventive, fails closed |
 | A crashed artifact-lock reclaimer wedges the store | Portable atomic claim directory plus incomplete-publication grace and stale-owner recovery | Preventive and recoverable |

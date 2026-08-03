@@ -3,6 +3,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.ideas import IdeaInbox
 
@@ -99,6 +100,24 @@ class IdeaTests(unittest.TestCase):
             attached = inbox.attach_pending("run-1")
             self.assertEqual(attached[0]["linked_run"], "run-1")
             self.assertEqual(len(inbox.list("attached")), 1)
+
+    def test_symlinked_lock_does_not_overwrite_target_without_o_nofollow(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            inbox = IdeaInbox(repo)
+            target = repo / "target.txt"
+            original = b"do not overwrite\n"
+            target.write_bytes(original)
+            try:
+                inbox.lock_path.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("file symlinks are unavailable on this platform")
+
+            with patch("manageroo.ideas.os.O_NOFOLLOW", 0, create=True):
+                with self.assertRaises(OSError):
+                    inbox.attach_pending("run-1")
+
+            self.assertEqual(target.read_bytes(), original)
 
     def test_concurrent_attach_claims_each_idea_for_exactly_one_run(self):
         with tempfile.TemporaryDirectory() as temp:

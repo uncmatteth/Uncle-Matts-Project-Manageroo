@@ -45,8 +45,17 @@ def _exclusive_lock(path: Path, *, timeout_seconds: float = 10.0) -> Iterator[No
     acquired = False
     try:
         lock_state = os.fstat(fd)
+        path_state = path.lstat()
+        reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        file_attributes = getattr(path_state, "st_file_attributes", 0)
+        if stat.S_ISLNK(path_state.st_mode) or (reparse_point and file_attributes & reparse_point):
+            raise OSError(f"Idea-inbox lock must not be a symlink or reparse point: {path}")
         if not stat.S_ISREG(lock_state.st_mode):
             raise OSError(f"Idea-inbox lock is not a regular file: {path}")
+        if lock_state.st_nlink != 1:
+            raise OSError(f"Idea-inbox lock must have exactly one link: {path}")
+        if (path_state.st_dev, path_state.st_ino) != (lock_state.st_dev, lock_state.st_ino):
+            raise OSError(f"Idea-inbox lock changed while it was opened: {path}")
         if lock_state.st_size == 0:
             os.ftruncate(fd, 1)
 
