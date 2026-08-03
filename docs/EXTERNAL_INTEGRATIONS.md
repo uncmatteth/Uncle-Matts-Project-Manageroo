@@ -233,6 +233,10 @@ under `.manageroo/cache` for the Manageroo project command. Ordinary relaunch re
 finding. Explicit `--fresh` may discard source only when the current dirty paths
 exactly equal the checkpoint-owned paths; a checkpoint with unproven or
 unrelated source edits is never discarded.
+On upgrade, the external runner recognizes and verifies its legacy version-2
+checkpoint under `.manageroo/cache`, moves that ownership record into the
+Manageroo-owned external state directory, and only then applies the same exact
+`--fresh` equality rule.
 Manageroo is not an OS daemon and
 cannot relaunch its own terminated controller process.
 

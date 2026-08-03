@@ -929,6 +929,34 @@ def _load_release_progress(
     return progress
 
 
+def _migrate_legacy_external_progress(repo: Path, *, state_root: Path) -> None:
+    legacy_root = repo / PROJECT_DIR / "cache"
+    legacy_path = _release_progress_path(repo, state_root=legacy_root)
+    if not legacy_path.is_file():
+        return
+    legacy = _load_release_progress(repo, state_root=legacy_root)
+    if legacy is None:
+        return
+    current_path = _release_progress_path(repo, state_root=state_root)
+    if current_path.is_file():
+        current = _load_release_progress(repo, state_root=state_root)
+        if current != legacy:
+            raise SafetyError(
+                "External Clawpatch progress exists in both legacy and current state "
+                "locations with different ownership records."
+            )
+    else:
+        atomic_write_json(current_path, legacy)
+        if _load_release_progress(repo, state_root=state_root) != legacy:
+            raise SafetyError("External Clawpatch progress migration could not be verified.")
+    legacy_path.unlink()
+    for directory in (legacy_root, repo / PROJECT_DIR):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
 def _checkpoint_can_follow_supervisor_upgrade(
     repo: Path,
     progress: dict[str, Any],
@@ -1473,6 +1501,8 @@ def release_sweep(
         trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass,
         child_timeout_seconds=child_timeout_seconds,
     )
+    if integration_mode == "external":
+        _migrate_legacy_external_progress(root, state_root=state_root)
     if fresh:
         _prepare_fresh_release(
             root,

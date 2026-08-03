@@ -22,6 +22,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Workspace-write revalidation silently changes a repair | Exact source-state fingerprint before and after the single escalated validation pass | Detective; blocks commit and stops |
 | Relaunched release sweep guesses how to continue an interrupted finding | Durable repository, branch, HEAD, finding, phase, and exact owned paths cause ordinary relaunch to refuse | Preventive; explicit fresh recovery remains operator-owned |
 | Explicit fresh release deletes unrelated operator work | Require a compatible stopped/fix checkpoint and exact equality between current dirty paths and checkpoint-owned paths | Preventive; unrelated dirty paths block unchanged |
+| External-runner state relocation orphans an interrupted fix checkpoint | Validate and migrate the legacy version-2 `.manageroo/cache` ownership record before external `--fresh` evaluation | Preventive and recoverable |
 | Push begins from an unsynchronized branch | Compare local HEAD with live `origin/<branch>` before creating a repair branch or starting queue work | Preventive |
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |

@@ -165,6 +165,83 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             Path("/home/test/.local/share/clawpatch-supervise/state"),
         )
 
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._next_finding")
+    @patch("manageroo.clawpatch_release._review_all_features")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_external_fresh_migrates_legacy_checkpoint_before_exact_cleanup(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        review_all,
+        next_finding,
+        final_closure,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            source.write_text("interrupted ClawPatch repair\n", encoding="utf-8")
+            manageroo_state = root / "manageroo-owned-state"
+            json_clawpatch.side_effect = [
+                {"created": True},
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 0},
+            ]
+            review_all.return_value = {
+                "review": {"reviewed": 0, "findings": 0},
+                "completion": {"dryRun": True, "wouldReview": 0},
+            }
+            next_finding.return_value = (None, {"finding": None})
+            final_closure.return_value = {"pushed": False}
+
+            with patch(
+                "manageroo.clawpatch_release._external_state_home",
+                return_value=manageroo_state,
+            ):
+                report = release_sweep(
+                    repo,
+                    apply=True,
+                    branch="current",
+                    fresh=True,
+                    integration_mode="external",
+                )
+
+            self.assertTrue(report["ok"])
+            self.assertEqual(source.read_text(encoding="utf-8"), "before\n")
+            self.assertFalse(
+                (repo / ".manageroo/cache/clawpatch-release-progress.json").exists()
+            )
+            self.assertFalse(
+                next(manageroo_state.rglob("clawpatch-release-progress.json"), None)
+            )
+            self.assertEqual(
+                subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
+                "",
+            )
+
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._must_run")
     def test_clawpatch_release_sweep_requires_072_or_newer(self, must_run, _which):

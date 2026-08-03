@@ -443,6 +443,10 @@ run refuses to continue that checkpoint. When the operator explicitly uses
 matches that checkpoint ownership record, then removes old run state and
 initializes ClawPatch again. Any missing ownership proof or unrelated dirty path
 blocks unchanged. Manageroo does not install an operating-system restart daemon.
+The external runner also migrates a validated version-2 checkpoint from the old
+`.manageroo/cache` location into its Manageroo-owned state directory before
+evaluating `--fresh`, so upgrading the runner does not orphan exact ownership
+proof from an interrupted fix.
 
 At closure, Manageroo proves no mapped feature remains pending, revalidates all
 open findings, requires an empty open report, requires zero findings and locks
