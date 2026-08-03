@@ -28,6 +28,8 @@ from manageroo.clawpatch_release import (
     _preserve_unresolved_source,
     _publish_final_state,
     _release_clawpatch_env,
+    _require_retry_progress,
+    _retry_attempt_fingerprint,
     _revalidate,
     _reopen_current_finding,
     _review_all_features,
@@ -77,6 +79,56 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
         self.assertEqual(payload["features"], 35)
         self.assertEqual(payload["next"], "clawpatch review --limit 3")
+
+    @patch("manageroo.clawpatch_release._must_run", return_value="stable binary patch")
+    def test_retry_fingerprint_changes_only_when_repair_or_failure_evidence_changes(self, _run):
+        preserved = {"created": True, "ref": "stash@{0}", "paths": ["app.py"]}
+
+        first = _retry_attempt_fingerprint(
+            Path("C:/repo"), message="same failure", outcome="open", preserved=preserved
+        )
+        repeated = _retry_attempt_fingerprint(
+            Path("C:/repo"), message="same   failure", outcome="open", preserved=preserved
+        )
+        changed = _retry_attempt_fingerprint(
+            Path("C:/repo"), message="different failure", outcome="open", preserved=preserved
+        )
+
+        self.assertEqual(first, repeated)
+        self.assertNotEqual(first, changed)
+        _require_retry_progress("", first, "fnd_one")
+        _require_retry_progress(first, changed, "fnd_one")
+        with self.assertRaisesRegex(SafetyError, "identical source repair and identical failure"):
+            _require_retry_progress(first, repeated, "fnd_one")
+
+    def test_retry_fingerprint_matches_repeated_real_stash_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("original\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+
+            source.write_text("same failed repair\n", encoding="utf-8")
+            first_stash = _preserve_unresolved_source(repo, "fnd_one", "open")
+            first = _retry_attempt_fingerprint(
+                repo,
+                message="same failure",
+                outcome="open",
+                preserved=first_stash,
+            )
+
+            source.write_text("same failed repair\n", encoding="utf-8")
+            repeated_stash = _preserve_unresolved_source(repo, "fnd_one", "open")
+            repeated = _retry_attempt_fingerprint(
+                repo,
+                message="same failure",
+                outcome="open",
+                preserved=repeated_stash,
+            )
+
+        self.assertEqual(first, repeated)
 
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._json_clawpatch")
@@ -765,6 +817,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             ],
         )
 
+    @patch("manageroo.clawpatch_release._retry_attempt_fingerprint", return_value="1" * 64)
     @patch("manageroo.clawpatch_release.time.sleep")
     @patch("manageroo.clawpatch_release._reopen_current_finding")
     @patch("manageroo.clawpatch_release._preserve_unresolved_source")
@@ -789,6 +842,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         preserve,
         reopen,
         sleep,
+        _fingerprint,
     ):
         progress_events = []
         with tempfile.TemporaryDirectory() as temp:
@@ -926,6 +980,10 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         preserve.assert_called_once_with(repo.resolve(), "fnd_one", "uncertain")
         reopen.assert_not_called()
 
+    @patch(
+        "manageroo.clawpatch_release._retry_attempt_fingerprint",
+        side_effect=["1" * 64, "2" * 64, "3" * 64],
+    )
     @patch("manageroo.clawpatch_release.time.sleep")
     @patch("manageroo.clawpatch_release._reopen_current_finding")
     @patch("manageroo.clawpatch_release._preserve_unresolved_source")
@@ -950,6 +1008,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         preserve,
         reopen,
         _sleep,
+        attempt_fingerprint,
     ):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -1017,6 +1076,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertIn("app.py", reopen.call_args.kwargs["failure"])
         self.assertEqual(next_finding.call_count, 2)
         final_closure.assert_called_once()
+        self.assertEqual(attempt_fingerprint.call_count, 3)
 
     @patch("manageroo.clawpatch_release._next_finding")
     @patch("manageroo.clawpatch_release._json_clawpatch")

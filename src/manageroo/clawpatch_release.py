@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -825,6 +826,41 @@ def _preserve_unresolved_source(repo: Path, finding_id: str, reason: str) -> dic
     return {"created": True, "ref": ref, "sha": sha, "paths": paths, "message": message}
 
 
+def _retry_attempt_fingerprint(
+    repo: Path,
+    *,
+    message: str,
+    outcome: str,
+    preserved: dict[str, Any],
+) -> str:
+    patch_text = ""
+    if preserved.get("created"):
+        ref = str(preserved.get("ref") or "")
+        if not re.fullmatch(r"stash@\{\d+\}", ref):
+            raise SafetyError("Cannot fingerprint an invalid preserved Clawpatch stash reference.")
+        patch_text = _must_run(
+            ["git", "stash", "show", "--patch", "--include-untracked", "--binary", ref],
+            cwd=repo,
+            timeout=120,
+        )
+    evidence = {
+        "outcome": outcome,
+        "failure": " ".join(message.split()),
+        "paths": sorted(str(path) for path in (preserved.get("paths") or [])),
+        "patch": patch_text,
+    }
+    encoded = json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _require_retry_progress(previous: str, current: str, finding_id: str) -> None:
+    if previous and previous == current:
+        raise SafetyError(
+            f"Clawpatch repeated the identical source repair and identical failure for {finding_id}. "
+            "The finding remains open; Manageroo stopped instead of repeating a no-progress loop."
+        )
+
+
 def _latest_preserved_source(repo: Path, finding_id: str) -> dict[str, Any]:
     output = _git_text(repo, ["git", "stash", "list", "--format=%gd%x09%H%x09%gs"])
     marker = f"manageroo clawpatch unresolved {finding_id}:"
@@ -873,6 +909,7 @@ def _write_release_progress(
     phase: str,
     last_stash_ref: str = "",
     last_stash_paths: list[str] | None = None,
+    last_attempt_fingerprint: str = "",
 ) -> dict[str, Any]:
     if not _FINDING_ID.fullmatch(finding_id):
         raise SafetyError(f"Cannot checkpoint invalid Clawpatch finding ID {finding_id!r}.")
@@ -884,6 +921,10 @@ def _write_release_progress(
         or not phase
         or (last_stash_ref and not re.fullmatch(r"stash@\{\d+\}", last_stash_ref))
         or any(not isinstance(path, str) or not path for path in stash_paths)
+        or (
+            last_attempt_fingerprint
+            and not re.fullmatch(r"[0-9a-f]{64}", last_attempt_fingerprint)
+        )
     ):
         raise SafetyError("Cannot checkpoint malformed Clawpatch release progress.")
     progress = {
@@ -895,6 +936,7 @@ def _write_release_progress(
         "retry_count": retry_count,
         "last_stash_ref": last_stash_ref,
         "last_stash_paths": stash_paths,
+        "last_attempt_fingerprint": last_attempt_fingerprint,
         "phase": phase,
         "updated_at": utc_now(),
     }
@@ -916,6 +958,7 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
     legacy_cycle_count = progress.pop("cycle_count", 1)
     progress.setdefault("last_stash_ref", "")
     progress.setdefault("last_stash_paths", [])
+    progress.setdefault("last_attempt_fingerprint", "")
     required_strings = ("repo", "finding_id", "branch", "head_before", "phase", "updated_at")
     if (
         progress.get("version") != RELEASE_PROGRESS_VERSION
@@ -937,6 +980,11 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
             not isinstance(path, str) or not path
             for path in progress.get("last_stash_paths", [])
         )
+        or not isinstance(progress.get("last_attempt_fingerprint"), str)
+        or (
+            bool(progress.get("last_attempt_fingerprint"))
+            and not re.fullmatch(r"[0-9a-f]{64}", str(progress["last_attempt_fingerprint"]))
+        )
     ):
         raise SafetyError("Clawpatch release progress is malformed.")
     if legacy_cycle_count > 1:
@@ -957,6 +1005,7 @@ def _checkpoint_can_follow_supervisor_upgrade(
         "retry",
         "fix-attempts-exhausted",
         "fix-cycle-recovery",
+        "no-progress-blocked",
     }:
         return False
     finding_id = progress.get("finding_id")
@@ -1471,6 +1520,9 @@ def release_sweep(
                     phase=str(durable_progress["phase"]),
                     last_stash_ref=str(durable_progress.get("last_stash_ref", "")),
                     last_stash_paths=list(durable_progress.get("last_stash_paths", [])),
+                    last_attempt_fingerprint=str(
+                        durable_progress.get("last_attempt_fingerprint", "")
+                    ),
                 )
             else:
                 subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
@@ -1710,6 +1762,16 @@ def release_sweep(
             if durable_progress is not None and durable_progress["finding_id"] == finding_id
             else 0
         )
+        last_attempt_fingerprint = (
+            str(durable_progress.get("last_attempt_fingerprint", ""))
+            if durable_progress is not None and durable_progress["finding_id"] == finding_id
+            else ""
+        )
+        if durable_progress is not None and durable_progress.get("phase") == "no-progress-blocked":
+            raise SafetyError(
+                f"Clawpatch previously repeated the identical repair and failure for {finding_id}. "
+                "The finding remains open; start a fresh run only after the inputs or tooling change."
+            )
         while True:
             attempt_head = _git_text(root, ["git", "rev-parse", "HEAD"])
             _write_release_progress(
@@ -1719,6 +1781,7 @@ def release_sweep(
                 head_before=attempt_head,
                 retry_count=retry_count,
                 phase="fix",
+                last_attempt_fingerprint=last_attempt_fingerprint,
             )
             if progress is not None:
                 progress(
@@ -1812,6 +1875,12 @@ def release_sweep(
                 preserved_ref = preserved.get("ref") or "no source changes"
                 preserved_paths = preserved.get("paths") or []
                 failure_context = _retry_failure_context(str(exc), preserved)
+                attempt_fingerprint = _retry_attempt_fingerprint(
+                    root,
+                    message=str(exc),
+                    outcome=reason,
+                    preserved=preserved,
+                )
                 _write_release_progress(
                     root,
                     finding_id=finding_id,
@@ -1821,6 +1890,7 @@ def release_sweep(
                     phase="retry",
                     last_stash_ref=str(preserved.get("ref") or ""),
                     last_stash_paths=list(preserved_paths),
+                    last_attempt_fingerprint=attempt_fingerprint,
                 )
                 inspected = _reopen_current_finding(
                     root,
@@ -1831,6 +1901,37 @@ def release_sweep(
                     current_number=current_finding,
                     total=total_findings,
                 )
+                try:
+                    _require_retry_progress(
+                        last_attempt_fingerprint,
+                        attempt_fingerprint,
+                        finding_id,
+                    )
+                except SafetyError:
+                    _write_release_progress(
+                        root,
+                        finding_id=finding_id,
+                        branch=selected_branch,
+                        head_before=attempt_head,
+                        retry_count=retry_count,
+                        phase="no-progress-blocked",
+                        last_stash_ref=str(preserved.get("ref") or ""),
+                        last_stash_paths=list(preserved_paths),
+                        last_attempt_fingerprint=attempt_fingerprint,
+                    )
+                    if progress is not None:
+                        progress(
+                            {
+                                "phase": "stopped",
+                                "current": current_finding,
+                                "total": total_findings,
+                                "finding_id": finding_id,
+                                "outcome": "no-progress",
+                                "detail": "identical repair and identical failure repeated",
+                            }
+                        )
+                    raise
+                last_attempt_fingerprint = attempt_fingerprint
                 time.sleep(min(2 ** min(max(retry_count - 1, 0), 6), 60))
                 durable_progress = _load_release_progress(root)
                 continue
