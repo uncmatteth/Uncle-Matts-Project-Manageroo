@@ -22,7 +22,7 @@ from .util import atomic_write_json, utc_now
 
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
-CLAWPATCH_CHILD_WATCHDOG_SECONDS = 3_600
+CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
 CLAWPATCH_TRANSIENT_MAX_ATTEMPTS = 3
 RELEASE_PROGRESS_VERSION = 1
 LIFECYCLE = (
@@ -640,21 +640,7 @@ def _patch_attempt_from_show(
 
 
 def _validate_attempt_paths(repo: Path, files: list[str]) -> None:
-    invalid = []
-    for path in files:
-        posix = PurePosixPath(path)
-        windows = PureWindowsPath(path)
-        if (
-            posix.is_absolute()
-            or windows.is_absolute()
-            or ".." in posix.parts
-            or ".." in windows.parts
-            or path == ".clawpatch"
-            or path.startswith(".clawpatch/")
-        ):
-            invalid.append(path)
-    if invalid:
-        raise SafetyError("Clawpatch patch attempt contains unsafe or state-only paths: " + ", ".join(invalid))
+    _validate_attempt_paths_syntax(files)
     current = _source_paths(repo)
     if sorted(files) != current:
         raise SafetyError(
@@ -1082,6 +1068,96 @@ def _committed_clawpatch_config(repo: Path) -> str | None:
     return result.stdout if result.returncode == 0 and result.stdout.strip() else None
 
 
+def _fresh_checkpoint_owned_paths(repo: Path, source_changes: list[str]) -> list[str]:
+    checkpoint = _load_release_progress(repo)
+    if checkpoint is None or checkpoint.get("phase") != "fix":
+        return []
+    current_branch = _git_text(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    if checkpoint["branch"] != current_branch:
+        return []
+    current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    if checkpoint["head_before"] != current_head and not _checkpoint_can_follow_supervisor_upgrade(
+        repo, checkpoint
+    ):
+        return []
+    finding_id = str(checkpoint["finding_id"])
+    finding_path = repo / ".clawpatch" / "findings" / f"{finding_id}.json"
+    try:
+        finding = json.loads(finding_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    evidence = finding.get("evidence") if isinstance(finding, dict) else None
+    if not isinstance(evidence, list):
+        return []
+    owned_paths = {
+        item["path"]
+        for item in evidence
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    }
+    changed = set(source_changes)
+    if not changed or not changed.issubset(owned_paths):
+        return []
+    _validate_attempt_paths_syntax(sorted(changed))
+    return sorted(changed)
+
+
+def _validate_attempt_paths_syntax(paths: list[str]) -> None:
+    invalid = []
+    for path in paths:
+        posix = PurePosixPath(path)
+        windows = PureWindowsPath(path)
+        if (
+            not path
+            or posix.is_absolute()
+            or windows.is_absolute()
+            or ".." in posix.parts
+            or ".." in windows.parts
+            or path == ".clawpatch"
+            or path.startswith(".clawpatch/")
+        ):
+            invalid.append(path)
+    if invalid:
+        raise SafetyError(
+            "Clawpatch patch attempt contains unsafe or state-only paths: " + ", ".join(invalid)
+        )
+
+
+def _discard_checkpoint_owned_source(repo: Path, paths: list[str]) -> None:
+    tracked: list[str] = []
+    untracked: list[str] = []
+    for path in paths:
+        output = _must_run(
+            ["git", "ls-tree", "--name-only", "-z", "HEAD", "--", path],
+            cwd=repo,
+            timeout=60,
+        )
+        if path in output.split("\0"):
+            tracked.append(path)
+        else:
+            untracked.append(path)
+    if tracked:
+        _must_run(
+            ["git", "restore", "--source=HEAD", "--staged", "--worktree", "--", *tracked],
+            cwd=repo,
+            timeout=120,
+        )
+    for path in untracked:
+        candidate = repo / path
+        if candidate.is_symlink() or candidate.is_file():
+            candidate.unlink()
+            continue
+        if candidate.exists():
+            raise SafetyError(
+                f"A fresh Clawpatch run cannot safely discard non-file path {path!r}."
+            )
+    remaining = _source_paths(repo)
+    if remaining:
+        raise SafetyError(
+            "A fresh Clawpatch run could not verify exact cleanup of the interrupted repair: "
+            + ", ".join(remaining)
+        )
+
+
 def _prepare_fresh_release(
     repo: Path,
     *,
@@ -1090,14 +1166,29 @@ def _prepare_fresh_release(
 ) -> None:
     """Delete only Clawpatch run state, preserve project configuration, and initialize again."""
     _require_no_process(repo)
-    source_changes = _source_paths(repo)
-    if source_changes:
-        raise SafetyError(
-            "A fresh Clawpatch run refuses pre-existing source changes: " + ", ".join(source_changes)
-        )
     state_root = repo / ".clawpatch"
     if state_root.is_symlink() or state_root.resolve().parent != repo.resolve():
         raise SafetyError("The .clawpatch state path is not a safe repository-owned directory.")
+    source_changes = _source_paths(repo)
+    if source_changes:
+        checkpoint_owned = _fresh_checkpoint_owned_paths(repo, source_changes)
+        if checkpoint_owned != source_changes:
+            raise SafetyError(
+                "A fresh Clawpatch run refuses unrelated source changes: "
+                + ", ".join(source_changes)
+            )
+        if progress is not None:
+            progress(
+                {
+                    "phase": "fresh-discard",
+                    "current": "?",
+                    "total": "?",
+                    "command": "discard exact interrupted Clawpatch finding files",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            )
+        _discard_checkpoint_owned_source(repo, checkpoint_owned)
     config_text = _committed_clawpatch_config(repo)
     if state_root.exists():
         if not state_root.is_dir():

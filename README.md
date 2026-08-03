@@ -341,10 +341,10 @@ This is useful when a long project history has been summarized and you want to c
 To run the supervisor directly from a terminal, outside the `manageroo` command tree, use:
 
 ```bash
-clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minutes 60
+clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minutes 15
 ```
 
-This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 60-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Retryable source failures stay on the same finding without an arbitrary attempt cap; non-retryable infrastructure, authentication, timeout, unsafe-state, and revalidation blockers stop immediately. A stale selected finding triggers one fresh map/review/queue lookup; selecting the same missing ID again stops safely.
+This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 15-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Retryable source failures stay on the same finding without an arbitrary attempt cap; non-retryable infrastructure, authentication, timeout, unsafe-state, and revalidation blockers stop immediately. A stale selected finding triggers one fresh map/review/queue lookup; selecting the same missing ID again stops safely.
 
 Preview the complete closeout lifecycle without changing the repository:
 
@@ -407,7 +407,7 @@ fingerprint prevents that validation pass from changing the repair. A still
 trigger another source fix.
 
 Release sweeps default every Clawpatch child command and the Codex worker to a
-shared 60-minute timeout. `clawpatch-supervise --timeout-minutes N` changes both
+shared 15-minute timeout. `clawpatch-supervise --timeout-minutes N` changes both
 limits together, so the terminal never advertises a different timeout from the
 one actually enforced.
 
@@ -419,6 +419,10 @@ finding. If remapping removed a clean checkpoint's old finding ID, Manageroo
 clears only that stale checkpoint and returns to the live `next` queue. It will
 not do that while interrupted source edits remain. Manageroo does not install an operating-system daemon; a stopped
 controller must still be relaunched by the operator or an external service.
+When the operator explicitly uses `--fresh`, Manageroo instead discards only
+dirty files proven to belong to the checkpointed finding, removes the old run
+state, and initializes ClawPatch again. Any unrelated dirty path blocks the
+fresh run and is left unchanged.
 
 At closure, Manageroo proves no mapped feature remains pending, revalidates all
 open findings, requires an empty open report, requires zero findings and locks

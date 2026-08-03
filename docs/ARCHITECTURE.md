@@ -128,6 +128,10 @@ Operator interruption also terminates and reaps that complete child group before
 the supervisor exits.
 Timed-out non-fix commands stop immediately;
 other transient command retries are capped at three attempts.
+An explicit fresh run may discard dirty source only when durable progress binds
+the interrupted `fix` to the current repository, branch, and compatible HEAD,
+and every dirty path is named by that finding's evidence. Unrelated dirty paths
+block without mutation.
 
 ## Parallel mapping and review, sequential implementation
 

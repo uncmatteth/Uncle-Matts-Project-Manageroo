@@ -180,6 +180,72 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 ["clawpatch", "init", "--json"],
             )
 
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    def test_fresh_run_discards_only_checkpoint_owned_interrupted_source(
+        self, json_clawpatch, _processes
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            unrelated = repo / "notes.txt"
+            source.write_text("original\n", encoding="utf-8")
+            unrelated.write_text("original notes\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py", "notes.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+
+            finding_id = "fnd_sig-feat-library-abc123-1234_abcdef1234"
+            state = repo / ".clawpatch"
+            finding_path = state / "findings" / f"{finding_id}.json"
+            finding_path.parent.mkdir(parents=True)
+            finding_path.write_text(
+                json.dumps(
+                    {
+                        "findingId": finding_id,
+                        "status": "open",
+                        "evidence": [{"path": "app.py"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            _write_release_progress(
+                repo,
+                finding_id=finding_id,
+                branch="master",
+                head_before=head,
+                retry_count=4,
+                phase="fix",
+            )
+            source.write_text("interrupted Clawpatch repair\n", encoding="utf-8")
+
+            def initialize(*_args, **_kwargs):
+                state.mkdir()
+                return {"created": True}
+
+            json_clawpatch.side_effect = initialize
+            _prepare_fresh_release(repo, env={"PATH": "test"})
+
+            self.assertEqual(source.read_text(encoding="utf-8"), "original\n")
+            self.assertEqual(unrelated.read_text(encoding="utf-8"), "original notes\n")
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "stash", "list"], cwd=repo, text=True
+                ),
+                "",
+            )
+            self.assertFalse(
+                (repo / ".manageroo/cache/clawpatch-release-progress.json").exists()
+            )
+
+            unrelated.write_text("operator work\n", encoding="utf-8")
+            with self.assertRaisesRegex(SafetyError, "refuses unrelated source changes"):
+                _prepare_fresh_release(repo, env={"PATH": "test"})
+            self.assertEqual(unrelated.read_text(encoding="utf-8"), "operator work\n")
+
     def test_explicit_state_publication_commits_new_safe_clawpatch_state(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -428,7 +494,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             ["clawpatch", "fix", "--finding", "fnd_one", "--json"],
         )
         self.assertTrue(run.call_args.kwargs["kill_process_group"])
-        self.assertEqual(run.call_args.kwargs["timeout"], 3600)
+        self.assertEqual(run.call_args.kwargs["timeout"], 900)
 
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._run")
@@ -445,7 +511,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(raised.exception.outcome, "timeout")
         self.assertFalse(raised.exception.retryable)
         self.assertTrue(run.call_args.kwargs["kill_process_group"])
-        self.assertEqual(run.call_args.kwargs["timeout"], 3600)
+        self.assertEqual(run.call_args.kwargs["timeout"], 900)
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_uncertain_read_only_revalidation_escalates_without_rerunning_fix(

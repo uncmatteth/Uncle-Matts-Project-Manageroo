@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .clawpatch_release import release_sweep
+from .clawpatch_release import CLAWPATCH_CHILD_WATCHDOG_SECONDS, release_sweep
 from .errors import SafetyError
 
 
@@ -124,7 +124,11 @@ def main(
     parser.add_argument("--publish-clawpatch-state", action="store_true")
     parser.add_argument("--trusted-host-codex-sandbox-bypass", action="store_true")
     parser.add_argument("--fresh", action="store_true")
-    parser.add_argument("--timeout-minutes", type=int, default=60)
+    parser.add_argument(
+        "--timeout-minutes",
+        type=int,
+        default=CLAWPATCH_CHILD_WATCHDOG_SECONDS // 60,
+    )
     args = parser.parse_args(argv)
     if args.timeout_minutes < 1:
         parser.error("--timeout-minutes must be at least 1")

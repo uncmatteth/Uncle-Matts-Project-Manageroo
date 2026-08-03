@@ -133,7 +133,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
 
-    def test_terminal_command_requests_a_fresh_run_and_one_hour_shared_timeout(self):
+    def test_terminal_command_requests_a_fresh_run_and_fifteen_minute_shared_timeout(self):
         calls = []
 
         def fake_sweep(repo: Path, **kwargs):
@@ -142,14 +142,14 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
 
         with redirect_stdout(StringIO()):
             code = main(
-                ["--repo", ".", "--fresh", "--timeout-minutes", "60"],
+                ["--repo", ".", "--fresh"],
                 run_sweep=fake_sweep,
                 heartbeat_seconds=0,
             )
 
         self.assertEqual(code, 0)
         self.assertTrue(calls[0][1]["fresh"])
-        self.assertEqual(calls[0][1]["child_timeout_seconds"], 3600)
+        self.assertEqual(calls[0][1]["child_timeout_seconds"], 900)
 
 
 if __name__ == "__main__":

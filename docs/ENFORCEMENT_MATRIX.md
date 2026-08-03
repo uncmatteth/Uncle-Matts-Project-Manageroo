@@ -21,6 +21,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Release-sweep repeats an identical repair with an identical failure | Stable failure-and-binary-patch fingerprint retained in the durable checkpoint | Detective; the finding stays open and the identical no-progress loop stops |
 | Workspace-write revalidation silently changes a repair | Exact source-state fingerprint before and after the single escalated validation pass | Detective, blocks commit and further source-fix retry |
 | Relaunched release sweep loses its interrupted current finding | Durable repository, branch, HEAD, finding, phase, and retry progress reconciled against existing `.clawpatch` state | Recoverable in controller; relaunch remains external |
+| Explicit fresh release deletes unrelated operator work | Require a compatible interrupted-fix checkpoint and restrict cleanup to dirty paths named by that exact finding | Preventive; unrelated dirty paths block unchanged |
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
