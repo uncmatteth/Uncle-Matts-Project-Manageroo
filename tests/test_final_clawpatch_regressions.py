@@ -86,6 +86,57 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         self.assertEqual(json.loads(redact_text(json.dumps(payload))), expected)
         self.assertEqual(json.loads(redact_argv([json.dumps(payload)])[0]), expected)
 
+    def test_private_key_credentials_and_pem_blocks_are_redacted(self):
+        pem = (
+            "-----BEGIN PRIVATE KEY-----\n"
+            "private-key-body\n"
+            "-----END PRIVATE KEY-----"
+        )
+        payload = {
+            "private_key": pem,
+            "signingKey": "signing-value",
+            "passwd": "password-value",
+            "credential": "credential-value",
+            "public_key": "public-value",
+        }
+
+        redacted_json = json.loads(redact_text(json.dumps(payload)))
+        for key in ("private_key", "signingKey", "passwd", "credential"):
+            self.assertEqual(redacted_json[key], "<REDACTED>")
+        self.assertEqual(redacted_json["public_key"], "public-value")
+
+        redacted_text = redact_text(f"before\n{pem}\nafter")
+        self.assertEqual(redacted_text, "before\n<REDACTED>\nafter")
+        self.assertNotIn("private-key-body", redacted_text)
+
+        argv = redact_argv(
+            [
+                "tool",
+                "--private-key",
+                "split-value",
+                "--signing-key=joined-value",
+                "--passwd",
+                "passwd-value",
+                "--credential=credential-flag-value",
+                "--public-key",
+                "public-value",
+            ]
+        )
+        self.assertEqual(
+            argv,
+            [
+                "tool",
+                "--private-key",
+                "<REDACTED>",
+                "--signing-key=<REDACTED>",
+                "--passwd",
+                "<REDACTED>",
+                "--credential=<REDACTED>",
+                "--public-key",
+                "public-value",
+            ],
+        )
+
     def test_stack_doctor_probe_record_redacts_split_secret_arguments(self):
         record = _safe_probe_record(
             {
