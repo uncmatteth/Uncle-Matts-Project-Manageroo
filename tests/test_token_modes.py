@@ -287,6 +287,47 @@ class TokenModeTests(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), "user customized diagnose\n")
             self.assertEqual(list(target.parent.glob("*.manageroo-backup-*")), [])
 
+    def test_concurrent_edit_during_owned_skill_replacement_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            skills = base / "skills"
+            ownership = base / "ownership.json"
+            install_core_helper_skills(skills, ownership_path=ownership)
+            target = skills / "diagnose" / "SKILL.md"
+            target.write_text("previous manageroo diagnose\n", encoding="utf-8")
+            ownership_data = json.loads(ownership.read_text(encoding="utf-8"))
+            ownership_data["skills"][str(target.parent.resolve())]["tree_sha256"] = (
+                _skill_tree_sha256(target.parent)
+            )
+            ownership.write_text(
+                json.dumps(ownership_data, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            from manageroo import token_modes
+
+            original = token_modes._replace_owned_skill
+
+            def edit_before_replace(
+                source_dir,
+                destination_dir,
+                root_real,
+                *,
+                expected_identity=None,
+            ):
+                target.write_text("concurrent user edit\n", encoding="utf-8")
+                return original(
+                    source_dir,
+                    destination_dir,
+                    root_real,
+                    expected_identity=expected_identity,
+                )
+
+            with patch("manageroo.token_modes._replace_owned_skill", side_effect=edit_before_replace):
+                with self.assertRaisesRegex(RuntimeError, "changed during replacement"):
+                    install_core_helper_skills(skills, ownership_path=ownership)
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "concurrent user edit\n")
+
     def test_preledger_manageroo_skill_is_migrated_into_ownership(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

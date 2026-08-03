@@ -518,17 +518,33 @@ def _same_tree_identity(path: Path, identity: tuple[int, int, str] | None) -> bo
         return False
 
 
-def _replace_owned_skill(source_dir: Path, destination_dir: Path, root_real: Path) -> None:
+def _replace_owned_skill(
+    source_dir: Path,
+    destination_dir: Path,
+    root_real: Path,
+    *,
+    expected_identity: tuple[int, int, str] | None = None,
+) -> None:
     stage = Path(tempfile.mkdtemp(prefix=f".{destination_dir.name}.manageroo-stage-", dir=root_real))
     old = root_real / f".{destination_dir.name}.manageroo-old-{os.urandom(6).hex()}"
     moved_old = False
+    preserve_old = False
     try:
         shutil.copytree(source_dir, stage, dirs_exist_ok=True, symlinks=False)
         if not (stage / "SKILL.md").is_file():
             raise ValueError(f"Bundled skill is missing SKILL.md: {source_dir}")
+        if expected_identity is not None and not destination_dir.exists():
+            raise RuntimeError(f"Skill tree changed during replacement: {destination_dir}")
         if destination_dir.exists():
             destination_dir.rename(old)
             moved_old = True
+            if expected_identity is not None and not _same_tree_identity(old, expected_identity):
+                if destination_dir.exists():
+                    preserve_old = True
+                else:
+                    old.rename(destination_dir)
+                    moved_old = False
+                raise RuntimeError(f"Skill tree changed during replacement: {destination_dir}")
         stage.rename(destination_dir)
         if moved_old:
             shutil.rmtree(old)
@@ -539,7 +555,7 @@ def _replace_owned_skill(source_dir: Path, destination_dir: Path, root_real: Pat
     finally:
         if stage.exists():
             shutil.rmtree(stage)
-        if old.exists() and destination_dir.exists():
+        if old.exists() and destination_dir.exists() and not preserve_old:
             shutil.rmtree(old)
 
 
@@ -575,7 +591,8 @@ def _install_bundled_skill(
     ownership_key = str(skill_dir.resolve())
     ownership_skills = ownership.setdefault("skills", {})
     if destination.exists():
-        current_digest = _skill_tree_sha256(skill_dir)
+        current_identity = _tree_identity(skill_dir)
+        current_digest = current_identity[2]
         manageroo_owned = _is_manageroo_owned(
             skill_dir,
             skill_name,
@@ -586,7 +603,12 @@ def _install_bundled_skill(
             ownership_skills.pop(ownership_key, None)
             return str(destination)
         if current_digest != source_digest:
-            _replace_owned_skill(source.parent, skill_dir, root_real)
+            _replace_owned_skill(
+                source.parent,
+                skill_dir,
+                root_real,
+                expected_identity=current_identity,
+            )
         ownership_skills[ownership_key] = {
             "name": skill_name,
             "tree_sha256": source_digest,
