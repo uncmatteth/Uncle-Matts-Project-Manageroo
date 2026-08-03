@@ -127,6 +127,21 @@ def _owned_by_manager(
             )
             return bool(probe.get("ok"))
         return True
+    if manager == "brew":
+        executable = shutil.which("brew")
+        if not executable:
+            return False
+        probe = module._run([executable, "list", "--cask", "obsidian"], timeout=30)
+        return bool(probe.get("ok"))
+    if manager == "flatpak":
+        executable = shutil.which("flatpak")
+        if not executable:
+            return False
+        probe = module._run(
+            [executable, "info", "--user", "md.obsidian.Obsidian"],
+            timeout=30,
+        )
+        return bool(probe.get("ok"))
     if manager == "snap":
         return str(tool).replace("\\", "/").startswith("/snap/bin/")
     return False
@@ -269,10 +284,15 @@ def install_stack_update_policy(module: Any) -> None:
                     ).strip()
             elif name == "obsidian" and commands:
                 manager = Path(str(commands[0][0])).name.lower()
-                if manager == "snap" and not _owned_by_manager(module, active_path, "snap"):
+                if manager in {"brew", "flatpak", "snap"} and not _owned_by_manager(
+                    module, active_path, manager
+                ):
                     tool["commands"] = []
-                    tool["note"] = "Automatic update skipped because Snap ownership of the active Obsidian executable could not be proven."
-                elif manager != "snap":
+                    tool["note"] = (
+                        f"Automatic update skipped because {manager} ownership of the active "
+                        "Obsidian executable could not be proven."
+                    )
+                elif manager not in {"brew", "flatpak", "snap"}:
                     tool["commands"] = []
                     tool["note"] = (
                         "Automatic Obsidian update skipped because ownership of the active executable "

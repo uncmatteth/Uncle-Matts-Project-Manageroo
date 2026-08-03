@@ -95,6 +95,55 @@ class StackUpdateTests(unittest.TestCase):
         self.assertNotIn("@latest", repr(plan))
         self.assertEqual(tools["trufflehog"]["pinned_version"], TRUFFLEHOG_VERSION)
 
+    def test_homebrew_owned_obsidian_update_survives_policy_hardening(self):
+        with tempfile.TemporaryDirectory() as temp:
+            obsidian = Path(temp) / "obsidian"
+            obsidian.write_text("", encoding="utf-8")
+
+            def which(name: str):
+                return {"brew": "/usr/local/bin/brew", "obsidian": str(obsidian)}.get(name)
+
+            def run(argv, **_kwargs):
+                owned = argv == ["/usr/local/bin/brew", "list", "--cask", "obsidian"]
+                return {"ok": owned, "exit_code": 0 if owned else 1, "argv": argv, "output": ""}
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update.platform.system", return_value="Darwin"
+            ), patch("manageroo.stack_update._run", side_effect=run):
+                plan = stack_update_plan(["obsidian"])
+
+        self.assertEqual(
+            plan["tools"][0]["commands"],
+            [["/usr/local/bin/brew", "upgrade", "--cask", "obsidian"]],
+        )
+
+    def test_flatpak_owned_obsidian_update_survives_policy_hardening(self):
+        with tempfile.TemporaryDirectory() as temp:
+            obsidian = Path(temp) / "obsidian"
+            obsidian.write_text("", encoding="utf-8")
+
+            def which(name: str):
+                return {"flatpak": "/usr/bin/flatpak", "obsidian": str(obsidian)}.get(name)
+
+            def run(argv, **_kwargs):
+                owned = argv == [
+                    "/usr/bin/flatpak",
+                    "info",
+                    "--user",
+                    "md.obsidian.Obsidian",
+                ]
+                return {"ok": owned, "exit_code": 0 if owned else 1, "argv": argv, "output": ""}
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update.platform.system", return_value="Linux"
+            ), patch("manageroo.stack_update._run", side_effect=run):
+                plan = stack_update_plan(["obsidian"])
+
+        self.assertEqual(
+            plan["tools"][0]["commands"],
+            [["/usr/bin/flatpak", "update", "--user", "-y", "md.obsidian.Obsidian"]],
+        )
+
     def test_absent_gitnexus_is_not_treated_as_an_installed_tool(self):
         with patch("manageroo.stack_update.shutil.which", return_value=None):
             plan = stack_update_plan()
