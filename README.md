@@ -344,7 +344,7 @@ To run the supervisor directly from a terminal, outside the `manageroo` command 
 clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minutes 60
 ```
 
-This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 60-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Retryable source failures stop after three total attempts without advancing or triaging the finding. A stale selected finding triggers one fresh map/review/queue lookup; selecting the same missing ID again stops safely.
+This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 60-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Retryable source failures stay on the same finding without an arbitrary attempt cap; non-retryable infrastructure, authentication, timeout, unsafe-state, and revalidation blockers stop immediately. A stale selected finding triggers one fresh map/review/queue lookup; selecting the same missing ID again stops safely.
 
 Preview the complete closeout lifecycle without changing the repository:
 
@@ -383,9 +383,9 @@ Manageroo-written repair, triages a finding as resolved, or hand-repairs source.
 The external command's `--timeout-minutes` value controls both the complete
 Clawpatch/Codex process-group watchdog and ClawPatch's Codex provider timeout.
 Other transient non-fix failures get at most three announced attempts.
-Finding-scoped source repairs get three total attempts. Each failed source
+Finding-scoped source repairs have no arbitrary attempt cap. Each failed source
 attempt is preserved in a verified named Git stash and the same finding is
-reopened. The third failure stops with the finding still open; it never advances,
+reopened with the prior failure evidence before the next attempt. It never advances,
 runs final closure, commits, pushes, or labels infrastructure failure as a
 finding outcome. Missing executables, authentication failure, provider quota,
 timeouts, malformed JSON, unsafe paths, or contradictory state stop immediately.

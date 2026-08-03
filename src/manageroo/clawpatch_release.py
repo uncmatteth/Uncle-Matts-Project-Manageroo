@@ -23,13 +23,12 @@ from .util import atomic_write_json, utc_now
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
 CLAWPATCH_CHILD_WATCHDOG_SECONDS = 3_600
 CLAWPATCH_TRANSIENT_MAX_ATTEMPTS = 3
-CLAWPATCH_FIX_MAX_ATTEMPTS = 3
 RELEASE_PROGRESS_VERSION = 1
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "
     "complete project gates -> exact fixed revalidation -> on retryable failure preserve/reopen/retry "
-    "the same finding for at most three total attempts -> exact-path commit/push when authorized -> repeat the "
+    "the same finding until fixed or a non-retryable blocker stops it -> exact-path commit/push when authorized -> repeat the "
     "open queue -> final closure"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
@@ -942,12 +941,8 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
         raise SafetyError("Clawpatch release progress is malformed.")
     if legacy_cycle_count > 1:
         progress["retry_count"] += (legacy_cycle_count - 1) * 3
-    if progress["phase"] == "fix-cycle-recovery":
-        progress["phase"] = (
-            "fix-attempts-exhausted"
-            if progress["retry_count"] >= CLAWPATCH_FIX_MAX_ATTEMPTS
-            else "retry"
-        )
+    if progress["phase"] in {"fix-attempts-exhausted", "fix-cycle-recovery"}:
+        progress["phase"] = "retry"
     if Path(progress["repo"]).resolve() != repo.resolve():
         raise SafetyError("Clawpatch release progress belongs to a different repository.")
     return progress
@@ -1715,16 +1710,6 @@ def release_sweep(
             if durable_progress is not None and durable_progress["finding_id"] == finding_id
             else 0
         )
-        if (
-            durable_progress is not None
-            and durable_progress.get("phase") == "fix-attempts-exhausted"
-            and retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS
-        ):
-            raise SafetyError(
-                f"Clawpatch previously stopped after {CLAWPATCH_FIX_MAX_ATTEMPTS} total fix attempts "
-                f"for {finding_id}. The finding remains open and was not triaged. Start an explicit "
-                "fresh run to try it again."
-            )
         while True:
             attempt_head = _git_text(root, ["git", "rev-parse", "HEAD"])
             _write_release_progress(
@@ -1744,7 +1729,6 @@ def release_sweep(
                         "finding_id": finding_id,
                         "retry": retry_count,
                         "attempt": retry_count + 1,
-                        "max_attempts": CLAWPATCH_FIX_MAX_ATTEMPTS,
                         "command": f"clawpatch fix --finding {finding_id}",
                     }
                 )
@@ -1847,34 +1831,6 @@ def release_sweep(
                     current_number=current_finding,
                     total=total_findings,
                 )
-                if retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS:
-                    _write_release_progress(
-                        root,
-                        finding_id=finding_id,
-                        branch=selected_branch,
-                        head_before=attempt_head,
-                        retry_count=retry_count,
-                        phase="fix-attempts-exhausted",
-                        last_stash_ref=str(preserved.get("ref") or ""),
-                        last_stash_paths=list(preserved_paths),
-                    )
-                    if progress is not None:
-                        progress(
-                            {
-                                "phase": "stopped",
-                                "current": current_finding,
-                                "total": total_findings,
-                                "finding_id": finding_id,
-                                "outcome": exc.outcome,
-                                "detail": "three total fix attempts exhausted; finding remains open",
-                            }
-                        )
-                    raise SafetyError(
-                        f"Manageroo stopped after {CLAWPATCH_FIX_MAX_ATTEMPTS} total Clawpatch fix "
-                        f"attempts for {finding_id}. The finding remains open, the last source attempt "
-                        f"is preserved at {preserved_ref}, and nothing was triaged, committed, pushed, "
-                        "or advanced."
-                    ) from exc
                 time.sleep(min(2 ** min(max(retry_count - 1, 0), 6), 60))
                 durable_progress = _load_release_progress(root)
                 continue

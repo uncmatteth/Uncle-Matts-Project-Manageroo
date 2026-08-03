@@ -937,7 +937,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
-    def test_source_fix_recovery_stops_after_three_total_attempts_without_advancing(
+    def test_source_fix_recovery_continues_same_finding_until_success(
         self,
         _version,
         _processes,
@@ -984,6 +984,8 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                     "repair remained open", finding_id="fnd_one", outcome="open"
                 )
                 for _ in range(3)
+            ] + [
+                ({"finding_id": "fnd_one", "commit": "abc123"}, False)
             ]
             preserve.return_value = {
                 "created": True,
@@ -993,33 +995,28 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             }
 
             progress_events = []
+            final_closure.return_value = {"status": {"openFindings": 0}}
 
-            with self.assertRaisesRegex(
-                SafetyError,
-                "stopped after 3 total Clawpatch fix attempts",
-            ):
-                release_sweep(
-                    repo,
-                    apply=True,
-                    branch="current",
-                    progress=progress_events.append,
-                )
+            report = release_sweep(
+                repo,
+                apply=True,
+                branch="current",
+                progress=progress_events.append,
+            )
 
             checkpoint = _load_release_progress(repo)
-            self.assertIsNotNone(checkpoint)
-            self.assertEqual(checkpoint["retry_count"], 3)
-            self.assertEqual(checkpoint["phase"], "fix-attempts-exhausted")
-            stopped = [event for event in progress_events if event["phase"] == "stopped"]
-            self.assertEqual(len(stopped), 1)
-            self.assertEqual(stopped[0]["finding_id"], "fnd_one")
+            self.assertIsNone(checkpoint)
+            self.assertEqual(report["finding_count"], 1)
+            attempts = [event["attempt"] for event in progress_events if event["phase"] == "fix"]
+            self.assertEqual(attempts, [1, 2, 3, 4])
 
-        self.assertEqual(execute_fix.call_count, 3)
+        self.assertEqual(execute_fix.call_count, 4)
         self.assertEqual(preserve.call_count, 3)
         self.assertEqual(reopen.call_count, 3)
         self.assertIn("stash@{0}", reopen.call_args.kwargs["failure"])
         self.assertIn("app.py", reopen.call_args.kwargs["failure"])
-        self.assertEqual(next_finding.call_count, 1)
-        final_closure.assert_not_called()
+        self.assertEqual(next_finding.call_count, 2)
+        final_closure.assert_called_once()
 
     @patch("manageroo.clawpatch_release._next_finding")
     @patch("manageroo.clawpatch_release._json_clawpatch")
@@ -1148,7 +1145,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(progress["retry_count"], 2)
         self.assertEqual(progress["phase"], "fix")
 
-    def test_legacy_exhausted_cycle_checkpoint_remains_stopped(self):
+    def test_legacy_cycle_checkpoint_resumes_below_the_100_attempt_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             self.init_repo(repo)
@@ -1169,7 +1166,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             progress = _load_release_progress(repo)
 
         self.assertEqual(progress["retry_count"], 3)
-        self.assertEqual(progress["phase"], "fix-attempts-exhausted")
+        self.assertEqual(progress["phase"], "retry")
         self.assertNotIn("cycle_count", progress)
 
     @patch("manageroo.clawpatch_release._final_closure")

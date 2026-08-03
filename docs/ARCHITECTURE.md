@@ -111,9 +111,9 @@ for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
 Manageroo never triages a finding as resolved. Failed attempts are preserved in
 verified named Git stashes, reopened through Clawpatch when necessary, and
-retried as the same current finding for at most three total attempts. The third
-failure preserves the Clawpatch-owned stash reference and changed paths, keeps
-the finding open, and stops without advancing, committing, pushing, or triaging.
+retried as the same current finding without an arbitrary attempt cap. Every failure
+preserves the Clawpatch-owned stash reference and changed paths and feeds that
+evidence into the next attempt without advancing, committing, pushing, or triaging.
 Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
 it cannot silently modify the repair. A durable per-finding progress record lets

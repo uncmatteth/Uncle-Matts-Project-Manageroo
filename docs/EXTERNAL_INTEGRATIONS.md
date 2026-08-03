@@ -192,7 +192,7 @@ project gates, revalidation, and exact-path commit rules still apply.
 Every Clawpatch child command uses the explicit shared process-group and provider timeout. A timeout
 kills that process group. Provider and other transient non-fix failures get at
 most three attempts, each printed with its exact command and fresh phase timer.
-Source fixes run for at most three total attempts while the
+Source fixes continue on the same finding without an arbitrary attempt cap while the
 supervisor remains alive. Failed source edits are preserved in verified named
 Git stashes; Manageroo feeds the stash reference and changed paths into the
 finding's failure evidence, reopens only that same finding, and retries it with
@@ -210,7 +210,7 @@ records that inspection but does not execute or fill in the template. Its
 explicit release policy sends every current open finding to Clawpatch's own
 finding-scoped `fix`. Failed attempts are never called fixed or skipped:
 Manageroo preserves them, reconciles Clawpatch's current state, and retries the
-same finding for at most three total attempts.
+same finding until it succeeds or a non-retryable blocker stops the supervisor.
 
 The implementation is native Python and uses argv-only subprocesses. It does
 not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports

@@ -63,7 +63,6 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
                     "finding_id": "fnd_one",
                     "retry": 0,
                     "attempt": 1,
-                    "max_attempts": 3,
                     "command": "clawpatch fix --finding fnd_one",
                 }
             )
@@ -112,7 +111,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertIn("clawpatch show --finding fnd_one", rendered)
         self.assertIn("Broken rollback", rendered)
         self.assertIn("release.py:10-20", rendered)
-        self.assertIn("[1/88] FIX (attempt 1/3)", rendered)
+        self.assertIn("[1/88] FIX", rendered)
         self.assertIn("clawpatch fix --finding fnd_one", rendered)
         self.assertIn("[1/88] RETRY 1", rendered)
         self.assertIn("same finding", rendered)

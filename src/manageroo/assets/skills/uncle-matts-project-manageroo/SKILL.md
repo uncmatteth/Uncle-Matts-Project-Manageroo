@@ -142,7 +142,7 @@ stop immediately instead of being mislabeled as uncertain. On a retryable
 validation, project-gate, or non-`fixed` revalidation failure, preserve source
 edits in a verified named Git stash, reconcile with `show`, reopen through
 Clawpatch when necessary, require `next` to return the same finding, and invoke
-that finding's Clawpatch `fix` again, for no more than three total attempts.
+that finding's Clawpatch `fix` again without an arbitrary attempt cap.
 Durable progress under `.manageroo/cache` supports the same reconciliation when
 the release sweep is relaunched after interruption. After success, require the
 matching patch attempt, complete project validation, and exact `fixed`
