@@ -131,7 +131,12 @@ Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
 it cannot silently modify the repair. A durable per-finding progress record binds
 the repository, branch, HEAD, finding, phase, and exact owned source paths.
-Ordinary relaunch refuses continuation. The Manageroo project command's
+Ordinary relaunch resumes a stopped applied attempt only when the durable
+checkpoint's branch, finding, and exact dirty path set agree, and exactly one
+applied Clawpatch patch-attempt record matches current HEAD. It resumes at gates
+and revalidation without invoking `fix` again; an `open` outcome creates the
+same continuation commit and reenters `next`. Any mismatch or ambiguity refuses
+continuation and preserves the checkpoint and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
 The portable external supervisor instead defines explicit `--fresh` as a full
 source-and-ClawPatch-state reset so it can start clean in any Git repository

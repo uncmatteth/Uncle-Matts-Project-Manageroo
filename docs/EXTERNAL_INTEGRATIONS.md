@@ -206,6 +206,14 @@ that is `uncertain` because read-only execution is blocked gets one controlled
 workspace-write revalidation guarded by an exact source fingerprint; that is a
 documented validation transition, not a new source fix.
 
+On relaunch, a stopped attempt is resumable only when the checkpoint branch,
+finding, and owned paths match current state, and Clawpatch reports exactly one
+applied patch attempt for that finding, current HEAD,
+and path set. Manageroo then runs gates and resumes revalidation of that existing
+attempt. It does not invoke `fix`, remap, or review before returning to `next`.
+Any missing, stale, or ambiguous proof stops with the checkpoint and edits
+unchanged.
+
 An `open` revalidation is also a documented state transition rather than a
 failed command. Manageroo commits only the current applied patch-attempt paths
 as a continuation checkpoint, verifies an authorized push, and calls
@@ -240,7 +248,8 @@ the same default for its Codex worker. A user-supplied
 not extend Manageroo's outer watchdog. Durable progress lives beside the
 Manageroo-owned `clawpatch-supervise` installation for the external command and
 under `.manageroo/cache` for the Manageroo project command. Ordinary relaunch
-refuses to guess a continuation for an interrupted finding. For the external
+resumes only the exact stopped applied attempt proven by that record and current
+Clawpatch state; it refuses to guess when any ownership proof differs. For the external
 `clawpatch-supervise` command, explicit `--fresh` discards all current tracked
 and untracked source changes and old `.clawpatch` run state, then initializes a
 clean run. The Manageroo project command remains narrower: its `--fresh` may
