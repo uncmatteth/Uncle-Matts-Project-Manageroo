@@ -43,6 +43,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Model cannot mark run complete | Controller state machine | Preventive |
 | Unverified patch cannot reach source | Apply only after COMPLETE path and source hash check | Preventive |
 | Release verification gate mutates source used by later gates | Exact-HEAD disposable clone plus post-gate HEAD, tracked, untracked, and ignored mutation checks | Preventive |
+| Concurrent clean commit replaces the release candidate while final evidence is written | Git reference transaction held through handoff persistence plus a final HEAD, source-digest, and cleanliness snapshot | Preventive and detective |
 | Uninstall plan targets a lookalike Python prefix | Matching resolved install lock plus SHA-256-bound random ownership marker; old locks require matching app digest, launcher, venv, and prefix | Preventive |
 | Crash during final apply loses proof | Final result/report/patch are written before source apply; continue retries apply only | Detective and recoverable |
 | Acceptance cannot be auto-passed | `verification/acceptance-evidence.json` binds outcomes to gates, demo evidence, and review | Preventive in controller |

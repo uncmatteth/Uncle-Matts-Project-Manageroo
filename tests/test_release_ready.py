@@ -135,6 +135,48 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertFalse(run_item["ok"])
             self.assertIn("does not match", run_item["detail"])
 
+    def test_release_ready_rejects_clean_commit_after_final_digest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            self._completed_run(repo)
+            source_digest_calls = 0
+            commit_attempt = None
+
+            def commit_after_final_digest(path: Path, runner: CommandRunner) -> str:
+                nonlocal source_digest_calls, commit_attempt
+                digest = source_tree_digest(path, runner)
+                if path.resolve() == repo.resolve():
+                    source_digest_calls += 1
+                    if source_digest_calls == 3:
+                        (repo / "README.md").write_text(
+                            "concurrent clean commit\n", encoding="utf-8"
+                        )
+                        subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+                        commit_attempt = subprocess.run(
+                            ["git", "commit", "-q", "-m", "concurrent change"],
+                            cwd=repo,
+                            text=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                return digest
+
+            with patch(
+                "manageroo.release_ready.source_tree_digest",
+                side_effect=commit_after_final_digest,
+            ):
+                report = self._release_ready(repo)
+
+            self.assertIsNotNone(commit_attempt)
+            self.assertNotEqual(commit_attempt.returncode, 0)
+            self.assertFalse(report["ok"], report)
+            item = {value["name"]: value for value in report["items"]}[
+                "source integrity after release evidence"
+            ]
+            self.assertFalse(item["ok"])
+            self.assertIn("Git worktree changed", item["detail"])
+            self.assertIn("Do not ship yet.", Path(report["handoff_path"]).read_text(encoding="utf-8"))
+
     def test_release_ready_rejects_gate_mutation_inside_disposable_checkout(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
