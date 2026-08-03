@@ -344,7 +344,7 @@ To run the supervisor directly from a terminal, outside the `manageroo` command 
 clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minutes 15
 ```
 
-This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 15-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Retryable source failures stay on the same finding without an arbitrary attempt cap; non-retryable infrastructure, authentication, timeout, unsafe-state, and revalidation blockers stop immediately. A stale selected finding triggers one fresh map/review/queue lookup; selecting the same missing ID again stops safely.
+This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints one ClawPatch `fix` command before execution, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 15-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Any command failure, missing finding, non-`fixed` final revalidation, unsafe state, or interruption stops immediately with source edits left in place.
 
 Preview the complete closeout lifecycle without changing the repository:
 
@@ -382,13 +382,22 @@ Manageroo-written repair, triages a finding as resolved, or hand-repairs source.
 
 The external command's `--timeout-minutes` value controls both the complete
 Clawpatch/Codex process-group watchdog and ClawPatch's Codex provider timeout.
-Other transient non-fix failures get at most three announced attempts.
-Finding-scoped source repairs have no arbitrary attempt cap. Each failed source
-attempt is preserved in a verified named Git stash and the same finding is
-reopened with the prior failure evidence before the next attempt. It never advances,
-runs final closure, commits, pushes, or labels infrastructure failure as a
-finding outcome. Missing executables, authentication failure, provider quota,
-timeouts, malformed JSON, unsafe paths, or contradictory state stop immediately.
+Every command runs once. Manageroo does not invent a continuation for a failed
+`fix`: it leaves the exact changed source paths visible, records them in the
+stopped checkpoint, and does not advance, run final closure, commit, push,
+stash, triage, skip, or write a repair.
+
+The implemented ClawPatch 0.7.2 state machine is:
+
+| Current result | Manageroo transition |
+|---|---|
+| `next` returns an open finding | Record `show`, then run that finding's `fix` once |
+| `fix` is applied and project gates pass | Run `revalidate --finding` |
+| Read-only revalidation is `uncertain` | Revalidate the same repair once with workspace-write, guarded by an exact source fingerprint |
+| Revalidation is exactly `fixed` | Commit only the patch-attempt paths, verify any authorized push, then call `next` |
+| Fix exits nonzero, gates fail, or revalidation remains `open`, `uncertain`, or `false-positive` | Stop with source edits in place and the queue unchanged |
+| A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
+| A prior checkpoint exists | Refuse automatic continuation; `--fresh` may discard only the checkpoint's exact owned paths before reinitializing |
 
 After a successful fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, requires revalidation for the same finding
@@ -403,8 +412,8 @@ hidden or marked resolved. Revalidation starts read-only. If that pass is
 `uncertain`, Manageroo reruns revalidation once with controlled workspace-write
 access so targeted tests can create temporary files, while an exact source-state
 fingerprint prevents that validation pass from changing the repair. A still
-`uncertain` or source-mutating validation is preserved and stopped; it does not
-trigger another source fix.
+`uncertain` or source-mutating validation is stopped with the repair left
+visible; it does not trigger another source fix.
 
 Release sweeps default every Clawpatch child command and the Codex worker to a
 shared 15-minute timeout. `clawpatch-supervise --timeout-minutes N` changes both
@@ -412,17 +421,13 @@ limits together, so the terminal never advertises a different timeout from the
 one actually enforced.
 
 Before each finding-scoped fix, Manageroo writes durable progress under
-`.manageroo/cache`. If the controller process is interrupted, rerunning the same
-release-sweep command preserves any interrupted source attempt, reconciles the
-recorded finding from Clawpatch's existing `.clawpatch` state, and resumes that
-finding. If remapping removed a clean checkpoint's old finding ID, Manageroo
-clears only that stale checkpoint and returns to the live `next` queue. It will
-not do that while interrupted source edits remain. Manageroo does not install an operating-system daemon; a stopped
-controller must still be relaunched by the operator or an external service.
-When the operator explicitly uses `--fresh`, Manageroo instead discards only
-dirty files proven to belong to the checkpointed finding, removes the old run
-state, and initializes ClawPatch again. Any unrelated dirty path blocks the
-fresh run and is left unchanged.
+`.manageroo/cache`. On a handled failure or interruption it records the exact
+source paths that appeared while that one owned fix was active. A later ordinary
+run refuses to continue that checkpoint. When the operator explicitly uses
+`--fresh`, Manageroo discards source only when the current dirty-path set exactly
+matches that checkpoint ownership record, then removes old run state and
+initializes ClawPatch again. Any missing ownership proof or unrelated dirty path
+blocks unchanged. Manageroo does not install an operating-system restart daemon.
 
 At closure, Manageroo proves no mapped feature remains pending, revalidates all
 open findings, requires an empty open report, requires zero findings and locks

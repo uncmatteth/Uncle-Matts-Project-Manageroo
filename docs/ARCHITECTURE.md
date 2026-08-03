@@ -113,24 +113,24 @@ the mandatory whole-project gate. The cross-platform controller reviews all pend
 features, obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
-Manageroo never triages a finding as resolved. Failed attempts are preserved in
-verified named Git stashes, reopened through Clawpatch when necessary, and
-retried as the same current finding without an arbitrary attempt cap. Every failure
-preserves the Clawpatch-owned stash reference and changed paths and feeds that
-evidence into the next attempt without advancing, committing, pushing, or triaging.
+Manageroo never issues a triage command. Each current finding receives one
+Clawpatch-owned `fix`. Any failed or unsupported transition stops with the exact
+changed source paths visible and checkpointed; Manageroo does not stash, reopen,
+retry, skip, remap, hand-repair, advance, commit, or push that finding.
 Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
-it cannot silently modify the repair. A durable per-finding progress record lets
-a relaunched release sweep reconcile interrupted work against the existing
-`.clawpatch` queue. One explicit timeout controls both the child-process watchdog
+it cannot silently modify the repair. A durable per-finding progress record binds
+the repository, branch, HEAD, finding, phase, and exact owned source paths.
+Ordinary relaunch refuses continuation; explicit `--fresh` is the only automatic
+recovery and requires an exact ownership match before discarding those paths.
+One explicit timeout controls both the child-process watchdog
 and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
 Operator interruption also terminates and reaps that complete child group before
 the supervisor exits.
-Timed-out non-fix commands stop immediately;
-other transient command retries are capped at three attempts.
+Every failed command stops immediately and is not retried.
 An explicit fresh run may discard dirty source only when durable progress binds
 the interrupted `fix` to the current repository, branch, and compatible HEAD,
-and every dirty path is named by that finding's evidence. Unrelated dirty paths
+and the dirty-path set exactly matches the checkpoint's recorded owned paths. Unrelated dirty paths
 block without mutation.
 
 ## Parallel mapping and review, sequential implementation

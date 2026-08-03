@@ -7,6 +7,7 @@ import tomllib
 import unittest
 
 from manageroo.clawpatch_external import main
+from manageroo.errors import SafetyError
 
 
 class ExternalClawpatchSupervisorTests(unittest.TestCase):
@@ -17,7 +18,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             "manageroo.clawpatch_external:main",
         )
 
-    def test_terminal_command_shows_finding_counter_commands_and_same_finding_retry(self):
+    def test_terminal_command_shows_one_finding_scoped_fix_and_verified_commit(self):
         calls = []
 
         def fake_sweep(repo: Path, **kwargs):
@@ -40,7 +41,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
                     "total": "?",
                     "command": "clawpatch map --json",
                     "attempt": 1,
-                    "max_attempts": 3,
+                    "max_attempts": 1,
                 }
             )
             progress(
@@ -71,30 +72,8 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
                     "current": 1,
                     "total": 88,
                     "finding_id": "fnd_one",
-                    "retry": 0,
                     "attempt": 1,
-                    "command": "clawpatch fix --finding fnd_one",
-                }
-            )
-            progress(
-                {
-                    "phase": "retry",
-                    "current": 1,
-                    "total": 88,
-                    "finding_id": "fnd_one",
-                    "retry": 1,
-                    "outcome": "fix-validation-failed",
-                    "error": "validation failed",
-                }
-            )
-            progress(
-                {
-                    "phase": "fix",
-                    "current": 1,
-                    "total": 88,
-                    "finding_id": "fnd_one",
-                    "retry": 1,
-                    "attempt": 2,
+                    "max_attempts": 1,
                     "command": "clawpatch fix --finding fnd_one",
                 }
             )
@@ -117,7 +96,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("[?/?] BASELINE VALIDATION (attempt 1/1)", rendered)
         self.assertIn("$ configured Manageroo gates", rendered)
-        self.assertIn("[?/?] MAP (attempt 1/3)", rendered)
+        self.assertIn("[?/?] MAP (attempt 1/1)", rendered)
         self.assertIn("$ clawpatch map --json", rendered)
         self.assertIn("[1/88] SHOW", rendered)
         self.assertIn("clawpatch show --finding fnd_one", rendered)
@@ -125,13 +104,35 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertIn("release.py:10-20", rendered)
         self.assertIn("[1/88] FIX", rendered)
         self.assertIn("clawpatch fix --finding fnd_one", rendered)
-        self.assertIn("[1/88] RETRY 1", rendered)
-        self.assertIn("same finding", rendered)
-        self.assertIn("[1/88] FIX (attempt 2)", rendered)
-        self.assertNotIn("RECOVERY CYCLE", rendered)
+        self.assertNotIn("RETRY", rendered)
+        self.assertNotIn("attempt 2", rendered)
         self.assertIn("[1/88] FIXED", rendered)
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
+
+    def test_terminal_command_renders_stopped_state_without_retrying(self):
+        def fake_sweep(_repo: Path, **kwargs):
+            kwargs["progress"](
+                {
+                    "phase": "stopped",
+                    "current": 1,
+                    "total": 24,
+                    "finding_id": "fnd_one",
+                    "outcome": "fix-validation-failed",
+                    "owned_paths": ["app.py"],
+                }
+            )
+            raise SafetyError("one fix failed; no automatic continuation")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            code = main(["--repo", "."], run_sweep=fake_sweep, heartbeat_seconds=0)
+
+        rendered = output.getvalue()
+        self.assertEqual(code, 2)
+        self.assertIn("[1/24] STOPPED - fix-validation-failed", rendered)
+        self.assertIn("source left in place: app.py", rendered)
+        self.assertNotIn("RETRY", rendered)
 
     def test_terminal_command_requests_a_fresh_run_and_fifteen_minute_shared_timeout(self):
         calls = []

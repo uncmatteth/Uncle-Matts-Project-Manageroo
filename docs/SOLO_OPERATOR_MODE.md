@@ -241,14 +241,12 @@ manageroo clawpatch release-sweep --repo . --apply
 
 The default is read-only. Applied runs review all pending features and automate
 Clawpatch's one-finding `next`, `show`, `fix`, and revalidation loop. Each
-Clawpatch child process group and provider share one explicit timeout. Timed-out non-fix
-commands stop immediately; other transient command attempts are capped at three.
-Finding-scoped source fixes have no arbitrary attempt cap and remain on the same finding.
-Failed source attempts are preserved in named Git stashes, their stash/path evidence
-is fed back to Clawpatch, and the live supervisor retries only that same finding
-with bounded backoff without resetting the attempt number, advancing, final closure,
-commit, or push. Durable
-progress supports resumption after the controller is relaunched;
+Clawpatch child process group and provider share one explicit timeout. Every
+command and finding-scoped fix runs once. A failed or non-`fixed` transition
+stops with source edits visible and exact owned paths checkpointed; there is no
+automatic stash, triage, reopen, retry, remap, advance, final closure, commit,
+or push. Durable progress blocks guessed continuation after relaunch; explicit
+`--fresh` may discard only an exact checkpoint ownership match before reinitializing.
 Manageroo does not install an OS restart daemon. Missing tools,
 authentication failure, malformed or contradictory state, unsafe paths, and
 Git failures still stop immediately. Applied runs create a dedicated branch

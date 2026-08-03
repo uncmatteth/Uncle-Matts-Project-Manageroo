@@ -88,18 +88,20 @@ def _render_event(event: dict[str, Any]) -> str:
     if phase == "finding":
         return _render_inspection(event)
     if phase == "fix":
-        attempt = int(event.get("attempt", int(event.get("retry", 0) or 0) + 1))
+        attempt = int(event.get("attempt", 1))
         maximum = event.get("max_attempts")
         if maximum:
             suffix = f" (attempt {attempt}/{maximum})"
         else:
             suffix = f" (attempt {attempt})" if attempt > 1 else ""
         return f"\n{_counter(event)} FIX{suffix}\n$ {event.get('command', '')}"
-    if phase == "retry":
+    if phase == "stopped":
+        owned = event.get("owned_paths")
+        paths = ", ".join(str(path) for path in owned) if isinstance(owned, list) else ""
         return (
-            f"\n{_counter(event)} RETRY {event.get('retry', '?')} - "
-            f"{event.get('outcome', 'not fixed')}\n"
-            f"ClawPatch is reopening and retrying the same finding: {event.get('finding_id', '')}"
+            f"\n{_counter(event)} STOPPED - {event.get('outcome', 'not fixed')}\n"
+            f"finding: {event.get('finding_id', '')}\n"
+            f"source left in place: {paths or 'none'}"
         )
     if phase == "fixed":
         commit = event.get("commit") or "no source commit required"

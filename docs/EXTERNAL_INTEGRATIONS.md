@@ -171,7 +171,7 @@ manageroo clawpatch release-sweep --repo . --apply --push final
 manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
 ```
 
-`clawpatch-supervise` is a separate installed console command for an operator who wants to launch and watch the workflow directly rather than enter through the `manageroo` command tree. It prints named process-preflight, fresh initialization, status, lock-cleanup, map, review, review-verification, queue, show, fix, retry, stopped, and fixed phases. Every command attempt includes its exact argv and attempt number. The 30-second heartbeat reports time in the currently displayed phase and the exact configured child watchdog. It uses the same command-owned repair controller described below.
+`clawpatch-supervise` is a separate installed console command for an operator who wants to launch and watch the workflow directly rather than enter through the `manageroo` command tree. It prints named process-preflight, fresh initialization, status, lock-cleanup, map, review, review-verification, queue, show, fix, stopped, and fixed phases. Every command includes its exact argv and the single allowed attempt. The 30-second heartbeat reports time in the currently displayed phase and the exact configured child watchdog. It uses the same command-owned repair controller described below.
 
 The sweep first proves repository, process, Git, status, and lock state. It maps
 the repository, asks Clawpatch to review every pending feature, and verifies a
@@ -190,16 +190,13 @@ source on a host that already supplies isolation. Manageroo's path restrictions,
 project gates, revalidation, and exact-path commit rules still apply.
 
 Every Clawpatch child command uses the explicit shared process-group and provider timeout. A timeout
-kills that process group. Provider and other transient non-fix failures get at
-most three attempts, each printed with its exact command and fresh phase timer.
-Source fixes continue on the same finding without an arbitrary attempt cap while the
-supervisor remains alive. Failed source edits are preserved in verified named
-Git stashes; Manageroo feeds the stash reference and changed paths into the
-finding's failure evidence, reopens only that same finding, and retries it with
-bounded backoff. It never resets the attempt number, advances, runs final closure, commits, or
-pushes a failed repair. Revalidation that is `uncertain` because read-only execution is blocked
-gets one controlled workspace-write retry guarded by an exact source fingerprint,
-not a new source fix.
+kills that process group. Each command and each finding-scoped `fix` runs once.
+A failed fix leaves its source edits visible and records the exact paths in a
+stopped checkpoint. Manageroo does not stash, triage, reopen, retry, skip,
+remap, advance, run final closure, commit, or push that repair. Revalidation
+that is `uncertain` because read-only execution is blocked gets one controlled
+workspace-write revalidation guarded by an exact source fingerprint; that is a
+documented validation transition, not a new source fix.
 
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
@@ -209,8 +206,9 @@ Clawpatch 0.7.2's `show` output includes a human triage template. Manageroo
 records that inspection but does not execute or fill in the template. Its
 explicit release policy sends every current open finding to Clawpatch's own
 finding-scoped `fix`. Failed attempts are never called fixed or skipped:
-Manageroo preserves them, reconciles Clawpatch's current state, and retries the
-same finding until it succeeds or a non-retryable blocker stops the supervisor.
+the supervisor stops and requires an explicit operator decision. Only `--fresh`
+can automatically discard an exact checkpoint-owned path set and initialize a
+new Clawpatch run.
 
 The implementation is native Python and uses argv-only subprocesses. It does
 not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports
