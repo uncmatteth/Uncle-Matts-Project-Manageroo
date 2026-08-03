@@ -229,23 +229,31 @@ def _publish_archive_pair(candidate_output: Path, candidate_source: Path) -> Non
         )
     output_had_old = OUTPUT.exists()
     source_had_old = SOURCE_OUTPUT.exists()
+    output_backup_created = False
+    source_backup_created = False
+    output_published = False
+    source_published = False
     try:
         if output_had_old:
             OUTPUT.rename(output_backup)
+            output_backup_created = True
         if source_had_old:
             SOURCE_OUTPUT.rename(source_backup)
+            source_backup_created = True
         os.replace(candidate_output, OUTPUT)
+        output_published = True
         os.replace(candidate_source, SOURCE_OUTPUT)
+        source_published = True
     except Exception as exc:
         rollback_errors: list[str] = []
-        for published, backup, had_old in (
-            (OUTPUT, output_backup, output_had_old),
-            (SOURCE_OUTPUT, source_backup, source_had_old),
+        for published, backup, backup_created, candidate_published in (
+            (OUTPUT, output_backup, output_backup_created, output_published),
+            (SOURCE_OUTPUT, source_backup, source_backup_created, source_published),
         ):
             try:
-                if published.exists():
+                if candidate_published and published.exists():
                     published.unlink()
-                if had_old and backup.exists():
+                if backup_created and backup.exists():
                     backup.rename(published)
             except OSError as rollback_exc:
                 rollback_errors.append(f"{published}: {rollback_exc}")

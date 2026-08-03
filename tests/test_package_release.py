@@ -301,6 +301,38 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertEqual(candidate_output.read_bytes(), b"new-end-user")
             self.assertEqual(candidate_source.read_bytes(), b"new-source")
 
+    def test_archive_pair_publish_preserves_existing_archives_when_first_backup_rename_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "release.zip"
+            source_output = root / "release-source.zip"
+            candidate_output = root / "candidate-release.zip"
+            candidate_source = root / "candidate-source.zip"
+            output.write_bytes(b"old-end-user")
+            source_output.write_bytes(b"old-source")
+            candidate_output.write_bytes(b"new-end-user")
+            candidate_source.write_bytes(b"new-source")
+            path_type = type(output)
+            original_rename = path_type.rename
+
+            def fail_first_backup_rename(path, target):
+                if path == output:
+                    raise OSError("simulated first backup rename failure")
+                return original_rename(path, target)
+
+            with (
+                patch.object(package_release, "OUTPUT", output),
+                patch.object(package_release, "SOURCE_OUTPUT", source_output),
+                patch.object(path_type, "rename", autospec=True, side_effect=fail_first_backup_rename),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated first backup rename failure"):
+                    package_release._publish_archive_pair(candidate_output, candidate_source)
+
+            self.assertEqual(output.read_bytes(), b"old-end-user")
+            self.assertEqual(source_output.read_bytes(), b"old-source")
+            self.assertEqual(candidate_output.read_bytes(), b"new-end-user")
+            self.assertEqual(candidate_source.read_bytes(), b"new-source")
+
     def test_drop_folder_removes_stale_release_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
