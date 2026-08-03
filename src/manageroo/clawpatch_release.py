@@ -1106,6 +1106,7 @@ def _prepare_fresh_release(
     env: dict[str, str],
     progress: Callable[[dict[str, Any]], None] | None = None,
     state_root: Path | None = None,
+    discard_current_source_changes: bool = False,
 ) -> None:
     """Delete only Clawpatch run state, preserve project configuration, and initialize again."""
     _require_no_process(repo)
@@ -1122,7 +1123,14 @@ def _prepare_fresh_release(
             source_changes,
             state_root=state_root,
         )
-        if checkpoint_owned != source_changes:
+        if checkpoint_owned == source_changes:
+            cleanup_paths = checkpoint_owned
+            cleanup_description = "discard exact interrupted Clawpatch finding files"
+        elif discard_current_source_changes:
+            _validate_attempt_paths_syntax(source_changes)
+            cleanup_paths = source_changes
+            cleanup_description = "discard current source changes for explicit external --fresh"
+        else:
             raise SafetyError(
                 "A fresh Clawpatch run refuses unrelated source changes: "
                 + ", ".join(source_changes)
@@ -1133,12 +1141,12 @@ def _prepare_fresh_release(
                     "phase": "fresh-discard",
                     "current": "?",
                     "total": "?",
-                    "command": "discard exact interrupted Clawpatch finding files",
+                    "command": cleanup_description,
                     "attempt": 1,
                     "max_attempts": 1,
                 }
             )
-        _discard_checkpoint_owned_source(repo, checkpoint_owned)
+        _discard_checkpoint_owned_source(repo, cleanup_paths)
     config_text = _committed_clawpatch_config(repo)
     if clawpatch_state_root.exists():
         if not clawpatch_state_root.is_dir():
@@ -1509,6 +1517,7 @@ def release_sweep(
             env=env,
             progress=progress,
             state_root=state_root,
+            discard_current_source_changes=integration_mode == "external",
         )
     durable_progress = _load_release_progress(root, state_root=state_root)
     preexisting_source = _source_paths(root)

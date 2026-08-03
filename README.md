@@ -345,7 +345,10 @@ clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minu
 ```
 
 This works in any Git repository; the target does not need Manageroo project
-configuration. It starts a clean ClawPatch run, preserves committed ClawPatch
+configuration. For this external command, `--fresh` explicitly discards every
+current tracked or untracked source change and all old `.clawpatch` run state;
+commit or copy anything you want to keep before running it. It then starts a
+clean ClawPatch run, preserves committed ClawPatch
 configuration, displays the exact current finding as `[current/total] SHOW`,
 prints the finding evidence and repair scope, prints one ClawPatch `fix` command
 before execution, and reports the verified commit. If the target has
@@ -410,7 +413,7 @@ The implemented ClawPatch 0.7.2 state machine is:
 | Revalidation is exactly `fixed` | Commit only the patch-attempt paths, verify any authorized push, then call `next` |
 | Fix exits nonzero, gates fail, or revalidation remains `open`, `uncertain`, or `false-positive` | Stop with source edits in place and the queue unchanged |
 | A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
-| A prior checkpoint exists | Refuse automatic continuation; `--fresh` may discard only the checkpoint's exact owned paths before reinitializing |
+| A prior checkpoint exists | Refuse automatic continuation; Manageroo-project `--fresh` requires its exact owned paths, while external-supervisor `--fresh` discards the current source changes before reinitializing |
 
 After a successful fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, requires revalidation for the same finding
@@ -439,14 +442,14 @@ Manageroo project command stores it under `.manageroo/cache`. On a handled
 failure or interruption it records the exact
 source paths that appeared while that one owned fix was active. A later ordinary
 run refuses to continue that checkpoint. When the operator explicitly uses
-`--fresh`, Manageroo discards source only when the current dirty-path set exactly
-matches that checkpoint ownership record, then removes old run state and
-initializes ClawPatch again. Any missing ownership proof or unrelated dirty path
-blocks unchanged. Manageroo does not install an operating-system restart daemon.
-The external runner also migrates a validated version-2 checkpoint from the old
+`--fresh` through the Manageroo project command, source is discarded only when
+the current dirty-path set exactly matches that checkpoint ownership record.
+The portable external supervisor has a deliberately stronger reset contract:
+its explicit `--fresh` discards all current source changes even when no
+checkpoint exists, removes old run state, and initializes ClawPatch again. The
+external runner also migrates a validated version-2 checkpoint from the old
 `.manageroo/cache` location into its Manageroo-owned state directory before
-evaluating `--fresh`, so upgrading the runner does not orphan exact ownership
-proof from an interrupted fix.
+cleanup. Manageroo does not install an operating-system restart daemon.
 
 At closure, Manageroo proves no mapped feature remains pending, revalidates all
 open findings, requires an empty open report, requires zero findings and locks

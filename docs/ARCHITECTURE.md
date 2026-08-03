@@ -126,17 +126,22 @@ Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
 it cannot silently modify the repair. A durable per-finding progress record binds
 the repository, branch, HEAD, finding, phase, and exact owned source paths.
-Ordinary relaunch refuses continuation; explicit `--fresh` is the only automatic
-recovery and requires an exact ownership match before discarding those paths.
+Ordinary relaunch refuses continuation. The Manageroo project command's
+explicit `--fresh` requires an exact ownership match before discarding paths.
+The portable external supervisor instead defines explicit `--fresh` as a full
+source-and-ClawPatch-state reset so it can start clean in any Git repository
+without a prior Manageroo checkpoint.
 One explicit timeout controls both the child-process watchdog
 and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
 Operator interruption also terminates and reaps that complete child group before
 the supervisor exits.
 Every failed command stops immediately and is not retried.
-An explicit fresh run may discard dirty source only when durable progress binds
-the interrupted `fix` to the current repository, branch, and compatible HEAD,
-and the dirty-path set exactly matches the checkpoint's recorded owned paths. Unrelated dirty paths
-block without mutation.
+An explicit fresh run through the Manageroo project command may discard dirty
+source only when durable progress binds the interrupted `fix` to the current
+repository, branch, and compatible HEAD, and the dirty-path set exactly matches
+the checkpoint's recorded owned paths. The separately installed external
+supervisor treats `--fresh` as explicit authorization to discard every current
+source change and old `.clawpatch` state before reinitialization.
 
 ## Parallel mapping and review, sequential implementation
 
