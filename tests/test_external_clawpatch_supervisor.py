@@ -25,6 +25,16 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             progress = kwargs["progress"]
             progress(
                 {
+                    "phase": "baseline-validation",
+                    "current": "?",
+                    "total": "?",
+                    "command": "configured Manageroo gates",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            )
+            progress(
+                {
                     "phase": "map",
                     "current": "?",
                     "total": "?",
@@ -105,6 +115,8 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
 
         rendered = output.getvalue()
         self.assertEqual(code, 0)
+        self.assertIn("[?/?] BASELINE VALIDATION (attempt 1/1)", rendered)
+        self.assertIn("$ configured Manageroo gates", rendered)
         self.assertIn("[?/?] MAP (attempt 1/3)", rendered)
         self.assertIn("$ clawpatch map --json", rendered)
         self.assertIn("[1/88] SHOW", rendered)

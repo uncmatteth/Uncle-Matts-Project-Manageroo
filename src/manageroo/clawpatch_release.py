@@ -27,7 +27,8 @@ CLAWPATCH_TRANSIENT_MAX_ATTEMPTS = 3
 RELEASE_PROGRESS_VERSION = 1
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
-    "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "
+    "clean repository baseline gates -> clawpatch map -> complete review of every pending feature -> "
+    "clawpatch next/show -> one fix -> "
     "complete project gates -> exact fixed revalidation -> on retryable failure preserve/reopen/retry "
     "the same finding until fixed or a non-retryable blocker stops it -> exact-path commit/push when authorized -> repeat the "
     "open queue -> final closure"
@@ -666,12 +667,13 @@ def _run_project_gates(repo: Path, *, finding_id: str) -> list[dict[str, Any]]:
     config_path = repo / PROJECT_DIR / "config.toml"
     if not config_path.is_file():
         raise SafetyError("The repository has no Manageroo gate configuration; complete validation is ambiguous.")
+    gates = []
+    log_root = repo / PROJECT_DIR / "cache" / "clawpatch-release-logs"
     try:
         config = load_config(repo)
         gates = gates_from_config(config)
         if not gates:
             raise SafetyError("The repository has no configured validation gates; complete validation is ambiguous.")
-        log_root = repo / PROJECT_DIR / "cache" / "clawpatch-release-logs"
         runner = GateRunner(
             CommandRunner(log_root=log_root),
             CommandPolicy(tuple(config["safety"]["allowed_programs"])),
@@ -679,10 +681,30 @@ def _run_project_gates(repo: Path, *, finding_id: str) -> list[dict[str, Any]]:
         )
         return [item.to_dict() for item in runner.run(gates, repo, require_one=True)]
     except MANAGEROOError as exc:
+        diagnostics = []
+        for gate in gates:
+            log_path = log_root / f"gate-{gate.id}.json"
+            try:
+                result = json.loads(log_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            exit_code = result.get("exit_code")
+            timed_out = result.get("timed_out") is True
+            if exit_code == 0 and not timed_out:
+                continue
+            output = "\n".join(
+                value for value in (result.get("stdout"), result.get("stderr"))
+                if isinstance(value, str) and value
+            )
+            diagnostics.append(
+                f"gate: {gate.id}\ncommand: {shlex.join(gate.argv)}\n"
+                f"exit code: {exit_code}\noutput:\n{output[-6000:]}"
+            )
+        detail = "\n\n".join(diagnostics) or str(exc)
         raise SafetyError(
             f"phase: project validation\ncommand: configured Manageroo gates\nfinding ID: {finding_id}\n"
             f"exit code: nonzero\nfailed requirement: complete repository validation must pass\n"
-            f"changed source paths: {_source_paths(repo)}\noutput:\n{exc}"
+            f"changed source paths: {_source_paths(repo)}\noutput:\n{detail}"
         ) from exc
 
 
@@ -1508,9 +1530,7 @@ def release_sweep(
                 f"{durable_progress['branch']!r}, not {current_branch!r}."
             )
         if durable_progress["head_before"] != head_before:
-            if not preexisting_source and _checkpoint_can_follow_supervisor_upgrade(
-                root, durable_progress
-            ):
+            if _checkpoint_can_follow_supervisor_upgrade(root, durable_progress):
                 durable_progress = _write_release_progress(
                     root,
                     finding_id=str(durable_progress["finding_id"]),
@@ -1588,6 +1608,19 @@ def release_sweep(
             "controller-interrupted",
         )
         preexisting_source = _source_paths(root)
+
+    if progress is not None:
+        progress(
+            {
+                "phase": "baseline-validation",
+                "current": "?",
+                "total": "?",
+                "command": "configured Manageroo gates",
+                "attempt": 1,
+                "max_attempts": 1,
+            }
+        )
+    _run_project_gates(root, finding_id="baseline-preflight")
 
     mapped = _json_clawpatch(
         root,

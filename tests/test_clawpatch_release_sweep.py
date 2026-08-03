@@ -33,6 +33,7 @@ from manageroo.clawpatch_release import (
     _revalidate,
     _reopen_current_finding,
     _review_all_features,
+    _run_project_gates,
     _write_release_progress,
     _windows_clawpatch_processes,
     release_sweep,
@@ -52,6 +53,19 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
         (repo / ".gitignore").write_text(".clawpatch/\n.manageroo/\n", encoding="utf-8")
+        manageroo = repo / ".manageroo"
+        manageroo.mkdir()
+        (manageroo / "config.toml").write_text(
+            "[safety]\n"
+            'allowed_programs = ["git"]\n\n'
+            "[[verification.gates]]\n"
+            'id = "clean-baseline"\n'
+            'kind = "test"\n'
+            "required = true\n"
+            "timeout_seconds = 60\n"
+            'argv = ["git", "status", "--porcelain"]\n',
+            encoding="utf-8",
+        )
         subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
 
@@ -697,6 +711,179 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             json_clawpatch.call_args_list[1].args[1],
             ["clawpatch", "clean-locks", "--stale-only", "--json"],
         )
+
+    @patch("manageroo.clawpatch_release._execute_fix")
+    @patch("manageroo.clawpatch_release._run_project_gates")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_red_repository_baseline_blocks_before_map_review_or_fix(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        run_project_gates,
+        execute_fix,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            json_clawpatch.return_value = {
+                "activeLocks": 0,
+                "lockFiles": 0,
+                "openFindings": 96,
+            }
+            run_project_gates.side_effect = SafetyError(
+                "repository baseline validation failed: tests/test_inventory.py"
+            )
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "repository baseline validation failed: tests/test_inventory.py",
+            ):
+                release_sweep(repo, apply=True, branch="current")
+
+        run_project_gates.assert_called_once_with(repo.resolve(), finding_id="baseline-preflight")
+        self.assertEqual(json_clawpatch.call_count, 1)
+        self.assertEqual(
+            json_clawpatch.call_args.args[1],
+            ["clawpatch", "status", "--json"],
+        )
+        execute_fix.assert_not_called()
+
+    @patch("manageroo.clawpatch_release._run_project_gates")
+    @patch("manageroo.clawpatch_release._show_finding")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_supervisor_upgrade_reconciles_and_preserves_an_interrupted_dirty_attempt(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        show_finding,
+        run_project_gates,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            (repo / "app.py").write_text("before\n", encoding="utf-8")
+            (repo / "docs").mkdir()
+            (repo / "docs" / "LIMITATIONS.md").write_text("before\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "app.py", "docs/LIMITATIONS.md"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            old_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            finding_id = "fnd_one"
+            finding_dir = repo / ".clawpatch" / "findings"
+            finding_dir.mkdir(parents=True)
+            (finding_dir / f"{finding_id}.json").write_text(
+                json.dumps({"evidence": [{"path": "app.py"}]}),
+                encoding="utf-8",
+            )
+            _write_release_progress(
+                repo,
+                finding_id=finding_id,
+                branch=branch,
+                head_before=old_head,
+                retry_count=2,
+                phase="fix",
+            )
+            (repo / "docs" / "LIMITATIONS.md").write_text("upgraded\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "docs/LIMITATIONS.md"], cwd=repo, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "supervisor upgrade"],
+                cwd=repo,
+                check=True,
+            )
+            new_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            (repo / "app.py").write_text("clawpatch attempt\n", encoding="utf-8")
+            json_clawpatch.return_value = {
+                "activeLocks": 0,
+                "lockFiles": 0,
+                "openFindings": 1,
+            }
+            show_finding.return_value = {
+                "finding": {"id": finding_id, "status": "open"},
+                "validation": [],
+                "patchAttempts": [],
+            }
+            run_project_gates.side_effect = SafetyError("baseline reached")
+
+            with self.assertRaisesRegex(SafetyError, "baseline reached"):
+                release_sweep(repo, apply=True, branch="current")
+
+            progress = _load_release_progress(repo)
+            self.assertEqual(progress["head_before"], new_head)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "status", "--short"],
+                    cwd=repo,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout,
+                "",
+            )
+            self.assertIn(
+                "controller-interrupted",
+                subprocess.run(
+                    ["git", "stash", "list", "-1", "--format=%gs"],
+                    cwd=repo,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout,
+            )
+
+    def test_project_gate_failure_surfaces_the_exact_command_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            (repo / ".manageroo" / "config.toml").write_text(
+                "[safety]\n"
+                'allowed_programs = ["git"]\n\n'
+                "[[verification.gates]]\n"
+                'id = "known-failure"\n'
+                'kind = "test"\n'
+                "required = true\n"
+                "timeout_seconds = 60\n"
+                'argv = ["git", "rev-parse", "--verify", "refs/heads/does-not-exist"]\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SafetyError) as raised:
+                _run_project_gates(repo, finding_id="baseline-preflight")
+
+        message = str(raised.exception)
+        self.assertIn("known-failure", message)
+        self.assertIn("git rev-parse --verify refs/heads/does-not-exist", message)
+        self.assertIn("exit code: 128", message)
+        self.assertIn("fatal: Needed a single revision", message)
 
     @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._execute_fix")

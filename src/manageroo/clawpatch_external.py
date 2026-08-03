@@ -67,6 +67,7 @@ def _render_event(event: dict[str, Any]) -> str:
         "preflight": "PROCESS PREFLIGHT",
         "status": "STATUS",
         "lock-cleanup": "LOCK CLEANUP",
+        "baseline-validation": "BASELINE VALIDATION",
         "map": "MAP",
         "review": "REVIEW",
         "review-verification": "REVIEW VERIFICATION",
