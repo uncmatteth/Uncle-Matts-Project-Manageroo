@@ -109,6 +109,7 @@ def _affirmatively_supports_claim(evidence: str, claim: str) -> bool:
         if (
             not quoted
             and not _NEGATION_IN_CLAUSE.search(clause_prefix)
+            and not _NEGATION_IN_CLAUSE.search(support_without_benign_negation)
             and not _NONAFFIRMATIVE_CLAIM_STATE.search(support)
             and (claim_first_support or linked_prefix_support or previous_clause_support)
         ):

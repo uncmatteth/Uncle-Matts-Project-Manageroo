@@ -372,6 +372,24 @@ class IntentLockTests(unittest.TestCase):
                 self.assertTrue(report["ok"], report)
                 self.assertFalse(report["confidence_claims_blocking"])
 
+    def test_audit_rejects_conflicting_outcome_after_confidence_claim(self):
+        proofs = (
+            "All checks passed. Production-ready although deployment failed.",
+            "All checks passed. The build is production-ready, but smoke tests failed.",
+        )
+        for proof in proofs:
+            with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+                report = audit_compaction_text(
+                    repo,
+                    f"Intent: Ship the release.\nProof: {proof}",
+                )
+
+                self.assertFalse(report["ok"], report)
+                self.assertTrue(report["confidence_claims_blocking"])
+
     def test_cli_capture_and_compact_audit_json(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); stdout = io.StringIO()
