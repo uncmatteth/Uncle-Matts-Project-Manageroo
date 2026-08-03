@@ -114,12 +114,17 @@ verified named Git stashes, reopened through Clawpatch when necessary, and
 retried as the same current finding in visibly numbered three-attempt recovery
 cycles. A completed cycle preserves its last Clawpatch-owned stash reference and
 changed paths in the finding's retry evidence before another bounded cycle begins;
-retryable source failures do not terminate the live supervisor. Read-only revalidation that cannot execute targeted tests gets one
+that evidence is written through Clawpatch even when a timed-out finding remains
+`open`, so the next repair attempt receives the prior failure and stash context.
+Retryable source failures do not terminate the live supervisor. Read-only
+revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
 it cannot silently modify the repair. A durable per-finding progress record lets
 a relaunched release sweep reconcile interrupted work against the existing
 `.clawpatch` queue. A 15-minute child-process watchdog kills the complete
-Clawpatch/Codex process group. Timed-out non-fix commands stop immediately;
+Clawpatch/Codex process group. Operator interruption also terminates and reaps
+that complete child group before the supervisor exits. Timed-out non-fix commands
+stop immediately;
 other transient command retries are capped at three attempts.
 
 ## Parallel mapping and review, sequential implementation

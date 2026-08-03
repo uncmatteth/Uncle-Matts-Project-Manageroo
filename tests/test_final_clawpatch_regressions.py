@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,25 @@ class _StubbornProcessGroup:
 
     def kill(self):
         self.killed = True
+
+
+class _InterruptedProcessGroup:
+    def __init__(self):
+        self.pid = 4321
+        self.returncode = -15
+        self.stdout = _Pipe()
+        self.stderr = _Pipe()
+        self.stdin = None
+        self.communicate_calls = 0
+
+    def communicate(self, input=None, timeout=None):
+        self.communicate_calls += 1
+        if self.communicate_calls == 1:
+            raise KeyboardInterrupt
+        return "cleanup output", "cleanup error"
+
+    def kill(self):
+        self.returncode = -9
 
 
 class FinalClawpatchRegressionTests(unittest.TestCase):
@@ -245,6 +265,86 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         self.assertTrue(process.stderr.closed)
         self.assertIn("cleanup", result.stdout)
         self.assertEqual(taskkill.call_args.kwargs["timeout"], 10)
+
+    def test_posix_keyboard_interrupt_terminates_and_reaps_the_child_process_group(self):
+        process = _InterruptedProcessGroup()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with (
+                patch("manageroo.runner.os.name", "posix"),
+                patch("manageroo.runner.subprocess.Popen", return_value=process),
+                patch("manageroo.runner.os.killpg") as killpg,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    CommandRunner().run(
+                        ["tool"],
+                        cwd=root,
+                        timeout_seconds=900,
+                        kill_process_group=True,
+                    )
+
+        killpg.assert_called_once_with(process.pid, signal.SIGTERM)
+        self.assertEqual(process.communicate_calls, 2)
+
+    @unittest.skipIf(os.name == "nt", "POSIX signal integration assertion")
+    def test_real_keyboard_interrupt_does_not_leave_the_supervised_child_running(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "orphan-ran.txt"
+            child = (
+                "import time; from pathlib import Path; "
+                f"time.sleep(2); Path({str(marker)!r}).write_text('orphan', encoding='utf-8')"
+            )
+            supervised = (
+                "import subprocess, sys, time; "
+                f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(10)"
+            )
+            harness = (
+                "import sys; from pathlib import Path; "
+                "from manageroo.runner import CommandRunner; "
+                f"CommandRunner().run([sys.executable, '-c', {supervised!r}], "
+                f"cwd=Path({str(root)!r}), timeout_seconds=900, kill_process_group=True)"
+            )
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(Path.cwd() / "src")
+            controller = subprocess.Popen(
+                [sys.executable, "-c", harness],
+                cwd=root,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            time.sleep(0.5)
+            controller.send_signal(signal.SIGINT)
+            controller.communicate(timeout=10)
+            time.sleep(2)
+            self.assertFalse(marker.exists())
+
+    def test_windows_keyboard_interrupt_terminates_and_reaps_the_child_process_tree(self):
+        process = _InterruptedProcessGroup()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with (
+                patch("manageroo.runner.os.name", "nt"),
+                patch("manageroo.runner.subprocess.CREATE_NEW_PROCESS_GROUP", 512, create=True),
+                patch("manageroo.runner.subprocess.Popen", return_value=process),
+                patch("manageroo.runner.subprocess.run") as taskkill,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    CommandRunner().run(
+                        ["tool"],
+                        cwd=root,
+                        timeout_seconds=900,
+                        kill_process_group=True,
+                    )
+
+        self.assertEqual(
+            taskkill.call_args.args[0],
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+        )
+        self.assertEqual(taskkill.call_args.kwargs["timeout"], 10)
+        self.assertEqual(process.communicate_calls, 2)
 
     def test_truth_contract_checks_every_occurrence_and_prerequisite_negation(self):
         repeated = (

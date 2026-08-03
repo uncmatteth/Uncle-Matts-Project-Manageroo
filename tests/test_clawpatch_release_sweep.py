@@ -886,6 +886,59 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             Path("/repo"), env={}, progress=None, current="?", total="?"
         )
 
+    @patch("manageroo.clawpatch_release._next_finding")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._show_finding")
+    def test_reopen_current_finding_records_retry_evidence_when_already_open(
+        self, show_finding, json_clawpatch, next_finding
+    ):
+        show_finding.side_effect = [
+            {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [],
+            },
+            {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [],
+            },
+        ]
+        json_clawpatch.return_value = {"finding": "fnd_one", "status": "open"}
+        next_finding.return_value = (
+            "fnd_one",
+            {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "next": "clawpatch show --finding fnd_one",
+            },
+        )
+
+        inspected = _reopen_current_finding(
+            Path("/repo"),
+            "fnd_one",
+            env={},
+            failure="fix timed out; prior source is preserved at stash@{0}",
+        )
+
+        self.assertEqual(inspected["finding"]["status"], "open")
+        self.assertEqual(
+            json_clawpatch.call_args.args[1],
+            [
+                "clawpatch",
+                "triage",
+                "--finding",
+                "fnd_one",
+                "--status",
+                "open",
+                "--note",
+                "Manageroo retry recovery evidence: fix timed out; prior source is preserved at stash@{0}",
+                "--json",
+            ],
+        )
+        next_finding.assert_called_once_with(
+            Path("/repo"), env={}, progress=None, current="?", total="?"
+        )
+
     def test_release_progress_is_durable_and_bound_to_the_current_finding(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

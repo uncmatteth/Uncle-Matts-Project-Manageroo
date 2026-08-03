@@ -52,6 +52,51 @@ def _close_process_pipes(process: subprocess.Popen[str]) -> None:
                 pass
 
 
+def _terminate_process_group(
+    process: subprocess.Popen[str],
+    *,
+    stdout: str = "",
+    stderr: str = "",
+) -> tuple[str, str]:
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                shell=False,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    try:
+        cleanup_stdout, cleanup_stderr = process.communicate(timeout=5)
+        stdout = _prefer_timeout_text(stdout, cleanup_stdout)
+        stderr = _prefer_timeout_text(stderr, cleanup_stderr)
+    except subprocess.TimeoutExpired as cleanup_timeout:
+        stdout = _prefer_timeout_text(stdout, cleanup_timeout.stdout)
+        stderr = _prefer_timeout_text(stderr, cleanup_timeout.stderr)
+        if os.name == "nt":
+            process.kill()
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        _close_process_pipes(process)
+    return stdout, stderr
+
+
 class CommandRunner:
     """Executes argv directly. shell=True is intentionally unavailable."""
 
@@ -171,38 +216,12 @@ class CommandRunner:
         except subprocess.TimeoutExpired as initial_timeout:
             stdout = _timeout_text(initial_timeout.stdout)
             stderr = _timeout_text(initial_timeout.stderr)
-            if os.name == "nt":
-                try:
-                    subprocess.run(
-                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        shell=False,
-                        check=False,
-                        timeout=10,
-                    )
-                except (OSError, subprocess.TimeoutExpired):
-                    process.kill()
-            else:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            try:
-                stdout, stderr = process.communicate(timeout=5)
-            except subprocess.TimeoutExpired as cleanup_timeout:
-                stdout = _prefer_timeout_text(stdout, cleanup_timeout.stdout)
-                stderr = _prefer_timeout_text(stderr, cleanup_timeout.stderr)
-                if os.name == "nt":
-                    process.kill()
-                else:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    pass
-                _close_process_pipes(process)
+            stdout, stderr = _terminate_process_group(
+                process,
+                stdout=stdout,
+                stderr=stderr,
+            )
             return subprocess.CompletedProcess(argv, 124, stdout, stderr), True
+        except BaseException:
+            _terminate_process_group(process)
+            raise

@@ -998,38 +998,37 @@ def _reopen_current_finding(
     )
     finding = current["finding"]
     status = finding.get("status") if isinstance(finding, dict) else None
-    if status != "open":
-        if status not in {"uncertain", "fixed"}:
-            raise SafetyError(
-                f"Clawpatch retry recovery cannot reopen {finding_id} from status {status!r}."
-            )
-        evidence = " ".join(failure.split())[:1500]
-        note = (
-            f"Manageroo retry recovery evidence: {evidence}"
-            if evidence
-            else "Manageroo retry recovery: the previous Clawpatch-owned repair did not reach fixed."
+    if status not in {"open", "uncertain", "fixed"}:
+        raise SafetyError(
+            f"Clawpatch retry recovery cannot reopen {finding_id} from status {status!r}."
         )
-        payload = _json_clawpatch(
-            repo,
-            [
-                "clawpatch",
-                "triage",
-                "--finding",
-                finding_id,
-                "--status",
-                "open",
-                "--note",
-                note,
-                "--json",
-            ],
-            env=env,
-            progress=progress,
-            current=current_number,
-            total=total,
-            finding_id=finding_id,
-        )
-        if payload.get("finding") != finding_id or payload.get("status") != "open":
-            raise SafetyError(f"Clawpatch did not reopen {finding_id} for retry.")
+    evidence = " ".join(failure.split())[:1500]
+    note = (
+        f"Manageroo retry recovery evidence: {evidence}"
+        if evidence
+        else "Manageroo retry recovery: the previous Clawpatch-owned repair did not reach fixed."
+    )
+    payload = _json_clawpatch(
+        repo,
+        [
+            "clawpatch",
+            "triage",
+            "--finding",
+            finding_id,
+            "--status",
+            "open",
+            "--note",
+            note,
+            "--json",
+        ],
+        env=env,
+        progress=progress,
+        current=current_number,
+        total=total,
+        finding_id=finding_id,
+    )
+    if payload.get("finding") != finding_id or payload.get("status") != "open":
+        raise SafetyError(f"Clawpatch did not reopen {finding_id} for retry.")
     current_id, _queue = _next_finding(
         repo,
         env=env,
