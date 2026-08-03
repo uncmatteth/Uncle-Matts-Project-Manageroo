@@ -122,14 +122,20 @@ def _parse_json_output(output: str, *, command: str) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         value = None
         decoder = json.JSONDecoder()
+        candidates: list[dict[str, Any]] = []
         for match in re.finditer(r"(?m)^[ \t]*(\{)", output):
             try:
-                candidate, end = decoder.raw_decode(output, match.start(1))
+                candidate, _end = decoder.raw_decode(output, match.start(1))
             except json.JSONDecodeError:
                 continue
-            if isinstance(candidate, dict) and not output[end:].strip():
-                value = candidate
-                break
+            if isinstance(candidate, dict):
+                candidates.append(candidate)
+        if len(candidates) == 1:
+            value = candidates[0]
+        elif len(candidates) > 1:
+            raise SafetyError(
+                f"Clawpatch {command} returned multiple ambiguous JSON objects:\n{output[-4000:]}"
+            ) from exc
         if value is None:
             raise SafetyError(f"Clawpatch {command} did not return valid JSON:\n{output[-4000:]}") from exc
     if not isinstance(value, dict):

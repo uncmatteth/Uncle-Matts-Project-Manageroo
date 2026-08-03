@@ -16,6 +16,7 @@ from manageroo.clawpatch_release import (
     _must_clawpatch,
     _next_finding,
     _patch_attempt_from_show,
+    _parse_json_output,
     _platform_command,
     _preserve_unresolved_source,
     _reopen_current_finding,
@@ -41,6 +42,21 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         (repo / ".gitignore").write_text(".clawpatch/\n.manageroo/\n", encoding="utf-8")
         subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
+
+    def test_json_parser_accepts_clawpatch_payload_before_progress_lines(self):
+        output = (
+            '{"features":35,"new":1,"changed":7,"stale":0,'
+            '"source":"heuristic","usedAgent":false,'
+            '"reason":"heuristic mapper selected","next":"clawpatch review --limit 3"}\n'
+            "clawpatch map start source=heuristic existing=34 dryRun=false\n"
+            "clawpatch map mapper-start mapper=python\n"
+            "clawpatch map done features=35 usedAgent=false elapsed=0s\n"
+        )
+
+        payload = _parse_json_output(output, command="map --json")
+
+        self.assertEqual(payload["features"], 35)
+        self.assertEqual(payload["next"], "clawpatch review --limit 3")
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_next_uses_structured_open_finding_and_validates_show_handoff(self, json_clawpatch):

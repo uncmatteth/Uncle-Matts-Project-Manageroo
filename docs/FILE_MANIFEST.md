@@ -6,7 +6,7 @@ This manifest is generated from the release source tree.
 |---|---:|---|
 | `.gitignore` | 361 | Project metadata or handoff |
 | `AGENTS.md` | 647 | Project metadata or handoff |
-| `BUILD-VALIDATION.json` | 122684 | Project metadata or handoff |
+| `BUILD-VALIDATION.json` | 122880 | Project metadata or handoff |
 | `CONTRIBUTING.md` | 333 | Project metadata or handoff |
 | `FINAL-HANDOFF.md` | 650 | Project metadata or handoff |
 | `GITHUB_DESCRIPTION.md` | 8282 | Project metadata or handoff |
@@ -175,7 +175,8 @@ This manifest is generated from the release source tree.
 | `src/manageroo/chiptune.py` | 10452 | Harness runtime source |
 | `src/manageroo/chiptune_policy.py` | 1439 | Harness runtime source |
 | `src/manageroo/clawpatch_batch.py` | 779 | Harness runtime source |
-| `src/manageroo/clawpatch_release.py` | 46550 | Harness runtime source |
+| `src/manageroo/clawpatch_external.py` | 6077 | Harness runtime source |
+| `src/manageroo/clawpatch_release.py` | 46811 | Harness runtime source |
 | `src/manageroo/cli.py` | 57219 | Harness runtime source |
 | `src/manageroo/config.py` | 9690 | Harness runtime source |
 | `src/manageroo/config_lock.py` | 3088 | Harness runtime source |
@@ -260,7 +261,7 @@ This manifest is generated from the release source tree.
 | `tests/test_clawpatch_batch.py` | 708 | Deterministic harness test |
 | `tests/test_clawpatch_completion_contracts.py` | 6150 | Deterministic harness test |
 | `tests/test_clawpatch_regressions.py` | 12583 | Deterministic harness test |
-| `tests/test_clawpatch_release_sweep.py` | 25727 | Deterministic harness test |
+| `tests/test_clawpatch_release_sweep.py` | 26465 | Deterministic harness test |
 | `tests/test_clawpatch_remaining_regressions.py` | 7762 | Deterministic harness test |
 | `tests/test_cli_checks.py` | 3364 | Deterministic harness test |
 | `tests/test_cli_entrypoint_smoke.py` | 2182 | Deterministic harness test |
@@ -284,6 +285,7 @@ This manifest is generated from the release source tree.
 | `tests/test_entrypoint_safety.py` | 900 | Deterministic harness test |
 | `tests/test_evidence.py` | 9791 | Deterministic harness test |
 | `tests/test_evidence_policy.py` | 11781 | Deterministic harness test |
+| `tests/test_external_clawpatch_supervisor.py` | 3692 | Deterministic harness test |
 | `tests/test_external_intelligence.py` | 4847 | Deterministic harness test |
 | `tests/test_external_loop_library_removed.py` | 2770 | Deterministic harness test |
 | `tests/test_external_repair_policy.py` | 8750 | Deterministic harness test |
