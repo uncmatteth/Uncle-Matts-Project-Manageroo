@@ -170,28 +170,29 @@ class JobStore:
         )
         spec_hash = sha256_json(spec)
         path = self._job_path(job_id)
-        if path.exists():
-            job = self.load_job(job_id)
-            if job.spec_sha256 != spec_hash:
-                raise SafetyError(f"Job spec changed since it was recorded: {job_id}")
+        with config_mutation_lock(path):
+            if path.exists():
+                job = self.load_job(job_id)
+                if job.spec_sha256 != spec_hash:
+                    raise SafetyError(f"Job spec changed since it was recorded: {job_id}")
+                return job
+            now = utc_now()
+            job = Job(
+                id=job_id,
+                role=role,
+                schema=schema,
+                instructions=instructions,
+                context=spec["context"],
+                allowed_paths=spec["allowed_paths"],
+                dependencies=spec["dependencies"],
+                metadata=spec["metadata"],
+                sandbox=sandbox,
+                spec_sha256=spec_hash,
+                created_at=now,
+                updated_at=now,
+            )
+            self.save_job(job)
             return job
-        now = utc_now()
-        job = Job(
-            id=job_id,
-            role=role,
-            schema=schema,
-            instructions=instructions,
-            context=spec["context"],
-            allowed_paths=spec["allowed_paths"],
-            dependencies=spec["dependencies"],
-            metadata=spec["metadata"],
-            sandbox=sandbox,
-            spec_sha256=spec_hash,
-            created_at=now,
-            updated_at=now,
-        )
-        self.save_job(job)
-        return job
 
     def spec_sha256_for(
         self,
@@ -314,14 +315,32 @@ class JobStore:
     def load_attempt(self, job_id: str, attempt_id: str) -> JobAttempt:
         return JobAttempt(**read_json(self._attempt_path(job_id, attempt_id)))
 
-    def record_packet(self, job_id: str, attempt_id: str, *, packet_path: Path) -> None:
+    def _active_attempt(self, job_id: str, attempt_id: str) -> JobAttempt:
+        job = self.load_job(job_id)
         attempt = self.load_attempt(job_id, attempt_id)
-        manifest = packet_path / "manifest.json"
-        prompt = packet_path / "prompt.md"
-        attempt.packet_path = str(packet_path)
-        attempt.manifest_path = str(manifest)
-        attempt.packet_sha256 = sha256_file(prompt) if prompt.exists() else ""
-        self.save_attempt(attempt)
+        running = [
+            item
+            for item in self.attempts_for(job_id)
+            if item.status == AttemptStatus.RUNNING.value
+        ]
+        if (
+            job.status != JobStatus.RUNNING.value
+            or attempt.status != AttemptStatus.RUNNING.value
+            or len(running) != 1
+            or running[0].attempt_id != attempt.attempt_id
+        ):
+            raise SafetyError(f"Attempt is no longer active: {job_id}/{attempt_id}")
+        return attempt
+
+    def record_packet(self, job_id: str, attempt_id: str, *, packet_path: Path) -> None:
+        with config_mutation_lock(self._job_path(job_id)):
+            attempt = self._active_attempt(job_id, attempt_id)
+            manifest = packet_path / "manifest.json"
+            prompt = packet_path / "prompt.md"
+            attempt.packet_path = str(packet_path)
+            attempt.manifest_path = str(manifest)
+            attempt.packet_sha256 = sha256_file(prompt) if prompt.exists() else ""
+            self.save_attempt(attempt)
 
     def complete_attempt(
         self,
@@ -334,31 +353,33 @@ class JobStore:
         stdout: str = "",
         stderr: str = "",
     ) -> JobAttempt:
-        attempt = self.load_attempt(job_id, attempt_id)
-        attempt.status = AttemptStatus.COMPLETE.value
-        attempt.finished_at = utc_now()
-        attempt.output_path = str(output_path)
-        attempt.output_sha256 = sha256_file(output_path) if output_path.exists() else ""
-        attempt.result_sha256 = sha256_json(data)
-        attempt.command = command
-        attempt.stdout_tail = _tail(stdout)
-        attempt.stderr_tail = _tail(stderr)
-        self.save_attempt(attempt)
-        return attempt
+        with config_mutation_lock(self._job_path(job_id)):
+            attempt = self._active_attempt(job_id, attempt_id)
+            attempt.status = AttemptStatus.COMPLETE.value
+            attempt.finished_at = utc_now()
+            attempt.output_path = str(output_path)
+            attempt.output_sha256 = sha256_file(output_path) if output_path.exists() else ""
+            attempt.result_sha256 = sha256_json(data)
+            attempt.command = command
+            attempt.stdout_tail = _tail(stdout)
+            attempt.stderr_tail = _tail(stderr)
+            self.save_attempt(attempt)
+            return attempt
 
     def fail_attempt(self, job_id: str, attempt_id: str, exc: BaseException) -> JobAttempt:
-        attempt = self.load_attempt(job_id, attempt_id)
-        attempt.status = AttemptStatus.FAILED.value
-        attempt.finished_at = utc_now()
-        attempt.error_type = type(exc).__name__
-        attempt.error = str(exc)
-        self.save_attempt(attempt)
-        job = self.load_job(job_id)
-        job.status = JobStatus.PENDING.value
-        job.failure_type = attempt.error_type
-        job.failure = attempt.error
-        self.save_job(job)
-        return attempt
+        with config_mutation_lock(self._job_path(job_id)):
+            attempt = self._active_attempt(job_id, attempt_id)
+            attempt.status = AttemptStatus.FAILED.value
+            attempt.finished_at = utc_now()
+            attempt.error_type = type(exc).__name__
+            attempt.error = str(exc)
+            self.save_attempt(attempt)
+            job = self.load_job(job_id)
+            job.status = JobStatus.PENDING.value
+            job.failure_type = attempt.error_type
+            job.failure = attempt.error
+            self.save_job(job)
+            return attempt
 
     def complete_job(
         self,
@@ -379,56 +400,76 @@ class JobStore:
             raise SafetyError(
                 f"Completed job artifact path does not match its run-owned artifact reference: {relative}"
             )
-        job = self.load_job(job_id)
-        job.status = JobStatus.COMPLETE.value
-        job.output_artifact = relative
-        job.output_artifact_sha256 = sha256_file(actual)
-        job.result_sha256 = sha256_json(data)
-        job.failure_type = ""
-        job.failure = ""
-        self.save_job(job)
-        return job
+        result_hash = sha256_json(data)
+        with config_mutation_lock(self._job_path(job_id)):
+            job = self.load_job(job_id)
+            attempts = self.attempts_for(job_id)
+            if job.status == JobStatus.RUNNING.value:
+                if (
+                    not attempts
+                    or any(attempt.status == AttemptStatus.RUNNING.value for attempt in attempts)
+                    or attempts[-1].status != AttemptStatus.COMPLETE.value
+                    or attempts[-1].result_sha256 != result_hash
+                ):
+                    raise SafetyError(f"Job does not have a completed active attempt: {job_id}")
+            elif job.status != JobStatus.PENDING.value or attempts:
+                raise SafetyError(f"Job cannot be completed from state {job.status}: {job_id}")
+            job.status = JobStatus.COMPLETE.value
+            job.output_artifact = relative
+            job.output_artifact_sha256 = sha256_file(actual)
+            job.result_sha256 = result_hash
+            job.failure_type = ""
+            job.failure = ""
+            self.save_job(job)
+            return job
 
     def fail_job(self, job_id: str, exc: BaseException) -> Job:
-        job = self.load_job(job_id)
-        job.status = JobStatus.FAILED.value
-        job.failure_type = type(exc).__name__
-        job.failure = str(exc)
-        self.save_job(job)
-        return job
+        with config_mutation_lock(self._job_path(job_id)):
+            job = self.load_job(job_id)
+            if job.status != JobStatus.PENDING.value:
+                raise SafetyError(f"Job cannot fail from state {job.status}: {job_id}")
+            job.status = JobStatus.FAILED.value
+            job.failure_type = type(exc).__name__
+            job.failure = str(exc)
+            self.save_job(job)
+            return job
 
     def block_job(self, job_id: str, exc: BaseException) -> Job:
-        job = self.load_job(job_id)
-        job.status = JobStatus.BLOCKED.value
-        job.failure_type = type(exc).__name__
-        job.failure = str(exc)
-        self.save_job(job)
-        return job
+        with config_mutation_lock(self._job_path(job_id)):
+            job = self.load_job(job_id)
+            if job.status != JobStatus.PENDING.value:
+                raise SafetyError(f"Job cannot be blocked from state {job.status}: {job_id}")
+            job.status = JobStatus.BLOCKED.value
+            job.failure_type = type(exc).__name__
+            job.failure = str(exc)
+            self.save_job(job)
+            return job
 
     def completed_data(self, job_id: str, artifacts_root: Path) -> dict[str, Any] | None:
-        job = self.load_job(job_id)
-        if job.status != JobStatus.COMPLETE.value or not job.output_artifact:
-            return None
-        if not job.output_artifact_sha256:
-            job.status = JobStatus.PENDING.value
-            job.failure_type = "MissingArtifactHash"
-            job.failure = f"Completed job artifact hash is missing: {job.output_artifact}"
-            self.save_job(job)
-            return None
-        relative, path = self._artifact_path(job.output_artifact, artifacts_root)
-        if not path.exists() or path.is_symlink() or not path.is_file():
-            job.status = JobStatus.PENDING.value
-            job.failure_type = "MissingArtifact"
-            job.failure = f"Completed job artifact is missing: {relative}"
-            self.save_job(job)
-            return None
-        if sha256_file(path) != job.output_artifact_sha256:
-            job.status = JobStatus.PENDING.value
-            job.failure_type = "StaleArtifact"
-            job.failure = f"Completed job artifact changed: {relative}"
-            self.save_job(job)
-            return None
-        return read_json(path)
+        with config_mutation_lock(self._job_path(job_id)):
+            job = self.load_job(job_id)
+            if job.status != JobStatus.COMPLETE.value or not job.output_artifact:
+                return None
+            if not job.output_artifact_sha256:
+                job.status = JobStatus.PENDING.value
+                job.failure_type = "MissingArtifactHash"
+                job.failure = f"Completed job artifact hash is missing: {job.output_artifact}"
+                self.save_job(job)
+                return None
+            relative, path = self._artifact_path(job.output_artifact, artifacts_root)
+            if not path.exists() or path.is_symlink() or not path.is_file():
+                job.status = JobStatus.PENDING.value
+                job.failure_type = "MissingArtifact"
+                job.failure = f"Completed job artifact is missing: {relative}"
+                self.save_job(job)
+                return None
+            if sha256_file(path) != job.output_artifact_sha256:
+                job.status = JobStatus.PENDING.value
+                job.failure_type = "StaleArtifact"
+                job.failure = f"Completed job artifact changed: {relative}"
+                self.save_job(job)
+                return None
+            return read_json(path)
 
     def status_summary(self) -> dict[str, Any]:
         jobs = self.list_jobs()

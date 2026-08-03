@@ -66,6 +66,46 @@ class JobStoreTests(unittest.TestCase):
             self.assertEqual(persisted[0].status, AttemptStatus.RUNNING.value)
             self.assertEqual(store.load_job(job.id).status, JobStatus.RUNNING.value)
 
+    def test_concurrent_conflicting_creation_preserves_one_specification(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            barrier = threading.Barrier(3)
+            jobs = []
+            errors = []
+
+            def create(instructions: str) -> None:
+                try:
+                    contender = JobStore(run_root)
+                    barrier.wait(timeout=5)
+                    jobs.append(
+                        contender.create_or_load_job(
+                            "001-product-analyst",
+                            role="product-analyst",
+                            schema="product-model.schema.json",
+                            instructions=instructions,
+                        )
+                    )
+                except BaseException as exc:
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=create, args=("Analyze first.",)),
+                threading.Thread(target=create, args=("Analyze second.",)),
+            ]
+            for thread in threads:
+                thread.start()
+            barrier.wait(timeout=5)
+            for thread in threads:
+                thread.join(timeout=10)
+
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], SafetyError)
+            persisted = JobStore(run_root).load_job("001-product-analyst")
+            self.assertEqual(jobs[0].spec_sha256, persisted.spec_sha256)
+            self.assertEqual(jobs[0].instructions, persisted.instructions)
+
     def test_job_attempts_and_completion_are_persisted(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)
@@ -113,6 +153,44 @@ class JobStoreTests(unittest.TestCase):
             reloaded = JobStore(run_root).load_job(job.id)
             self.assertEqual(reloaded.output_artifact, "agent/001-product-analyst.json")
             self.assertEqual(len(JobStore(run_root).attempts_for(job.id)), 2)
+
+    def test_delayed_attempt_failure_cannot_downgrade_completed_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            attempt = store.begin_attempt(job.id)
+            output = run_root / "agent-output" / job.id / "001.json"
+            atomic_write_json(output, {"ok": True})
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_attempt(
+                job.id,
+                attempt.attempt_id,
+                output_path=output,
+                data={"ok": True},
+                command=["mock"],
+            )
+            store.complete_job(
+                job.id,
+                output_artifact="agent/001-product-analyst.json",
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+
+            with self.assertRaisesRegex(SafetyError, "no longer active"):
+                store.fail_attempt(job.id, attempt.attempt_id, RuntimeError("delayed failure"))
+
+            self.assertEqual(
+                store.load_attempt(job.id, attempt.attempt_id).status,
+                AttemptStatus.COMPLETE.value,
+            )
+            self.assertEqual(store.load_job(job.id).status, JobStatus.COMPLETE.value)
 
     def test_completed_job_rejects_changed_spec(self):
         with tempfile.TemporaryDirectory() as temp:
