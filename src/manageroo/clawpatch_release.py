@@ -77,6 +77,7 @@ class _MissingFinding(SafetyError):
 def _release_clawpatch_env(*, trusted_host_codex_sandbox_bypass: bool) -> dict[str, str]:
     child_env = dict(os.environ)
     child_env.setdefault("CLAWPATCH_CODEX_TIMEOUT_MS", str(CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS))
+    child_env.pop("CLAWPATCH_CODEX_SANDBOX", None)
     if trusted_host_codex_sandbox_bypass:
         child_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
     return child_env

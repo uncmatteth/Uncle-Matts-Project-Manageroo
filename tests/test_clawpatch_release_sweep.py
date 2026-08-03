@@ -23,6 +23,7 @@ from manageroo.clawpatch_release import (
     _parse_json_output,
     _platform_command,
     _preserve_unresolved_source,
+    _release_clawpatch_env,
     _revalidate,
     _reopen_current_finding,
     _review_all_features,
@@ -62,6 +63,17 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
         self.assertEqual(payload["features"], 35)
         self.assertEqual(payload["next"], "clawpatch review --limit 3")
+
+    @patch.dict(
+        "manageroo.clawpatch_release.os.environ",
+        {"CLAWPATCH_CODEX_SANDBOX": "bypass"},
+    )
+    def test_release_environment_requires_explicit_authorization_for_sandbox_bypass(self):
+        unauthorized = _release_clawpatch_env(trusted_host_codex_sandbox_bypass=False)
+        authorized = _release_clawpatch_env(trusted_host_codex_sandbox_bypass=True)
+
+        self.assertNotIn("CLAWPATCH_CODEX_SANDBOX", unauthorized)
+        self.assertEqual(authorized["CLAWPATCH_CODEX_SANDBOX"], "bypass")
 
     def test_process_matcher_ignores_clawpatch_mentions_inside_gbrain_context(self):
         gbrain = [
