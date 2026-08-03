@@ -10,8 +10,8 @@ from unittest import mock
 
 from manageroo.cli import main
 from manageroo.errors import ConfigurationError
-from manageroo.intent_lock import audit_compaction_text, capture_intent_lock, format_compaction_audit, intent_lock_path
-from manageroo.util import atomic_write_json
+from manageroo.intent_lock import audit_compaction_text, capture_intent_lock, format_compaction_audit, intent_lock_path, save_compaction_checkpoint
+from manageroo.util import atomic_write_json, sha256_file
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -159,6 +159,38 @@ class IntentLockTests(unittest.TestCase):
             summary = repo / "summary.md"; summary.write_text("Intent: Build the release helper.\nMust not: Do not deploy production.\nProof: release-ready reports READY.\n", encoding="utf-8"); stdout = io.StringIO()
             with redirect_stdout(stdout): code = main(["compact", "audit", str(repo), "--summary", str(summary), "--json"])
             payload = json.loads(stdout.getvalue()); self.assertEqual(code, 0); self.assertTrue(payload["ok"]); self.assertEqual(payload["summary_path"], str(summary.resolve()))
+
+    def test_checkpoint_persists_the_same_summary_snapshot_that_was_audited(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Build the release helper.")
+            summary = repo / "summary.md"
+            original = "Intent: Build the release helper.\n"
+            replacement = "Replacement written during checkpoint creation.\n"
+            summary.write_text(original, encoding="utf-8")
+
+            def mutate_source(repo_path, summary_text, *, summary_path=None):
+                summary.write_text(replacement, encoding="utf-8")
+                return audit_compaction_text(
+                    repo_path,
+                    summary_text,
+                    summary_path=summary_path,
+                )
+
+            with mock.patch(
+                "manageroo.intent_lock.audit_compaction_text",
+                side_effect=mutate_source,
+            ):
+                report = save_compaction_checkpoint(repo, summary)
+
+            checkpoint = Path(report["checkpoint_path"])
+            checkpoint_audit = json.loads(
+                Path(report["checkpoint_audit_path"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(summary.read_text(encoding="utf-8"), replacement)
+            self.assertEqual(checkpoint.read_text(encoding="utf-8"), original)
+            self.assertEqual(checkpoint_audit["summary_hash"], report["summary_hash"])
+            self.assertEqual(checkpoint_audit["summary_hash"], sha256_file(checkpoint))
 
     def test_format_compaction_audit_is_plain_about_blockers(self):
         text = format_compaction_audit({"ok": False, "status": "blocked", "lock_path": "/repo/.manageroo/intent/INTENT-LOCK.json", "missing": [{"category": "must_not", "text": "Do not deploy production"}], "warnings": [{"code": "confidence_claim", "text": "perfect"}], "next_command": "manageroo intent show"})

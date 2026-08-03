@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -166,13 +165,16 @@ def audit_compaction_file(repo_path: Path, summary_path: Path) -> dict[str, Any]
 def save_compaction_checkpoint(repo_path: Path, summary_path: Path) -> dict[str, Any]:
     repo = git_root(repo_path)
     summary = summary_path.resolve()
-    audit = audit_compaction_file(repo, summary)
+    summary_text = summary.read_text(encoding="utf-8", errors="replace")
+    audit = audit_compaction_text(repo, summary_text, summary_path=summary)
     checkpoint_root = intent_root(repo) / "checkpoints"
     checkpoint_root.mkdir(parents=True, exist_ok=True)
     stem = f"{utc_now().replace(':', '').replace('+', 'Z')}-{summary.stem}"
     copied_summary = checkpoint_root / f"{stem}.md"
     copied_audit = checkpoint_root / f"{stem}.audit.json"
-    shutil.copyfile(summary, copied_summary)
+    atomic_write_text(copied_summary, summary_text)
+    if sha256_file(copied_summary) != audit["summary_hash"]:
+        raise ConfigurationError("Compaction checkpoint hash does not match its audit.")
     atomic_write_json(copied_audit, audit)
     audit["checkpoint_path"] = str(copied_summary)
     audit["checkpoint_audit_path"] = str(copied_audit)
