@@ -24,8 +24,9 @@ CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
 RELEASE_PROGRESS_VERSION = 2
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
-    "clean repository baseline gates -> clawpatch map -> complete review of every pending feature -> "
-    "clawpatch next/show -> one fix -> complete project gates -> exact fixed revalidation "
+    "configured repository baseline gates when present -> clawpatch map -> complete review of every "
+    "pending feature -> clawpatch next/show -> one fix -> configured project gates when present -> "
+    "exact fixed revalidation "
     "(with one read-only-to-workspace-write revalidation transition when needed) -> "
     "exact-path commit/push when authorized -> repeat the open queue; any unsupported, "
     "failed, open, uncertain, or false-positive transition stops with source changes intact -> "
@@ -652,9 +653,16 @@ def _validate_attempt_paths(repo: Path, files: list[str]) -> None:
         )
 
 
-def _run_project_gates(repo: Path, *, finding_id: str) -> list[dict[str, Any]]:
+def _run_project_gates(
+    repo: Path,
+    *,
+    finding_id: str,
+    required: bool = True,
+) -> list[dict[str, Any]]:
     config_path = repo / PROJECT_DIR / "config.toml"
     if not config_path.is_file():
+        if not required:
+            return []
         raise SafetyError("The repository has no Manageroo gate configuration; complete validation is ambiguous.")
     gates = []
     log_root = repo / PROJECT_DIR / "cache" / "clawpatch-release-logs"
@@ -816,8 +824,21 @@ def _revalidate(
     return payload
 
 
-def _release_progress_path(repo: Path) -> Path:
-    return repo / PROJECT_DIR / "cache" / "clawpatch-release-progress.json"
+def _release_state_root(repo: Path, *, integration_mode: str) -> Path:
+    if integration_mode == "manageroo":
+        return repo / PROJECT_DIR / "cache"
+    if integration_mode == "external":
+        git_path = _git_text(repo, ["git", "rev-parse", "--git-path", "manageroo"])
+        path = Path(git_path)
+        if not path.is_absolute():
+            path = repo / path
+        return path.resolve()
+    raise SafetyError("integration_mode must be one of: manageroo, external.")
+
+
+def _release_progress_path(repo: Path, *, state_root: Path | None = None) -> Path:
+    root = state_root if state_root is not None else repo / PROJECT_DIR / "cache"
+    return root / "clawpatch-release-progress.json"
 
 
 def _write_release_progress(
@@ -828,6 +849,7 @@ def _write_release_progress(
     head_before: str,
     phase: str,
     owned_paths: list[str] | None = None,
+    state_root: Path | None = None,
 ) -> dict[str, Any]:
     if not _FINDING_ID.fullmatch(finding_id):
         raise SafetyError(f"Cannot checkpoint invalid Clawpatch finding ID {finding_id!r}.")
@@ -849,12 +871,16 @@ def _write_release_progress(
         "phase": phase,
         "updated_at": utc_now(),
     }
-    atomic_write_json(_release_progress_path(repo), progress)
+    atomic_write_json(_release_progress_path(repo, state_root=state_root), progress)
     return progress
 
 
-def _load_release_progress(repo: Path) -> dict[str, Any] | None:
-    path = _release_progress_path(repo)
+def _load_release_progress(
+    repo: Path,
+    *,
+    state_root: Path | None = None,
+) -> dict[str, Any] | None:
+    path = _release_progress_path(repo, state_root=state_root)
     if not path.is_file():
         return None
     try:
@@ -927,8 +953,8 @@ def _checkpoint_can_follow_supervisor_upgrade(
     return changed_paths.isdisjoint(evidence_paths)
 
 
-def _clear_release_progress(repo: Path) -> None:
-    _release_progress_path(repo).unlink(missing_ok=True)
+def _clear_release_progress(repo: Path, *, state_root: Path | None = None) -> None:
+    _release_progress_path(repo, state_root=state_root).unlink(missing_ok=True)
 
 
 def _committed_clawpatch_config(repo: Path) -> str | None:
@@ -943,8 +969,13 @@ def _committed_clawpatch_config(repo: Path) -> str | None:
     return result.stdout if result.returncode == 0 and result.stdout.strip() else None
 
 
-def _fresh_checkpoint_owned_paths(repo: Path, source_changes: list[str]) -> list[str]:
-    checkpoint = _load_release_progress(repo)
+def _fresh_checkpoint_owned_paths(
+    repo: Path,
+    source_changes: list[str],
+    *,
+    state_root: Path | None = None,
+) -> list[str]:
+    checkpoint = _load_release_progress(repo, state_root=state_root)
     if checkpoint is None or checkpoint.get("phase") not in {"fix", "stopped"}:
         return []
     current_branch = _git_text(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
@@ -1025,15 +1056,23 @@ def _prepare_fresh_release(
     *,
     env: dict[str, str],
     progress: Callable[[dict[str, Any]], None] | None = None,
+    state_root: Path | None = None,
 ) -> None:
     """Delete only Clawpatch run state, preserve project configuration, and initialize again."""
     _require_no_process(repo)
-    state_root = repo / ".clawpatch"
-    if state_root.is_symlink() or state_root.resolve().parent != repo.resolve():
+    clawpatch_state_root = repo / ".clawpatch"
+    if (
+        clawpatch_state_root.is_symlink()
+        or clawpatch_state_root.resolve().parent != repo.resolve()
+    ):
         raise SafetyError("The .clawpatch state path is not a safe repository-owned directory.")
     source_changes = _source_paths(repo)
     if source_changes:
-        checkpoint_owned = _fresh_checkpoint_owned_paths(repo, source_changes)
+        checkpoint_owned = _fresh_checkpoint_owned_paths(
+            repo,
+            source_changes,
+            state_root=state_root,
+        )
         if checkpoint_owned != source_changes:
             raise SafetyError(
                 "A fresh Clawpatch run refuses unrelated source changes: "
@@ -1052,12 +1091,13 @@ def _prepare_fresh_release(
             )
         _discard_checkpoint_owned_source(repo, checkpoint_owned)
     config_text = _committed_clawpatch_config(repo)
-    if state_root.exists():
-        if not state_root.is_dir():
+    if clawpatch_state_root.exists():
+        if not clawpatch_state_root.is_dir():
             raise SafetyError("The .clawpatch state path is not a directory.")
-        shutil.rmtree(state_root)
-    _clear_release_progress(repo)
-    (repo / PROJECT_DIR / "cache" / "clawpatch-release-proof.json").unlink(missing_ok=True)
+        shutil.rmtree(clawpatch_state_root)
+    _clear_release_progress(repo, state_root=state_root)
+    proof_root = state_root if state_root is not None else repo / PROJECT_DIR / "cache"
+    (proof_root / "clawpatch-release-proof.json").unlink(missing_ok=True)
     if progress is not None:
         progress(
             {
@@ -1076,7 +1116,7 @@ def _prepare_fresh_release(
         progress=None,
     )
     if config_text is not None:
-        config_path = state_root / "config.json"
+        config_path = clawpatch_state_root / "config.json"
         config_path.write_text(config_text, encoding="utf-8")
 
 
@@ -1149,6 +1189,7 @@ def _execute_fix(
     progress: Callable[[dict[str, Any]], None] | None = None,
     current: int | str = "?",
     total: int | str = "?",
+    require_project_gates: bool = True,
 ) -> tuple[dict[str, Any], bool]:
     if _source_paths(repo):
         raise SafetyError("Pre-existing source changes block the current Clawpatch fix.")
@@ -1161,7 +1202,11 @@ def _execute_fix(
     files = [str(path) for path in patch["filesChanged"]]
     _validate_attempt_paths(repo, files)
     try:
-        gate_runs = _run_project_gates(repo, finding_id=finding_id)
+        gate_runs = _run_project_gates(
+            repo,
+            finding_id=finding_id,
+            required=require_project_gates,
+        )
     except SafetyError as exc:
         raise _UnresolvedFinding(
             str(exc),
@@ -1267,6 +1312,7 @@ def _final_closure(
     progress: Callable[[dict[str, Any]], None] | None = None,
     current: int | str = "?",
     total: int | str = "?",
+    require_project_gates: bool = True,
 ) -> dict[str, Any]:
     _require_no_process(repo)
     review_completion = _review_completion(
@@ -1314,7 +1360,11 @@ def _final_closure(
     for field in ("openFindings", "activeLocks", "lockFiles"):
         if _required_int(status, field) != 0:
             raise SafetyError(f"Final Clawpatch status requires {field}=0.")
-    final_gates = _run_project_gates(repo, finding_id="N/A")
+    final_gates = _run_project_gates(
+        repo,
+        finding_id="N/A",
+        required=require_project_gates,
+    )
     if _source_paths(repo):
         raise SafetyError(f"Final closure found uncommitted source changes: {_source_paths(repo)}")
     state_commit = ""
@@ -1355,9 +1405,14 @@ def release_sweep(
     fresh: bool = False,
     child_timeout_seconds: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    integration_mode: str = "manageroo",
 ) -> dict[str, Any]:
     """Automate Clawpatch's documented one-finding workflow without automatic triage."""
     root = _git_root(repo)
+    if integration_mode not in {"manageroo", "external"}:
+        raise SafetyError("integration_mode must be one of: manageroo, external.")
+    require_project_gates = integration_mode == "manageroo"
+    state_root = _release_state_root(root, integration_mode=integration_mode)
     if progress is not None:
         progress(
             {
@@ -1383,6 +1438,7 @@ def release_sweep(
         "clawpatch_version": version,
         "lifecycle": LIFECYCLE,
         "push_mode": push_mode,
+        "integration_mode": integration_mode,
         "publish_clawpatch_state": publish_clawpatch_state,
         "results": [],
         "false_positives": [],
@@ -1397,8 +1453,13 @@ def release_sweep(
         child_timeout_seconds=child_timeout_seconds,
     )
     if fresh:
-        _prepare_fresh_release(root, env=env, progress=progress)
-    durable_progress = _load_release_progress(root)
+        _prepare_fresh_release(
+            root,
+            env=env,
+            progress=progress,
+            state_root=state_root,
+        )
+    durable_progress = _load_release_progress(root, state_root=state_root)
     preexisting_source = _source_paths(root)
     if durable_progress is not None:
         if durable_progress["branch"] != current_branch:
@@ -1415,6 +1476,7 @@ def release_sweep(
                     head_before=head_before,
                     phase=str(durable_progress["phase"]),
                     owned_paths=list(durable_progress["owned_paths"]),
+                    state_root=state_root,
                 )
             else:
                 subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
@@ -1423,7 +1485,7 @@ def release_sweep(
                     raise SafetyError(
                         "Interrupted Clawpatch release progress no longer matches the current Git HEAD."
                     )
-                _clear_release_progress(root)
+                _clear_release_progress(root, state_root=state_root)
                 durable_progress = None
         if durable_progress is not None:
             paths = list(durable_progress["owned_paths"])
@@ -1471,17 +1533,26 @@ def release_sweep(
         )
 
     if progress is not None:
+        gate_command = (
+            "configured Manageroo gates"
+            if require_project_gates or (root / PROJECT_DIR / "config.toml").is_file()
+            else "ClawPatch-owned validation (no Manageroo gates configured)"
+        )
         progress(
             {
                 "phase": "baseline-validation",
                 "current": "?",
                 "total": "?",
-                "command": "configured Manageroo gates",
+                "command": gate_command,
                 "attempt": 1,
                 "max_attempts": 1,
             }
         )
-    _run_project_gates(root, finding_id="baseline-preflight")
+    _run_project_gates(
+        root,
+        finding_id="baseline-preflight",
+        required=require_project_gates,
+    )
 
     mapped = _json_clawpatch(
         root,
@@ -1555,6 +1626,7 @@ def release_sweep(
             head_before=attempt_head,
             phase="fix",
             owned_paths=[],
+            state_root=state_root,
         )
         if progress is not None:
             progress(
@@ -1580,6 +1652,7 @@ def release_sweep(
                 progress=progress,
                 current=current_finding,
                 total=total_findings,
+                require_project_gates=require_project_gates,
             )
         except BaseException as exc:
             owned_paths = _source_paths(root)
@@ -1590,6 +1663,7 @@ def release_sweep(
                 head_before=attempt_head,
                 phase="stopped",
                 owned_paths=owned_paths,
+                state_root=state_root,
             )
             outcome = exc.outcome if isinstance(exc, _UnresolvedFinding) else "command-failed"
             if progress is not None:
@@ -1612,7 +1686,7 @@ def release_sweep(
                 "anything, did not rerun fix, and did not advance the queue.\n"
                 f"{exc}"
             ) from exc
-        _clear_release_progress(root)
+        _clear_release_progress(root, state_root=state_root)
         record["queue"] = queue
         report["results"].append(record)
         if progress is not None:
@@ -1637,6 +1711,7 @@ def release_sweep(
         progress=progress,
         current=current_finding,
         total=total_findings,
+        require_project_gates=require_project_gates,
     )
     final_head = _git_text(root, ["git", "rev-parse", "HEAD"])
     proof = {
@@ -1651,7 +1726,7 @@ def release_sweep(
         "false_positives": report["false_positives"],
         "final_closure": closure,
     }
-    proof_path = root / PROJECT_DIR / "cache" / "clawpatch-release-proof.json"
+    proof_path = state_root / "clawpatch-release-proof.json"
     atomic_write_json(proof_path, proof)
     report.update(
         {

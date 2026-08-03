@@ -344,7 +344,20 @@ To run the supervisor directly from a terminal, outside the `manageroo` command 
 clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minutes 15
 ```
 
-This starts a clean ClawPatch run, preserves the committed project configuration, displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints one ClawPatch `fix` command before execution, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. The explicit 15-minute value controls both the outer process watchdog and ClawPatch's Codex provider. Any command failure, missing finding, non-`fixed` final revalidation, unsafe state, or interruption stops immediately with source edits left in place.
+This works in any Git repository; the target does not need Manageroo project
+configuration. It starts a clean ClawPatch run, preserves committed ClawPatch
+configuration, displays the exact current finding as `[current/total] SHOW`,
+prints the finding evidence and repair scope, prints one ClawPatch `fix` command
+before execution, and reports the verified commit. If the target has
+`.manageroo/config.toml`, its configured gates run as additional validation. If
+it does not, ClawPatch owns validation through its `fix` result and exact-finding
+revalidation; the supervisor does not invent test commands. External checkpoint
+and proof files stay under Git's metadata directory rather than adding
+`.manageroo` files to the target worktree. A heartbeat remains visible every 30
+seconds while a long ClawPatch or Codex child is running. The explicit 15-minute
+value controls both the outer process watchdog and ClawPatch's Codex provider.
+Any command failure, missing finding, non-`fixed` final revalidation, unsafe
+state, or interruption stops immediately with source edits left in place.
 
 Preview the complete closeout lifecycle without changing the repository:
 
@@ -420,8 +433,10 @@ shared 15-minute timeout. `clawpatch-supervise --timeout-minutes N` changes both
 limits together, so the terminal never advertises a different timeout from the
 one actually enforced.
 
-Before each finding-scoped fix, Manageroo writes durable progress under
-`.manageroo/cache`. On a handled failure or interruption it records the exact
+Before each finding-scoped fix, Manageroo writes durable progress. The external
+`clawpatch-supervise` command stores it under Git's metadata directory; the
+Manageroo project command stores it under `.manageroo/cache`. On a handled
+failure or interruption it records the exact
 source paths that appeared while that one owned fix was active. A later ordinary
 run refuses to continue that checkpoint. When the operator explicitly uses
 `--fresh`, Manageroo discards source only when the current dirty-path set exactly

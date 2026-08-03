@@ -109,6 +109,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertIn("[1/88] FIXED", rendered)
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
+        self.assertEqual(calls[0][1]["integration_mode"], "external")
 
     def test_terminal_command_renders_stopped_state_without_retrying(self):
         def fake_sweep(_repo: Path, **kwargs):

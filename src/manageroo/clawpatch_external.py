@@ -197,6 +197,7 @@ def main(
             fresh=args.fresh,
             child_timeout_seconds=watchdog_seconds,
             progress=display,
+            integration_mode="external",
         )
     except SafetyError as exc:
         print(f"\nSTOPPED: {exc}", flush=True)

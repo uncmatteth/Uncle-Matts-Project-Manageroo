@@ -67,6 +67,92 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
 
+    @staticmethod
+    def init_plain_repo(repo: Path) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+        (repo / ".gitignore").write_text(".clawpatch/\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
+
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._execute_fix")
+    @patch("manageroo.clawpatch_release._show_finding")
+    @patch("manageroo.clawpatch_release._next_finding")
+    @patch("manageroo.clawpatch_release._review_all_features")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_external_sweep_runs_in_plain_git_repo_without_manageroo_files(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        review_all,
+        next_finding,
+        show_finding,
+        execute_fix,
+        final_closure,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_plain_repo(repo)
+            json_clawpatch.side_effect = [
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+            ]
+            review_all.return_value = {
+                "review": {"reviewed": 1, "findings": 1},
+                "completion": {"dryRun": True, "wouldReview": 0},
+            }
+            next_finding.side_effect = [
+                ("fnd_one", {"finding": {"id": "fnd_one", "status": "open"}}),
+                (None, {"finding": None}),
+            ]
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "patchAttempts": [],
+            }
+
+            def complete_fix(*_args, **_kwargs):
+                self.assertFalse((repo / ".manageroo").exists())
+                self.assertEqual(
+                    subprocess.check_output(
+                        ["git", "status", "--porcelain"], cwd=repo, text=True
+                    ),
+                    "",
+                )
+                return ({"finding_id": "fnd_one", "commit": "abc123"}, False)
+
+            execute_fix.side_effect = complete_fix
+            final_closure.return_value = {"pushed": False}
+
+            report = release_sweep(
+                repo,
+                apply=True,
+                branch="current",
+                integration_mode="external",
+            )
+
+            proof_path = Path(report["proof_path"])
+            git_path = subprocess.check_output(
+                ["git", "rev-parse", "--git-path", "manageroo/clawpatch-release-proof.json"],
+                cwd=repo,
+                text=True,
+            ).strip()
+            expected = Path(git_path)
+            if not expected.is_absolute():
+                expected = repo / expected
+
+            self.assertEqual(proof_path, expected.resolve())
+            self.assertTrue(proof_path.is_file())
+            self.assertFalse((repo / ".manageroo").exists())
+            self.assertEqual(
+                subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
+                "",
+            )
+
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._must_run")
     def test_clawpatch_release_sweep_requires_072_or_newer(self, must_run, _which):
@@ -751,7 +837,11 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             ):
                 release_sweep(repo, apply=True, branch="current")
 
-        run_project_gates.assert_called_once_with(repo.resolve(), finding_id="baseline-preflight")
+        run_project_gates.assert_called_once_with(
+            repo.resolve(),
+            finding_id="baseline-preflight",
+            required=True,
+        )
         self.assertEqual(json_clawpatch.call_count, 1)
         self.assertEqual(
             json_clawpatch.call_args.args[1],
