@@ -217,6 +217,23 @@ class StackUpdateTests(unittest.TestCase):
         self.assertEqual(tool["commands"], [])
         self.assertIn("ownership", tool["note"])
 
+    def test_plan_updates_npm_owned_clawpatch_when_pnpm_is_absent(self):
+        def which(name: str):
+            return {"npm": "/usr/bin/npm", "clawpatch": "/usr/bin/clawpatch"}.get(name)
+
+        with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+            "manageroo.stack_update_policy._owned_by_manager", return_value=True
+        ):
+            plan = stack_update_plan(["clawpatch"])
+
+        self.assertEqual(
+            plan["tools"][0]["commands"],
+            [
+                ["/usr/bin/npm", "install", "-g", CLAWPATCH_PACKAGE],
+                ["/usr/bin/clawpatch", "doctor"],
+            ],
+        )
+
     def test_plan_proves_npm_owned_symlink_and_falls_back_from_wrong_manager(self):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "npm-prefix"

@@ -278,7 +278,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
 
     clawpatch_commands = _pinned_package_commands(
         executable=clawpatch,
-        npm=None,
+        npm=npm if not pnpm else None,
         pnpm=pnpm,
         package=CLAWPATCH_PACKAGE,
     )
