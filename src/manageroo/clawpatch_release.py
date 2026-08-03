@@ -182,6 +182,42 @@ def _source_paths(repo: Path) -> list[str]:
     return [path for path in _status_paths(repo) if path != ".clawpatch" and not path.startswith(".clawpatch/")]
 
 
+def _command_name(value: str) -> str:
+    return value.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+
+
+def _is_clawpatch_argv(argv: list[str]) -> bool:
+    if not argv:
+        return False
+    commands = {
+        "clawpatch",
+        "clawpatch.exe",
+        "clawpatch.cmd",
+        "clawpatch.bat",
+        "clawpatch-supervise",
+        "clawpatch-supervise.exe",
+    }
+    first = _command_name(argv[0])
+    if first in commands:
+        return True
+    interpreters = {
+        "node",
+        "node.exe",
+        "bun",
+        "bun.exe",
+        "python",
+        "python.exe",
+        "python3",
+        "python3.exe",
+    }
+    if first not in interpreters:
+        return False
+    if len(argv) >= 3 and argv[1] == "-m":
+        return argv[2] == "manageroo.clawpatch_external"
+    script = next((value for value in argv[1:4] if not value.startswith("-")), "")
+    return _command_name(script) in commands
+
+
 def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
     root = repo.resolve()
     found: list[dict[str, Any]] = []
@@ -191,9 +227,14 @@ def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
             if not entry.name.isdigit() or int(entry.name) == os.getpid():
                 continue
             try:
-                cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
-                if "clawpatch" not in cmdline.lower():
+                argv = [
+                    value.decode("utf-8", "replace")
+                    for value in (entry / "cmdline").read_bytes().split(b"\0")
+                    if value
+                ]
+                if not _is_clawpatch_argv(argv):
                     continue
+                cmdline = " ".join(argv)
                 cwd = (entry / "cwd").resolve()
             except (FileNotFoundError, PermissionError, OSError):
                 continue

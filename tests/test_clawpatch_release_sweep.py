@@ -12,6 +12,7 @@ from unittest.mock import call, patch
 from manageroo.clawpatch_release import (
     _UnresolvedFinding,
     _fix_command,
+    _is_clawpatch_argv,
     _load_release_progress,
     _must_clawpatch,
     _next_finding,
@@ -57,6 +58,27 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
         self.assertEqual(payload["features"], 35)
         self.assertEqual(payload["next"], "clawpatch review --limit 3")
+
+    def test_process_matcher_ignores_clawpatch_mentions_inside_gbrain_context(self):
+        gbrain = [
+            "bun",
+            "/home/Tommy/.bun/bin/gbrain",
+            "call",
+            "volunteer_context",
+            '{"window":"assistant: run clawpatch fix --finding fnd_one"}',
+        ]
+
+        self.assertFalse(_is_clawpatch_argv(gbrain))
+        self.assertTrue(
+            _is_clawpatch_argv(
+                ["node", "/home/Tommy/.local/bin/clawpatch", "fix", "--finding", "fnd_one"]
+            )
+        )
+        self.assertTrue(
+            _is_clawpatch_argv(
+                ["python", "/home/Tommy/.local/bin/clawpatch-supervise", "--repo", "."]
+            )
+        )
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_next_uses_structured_open_finding_and_validates_show_handoff(self, json_clawpatch):
