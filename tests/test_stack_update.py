@@ -254,7 +254,10 @@ class StackUpdateTests(unittest.TestCase):
             home = Path(temp)
             codex_target = home / ".codex" / "skills" / "autoreview"
             codex_target.mkdir(parents=True)
-            (codex_target / "SKILL.md").write_text("old\n", encoding="utf-8")
+            (codex_target / "SKILL.md").write_text(
+                "---\nname: autoreview\n---\nold\n",
+                encoding="utf-8",
+            )
 
             def fake_run(argv, **kwargs):
                 if argv[1:3] == ["clone", "--no-checkout"]:
@@ -298,7 +301,10 @@ class StackUpdateTests(unittest.TestCase):
             home = Path(temp)
             destination = home / ".codex" / "skills" / "autoreview"
             destination.mkdir(parents=True)
-            (destination / "SKILL.md").write_text("old\n", encoding="utf-8")
+            (destination / "SKILL.md").write_text(
+                "---\nname: autoreview\n---\nold\n",
+                encoding="utf-8",
+            )
 
             def fake_run(argv, **kwargs):
                 if argv[1:3] == ["clone", "--no-checkout"]:
@@ -333,7 +339,10 @@ class StackUpdateTests(unittest.TestCase):
             home = Path(temp)
             target = home / ".codex" / "skills" / "autoreview"
             target.mkdir(parents=True)
-            (target / "SKILL.md").write_text("old\n", encoding="utf-8")
+            (target / "SKILL.md").write_text(
+                "---\nname: autoreview\n---\nold\n",
+                encoding="utf-8",
+            )
             alias = home / ".agents" / "skills" / "autoreview"
             alias.parent.mkdir(parents=True)
             alias.symlink_to(target, target_is_directory=True)
@@ -351,6 +360,54 @@ class StackUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(alias.is_symlink())
             self.assertEqual(replacements, [target.resolve()])
+
+    def test_autoreview_alias_targeting_another_skill_is_rejected_without_changes(self):
+        if os.name == "nt":
+            self.skipTest("symlink setup is platform-dependent on Windows")
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            target = home / ".codex" / "skills" / "other-skill"
+            target.mkdir(parents=True)
+            original_skill = "---\nname: other-skill\n---\noriginal\n"
+            (target / "SKILL.md").write_text(original_skill, encoding="utf-8")
+            (target / "KEEP.txt").write_text("keep me\n", encoding="utf-8")
+            alias = home / ".agents" / "skills" / "autoreview"
+            alias.parent.mkdir(parents=True)
+            alias.symlink_to(target, target_is_directory=True)
+
+            def fake_run(argv, **kwargs):
+                if argv[1:3] == ["clone", "--no-checkout"]:
+                    checkout = Path(argv[-1])
+                    checkout.mkdir(parents=True)
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+                if "checkout" in argv:
+                    skill = Path(kwargs["cwd"]) / "skills" / "autoreview"
+                    skill.mkdir(parents=True)
+                    (skill / "SKILL.md").write_text(
+                        "---\nname: autoreview\n---\nupdated\n",
+                        encoding="utf-8",
+                    )
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+                if "rev-parse" in argv:
+                    return {
+                        "ok": True,
+                        "exit_code": 0,
+                        "argv": argv,
+                        "output": AUTOREVIEW_COMMIT + "\n",
+                    }
+                return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+
+            with patch("manageroo.stack_update.Path.home", return_value=home), patch(
+                "manageroo.stack_update.shutil.which",
+                side_effect=lambda name: "/usr/bin/git" if name == "git" else None,
+            ), patch("manageroo.stack_update._run", side_effect=fake_run):
+                result = apply_stack_updates(["autoreview"])
+
+            self.assertFalse(result["ok"], result)
+            self.assertIn("unsafe", result["results"][0]["error"].lower())
+            self.assertTrue(alias.is_symlink())
+            self.assertEqual((target / "SKILL.md").read_text(encoding="utf-8"), original_skill)
+            self.assertEqual((target / "KEEP.txt").read_text(encoding="utf-8"), "keep me\n")
 
     def test_autoreview_failed_swap_restores_original_and_preserves_old_backups(self):
         with tempfile.TemporaryDirectory() as temp:

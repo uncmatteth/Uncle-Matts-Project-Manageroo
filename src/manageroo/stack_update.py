@@ -82,12 +82,48 @@ def _normalize_only(only: Iterable[str] | None) -> set[str] | None:
     return selected
 
 
-def _autoreview_installations() -> list[Path]:
-    candidates = [
-        Path.home() / ".agents" / "skills" / "autoreview",
-        Path.home() / ".codex" / "skills" / "autoreview",
+def _skill_frontmatter_name(path: Path) -> str:
+    try:
+        content = path.read_bytes()
+        if len(content) > 64 * 1024:
+            return ""
+        text = (
+            content.decode("utf-8")
+            .removeprefix("\ufeff")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
+    except (OSError, UnicodeError):
+        return ""
+    lines = text.splitlines()
+    if not lines or lines[0] != "---":
+        return ""
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return ""
+    for line in lines[1:end]:
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip().strip("'\"")
+    return ""
+
+
+def _autoreview_installations() -> tuple[list[Path], list[dict[str, str]]]:
+    roots = [
+        Path.home() / ".agents" / "skills",
+        Path.home() / ".codex" / "skills",
     ]
+    candidates = [root / "autoreview" for root in roots]
+    approved_roots: list[Path] = []
+    for root in roots:
+        try:
+            resolved_root = root.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved_root not in approved_roots:
+            approved_roots.append(resolved_root)
     resolved: list[Path] = []
+    unsafe: list[dict[str, str]] = []
     for path in candidates:
         if not (path / "SKILL.md").is_file():
             continue
@@ -95,9 +131,30 @@ def _autoreview_installations() -> list[Path]:
             target = path.resolve(strict=True)
         except OSError:
             continue
+        if target.name != "autoreview" or target.parent not in approved_roots:
+            unsafe.append(
+                {
+                    "path": str(path),
+                    "resolved_path": str(target),
+                    "reason": (
+                        "resolved target is not an autoreview destination directly beneath "
+                        "an approved skill root"
+                    ),
+                }
+            )
+            continue
+        if _skill_frontmatter_name(target / "SKILL.md").casefold() != "autoreview":
+            unsafe.append(
+                {
+                    "path": str(path),
+                    "resolved_path": str(target),
+                    "reason": "SKILL.md does not identify the autoreview skill",
+                }
+            )
+            continue
         if target not in resolved:
             resolved.append(target)
-    return resolved
+    return resolved, unsafe
 
 
 def _manageroo_owned_trufflehog_path(active_path: str | None) -> Path | None:
@@ -204,7 +261,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     obsidian = shutil.which("obsidian")
     trufflehog = shutil.which("trufflehog")
     owned_trufflehog = _manageroo_owned_trufflehog_path(trufflehog)
-    autoreview_paths = _autoreview_installations()
+    autoreview_paths, unsafe_autoreview_paths = _autoreview_installations()
 
     gitnexus_commands = _pinned_package_commands(
         executable=gitnexus,
@@ -263,7 +320,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
         ),
         _tool(
             "autoreview",
-            bool(autoreview_paths),
+            bool(autoreview_paths or unsafe_autoreview_paths),
             [],
             AUTOREVIEW_REFERENCE,
             (
@@ -271,6 +328,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
                 "Skill-root symlinks remain symlinks and aliases to the same target are updated only once."
             ),
             install_paths=[str(path) for path in autoreview_paths],
+            unsafe_destinations=unsafe_autoreview_paths,
         ),
         _tool(
             "clawpatch",
@@ -461,6 +519,17 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
                 results.append({"name": "trufflehog", "ok": True, "pinned_version": TRUFFLEHOG_VERSION, "installations": installations})
             continue
         if tool["name"] == "autoreview":
+            unsafe_destinations = list(tool.get("unsafe_destinations", []))
+            if unsafe_destinations:
+                results.append(
+                    {
+                        "name": "autoreview",
+                        "ok": False,
+                        "error": "Unsafe AUTOREVIEW destination rejected; no files were changed.",
+                        "unsafe_destinations": unsafe_destinations,
+                    }
+                )
+                continue
             results.append(_update_autoreview(Path(path) for path in tool.get("install_paths", [])))
             continue
         commands = tool.get("commands", [])
