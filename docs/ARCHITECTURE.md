@@ -137,6 +137,10 @@ The surrounding stack provides first-class capabilities without taking control a
 - **Obsidian**: human-readable Markdown knowledge lane.
 - **Document/prose command lane**: optional evidence over a run-owned manifest for long prose, PDFs, transcripts, articles, and exact-text workflows.
 
+Successful external repair reports are reusable only for the same run, command configuration,
+approved paths, and inputs. Continuation verifies the recorded checkpoint chain and Git diffs,
+then restores the exact clean final checkpoint; incomplete legacy reports fail closed.
+
 These systems are capabilities, not completion authorities.
 
 ```text

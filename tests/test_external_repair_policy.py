@@ -9,7 +9,7 @@ from manageroo.artifacts import ArtifactStore
 from manageroo.errors import SafetyError, ValidationError
 from manageroo.external_repair_policy import run_external_review_repair_lanes
 from manageroo.runner import CommandRunner
-from manageroo.util import atomic_write_json
+from manageroo.util import atomic_write_json, read_json
 from manageroo.workspace import WorkspaceMirror
 
 
@@ -60,6 +60,78 @@ def fake_orchestrator(root: Path, source: Path, run_id: str, command):
 
 
 class ExternalRepairPolicyTests(unittest.TestCase):
+    def test_incomplete_legacy_success_report_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+
+            def command(**_kwargs):
+                self.fail("legacy success report must not rerun or bypass validation")
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            fake._artifact_json = lambda relative: (
+                {
+                    "summary": {"continuation_safe": True, "failed": []},
+                    "records": [],
+                }
+                if relative == "review/external-review-repair.json"
+                else None
+            )
+
+            with self.assertRaisesRegex(SafetyError, "no resume identity"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+
+    def test_persisted_success_restores_exact_final_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            calls = {"count": 0}
+            holder = {}
+
+            def command(**_kwargs):
+                calls["count"] += 1
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("repaired\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            result = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                gate_results=[],
+            )
+            baseline = result["records"][0]["baseline"]
+            checkpoint = result["records"][0]["checkpoint"]
+            report_path = run_root / "artifacts" / "review" / "external-review-repair.json"
+
+            git(fake.workspace, "reset", "--hard", baseline)
+            fake._artifact_json = lambda relative: (
+                read_json(report_path) if relative == "review/external-review-repair.json" else None
+            )
+            resumed = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                gate_results=[],
+            )
+
+            self.assertEqual(calls["count"], 1)
+            self.assertEqual(resumed["records"][0]["checkpoint"], checkpoint)
+            self.assertEqual(fake.mirror.head(), checkpoint)
+            self.assertEqual(
+                (fake.workspace / "tracked.txt").read_text(encoding="utf-8"), "repaired\n"
+            )
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
     def test_command_exception_restores_exact_clean_baseline(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

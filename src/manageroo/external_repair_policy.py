@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from .errors import SafetyError, ValidationError
@@ -163,7 +165,38 @@ def _rollback_lane(orchestrator: Any, *, name: str, baseline: str) -> None:
         )
 
 
-def _validate_persisted_report(existing: Any) -> dict:
+def _command_config(commands: list[tuple[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"name": str(name), "argv_template": [str(item) for item in argv_template]}
+        for name, argv_template in commands
+    ]
+
+
+def _repair_input_fingerprint(
+    *,
+    brief: str,
+    plan: dict,
+    gate_results: list[dict],
+    commands: list[tuple[str, Any]],
+    allowed_paths: list[str],
+) -> str:
+    payload = {
+        "run_input": {"brief": brief, "plan": plan, "gate_results": gate_results},
+        "commands": _command_config(commands),
+        "allowed_paths": allowed_paths,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_persisted_report(
+    orchestrator: Any,
+    existing: Any,
+    *,
+    commands: list[tuple[str, Any]],
+    allowed_paths: list[str],
+    input_fingerprint: str,
+) -> dict:
     if not isinstance(existing, dict):
         raise SafetyError("Persisted external review/repair report is malformed.")
     summary = existing.get("summary")
@@ -180,6 +213,59 @@ def _validate_persisted_report(existing: Any) -> dict:
             + ", ".join(failed)
             + ". See review/external-review-repair.json."
         )
+
+    resume = existing.get("resume")
+    if not isinstance(resume, dict):
+        raise SafetyError("Persisted external review/repair report has no resume identity.")
+    if str(resume.get("run_id") or "") != str(orchestrator.run_id):
+        raise SafetyError("Persisted external review/repair report belongs to another run.")
+    if resume.get("commands") != _command_config(commands):
+        raise SafetyError("Persisted external review/repair command configuration has changed.")
+    if resume.get("allowed_paths") != allowed_paths:
+        raise SafetyError("Persisted external review/repair allowed paths have changed.")
+    if str(resume.get("input_fingerprint") or "") != input_fingerprint:
+        raise SafetyError("Persisted external review/repair inputs have changed.")
+
+    records = existing.get("records")
+    if not isinstance(records, list) or len(records) != len(commands):
+        raise SafetyError("Persisted external review/repair records do not match configured lanes.")
+    expected_checkpoint = str(resume.get("initial_baseline") or "").strip()
+    final_checkpoint = str(resume.get("final_checkpoint") or "").strip()
+    if not expected_checkpoint or not final_checkpoint:
+        raise SafetyError("Persisted external review/repair report has no checkpoint boundary.")
+
+    policy = ScopePolicy(tuple(allowed_paths))
+    for record, (name, _argv_template) in zip(records, commands, strict=True):
+        if not isinstance(record, dict) or record.get("ok") is not True:
+            raise SafetyError("Persisted external review/repair record is not a success.")
+        if str(record.get("name") or "") != str(name):
+            raise SafetyError("Persisted external review/repair lane order has changed.")
+        baseline = str(record.get("baseline") or "").strip()
+        if baseline != expected_checkpoint:
+            raise SafetyError("Persisted external review/repair checkpoint chain is invalid.")
+        changed_paths = sorted(
+            {safe_repo_relative(str(item)) for item in record.get("changed_paths", []) or []}
+        )
+        policy.validate_paths(changed_paths)
+        if not changed_paths:
+            if record.get("checkpoint"):
+                raise SafetyError("Persisted external review/repair empty lane has a checkpoint.")
+            continue
+        resumed = _existing_checkpoint(orchestrator, str(name), baseline=baseline)
+        if resumed is None:
+            raise SafetyError(f"Command-owned {name} checkpoint manifest is missing or stale.")
+        checkpoint, actual_paths = resumed
+        if str(record.get("checkpoint") or "") != checkpoint or changed_paths != actual_paths:
+            raise SafetyError(f"Command-owned {name} persisted report does not match its checkpoint.")
+        expected_checkpoint = checkpoint
+
+    if expected_checkpoint != final_checkpoint:
+        raise SafetyError("Persisted external review/repair final checkpoint is invalid.")
+    _restore_checkpoint(
+        orchestrator,
+        name="persisted external review/repair",
+        checkpoint=final_checkpoint,
+    )
     return existing
 
 
@@ -193,18 +279,11 @@ def run_external_review_repair_lanes(
     """Run or safely resume command-owned repair lanes with verified rollback boundaries."""
 
     assert self.workspace is not None
-    existing = self._artifact_json("review/external-review-repair.json")
-    if existing is not None:
-        return _validate_persisted_report(existing)
-
     commands = [
         (name, argv_template)
         for name, argv_template in self._external_review_repair_commands()
         if argv_template
     ]
-    if not commands:
-        return None
-
     allowed_paths = sorted(
         {
             safe_repo_relative(path)
@@ -212,6 +291,25 @@ def run_external_review_repair_lanes(
             for path in task.get("allowed_paths", [])
         }
     )
+    input_fingerprint = _repair_input_fingerprint(
+        brief=brief,
+        plan=plan,
+        gate_results=gate_results,
+        commands=commands,
+        allowed_paths=allowed_paths,
+    )
+    existing = self._artifact_json("review/external-review-repair.json")
+    if existing is not None:
+        return _validate_persisted_report(
+            self,
+            existing,
+            commands=commands,
+            allowed_paths=allowed_paths,
+            input_fingerprint=input_fingerprint,
+        )
+
+    if not commands:
+        return None
     if not allowed_paths:
         raise SafetyError("External review/repair lanes require at least one explicitly approved path.")
 
@@ -364,6 +462,14 @@ def run_external_review_repair_lanes(
         }
     )
     payload = {
+        "resume": {
+            "run_id": str(self.run_id),
+            "commands": _command_config(commands),
+            "allowed_paths": allowed_paths,
+            "input_fingerprint": input_fingerprint,
+            "initial_baseline": str(records[0].get("baseline") or ""),
+            "final_checkpoint": self.mirror.head(),
+        },
         "summary": {
             "enabled": [name for name, _ in commands],
             "passed": [str(item.get("name") or "unknown") for item in records if item.get("ok")],
