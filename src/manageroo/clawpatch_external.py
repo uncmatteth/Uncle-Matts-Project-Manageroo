@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .clawpatch_release import release_sweep
+from .clawpatch_release import CLAWPATCH_CHILD_WATCHDOG_SECONDS, release_sweep
 from .errors import SafetyError
 
 
@@ -63,11 +63,36 @@ def _render_inspection(event: dict[str, Any]) -> str:
 
 def _render_event(event: dict[str, Any]) -> str:
     phase = event.get("phase")
+    command_phases = {
+        "preflight": "PROCESS PREFLIGHT",
+        "status": "STATUS",
+        "lock-cleanup": "LOCK CLEANUP",
+        "map": "MAP",
+        "review": "REVIEW",
+        "review-verification": "REVIEW VERIFICATION",
+        "queue": "QUEUE",
+        "show": "SHOW",
+        "revalidate": "REVALIDATE",
+        "revalidate-escalated": "REVALIDATE ESCALATED",
+        "report": "REPORT",
+    }
+    if phase in command_phases:
+        attempt = event.get("attempt")
+        maximum = event.get("max_attempts")
+        suffix = f" (attempt {attempt}/{maximum})" if attempt and maximum else ""
+        return (
+            f"\n{_counter(event)} {command_phases[str(phase)]}{suffix}\n"
+            f"$ {event.get('command', '')}"
+        )
     if phase == "finding":
         return _render_inspection(event)
     if phase == "fix":
-        retry = int(event.get("retry", 0) or 0)
-        suffix = f" (attempt {retry + 1})" if retry else ""
+        attempt = int(event.get("attempt", int(event.get("retry", 0) or 0) + 1))
+        maximum = event.get("max_attempts")
+        if maximum:
+            suffix = f" (attempt {attempt}/{maximum})"
+        else:
+            suffix = f" (attempt {attempt})" if attempt > 1 else ""
         return f"\n{_counter(event)} FIX{suffix}\n$ {event.get('command', '')}"
     if phase == "retry":
         return (
@@ -111,6 +136,8 @@ def main(
 
     def display(event: dict[str, Any]) -> None:
         with state_lock:
+            for key in ("command", "finding_id", "attempt", "max_attempts"):
+                state.pop(key, None)
             state.update(event)
             state["changed"] = time.monotonic()
         print(_render_event(event), flush=True)
@@ -120,12 +147,19 @@ def main(
             with state_lock:
                 snapshot = dict(state)
             elapsed = int(time.monotonic() - float(snapshot["changed"]))
+            phase = str(snapshot.get("phase", "working"))
+            attempt = snapshot.get("attempt")
+            maximum = snapshot.get("max_attempts")
+            attempt_text = f" attempt {attempt}/{maximum}" if attempt and maximum else ""
             finding = f" {snapshot['finding_id']}" if snapshot.get("finding_id") else ""
-            print(
-                f"{_counter(snapshot)} still running: {snapshot.get('phase', 'working')}{finding} "
-                f"({elapsed}s)",
-                flush=True,
-            )
+            lines = [
+                f"{_counter(snapshot)} still running: {phase}{attempt_text}{finding}",
+                f"({elapsed}s in this displayed phase; child watchdog is "
+                f"{CLAWPATCH_CHILD_WATCHDOG_SECONDS}s)",
+            ]
+            if snapshot.get("command"):
+                lines.append(f"$ {snapshot['command']}")
+            print("\n".join(lines), flush=True)
 
     thread = None
     if heartbeat_seconds > 0:

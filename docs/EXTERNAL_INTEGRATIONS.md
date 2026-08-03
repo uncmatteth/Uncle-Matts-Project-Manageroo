@@ -171,7 +171,7 @@ manageroo clawpatch release-sweep --repo . --apply --push final
 manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
 ```
 
-`clawpatch-supervise` is a separate installed console command for an operator who wants to launch and watch the workflow directly rather than enter through the `manageroo` command tree. It prints the full current inspection, the exact finding-scoped ClawPatch command, the stable queue position during retries, the resulting commit, and a 30-second heartbeat during long-running child work. It uses the same durable reconciliation and command-owned repair controller described below.
+`clawpatch-supervise` is a separate installed console command for an operator who wants to launch and watch the workflow directly rather than enter through the `manageroo` command tree. It prints named process-preflight, status, lock-cleanup, map, review, review-verification, queue, show, fix, retry, and fixed phases. Every command attempt includes its exact argv and attempt number. The 30-second heartbeat reports time in the currently displayed phase separately from the 900-second child watchdog. It uses the same durable reconciliation and command-owned repair controller described below.
 
 The sweep first proves repository, process, Git, status, and lock state. It maps
 the repository, asks Clawpatch to review every pending feature, and verifies a
@@ -189,16 +189,17 @@ It removes the nested Codex approval/sandbox boundary, so use it only for truste
 source on a host that already supplies isolation. Manageroo's path restrictions,
 project gates, revalidation, and exact-path commit rules still apply.
 
-Every Clawpatch child command has a 15-minute process-group watchdog. Timeout,
-provider, quota, validation, configured project-gate, and non-`fixed`
-revalidation failures preserve source edits in a verified named Git stash and
-retry the same finding through Clawpatch. Manageroo uses `show`, reopens an
-`uncertain` finding to `open` through Clawpatch, requires `next` to return the
-same finding, and invokes Clawpatch's finding-scoped `fix` again. It does not
-advance to the remaining queue until that finding reaches `fixed` or Clawpatch
-revalidation identifies it as `false-positive`. Missing executables,
-authentication failure, malformed output, unsafe paths, and contradictory state
-still stop immediately.
+Every Clawpatch child command has a 15-minute process-group watchdog. A timeout
+kills the process group and stops without a hidden restart. Provider and other
+transient non-fix failures get at most three attempts, each printed with its
+exact command and fresh phase timer. Source fixes get at most three attempts per
+invocation. Failed source edits are preserved in verified named Git stashes;
+Manageroo reopens only the same finding with the actual failure evidence and
+never advances after exhaustion. It retains the checkpoint and reports the last
+stash and exact resume command without running final closure, committing, or
+pushing. Revalidation that is `uncertain` because read-only execution is blocked
+gets one controlled workspace-write retry guarded by an exact source fingerprint,
+not a new source fix.
 
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
@@ -209,7 +210,7 @@ records that inspection but does not execute or fill in the template. Its
 explicit release policy sends every current open finding to Clawpatch's own
 finding-scoped `fix`. Failed attempts are never called fixed or skipped:
 Manageroo preserves them, reconciles Clawpatch's current state, and retries the
-same finding.
+same finding only within the three-attempt bound.
 
 The implementation is native Python and uses argv-only subprocesses. It does
 not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports
@@ -222,7 +223,10 @@ the same default for its Codex worker. A user-supplied
 `CLAWPATCH_CODEX_TIMEOUT_MS` value takes precedence inside Clawpatch, but does
 not extend Manageroo's outer watchdog. Durable progress in `.manageroo/cache`
 lets a relaunched release sweep reconcile and resume an interrupted current
-finding from the existing `.clawpatch` queue; Manageroo is not an OS daemon and
+finding from the existing `.clawpatch` queue. A clean checkpoint whose finding
+ID disappeared after remapping is cleared before Manageroo asks the live queue
+for its current finding; a checkpoint with source edits is never discarded.
+Manageroo is not an OS daemon and
 cannot relaunch its own terminated controller process.
 
 The proof can be made mandatory for the final operator gate with `manageroo release-ready --require-clawpatch` or the `[project]` setting `require_clawpatch_release_sweep = true`.

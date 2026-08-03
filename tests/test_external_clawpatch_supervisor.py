@@ -25,6 +25,16 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             progress = kwargs["progress"]
             progress(
                 {
+                    "phase": "map",
+                    "current": "?",
+                    "total": "?",
+                    "command": "clawpatch map --json",
+                    "attempt": 1,
+                    "max_attempts": 3,
+                }
+            )
+            progress(
+                {
                     "phase": "finding",
                     "current": 1,
                     "total": 88,
@@ -52,6 +62,8 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
                     "total": 88,
                     "finding_id": "fnd_one",
                     "retry": 0,
+                    "attempt": 1,
+                    "max_attempts": 3,
                     "command": "clawpatch fix --finding fnd_one",
                 }
             )
@@ -83,6 +95,8 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
 
         rendered = output.getvalue()
         self.assertEqual(code, 0)
+        self.assertIn("[?/?] MAP (attempt 1/3)", rendered)
+        self.assertIn("$ clawpatch map --json", rendered)
         self.assertIn("[1/88] SHOW", rendered)
         self.assertIn("clawpatch show --finding fnd_one", rendered)
         self.assertIn("Broken rollback", rendered)

@@ -41,6 +41,43 @@ class _KilledProcess:
         self.killed = True
 
 
+class _Pipe:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class _StubbornProcessGroup:
+    def __init__(self):
+        self.pid = 4321
+        self.returncode = None
+        self.stdout = _Pipe()
+        self.stderr = _Pipe()
+        self.stdin = None
+        self.communicate_calls = 0
+        self.wait_calls = []
+        self.killed = False
+
+    def communicate(self, input=None, timeout=None):
+        self.communicate_calls += 1
+        if self.communicate_calls == 1:
+            raise subprocess.TimeoutExpired(
+                ["tool"], timeout or 0, output="initial output", stderr="initial error"
+            )
+        raise subprocess.TimeoutExpired(
+            ["tool"], timeout or 0, output="initial output plus cleanup", stderr="cleanup error"
+        )
+
+    def wait(self, timeout=None):
+        self.wait_calls.append(timeout)
+        raise subprocess.TimeoutExpired(["tool"], timeout or 0)
+
+    def kill(self):
+        self.killed = True
+
+
 class FinalClawpatchRegressionTests(unittest.TestCase):
     def test_compound_json_and_split_argv_secrets_are_redacted(self):
         payload = {
@@ -182,6 +219,32 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
             self.assertTrue(result.timed_out)
             time.sleep(2)
             self.assertFalse(marker.exists())
+
+    def test_windows_process_group_timeout_cleanup_has_no_unbounded_communicate(self):
+        process = _StubbornProcessGroup()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with (
+                patch("manageroo.runner.os.name", "nt"),
+                patch("manageroo.runner.subprocess.CREATE_NEW_PROCESS_GROUP", 512, create=True),
+                patch("manageroo.runner.subprocess.Popen", return_value=process),
+                patch("manageroo.runner.subprocess.run") as taskkill,
+            ):
+                result = CommandRunner().run(
+                    ["tool"],
+                    cwd=root,
+                    timeout_seconds=1,
+                    kill_process_group=True,
+                )
+
+        self.assertTrue(result.timed_out)
+        self.assertEqual(process.communicate_calls, 2)
+        self.assertEqual(process.wait_calls, [5])
+        self.assertTrue(process.killed)
+        self.assertTrue(process.stdout.closed)
+        self.assertTrue(process.stderr.closed)
+        self.assertIn("cleanup", result.stdout)
+        self.assertEqual(taskkill.call_args.kwargs["timeout"], 10)
 
     def test_truth_contract_checks_every_occurrence_and_prerequisite_negation(self):
         repeated = (

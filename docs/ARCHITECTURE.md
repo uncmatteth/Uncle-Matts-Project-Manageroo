@@ -111,10 +111,14 @@ for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
 Manageroo never triages a finding as resolved. Failed attempts are preserved in
 verified named Git stashes, reopened through Clawpatch when necessary, and
-retried as the same current finding. A durable per-finding progress record lets
+retried as the same current finding, with at most three source-fix attempts per
+invocation. Read-only revalidation that cannot execute targeted tests gets one
+workspace-write validation retry guarded by an exact source-state fingerprint;
+it cannot silently modify the repair. A durable per-finding progress record lets
 a relaunched release sweep reconcile interrupted work against the existing
 `.clawpatch` queue. A 15-minute child-process watchdog kills the complete
-Clawpatch/Codex process group; there is no overall retry deadline.
+Clawpatch/Codex process group. Timed-out non-fix commands stop immediately;
+other transient command retries are capped at three attempts.
 
 ## Parallel mapping and review, sequential implementation
 

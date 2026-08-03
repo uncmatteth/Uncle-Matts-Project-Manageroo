@@ -381,14 +381,15 @@ finding-scoped `fix`. It never builds a queue from a report, substitutes a
 Manageroo-written repair, triages a finding as resolved, or hand-repairs source.
 
 Every Clawpatch child command has a 15-minute watchdog. A timeout kills the
-complete Clawpatch/Codex process group. Timeout, provider, quota, validation,
-project-gate, and non-`fixed` revalidation failures do not advance the queue:
-Manageroo preserves source edits in a verified named Git stash, reconciles the
-finding through `show`, reopens it through Clawpatch when necessary, proves
-`next` still returns that same finding, and invokes Clawpatch's own `fix` again.
-There is no overall retry count or release-sweep deadline. Hard prerequisites
-such as missing executables, authentication failure, malformed JSON, unsafe
-paths, or contradictory state still stop with an explicit error.
+complete Clawpatch/Codex process group and stops without rerunning that timed-out
+command. Other transient non-fix failures get at most three announced attempts.
+Finding-scoped source repair is also capped at three attempts per invocation.
+Each failed source attempt is preserved in a verified named Git stash, the same
+finding is reopened with the actual failure evidence, and the queue never
+advances. Exhaustion retains the current-finding checkpoint and reports the last
+stash plus the exact resume command; it does not run final closure, commit, or
+push. Missing executables, authentication failure, malformed JSON, unsafe paths,
+or contradictory state still stop immediately.
 
 After a successful fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, requires revalidation for the same finding
@@ -399,8 +400,12 @@ Clawpatch's `show` output ends with a human triage template. That template is
 not an executable workflow command. Manageroo preserves the inspection output
 for the audit record and applies its explicit release policy: every current
 open finding is sent to `clawpatch fix`; findings are never automatically
-hidden or marked resolved. An `uncertain` repair is reopened as the same current
-finding and retried rather than skipped.
+hidden or marked resolved. Revalidation starts read-only. If that pass is
+`uncertain`, Manageroo reruns revalidation once with controlled workspace-write
+access so targeted tests can create temporary files, while an exact source-state
+fingerprint prevents that validation pass from changing the repair. A still
+`uncertain` or source-mutating validation is preserved and stopped; it does not
+trigger another source fix.
 
 Release sweeps give every Clawpatch child command a 15-minute watchdog and set
 the same 15-minute default for Clawpatch's Codex worker. An existing
@@ -411,7 +416,9 @@ Before each finding-scoped fix, Manageroo writes durable progress under
 `.manageroo/cache`. If the controller process is interrupted, rerunning the same
 release-sweep command preserves any interrupted source attempt, reconciles the
 recorded finding from Clawpatch's existing `.clawpatch` state, and resumes that
-finding. Manageroo does not install an operating-system daemon; a stopped
+finding. If remapping removed a clean checkpoint's old finding ID, Manageroo
+clears only that stale checkpoint and returns to the live `next` queue. It will
+not do that while interrupted source edits remain. Manageroo does not install an operating-system daemon; a stopped
 controller must still be relaunched by the operator or an external service.
 
 At closure, Manageroo proves no mapped feature remains pending, revalidates all

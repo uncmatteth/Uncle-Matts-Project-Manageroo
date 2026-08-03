@@ -14,8 +14,9 @@ Not every control is equally strong. This document distinguishes prevention from
 | Agent cannot invent executable gates | Gate IDs reference controller config | Preventive |
 | Dangerous shell interpolation | argv-only subprocess execution; no `shell=True` | Preventive in controller |
 | Chiptune cleanup deletes a caller-selected directory | Private non-init playback state plus an internally owned temporary-directory handle | Preventive |
-| Timed-out release-sweep child leaves Clawpatch or its provider editing the project | Dedicated process group terminated as a unit before reconciliation and retry | Preventive and recoverable |
-| Retryable release-sweep failure silently advances to another finding | Verified stash, Clawpatch `show`, mechanical reopen, exact same-finding `next`, and retry | Preventive in controller |
+| Timed-out release-sweep child leaves Clawpatch or its provider editing the project | Dedicated process group terminated as a unit with bounded cleanup; timed-out non-fix commands are not restarted | Preventive and recoverable |
+| Retryable release-sweep failure silently advances to another finding or loops forever | Verified stash, failure-evidence reopen, exact same-finding `next`, three-attempt cap, retained checkpoint, and no final closure after exhaustion | Preventive in controller |
+| Workspace-write revalidation silently changes a repair | Exact source-state fingerprint before and after the single escalated validation pass | Detective, blocks commit and further source-fix retry |
 | Relaunched release sweep loses its interrupted current finding | Durable repository, branch, HEAD, finding, phase, and retry progress reconciled against existing `.clawpatch` state | Recoverable in controller; relaunch remains external |
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
