@@ -140,8 +140,8 @@ Clawpatch is a command-owned review and repair lane.
 For an existing npm- or pnpm-managed installation, Manageroo proves which package manager owns the active executable and uses that same manager. The supported pinned update is one of:
 
 ```bash
-npm install -g clawpatch@0.7.1
-pnpm add -g clawpatch@0.7.1
+npm install -g clawpatch@0.7.2
+pnpm add -g clawpatch@0.7.2
 clawpatch doctor
 ```
 
@@ -192,11 +192,11 @@ project gates, revalidation, and exact-path commit rules still apply.
 Every Clawpatch child command has a 15-minute process-group watchdog. A timeout
 kills that process group. Provider and other transient non-fix failures get at
 most three attempts, each printed with its exact command and fresh phase timer.
-Source fixes run in visibly numbered three-attempt recovery cycles while the
-supervisor remains alive. Failed source edits are preserved in verified named
+Source fixes use one continuous, visibly numbered same-finding attempt sequence
+while the supervisor remains alive. Failed source edits are preserved in verified named
 Git stashes; Manageroo feeds the stash reference and changed paths into the
-finding's failure evidence, reopens only that same finding, and starts another
-bounded cycle with backoff. It never advances, runs final closure, commits, or
+finding's failure evidence, reopens only that same finding, and retries it with
+bounded backoff. It never resets the attempt number, advances, runs final closure, commits, or
 pushes a failed repair. Revalidation that is `uncertain` because read-only execution is blocked
 gets one controlled workspace-write retry guarded by an exact source fingerprint,
 not a new source fix.
@@ -205,12 +205,12 @@ Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
 Manageroo creates one separate `.clawpatch/**`-only final state commit.
 
-Clawpatch 0.7.1's `show` output includes a human triage template. Manageroo
+Clawpatch 0.7.2's `show` output includes a human triage template. Manageroo
 records that inspection but does not execute or fill in the template. Its
 explicit release policy sends every current open finding to Clawpatch's own
 finding-scoped `fix`. Failed attempts are never called fixed or skipped:
 Manageroo preserves them, reconciles Clawpatch's current state, and retries the
-same finding in bounded, visibly numbered three-attempt cycles.
+same finding with one continuous attempt count.
 
 The implementation is native Python and uses argv-only subprocesses. It does
 not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports

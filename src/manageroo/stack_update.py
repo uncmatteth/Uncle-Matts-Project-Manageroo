@@ -24,7 +24,7 @@ AUTOREVIEW_REFERENCE = (
     "https://github.com/openclaw/agent-skills/tree/"
     f"{AUTOREVIEW_COMMIT}/skills/autoreview"
 )
-CLAWPATCH_PACKAGE = "clawpatch@0.7.1"
+CLAWPATCH_PACKAGE = "clawpatch@0.7.2"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
 STACK_TOOL_NAMES = ("gbrain", "gitnexus", "trufflehog", "autoreview", "clawpatch", "obsidian")

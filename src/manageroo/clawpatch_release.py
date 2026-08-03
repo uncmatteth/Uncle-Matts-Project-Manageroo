@@ -20,20 +20,16 @@ from .runner import CommandRunner
 from .util import atomic_write_json, utc_now
 
 
-MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
+MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
 CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 900_000
 CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
 CLAWPATCH_TRANSIENT_MAX_ATTEMPTS = 3
-CLAWPATCH_FIX_ATTEMPTS_PER_CYCLE = 3
-# Kept as a compatibility alias for installed-runtime checks from the first
-# supervisor release. It is a per-cycle bound, not a terminal attempt limit.
-CLAWPATCH_FIX_MAX_ATTEMPTS = CLAWPATCH_FIX_ATTEMPTS_PER_CYCLE
 RELEASE_PROGRESS_VERSION = 1
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "
     "complete project gates -> exact fixed revalidation -> on retryable failure preserve/reopen/retry "
-    "the same finding in bounded three-attempt recovery cycles -> exact-path commit/push when authorized -> repeat the "
+    "the same finding with one continuous attempt count -> exact-path commit/push when authorized -> repeat the "
     "open queue -> final closure"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
@@ -346,7 +342,7 @@ def _clawpatch_version(repo: Path) -> str:
         raise SafetyError("Clawpatch is not installed or is not available on PATH.")
     text = _must_run(["clawpatch", "--version"], cwd=repo, timeout=30).strip()
     if _version_tuple(text) < MINIMUM_CLAWPATCH_VERSION:
-        raise SafetyError("Clawpatch 0.7.1 or newer is required.")
+        raise SafetyError("Clawpatch 0.7.2 or newer is required.")
     return text
 
 
@@ -855,7 +851,6 @@ def _write_release_progress(
     head_before: str,
     retry_count: int,
     phase: str,
-    cycle_count: int = 1,
     last_stash_ref: str = "",
     last_stash_paths: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -866,7 +861,6 @@ def _write_release_progress(
         not branch
         or not head_before
         or retry_count < 0
-        or cycle_count < 1
         or not phase
         or (last_stash_ref and not re.fullmatch(r"stash@\{\d+\}", last_stash_ref))
         or any(not isinstance(path, str) or not path for path in stash_paths)
@@ -879,7 +873,6 @@ def _write_release_progress(
         "branch": branch,
         "head_before": head_before,
         "retry_count": retry_count,
-        "cycle_count": cycle_count,
         "last_stash_ref": last_stash_ref,
         "last_stash_paths": stash_paths,
         "phase": phase,
@@ -900,7 +893,7 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
     if not isinstance(progress, dict):
         raise SafetyError("Clawpatch release progress is malformed.")
     progress = dict(progress)
-    progress.setdefault("cycle_count", 1)
+    legacy_cycle_count = progress.pop("cycle_count", 1)
     progress.setdefault("last_stash_ref", "")
     progress.setdefault("last_stash_paths", [])
     required_strings = ("repo", "finding_id", "branch", "head_before", "phase", "updated_at")
@@ -911,9 +904,9 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
         or isinstance(progress.get("retry_count"), bool)
         or not isinstance(progress.get("retry_count"), int)
         or progress["retry_count"] < 0
-        or isinstance(progress.get("cycle_count"), bool)
-        or not isinstance(progress.get("cycle_count"), int)
-        or progress["cycle_count"] < 1
+        or isinstance(legacy_cycle_count, bool)
+        or not isinstance(legacy_cycle_count, int)
+        or legacy_cycle_count < 1
         or not isinstance(progress.get("last_stash_ref"), str)
         or (
             bool(progress.get("last_stash_ref"))
@@ -926,6 +919,10 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
         )
     ):
         raise SafetyError("Clawpatch release progress is malformed.")
+    if legacy_cycle_count > 1:
+        progress["retry_count"] += (legacy_cycle_count - 1) * 3
+    if progress["phase"] in {"fix-attempts-exhausted", "fix-cycle-recovery"}:
+        progress["phase"] = "retry"
     if Path(progress["repo"]).resolve() != repo.resolve():
         raise SafetyError("Clawpatch release progress belongs to a different repository.")
     return progress
@@ -935,7 +932,12 @@ def _checkpoint_can_follow_supervisor_upgrade(
     repo: Path,
     progress: dict[str, Any],
 ) -> bool:
-    if progress.get("phase") not in {"fix-attempts-exhausted", "fix-cycle-recovery"}:
+    if progress.get("phase") not in {
+        "fix",
+        "retry",
+        "fix-attempts-exhausted",
+        "fix-cycle-recovery",
+    }:
         return False
     finding_id = progress.get("finding_id")
     old_head = progress.get("head_before")
@@ -1389,7 +1391,6 @@ def release_sweep(
                     head_before=head_before,
                     retry_count=int(durable_progress["retry_count"]),
                     phase=str(durable_progress["phase"]),
-                    cycle_count=int(durable_progress.get("cycle_count", 1)),
                     last_stash_ref=str(durable_progress.get("last_stash_ref", "")),
                     last_stash_paths=list(durable_progress.get("last_stash_paths", [])),
                 )
@@ -1433,7 +1434,7 @@ def release_sweep(
         _require_no_process(root)
         _json_clawpatch(
             root,
-            ["clawpatch", "clean-locks", "--json"],
+            ["clawpatch", "clean-locks", "--stale-only", "--json"],
             env=env,
             progress=progress,
         )
@@ -1591,18 +1592,6 @@ def release_sweep(
             if durable_progress is not None and durable_progress["finding_id"] == finding_id
             else 0
         )
-        cycle_count = (
-            int(durable_progress.get("cycle_count", 1))
-            if durable_progress is not None and durable_progress["finding_id"] == finding_id
-            else 1
-        )
-        if (
-            durable_progress is not None
-            and durable_progress.get("phase") == "fix-attempts-exhausted"
-            and retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS
-        ):
-            retry_count = 0
-            cycle_count += 1
         while True:
             attempt_head = _git_text(root, ["git", "rev-parse", "HEAD"])
             _write_release_progress(
@@ -1612,7 +1601,6 @@ def release_sweep(
                 head_before=attempt_head,
                 retry_count=retry_count,
                 phase="fix",
-                cycle_count=cycle_count,
             )
             if progress is not None:
                 progress(
@@ -1623,8 +1611,6 @@ def release_sweep(
                         "finding_id": finding_id,
                         "retry": retry_count,
                         "attempt": retry_count + 1,
-                        "max_attempts": CLAWPATCH_FIX_MAX_ATTEMPTS,
-                        "cycle": cycle_count,
                         "command": f"clawpatch fix --finding {finding_id}",
                     }
                 )
@@ -1664,7 +1650,8 @@ def release_sweep(
                         head_before=attempt_head,
                         retry_count=retry_count,
                         phase="revalidation-blocked",
-                        cycle_count=cycle_count,
+                        last_stash_ref=str(preserved.get("ref") or ""),
+                        last_stash_paths=list(preserved.get("paths") or []),
                     )
                     if progress is not None:
                         progress(
@@ -1703,44 +1690,16 @@ def release_sweep(
                 preserved_ref = preserved.get("ref") or "no source changes"
                 preserved_paths = preserved.get("paths") or []
                 failure_context = _retry_failure_context(str(exc), preserved)
-                if retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS:
-                    cycle_count += 1
-                    retry_count = 0
-                    _write_release_progress(
-                        root,
-                        finding_id=finding_id,
-                        branch=selected_branch,
-                        head_before=attempt_head,
-                        retry_count=retry_count,
-                        phase="fix-cycle-recovery",
-                        cycle_count=cycle_count,
-                        last_stash_ref=str(preserved.get("ref") or ""),
-                        last_stash_paths=list(preserved_paths),
-                    )
-                    if progress is not None:
-                        progress(
-                            {
-                                "phase": "retry-cycle",
-                                "current": current_finding,
-                                "total": total_findings,
-                                "finding_id": finding_id,
-                                "cycle": cycle_count,
-                                "attempts_per_cycle": CLAWPATCH_FIX_MAX_ATTEMPTS,
-                                "outcome": exc.outcome,
-                                "preserved_stash": preserved_ref,
-                                "preserved_paths": preserved_paths,
-                            }
-                        )
-                else:
-                    _write_release_progress(
-                        root,
-                        finding_id=finding_id,
-                        branch=selected_branch,
-                        head_before=attempt_head,
-                        retry_count=retry_count,
-                        phase="retry",
-                        cycle_count=cycle_count,
-                    )
+                _write_release_progress(
+                    root,
+                    finding_id=finding_id,
+                    branch=selected_branch,
+                    head_before=attempt_head,
+                    retry_count=retry_count,
+                    phase="retry",
+                    last_stash_ref=str(preserved.get("ref") or ""),
+                    last_stash_paths=list(preserved_paths),
+                )
                 inspected = _reopen_current_finding(
                     root,
                     finding_id,
@@ -1750,8 +1709,7 @@ def release_sweep(
                     current_number=current_finding,
                     total=total_findings,
                 )
-                backoff_step = cycle_count if retry_count == 0 else retry_count
-                time.sleep(min(2 ** min(max(backoff_step - 1, 0), 6), 60))
+                time.sleep(min(2 ** min(max(retry_count - 1, 0), 6), 60))
                 durable_progress = _load_release_progress(root)
                 continue
             _clear_release_progress(root)

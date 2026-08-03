@@ -63,8 +63,6 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
                     "finding_id": "fnd_one",
                     "retry": 0,
                     "attempt": 1,
-                    "max_attempts": 3,
-                    "cycle": 1,
                     "command": "clawpatch fix --finding fnd_one",
                 }
             )
@@ -81,15 +79,13 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             )
             progress(
                 {
-                    "phase": "retry-cycle",
+                    "phase": "fix",
                     "current": 1,
                     "total": 88,
                     "finding_id": "fnd_one",
-                    "cycle": 2,
-                    "attempts_per_cycle": 3,
-                    "outcome": "fix-validation-failed",
-                    "preserved_stash": "stash@{0}",
-                    "preserved_paths": ["release.py"],
+                    "retry": 1,
+                    "attempt": 2,
+                    "command": "clawpatch fix --finding fnd_one",
                 }
             )
             progress(
@@ -115,12 +111,12 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertIn("clawpatch show --finding fnd_one", rendered)
         self.assertIn("Broken rollback", rendered)
         self.assertIn("release.py:10-20", rendered)
-        self.assertIn("[1/88] FIX (cycle 1, attempt 1/3)", rendered)
+        self.assertIn("[1/88] FIX", rendered)
         self.assertIn("clawpatch fix --finding fnd_one", rendered)
         self.assertIn("[1/88] RETRY 1", rendered)
         self.assertIn("same finding", rendered)
-        self.assertIn("[1/88] RECOVERY CYCLE 2", rendered)
-        self.assertIn("Preserved ClawPatch attempt: stash@{0}", rendered)
+        self.assertIn("[1/88] FIX (attempt 2)", rendered)
+        self.assertNotIn("RECOVERY CYCLE", rendered)
         self.assertIn("[1/88] FIXED", rendered)
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")

@@ -59,7 +59,7 @@ AUTOREVIEW_REFERENCE = (
     f"{OPENCLAW_AGENT_SKILLS_COMMIT}/skills/autoreview"
 )
 PNPM_PACKAGE = "pnpm@11.1.2"
-CLAWPATCH_VERSION = "0.7.1"
+CLAWPATCH_VERSION = "0.7.2"
 CLAWPATCH_PACKAGE = f"clawpatch@{CLAWPATCH_VERSION}"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"

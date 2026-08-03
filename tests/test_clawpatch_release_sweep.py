@@ -13,6 +13,7 @@ from manageroo.clawpatch_release import (
     _MissingFinding,
     _UnresolvedFinding,
     _checkpoint_can_follow_supervisor_upgrade,
+    _clawpatch_version,
     _fix_command,
     _is_clawpatch_argv,
     _json_clawpatch,
@@ -48,6 +49,16 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         (repo / ".gitignore").write_text(".clawpatch/\n.manageroo/\n", encoding="utf-8")
         subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
+
+    @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
+    @patch("manageroo.clawpatch_release._must_run")
+    def test_clawpatch_release_sweep_requires_072_or_newer(self, must_run, _which):
+        must_run.return_value = "0.7.1\n"
+        with self.assertRaisesRegex(SafetyError, "0.7.2 or newer"):
+            _clawpatch_version(Path("/repo"))
+
+        must_run.return_value = "0.7.2\n"
+        self.assertEqual(_clawpatch_version(Path("/repo")), "0.7.2")
 
     def test_json_parser_accepts_clawpatch_payload_before_progress_lines(self):
         output = (
@@ -455,7 +466,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertNotIn("skip_review", sweep.call_args.kwargs)
         self.assertTrue(sweep.call_args.kwargs["publish_clawpatch_state"])
 
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     def test_apply_refuses_preexisting_source_changes(self, _processes, _version):
         with tempfile.TemporaryDirectory() as temp:
@@ -469,7 +480,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             with self.assertRaisesRegex(SafetyError, "pre-existing source changes"):
                 release_sweep(repo, apply=True, branch="current")
 
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[{"pid": 42}])
     def test_apply_refuses_a_second_clawpatch_process(self, _processes, _version):
         with tempfile.TemporaryDirectory() as temp:
@@ -478,7 +489,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             with self.assertRaisesRegex(SafetyError, "already active"):
                 release_sweep(repo, apply=True, branch="current")
 
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     def test_dry_run_does_not_run_clawpatch(self, _version):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -491,7 +502,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     def test_zero_open_flow_reaches_final_closure(
         self, _version, _processes, json_clawpatch, final_closure
     ):
@@ -518,10 +529,37 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertTrue(final_closure.call_args.kwargs["publish_clawpatch_state"])
 
     @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_lock_cleanup_uses_clawpatch_072_stale_only_contract(
+        self, _version, _processes, json_clawpatch, final_closure
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            json_clawpatch.side_effect = [
+                {"activeLocks": 1, "lockFiles": 1, "openFindings": 0},
+                {"removed": 1},
+                {"features": 0},
+                {"reviewed": 0, "findings": 0},
+                {"dryRun": True, "wouldReview": 0},
+                {"finding": None, "status": "open", "next": "clawpatch report --status open"},
+            ]
+            final_closure.return_value = {"pushed": False}
+
+            release_sweep(repo, apply=True, branch="current")
+
+        self.assertEqual(
+            json_clawpatch.call_args_list[1].args[1],
+            ["clawpatch", "clean-locks", "--stale-only", "--json"],
+        )
+
+    @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._execute_fix")
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     def test_fix_flow_uses_only_execute_fix_contract(
         self, _version, _processes, json_clawpatch, execute_fix, final_closure
     ):
@@ -584,7 +622,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._review_all_features")
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     def test_unresolved_finding_is_preserved_reopened_and_retried_as_the_same_finding(
         self,
         _version,
@@ -679,7 +717,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._review_all_features")
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     def test_uncertain_after_revalidation_escalation_preserves_once_and_does_not_refix(
         self,
         _version,
@@ -745,8 +783,8 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._review_all_features")
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
-    def test_source_fix_recovery_starts_a_new_bounded_cycle_without_advancing(
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_source_fix_retries_remain_linear_without_advancing(
         self,
         _version,
         _processes,
@@ -819,11 +857,15 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             checkpoint = _load_release_progress(repo)
             self.assertIsNone(checkpoint)
             self.assertEqual(report["finding_count"], 1)
-            cycles = [event for event in progress_events if event["phase"] == "retry-cycle"]
-            self.assertEqual(len(cycles), 1)
-            self.assertEqual(cycles[0]["cycle"], 2)
-            self.assertEqual(cycles[0]["finding_id"], "fnd_one")
-            self.assertIn("stash@{0}", cycles[0]["preserved_stash"])
+            attempts = [
+                event["attempt"]
+                for event in progress_events
+                if event["phase"] == "fix"
+            ]
+            self.assertEqual(attempts, [1, 2, 3, 4])
+            self.assertFalse(
+                any(event["phase"] == "retry-cycle" for event in progress_events)
+            )
 
         self.assertEqual(execute_fix.call_count, 4)
         self.assertEqual(preserve.call_count, 3)
@@ -960,6 +1002,30 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(progress["retry_count"], 2)
         self.assertEqual(progress["phase"], "fix")
 
+    def test_legacy_cycle_checkpoint_resumes_with_a_linear_attempt_count(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch="main",
+                head_before="abc123",
+                retry_count=0,
+                phase="retry",
+            )
+            path = repo / ".manageroo" / "cache" / "clawpatch-release-progress.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["cycle_count"] = 2
+            payload["phase"] = "fix-cycle-recovery"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            progress = _load_release_progress(repo)
+
+        self.assertEqual(progress["retry_count"], 3)
+        self.assertEqual(progress["phase"], "retry")
+        self.assertNotIn("cycle_count", progress)
+
     @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._execute_fix")
     @patch("manageroo.clawpatch_release._next_finding")
@@ -968,7 +1034,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._review_all_features")
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
-    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     def test_interrupted_dirty_attempt_is_preserved_and_resumed_from_durable_progress(
         self,
         _version,
@@ -1094,7 +1160,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 "patchAttempts": [],
             }
             with (
-                patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1"),
+                patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2"),
                 patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[]),
                 patch("manageroo.clawpatch_release._json_clawpatch") as json_clawpatch,
                 patch("manageroo.clawpatch_release._review_all_features") as review_all,
@@ -1172,7 +1238,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             )
             source.write_text("interrupted repair\n", encoding="utf-8")
             with (
-                patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1"),
+                patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2"),
                 patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[]),
                 patch("manageroo.clawpatch_release._json_clawpatch") as json_clawpatch,
                 patch("manageroo.clawpatch_release._review_all_features") as review_all,

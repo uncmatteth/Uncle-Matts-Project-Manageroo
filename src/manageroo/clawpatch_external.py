@@ -88,24 +88,13 @@ def _render_event(event: dict[str, Any]) -> str:
         return _render_inspection(event)
     if phase == "fix":
         attempt = int(event.get("attempt", int(event.get("retry", 0) or 0) + 1))
-        maximum = event.get("max_attempts")
-        cycle = int(event.get("cycle", 1) or 1)
-        if maximum:
-            suffix = f" (cycle {cycle}, attempt {attempt}/{maximum})"
-        else:
-            suffix = f" (attempt {attempt})" if attempt > 1 else ""
+        suffix = f" (attempt {attempt})" if attempt > 1 else ""
         return f"\n{_counter(event)} FIX{suffix}\n$ {event.get('command', '')}"
     if phase == "retry":
         return (
             f"\n{_counter(event)} RETRY {event.get('retry', '?')} - "
             f"{event.get('outcome', 'not fixed')}\n"
             f"ClawPatch is reopening and retrying the same finding: {event.get('finding_id', '')}"
-        )
-    if phase == "retry-cycle":
-        return (
-            f"\n{_counter(event)} RECOVERY CYCLE {event.get('cycle', '?')}\n"
-            f"ClawPatch remains on the same finding: {event.get('finding_id', '')}\n"
-            f"Preserved ClawPatch attempt: {event.get('preserved_stash', 'no source changes')}"
         )
     if phase == "fixed":
         commit = event.get("commit") or "no source commit required"
@@ -143,7 +132,7 @@ def main(
 
     def display(event: dict[str, Any]) -> None:
         with state_lock:
-            for key in ("command", "finding_id", "attempt", "max_attempts", "cycle"):
+            for key in ("command", "finding_id", "attempt", "max_attempts"):
                 state.pop(key, None)
             state.update(event)
             state["changed"] = time.monotonic()
@@ -157,12 +146,12 @@ def main(
             phase = str(snapshot.get("phase", "working"))
             attempt = snapshot.get("attempt")
             maximum = snapshot.get("max_attempts")
-            cycle = snapshot.get("cycle")
-            cycle_text = f" cycle {cycle}" if cycle else ""
             attempt_text = f" attempt {attempt}/{maximum}" if attempt and maximum else ""
+            if attempt and not maximum:
+                attempt_text = f" attempt {attempt}"
             finding = f" {snapshot['finding_id']}" if snapshot.get("finding_id") else ""
             lines = [
-                f"{_counter(snapshot)} still running: {phase}{cycle_text}{attempt_text}{finding}",
+                f"{_counter(snapshot)} still running: {phase}{attempt_text}{finding}",
                 f"({elapsed}s in this displayed phase; child watchdog is "
                 f"{CLAWPATCH_CHILD_WATCHDOG_SECONDS}s)",
             ]

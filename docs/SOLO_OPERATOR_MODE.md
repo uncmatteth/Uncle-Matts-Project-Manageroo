@@ -243,10 +243,11 @@ The default is read-only. Applied runs review all pending features and automate
 Clawpatch's one-finding `next`, `show`, `fix`, and revalidation loop. Each
 Clawpatch child process group has a 15-minute watchdog. Timed-out non-fix
 commands stop immediately; other transient command attempts are capped at three.
-Finding-scoped source fixes run in visibly numbered three-attempt recovery cycles.
+Finding-scoped source fixes run in one continuous, visibly numbered attempt sequence.
 Failed source attempts are preserved in named Git stashes, their stash/path evidence
-is fed back to Clawpatch, and the live supervisor starts another bounded cycle on
-the same finding without advancing, final closure, commit, or push. Durable
+is fed back to Clawpatch, and the live supervisor retries only that same finding
+with bounded backoff without resetting the attempt number, advancing, final closure,
+commit, or push. Durable
 progress supports resumption after the controller is relaunched;
 Manageroo does not install an OS restart daemon. Missing tools,
 authentication failure, malformed or contradictory state, unsafe paths, and
