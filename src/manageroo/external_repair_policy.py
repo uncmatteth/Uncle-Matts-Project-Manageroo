@@ -269,25 +269,25 @@ def run_external_review_repair_lanes(
 
         _require_clean_lane_start(self, name)
         before_command = baseline
-        record = self._run_optional_external_command(
-            name=name,
-            argv_template=argv_template,
-            values=values,
-            cwd=self.workspace,
-            timeout_seconds=600,
-        )
-        if not isinstance(record, dict):
-            record = {
-                "name": name,
-                "enabled": True,
-                "ok": False,
-                "error": "External review/repair command returned a malformed result.",
-            }
-        else:
-            record = dict(record)
-            record.setdefault("name", name)
-            record.setdefault("enabled", True)
         try:
+            record = self._run_optional_external_command(
+                name=name,
+                argv_template=argv_template,
+                values=values,
+                cwd=self.workspace,
+                timeout_seconds=600,
+            )
+            if not isinstance(record, dict):
+                record = {
+                    "name": name,
+                    "enabled": True,
+                    "ok": False,
+                    "error": "External review/repair command returned a malformed result.",
+                }
+            else:
+                record = dict(record)
+                record.setdefault("name", name)
+                record.setdefault("enabled", True)
             changed_paths = self.mirror.changed_paths(before_command)
             record.update(
                 {
@@ -332,11 +332,11 @@ def run_external_review_repair_lanes(
                 _rollback_lane(self, name=name, baseline=before_command)
             except SafetyError as rollback_exc:
                 raise SafetyError(
-                    f"Command-owned {name} repair lane post-command processing failed "
+                    f"Command-owned {name} repair lane command or post-command processing failed "
                     f"({exc}) and rollback could not be verified. Workspace state is uncertain."
                 ) from rollback_exc
             raise SafetyError(
-                f"Command-owned {name} repair lane post-command processing failed; "
+                f"Command-owned {name} repair lane command or post-command processing failed; "
                 f"rollback was verified: {exc}"
             ) from exc
 

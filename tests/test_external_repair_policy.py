@@ -60,6 +60,39 @@ def fake_orchestrator(root: Path, source: Path, run_id: str, command):
 
 
 class ExternalRepairPolicyTests(unittest.TestCase):
+    def test_command_exception_restores_exact_clean_baseline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
+                (workspace / "untracked.txt").write_text("untracked mutation\n", encoding="utf-8")
+                raise RuntimeError("command crashed")
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            baseline = fake.mirror.head()
+
+            with self.assertRaisesRegex(SafetyError, "rollback was verified"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+
+            self.assertEqual(fake.mirror.head(), baseline)
+            self.assertEqual(
+                (fake.workspace / "tracked.txt").read_text(encoding="utf-8"), "baseline\n"
+            )
+            self.assertFalse((fake.workspace / "untracked.txt").exists())
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
     def test_checkpoint_path_inspection_failure_restores_exact_clean_baseline(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
