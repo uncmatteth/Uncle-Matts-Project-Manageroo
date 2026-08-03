@@ -30,7 +30,9 @@ class PackageReleasePipelineTests(unittest.TestCase):
 
         with patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
             package_release, "generate_manifest"
-        ) as manifest, patch.object(package_release, "write_archive") as archive:
+        ) as manifest, patch.object(
+            package_release, "included_files", return_value=[]
+        ), patch.object(package_release, "write_archive") as archive:
             code = package_release.main()
 
         self.assertEqual(code, 7)

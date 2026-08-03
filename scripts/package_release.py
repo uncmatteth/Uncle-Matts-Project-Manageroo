@@ -9,6 +9,7 @@ import sys
 import tempfile
 import tomllib
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +46,7 @@ END_USER_EXCLUDED = {
     "BUILD-VALIDATION.json", "GITHUB_DESCRIPTION.md", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md",
     "scripts/package_release.py", "tests/test_package_release.py",
 }
+RELEASE_FILE_LIST_ENV = "MANAGEROO_RELEASE_FILE_LIST"
 
 
 def release_file_allowed(path: Path) -> bool:
@@ -67,6 +69,13 @@ def release_file_allowed(path: Path) -> bool:
 
 
 def _tracked_relative_paths() -> set[str]:
+    snapshot_file_list = os.environ.get(RELEASE_FILE_LIST_ENV)
+    if snapshot_file_list:
+        return {
+            os.fsdecode(item)
+            for item in Path(snapshot_file_list).read_bytes().split(b"\0")
+            if item
+        }
     result = subprocess.run(
         ["git", "ls-files", "-z", "--cached"], cwd=ROOT, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
@@ -123,6 +132,57 @@ def generate_manifest() -> None:
             continue
         lines.append(f"| `{relative}` | {path.stat().st_size} | {purpose(relative)} |")
     (ROOT / "docs" / "FILE_MANIFEST.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _stage_release_snapshot(snapshot_root: Path) -> Path:
+    """Copy the selected worktree bytes into one private immutable release input."""
+    snapshot_root.mkdir(mode=0o700)
+    relative_paths: list[str] = []
+    for source in included_files():
+        if source.is_symlink() or not release_file_allowed(source):
+            raise RuntimeError(f"Refusing unsafe release file while staging: {source}")
+        relative = source.relative_to(ROOT)
+        destination = snapshot_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination, follow_symlinks=False)
+        if destination.is_symlink() or not destination.is_file():
+            raise RuntimeError(f"Release file became unsafe while staging: {source}")
+        relative_paths.append(relative.as_posix())
+
+    file_list = snapshot_root.parent / ".manageroo-release-files"
+    file_list.write_bytes(b"\0".join(os.fsencode(path) for path in relative_paths) + b"\0")
+    return file_list
+
+
+@contextmanager
+def _use_release_snapshot(snapshot_root: Path, file_list: Path):
+    """Bind all release selectors and child validators to the staged snapshot."""
+    global ROOT
+    original_root = ROOT
+    original_file_list = os.environ.get(RELEASE_FILE_LIST_ENV)
+    ROOT = snapshot_root
+    os.environ[RELEASE_FILE_LIST_ENV] = str(file_list)
+    try:
+        yield
+    finally:
+        ROOT = original_root
+        if original_file_list is None:
+            os.environ.pop(RELEASE_FILE_LIST_ENV, None)
+        else:
+            os.environ[RELEASE_FILE_LIST_ENV] = original_file_list
+
+
+def _release_fingerprint(*, exclude: set[str] | frozenset[str] = frozenset()) -> tuple:
+    return tuple(
+        (relative, hashlib.sha256(path.read_bytes()).hexdigest())
+        for path in included_files()
+        if (relative := path.relative_to(ROOT).as_posix()) not in exclude
+    )
+
+
+def _assert_release_fingerprint(expected: tuple, stage: str, *, exclude: set[str]) -> None:
+    if _release_fingerprint(exclude=exclude) != expected:
+        raise RuntimeError(f"Staged release source changed during {stage}; refusing publication.")
 
 
 def write_archive(output: Path, files: list[Path]) -> None:
@@ -283,43 +343,59 @@ def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: P
 
 
 def main() -> int:
-    result = subprocess.run([sys.executable, "scripts/verify_release.py"], cwd=ROOT, shell=False)
-    if result.returncode:
-        return result.returncode
-
-    distribution = subprocess.run([sys.executable, "scripts/verify_distribution.py"], cwd=ROOT, shell=False)
-    if distribution.returncode:
-        return distribution.returncode
-
-    generate_manifest()
-    checksums = []
-    for path in included_files():
-        relative = path.relative_to(ROOT).as_posix()
-        if relative in CHECKSUM_EXCLUDED:
-            continue
-        checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative}")
-    (ROOT / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="utf-8")
-
-    with tempfile.TemporaryDirectory(prefix="manageroo-release-candidate-", dir=str(ROOT.parent)) as temp:
+    with tempfile.TemporaryDirectory(prefix="manageroo-release-candidate-", dir=str(ROOT)) as temp:
         candidate_root = Path(temp)
+        snapshot_root = candidate_root / "snapshot"
+        file_list = _stage_release_snapshot(snapshot_root)
         candidate_output = candidate_root / INSTALLER_ZIP
         candidate_source = candidate_root / SOURCE_ZIP
-        write_archive(candidate_output, end_user_files())
-        write_archive(candidate_source, included_files())
-        smoke = subprocess.run(
-            [
-                sys.executable,
-                "scripts/smoke_release_install.py",
-                "--archive",
-                str(candidate_output),
-                "--skip-install-tests",
-            ],
-            cwd=ROOT,
-            shell=False,
-        )
-        if smoke.returncode:
-            return smoke.returncode
-        _publish_release(candidate_output, candidate_source, DEFAULT_DROP_DIR)
+        with _use_release_snapshot(snapshot_root, file_list):
+            result = subprocess.run(
+                [sys.executable, "scripts/verify_release.py"], cwd=ROOT, shell=False
+            )
+            if result.returncode:
+                return result.returncode
+            validated_source = _release_fingerprint(exclude=EXPLICIT_GENERATED)
+
+            distribution = subprocess.run(
+                [sys.executable, "scripts/verify_distribution.py"], cwd=ROOT, shell=False
+            )
+            if distribution.returncode:
+                return distribution.returncode
+            _assert_release_fingerprint(
+                validated_source, "distribution verification", exclude=EXPLICIT_GENERATED
+            )
+
+            generate_manifest()
+            checksums = []
+            for path in included_files():
+                relative = path.relative_to(ROOT).as_posix()
+                if relative in CHECKSUM_EXCLUDED:
+                    continue
+                checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative}")
+            (ROOT / "SHA256SUMS.txt").write_text(
+                "\n".join(checksums) + "\n", encoding="utf-8"
+            )
+            archive_source = _release_fingerprint()
+
+            write_archive(candidate_output, end_user_files())
+            write_archive(candidate_source, included_files())
+            _assert_release_fingerprint(archive_source, "archive creation", exclude=set())
+            smoke = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/smoke_release_install.py",
+                    "--archive",
+                    str(candidate_output),
+                    "--skip-install-tests",
+                ],
+                cwd=ROOT,
+                shell=False,
+            )
+            if smoke.returncode:
+                return smoke.returncode
+            _assert_release_fingerprint(archive_source, "smoke testing", exclude=set())
+            _publish_release(candidate_output, candidate_source, DEFAULT_DROP_DIR)
     print(OUTPUT)
     print(SOURCE_OUTPUT)
     print(DEFAULT_DROP_DIR)

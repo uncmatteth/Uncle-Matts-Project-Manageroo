@@ -1,5 +1,7 @@
+import hashlib
 import importlib.util
 import multiprocessing
+import subprocess
 import tempfile
 import tomllib
 import unittest
@@ -244,6 +246,73 @@ class PackageReleaseTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     package_release.write_archive(output, files)
             self.assertEqual(output.read_bytes(), b"known-good")
+
+    def test_packaging_uses_staged_bytes_after_live_worktree_mutations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            files = {
+                "README.md": "validated snapshot\n",
+                "pyproject.toml": "[project]\nname = 'fixture'\nversion = '1'\n",
+                "install.sh": "#!/bin/sh\n",
+                "install.ps1": "# fixture\n",
+                "docs/placeholder.md": "fixture\n",
+                "src/manageroo/__init__.py": "__version__ = '1'\n",
+            }
+            for relative, content in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            tracked = set(files)
+            captured = {}
+            real_write_archive = package_release.write_archive
+            archive_calls = {"count": 0}
+
+            def fake_run(argv, **_kwargs):
+                if argv[-1] == "scripts/verify_release.py":
+                    (root / "README.md").write_text("changed after validation\n", encoding="utf-8")
+                return subprocess.CompletedProcess(argv, 0)
+
+            def mutate_then_write(output, selected):
+                archive_calls["count"] += 1
+                if archive_calls["count"] == 1:
+                    (root / "README.md").write_text("changed after checksums\n", encoding="utf-8")
+                real_write_archive(output, selected)
+
+            def capture_publish(candidate_output, candidate_source, _drop_dir):
+                with zipfile.ZipFile(candidate_output) as archive:
+                    captured["installer_readme"] = archive.read(
+                        f"{package_release.ARCHIVE_ROOT}/README.md"
+                    )
+                with zipfile.ZipFile(candidate_source) as archive:
+                    captured["source_readme"] = archive.read(
+                        f"{package_release.ARCHIVE_ROOT}/README.md"
+                    )
+                    captured["checksums"] = archive.read(
+                        f"{package_release.ARCHIVE_ROOT}/SHA256SUMS.txt"
+                    ).decode()
+
+            with (
+                patch.object(package_release, "ROOT", root),
+                patch.object(package_release, "OUTPUT", root / "release.zip"),
+                patch.object(package_release, "SOURCE_OUTPUT", root / "release-source.zip"),
+                patch.object(package_release, "DEFAULT_DROP_DIR", root / "drop"),
+                patch.object(package_release, "_tracked_relative_paths", return_value=tracked),
+                patch.object(package_release.subprocess, "run", side_effect=fake_run),
+                patch.object(package_release, "write_archive", side_effect=mutate_then_write),
+                patch.object(package_release, "_publish_release", side_effect=capture_publish),
+            ):
+                self.assertEqual(package_release.main(), 0)
+
+            expected = files["README.md"].encode()
+            expected_hash = hashlib.sha256(expected).hexdigest()
+            self.assertEqual(captured["installer_readme"], expected)
+            self.assertEqual(captured["source_readme"], expected)
+            self.assertIn(f"{expected_hash}  README.md\n", captured["checksums"])
+            self.assertEqual(
+                (root / "README.md").read_text(encoding="utf-8"),
+                "changed after checksums\n",
+            )
 
     def test_drop_folder_copies_distinct_archives(self):
         with tempfile.TemporaryDirectory() as temp:
