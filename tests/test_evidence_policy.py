@@ -344,6 +344,17 @@ class EvidencePolicyTests(unittest.TestCase):
             self.assertEqual(len(persisted["discovery_identity"]), 64)
             self.assertEqual(persisted["items"][0]["content"], "new repository snapshot")
             self.assertEqual(persisted["items"][0]["authority"], "current_repo")
+            self.assertNotIn(
+                "artifacts/discovery/evidence.json",
+                [item["location"] for item in persisted["items"]],
+            )
+            self.assertFalse(
+                any(
+                    item["source"] == "manageroo-run-artifacts"
+                    and "old repository snapshot" in item["content"]
+                    for item in persisted["items"]
+                )
+            )
             self.assertEqual(
                 continued._planning_evidence_items[0]["content"],
                 "new repository snapshot",

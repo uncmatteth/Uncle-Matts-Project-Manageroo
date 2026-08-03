@@ -32,6 +32,12 @@ AUTHORITY_WEIGHTS: dict[str, float] = {
 MAX_EVIDENCE_CONTENT_CHARS = 12_000
 MAX_EVIDENCE_INPUT_BYTES = 256_000
 EVIDENCE_SUFFIXES = {".json", ".md", ".txt"}
+DERIVED_RUN_ARTIFACTS = {
+    "artifacts/discovery/document-intelligence.json",
+    "artifacts/discovery/evidence.json",
+    "artifacts/discovery/external-intelligence.json",
+    "artifacts/discovery/unknown-unknowns-preflight.json",
+}
 
 
 def evidence_timestamp() -> str:
@@ -95,6 +101,14 @@ def _safe_contained_file(root: Path, candidate: Path) -> Path | None:
     except (OSError, ValueError):
         return None
     return resolved if resolved.is_file() else None
+
+
+def _is_derived_run_artifact(run_root: Path, candidate: Path) -> bool:
+    try:
+        location = candidate.relative_to(run_root).as_posix()
+    except ValueError:
+        return False
+    return location in DERIVED_RUN_ARTIFACTS
 
 
 @dataclass(frozen=True)
@@ -285,6 +299,8 @@ class RunArtifactEvidenceProvider:
                     break
                 lexical = Path(current) / name
                 if lexical.suffix.lower() not in EVIDENCE_SUFFIXES:
+                    continue
+                if _is_derived_run_artifact(self.run_root, lexical):
                     continue
                 eligible_seen += 1
                 path = _safe_contained_file(resolved_artifact_root, lexical)

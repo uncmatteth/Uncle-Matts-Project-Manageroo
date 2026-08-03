@@ -131,6 +131,8 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                 lexical = Path(current) / name
                 if lexical.suffix.lower() not in evidence_module.EVIDENCE_SUFFIXES:
                     continue
+                if evidence_module._is_derived_run_artifact(self.run_root, lexical):
+                    continue
                 eligible_seen += 1
                 record = _verified_bounded_text(
                     lexical,
