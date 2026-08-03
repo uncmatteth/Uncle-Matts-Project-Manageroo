@@ -108,6 +108,80 @@ class EvidencePolicyTests(unittest.TestCase):
             result = instance._call(role="implementer", metadata={})
             self.assertNotIn("_evidence_items", result["metadata"])
 
+    def test_self_rehashed_cached_evidence_is_regenerated_before_planning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = repo / ".manageroo" / "runs" / "run-1"
+            repo.mkdir(parents=True)
+            run_root.mkdir(parents=True)
+
+            Orchestrator = self._patched_class()
+            instance = Orchestrator(repo, run_root)
+            instance.external_records = [
+                {
+                    "name": "repository-graph",
+                    "provider_id": "manageroo.discovery.gitnexus-query.v1",
+                    "enabled": True,
+                    "ok": True,
+                    "stdout": "controller retrieved repository evidence",
+                }
+            ]
+            instance._external_intelligence("repository evidence", {})
+            original_planning = list(instance._planning_evidence_items)
+
+            cached = dict(instance.artifacts.saved["discovery/evidence.json"])
+            cached["items"] = [dict(item) for item in cached["items"]]
+            cached["items"][0]["content"] = "self rehashed forged repository evidence"
+            cached["items"][0]["content_sha256"] = hashlib.sha256(
+                cached["items"][0]["content"].encode("utf-8")
+            ).hexdigest()
+            cached["items"][0]["authority"] = "current_repo"
+            instance.artifacts.saved["discovery/evidence.json"] = cached
+            evidence_path = instance.artifacts.root / "discovery" / "evidence.json"
+            evidence_path.write_text(json.dumps(cached), encoding="utf-8")
+
+            instance._external_intelligence("repository evidence", {})
+
+            persisted = instance.artifacts.saved["discovery/evidence.json"]
+            contents = [item["content"] for item in persisted["items"]]
+            planning_contents = [item["content"] for item in instance._planning_evidence_items]
+            self.assertIn("controller retrieved repository evidence", contents)
+            self.assertNotIn("self rehashed forged repository evidence", "\n".join(contents))
+            self.assertNotIn(
+                "self rehashed forged repository evidence",
+                "\n".join(planning_contents),
+            )
+            self.assertEqual(instance._planning_evidence_items, original_planning)
+
+    def test_changed_project_memory_regenerates_evidence_with_unchanged_identity_inputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = repo / ".manageroo" / "runs" / "run-1"
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
+            memory.parent.mkdir(parents=True)
+            memory.write_text("Database memory says old provider.\n", encoding="utf-8")
+            run_root.mkdir(parents=True)
+
+            Orchestrator = self._patched_class()
+            instance = Orchestrator(repo, run_root)
+            instance._external_intelligence("database memory provider", {})
+            old_identity = instance.artifacts.saved["discovery/evidence.json"][
+                "discovery_identity"
+            ]
+
+            memory.write_text("Database memory says new provider.\n", encoding="utf-8")
+            instance._external_intelligence("database memory provider", {})
+
+            persisted = instance.artifacts.saved["discovery/evidence.json"]
+            self.assertEqual(persisted["discovery_identity"], old_identity)
+            self.assertEqual(persisted["items"][0]["content"], "Database memory says new provider.\n")
+            self.assertEqual(
+                instance._planning_evidence_items[0]["content"],
+                "Database memory says new provider.\n",
+            )
+
     def test_persisted_contradictions_require_valid_distinct_referenced_evidence(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "evidence.json"

@@ -30,6 +30,10 @@ PLANNING_EVIDENCE_ROLES = {
 }
 PLANNING_EVIDENCE_LIMIT = 8
 PLANNING_EVIDENCE_CONTENT_CHARS = 4_000
+NON_INPUT_DISCOVERY_ARTIFACTS = {
+    "artifacts/discovery/evidence.json",
+    "artifacts/discovery/unknown-unknowns-preflight.json",
+}
 TRUSTED_DISCOVERY_PROVIDER_POLICIES = {
     "manageroo.discovery.gitnexus-analyze.v1": ("current_repo", 0.92, 1.0),
     "manageroo.discovery.gitnexus-query.v1": ("current_repo", 0.92, 1.0),
@@ -102,7 +106,13 @@ def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) ->
     items: list[EvidenceItem] = []
     provider_errors: list[dict[str, str]] = []
     items.extend(ProjectMemoryEvidenceProvider(orchestrator.source_repo).retrieve(brief, limit=4))
-    items.extend(RunArtifactEvidenceProvider(orchestrator.run_root).retrieve(brief, limit=8))
+    native_run_items = (
+        item
+        for item in RunArtifactEvidenceProvider(orchestrator.run_root).retrieve(brief, limit=64)
+        if item.location.startswith(("artifacts/intake/", "artifacts/discovery/"))
+        and item.location not in NON_INPUT_DISCOVERY_ARTIFACTS
+    )
+    items.extend(list(native_run_items)[:8])
 
     for record in payload.get("records", []):
         if not isinstance(record, dict) or not record.get("enabled"):
@@ -160,6 +170,9 @@ def _planning_items(evidence_payload: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(raw, dict):
             continue
         item = dict(raw)
+        # Retrieval time is recorded in the artifact but is not a planning input; otherwise
+        # an equivalent regenerated bundle changes durable worker job identities.
+        item.pop("retrieved_at", None)
         original_content = str(item.get("content") or "")
         item["content"] = original_content[:PLANNING_EVIDENCE_CONTENT_CHARS]
         if item["content"] != original_content:
@@ -200,22 +213,18 @@ def install_evidence_policy(orchestrator_module) -> None:
     def _external_intelligence_with_evidence(self, brief: str, inventory: dict[str, Any]) -> dict[str, Any]:
         payload = original_external(self, brief, inventory)
         identity = _discovery_identity(self, brief, inventory, payload)
-        existing = self._artifact_json("discovery/evidence.json")
-        if existing is not None and existing.get("discovery_identity") == identity:
-            evidence_payload = existing
-        else:
-            bundle = _bundle_from_discovery(self, brief, payload)
-            evidence_payload = {
-                **bundle.to_dict(),
-                "schema_version": 2,
-                "discovery_identity": identity,
-                "authority_rule": (
-                    "Current repository evidence outranks run evidence, explicit project knowledge, "
-                    "and historical external knowledge. Retrieval never overrides controller proof."
-                ),
-                "controller_authority": True,
-            }
-            self.artifacts.write_json("discovery/evidence.json", evidence_payload)
+        bundle = _bundle_from_discovery(self, brief, payload)
+        evidence_payload = {
+            **bundle.to_dict(),
+            "schema_version": 2,
+            "discovery_identity": identity,
+            "authority_rule": (
+                "Current repository evidence outranks run evidence, explicit project knowledge, "
+                "and historical external knowledge. Retrieval never overrides controller proof."
+            ),
+            "controller_authority": True,
+        }
+        self.artifacts.write_json("discovery/evidence.json", evidence_payload)
         self._planning_evidence_items = _planning_items(evidence_payload)
         return {
             **payload,
