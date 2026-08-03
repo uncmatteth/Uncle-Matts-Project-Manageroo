@@ -414,7 +414,8 @@ The implemented ClawPatch 0.7.2 state machine is:
 | Revalidation is exactly `fixed` | Commit only the patch-attempt paths, verify any authorized push, then call `next` |
 | Fix exits nonzero, gates fail, or revalidation remains `uncertain` or `false-positive` | Stop with source edits in place and the queue unchanged |
 | A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
-| A prior checkpoint exists | Refuse automatic continuation; Manageroo-project `--fresh` requires its exact owned paths, while external-supervisor `--fresh` discards the current source changes before reinitializing |
+| A stopped checkpoint matches the branch, finding, and current dirty paths, and one applied patch attempt matches current HEAD | Resume that existing attempt at project gates and revalidation; do not rerun `fix` |
+| A prior checkpoint is missing or fails any ownership check | Refuse automatic continuation; Manageroo-project `--fresh` requires its exact owned paths, while external-supervisor `--fresh` discards the current source changes before reinitializing |
 
 After each applied fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, revalidates the same finding, and stages
@@ -423,6 +424,13 @@ exact-path continuation commit so Clawpatch's clean-worktree requirement is met,
 then reenters `next` and the same finding without an arbitrary attempt cap. A
 finding is counted complete only after exact `fixed` revalidation. Clawpatch
 state metadata is never mixed into a source commit.
+
+After a stopped process is relaunched, Manageroo resumes only when the durable
+checkpoint's branch, finding, and exact dirty path set agree, and one applied
+Clawpatch patch-attempt record matches current HEAD. It runs gates and revalidation
+for that already-applied attempt, creates the same exact-path `open` or `fixed`
+commit, and continues from `next` without rerunning `fix`, remapping, or reviewing
+the repository. Any ambiguity leaves the checkpoint and edits untouched.
 
 Clawpatch's `show` output ends with a human triage template. That template is
 not an executable workflow command. Manageroo preserves the inspection output
