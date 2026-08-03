@@ -188,8 +188,8 @@ In a plain Git repository, ClawPatch's applied `fix` result and exact-finding
 revalidation own repair validation; Manageroo does not guess a test runner or
 invent native gates. In a Manageroo-configured repository, those gates remain
 mandatory before review, after each fix, and at final closure. External durable
-checkpoint and proof files live under Git's metadata directory, so the command
-does not add `.manageroo` files to the target worktree.
+checkpoint and proof files live in the Manageroo-owned external-runner state
+directory, so the command adds nothing to the target worktree or Git metadata.
 
 The trusted-host bypass is explicit and temporary. It sets Clawpatch's documented
 Codex sandbox override only in child-process environment and never persists it.
@@ -227,9 +227,9 @@ Clawpatch execution.
 Manageroo gives each Clawpatch child process group and provider the same explicit timeout and sets
 the same default for its Codex worker. A user-supplied
 `CLAWPATCH_CODEX_TIMEOUT_MS` value takes precedence inside Clawpatch, but does
-not extend Manageroo's outer watchdog. Durable progress lives under Git metadata
-for `clawpatch-supervise` and under `.manageroo/cache` for the Manageroo project
-command. Ordinary relaunch refuses to guess a continuation for an interrupted
+not extend Manageroo's outer watchdog. Durable progress lives beside the
+Manageroo-owned `clawpatch-supervise` installation for the external command and
+under `.manageroo/cache` for the Manageroo project command. Ordinary relaunch refuses to guess a continuation for an interrupted
 finding. Explicit `--fresh` may discard source only when the current dirty paths
 exactly equal the checkpoint-owned paths; a checkpoint with unproven or
 unrelated source edits is never discarded.

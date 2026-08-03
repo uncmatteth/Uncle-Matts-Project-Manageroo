@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable
@@ -824,15 +826,34 @@ def _revalidate(
     return payload
 
 
+def _external_state_home() -> Path:
+    prefix = Path(sys.prefix).resolve()
+    base_prefix = Path(sys.base_prefix).resolve()
+    if prefix != base_prefix and prefix.name.casefold() in {"venv", ".venv"}:
+        return prefix.parent / "state"
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
+        return base / "Manageroo" / "clawpatch-supervise" / "state"
+    xdg_state_home = os.environ.get("XDG_STATE_HOME")
+    base = Path(xdg_state_home) if xdg_state_home else Path.home() / ".local" / "state"
+    return base / "manageroo" / "clawpatch-supervise"
+
+
 def _release_state_root(repo: Path, *, integration_mode: str) -> Path:
     if integration_mode == "manageroo":
         return repo / PROJECT_DIR / "cache"
     if integration_mode == "external":
-        git_path = _git_text(repo, ["git", "rev-parse", "--git-path", "manageroo"])
-        path = Path(git_path)
-        if not path.is_absolute():
-            path = repo / path
-        return path.resolve()
+        home = _external_state_home().resolve()
+        repositories = home / "repositories"
+        identity = hashlib.sha256(os.fsencode(str(repo.resolve()))).hexdigest()
+        path = repositories / identity
+        for candidate in (home, repositories, path):
+            if candidate.is_symlink():
+                raise SafetyError(
+                    f"External Clawpatch state path cannot be a symlink: {candidate}"
+                )
+        return path
     raise SafetyError("integration_mode must be one of: manageroo, external.")
 
 

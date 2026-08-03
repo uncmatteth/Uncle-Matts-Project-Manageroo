@@ -352,8 +352,8 @@ before execution, and reports the verified commit. If the target has
 `.manageroo/config.toml`, its configured gates run as additional validation. If
 it does not, ClawPatch owns validation through its `fix` result and exact-finding
 revalidation; the supervisor does not invent test commands. External checkpoint
-and proof files stay under Git's metadata directory rather than adding
-`.manageroo` files to the target worktree. A heartbeat remains visible every 30
+and proof files stay in the Manageroo-owned external-runner state directory
+rather than adding files to the target worktree or its Git metadata. A heartbeat remains visible every 30
 seconds while a long ClawPatch or Codex child is running. The explicit 15-minute
 value controls both the outer process watchdog and ClawPatch's Codex provider.
 Any command failure, missing finding, non-`fixed` final revalidation, unsafe
@@ -434,7 +434,7 @@ limits together, so the terminal never advertises a different timeout from the
 one actually enforced.
 
 Before each finding-scoped fix, Manageroo writes durable progress. The external
-`clawpatch-supervise` command stores it under Git's metadata directory; the
+`clawpatch-supervise` command stores it beside its Manageroo-owned installation; the
 Manageroo project command stores it under `.manageroo/cache`. On a handled
 failure or interruption it records the exact
 source paths that appeared while that one owned fix was active. A later ordinary

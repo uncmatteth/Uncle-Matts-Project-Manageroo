@@ -15,6 +15,7 @@ from manageroo.clawpatch_release import (
     _checkpoint_can_follow_supervisor_upgrade,
     _clawpatch_version,
     _commit_attempt,
+    _external_state_home,
     _fix_command,
     _is_clawpatch_argv,
     _json_clawpatch,
@@ -96,7 +97,10 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         final_closure,
     ):
         with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            manageroo_state = root / "manageroo-owned-state"
             self.init_plain_repo(repo)
             json_clawpatch.side_effect = [
                 {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
@@ -128,30 +132,38 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             execute_fix.side_effect = complete_fix
             final_closure.return_value = {"pushed": False}
 
-            report = release_sweep(
-                repo,
-                apply=True,
-                branch="current",
-                integration_mode="external",
-            )
+            with patch(
+                "manageroo.clawpatch_release._external_state_home",
+                return_value=manageroo_state,
+                create=True,
+            ):
+                report = release_sweep(
+                    repo,
+                    apply=True,
+                    branch="current",
+                    integration_mode="external",
+                )
 
             proof_path = Path(report["proof_path"])
-            git_path = subprocess.check_output(
-                ["git", "rev-parse", "--git-path", "manageroo/clawpatch-release-proof.json"],
-                cwd=repo,
-                text=True,
-            ).strip()
-            expected = Path(git_path)
-            if not expected.is_absolute():
-                expected = repo / expected
-
-            self.assertEqual(proof_path, expected.resolve())
+            self.assertIn(manageroo_state, proof_path.parents)
             self.assertTrue(proof_path.is_file())
             self.assertFalse((repo / ".manageroo").exists())
+            self.assertFalse((repo / ".git" / "manageroo").exists())
             self.assertEqual(
                 subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
                 "",
             )
+
+    @patch("manageroo.clawpatch_release.sys.base_prefix", "/usr")
+    @patch(
+        "manageroo.clawpatch_release.sys.prefix",
+        "/home/test/.local/share/clawpatch-supervise/venv",
+    )
+    def test_dedicated_external_venv_owns_its_state_beside_the_install(self):
+        self.assertEqual(
+            _external_state_home(),
+            Path("/home/test/.local/share/clawpatch-supervise/state"),
+        )
 
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._must_run")
