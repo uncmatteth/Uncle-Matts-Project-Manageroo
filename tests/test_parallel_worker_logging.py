@@ -57,7 +57,12 @@ class ParallelWorkerLoggingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             runner = _Runner()
-            adapter = GenericAdapter(["agent", "-p", "{prompt_text}"], runner, prompt_transport="argument")
+            adapter = GenericAdapter(
+                ["agent", "-p", "{prompt_text}"],
+                runner,
+                prompt_transport="argument",
+                sandbox_argv={"read-only": ["--mode", "plan"]},
+            )
             requests = [
                 _request(root, "001-map", "001"),
                 _request(root, "002-map", "001"),

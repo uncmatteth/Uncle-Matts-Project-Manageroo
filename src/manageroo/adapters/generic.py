@@ -11,6 +11,7 @@ from ..schema import extract_json, load_schema, validate
 
 
 PROMPT_TRANSPORTS = {"file_path", "argument", "stdin"}
+PROTECTED_SANDBOX_MODES = {"read-only", "workspace-write"}
 
 
 class GenericAdapter(AgentAdapter):
@@ -75,10 +76,16 @@ class GenericAdapter(AgentAdapter):
         }
 
     def _render(self, request: AgentRequest) -> tuple[list[str], str | None, bool]:
+        sandbox_args = self.sandbox_argv.get(request.sandbox)
+        if request.sandbox in PROTECTED_SANDBOX_MODES and not sandbox_args:
+            raise ConfigurationError(
+                "Generic adapter has no provider sandbox arguments for protected mode "
+                f"{request.sandbox!r}."
+            )
         values = self._values(request)
         template_text = " ".join(self.argv_template)
         argv = [item.format(**values) for item in self.argv_template]
-        argv.extend(item.format(**values) for item in self.sandbox_argv.get(request.sandbox, []))
+        argv.extend(item.format(**values) for item in (sandbox_args or []))
         input_text = values["prompt_text"] if self.prompt_transport == "stdin" else None
 
         if self.prompt_transport == "file_path":
@@ -91,6 +98,9 @@ class GenericAdapter(AgentAdapter):
     def doctor(self, cwd: Path) -> dict:
         executable = self.argv_template[0]
         found = shutil.which(executable)
+        missing_sandbox_modes = sorted(
+            mode for mode in PROTECTED_SANDBOX_MODES if not self.sandbox_argv.get(mode)
+        )
         if not found:
             return {
                 "ok": False,
@@ -99,6 +109,7 @@ class GenericAdapter(AgentAdapter):
                 "error": f"{executable} executable not found on PATH.",
                 "prompt_transport": self.prompt_transport,
                 "provider_sandbox_modes": sorted(self.sandbox_argv),
+                "missing_provider_sandbox_modes": missing_sandbox_modes,
             }
         missing: list[str] = []
         help_exit_code: int | None = None
@@ -111,12 +122,13 @@ class GenericAdapter(AgentAdapter):
             if not passed:
                 missing = list(self.required_help_flags) or ["doctor command failed"]
         return {
-            "ok": not missing,
+            "ok": not missing and not missing_sandbox_modes,
             "adapter": "generic",
             "executable": executable,
             "path": found,
             "prompt_transport": self.prompt_transport,
             "provider_sandbox_modes": sorted(self.sandbox_argv),
+            "missing_provider_sandbox_modes": missing_sandbox_modes,
             "doctor_argv": self.doctor_argv,
             "doctor_exit_code": help_exit_code,
             "missing_required_flags": missing,

@@ -12,6 +12,12 @@ from manageroo.config import AGENT_PRESETS
 from manageroo.errors import ConfigurationError
 
 
+PROTECTED_SANDBOX_ARGV = {
+    "read-only": ["--mode", "plan"],
+    "workspace-write": ["--mode", "edit"],
+}
+
+
 class _Result:
     def __init__(self, stdout='{"ok": true}', stderr="", passed=True, exit_code=None):
         self.stdout = stdout
@@ -68,10 +74,11 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                 ["any-agent", "--prompt-file", "{prompt}"],
                 runner,
                 prompt_transport="file_path",
+                sandbox_argv=PROTECTED_SANDBOX_ARGV,
             )
             response = adapter.run(request)
             call = runner.calls[0]
-            protocol_path = Path(call["argv"][-1])
+            protocol_path = Path(call["argv"][call["argv"].index("--prompt-file") + 1])
             self.assertNotEqual(protocol_path, request.prompt_path)
             protocol = protocol_path.read_text(encoding="utf-8")
             self.assertIn("DO THE EXACT MANAGEROO JOB", protocol)
@@ -89,11 +96,13 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                 ["any-agent", "-p", "{prompt_text}"],
                 runner,
                 prompt_transport="argument",
+                sandbox_argv=PROTECTED_SANDBOX_ARGV,
             )
             adapter.run(request)
             call = runner.calls[0]
-            self.assertIn("DO THE EXACT MANAGEROO JOB", call["argv"][-1])
-            self.assertIn("Required output protocol", call["argv"][-1])
+            prompt_argument = call["argv"][call["argv"].index("-p") + 1]
+            self.assertIn("DO THE EXACT MANAGEROO JOB", prompt_argument)
+            self.assertIn("Required output protocol", prompt_argument)
             self.assertIsNone(call["input_text"])
 
     def test_stdin_transport_passes_prompt_and_schema_on_stdin(self):
@@ -105,6 +114,7 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                 ["any-agent", "--structured"],
                 runner,
                 prompt_transport="stdin",
+                sandbox_argv=PROTECTED_SANDBOX_ARGV,
             )
             adapter.run(request)
             call = runner.calls[0]
@@ -121,10 +131,27 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                 ["any-agent", "--structured"],
                 runner,
                 prompt_transport="stdin",
-                sandbox_argv={"workspace-write": ["--mode", "edit"]},
+                sandbox_argv=PROTECTED_SANDBOX_ARGV,
             )
             adapter.run(request)
             self.assertEqual(runner.calls[0]["argv"][-2:], ["--mode", "edit"])
+
+    def test_missing_requested_sandbox_mode_rejects_before_provider_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            request = _request(root)
+            request.sandbox = "read-only"
+            runner = _Runner()
+            adapter = GenericAdapter(
+                ["any-agent", "--structured"],
+                runner,
+                prompt_transport="stdin",
+            )
+
+            with self.assertRaisesRegex(ConfigurationError, "protected mode 'read-only'"):
+                adapter.run(request)
+
+            self.assertEqual(runner.calls, [])
 
     def test_transport_configuration_fails_closed_when_template_cannot_deliver_prompt(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -137,6 +164,7 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                         ["any-agent", "--no-prompt-here"],
                         runner,
                         prompt_transport=transport,
+                        sandbox_argv=PROTECTED_SANDBOX_ARGV,
                     )
                     with self.assertRaises(ConfigurationError):
                         adapter.run(request)
@@ -151,6 +179,7 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                 prompt_transport="stdin",
                 doctor_argv=["provider", "--help"],
                 required_help_flags=["--prompt", "--approval-mode"],
+                sandbox_argv=PROTECTED_SANDBOX_ARGV,
             )
             doctor = adapter.doctor(Path(temp))
             self.assertFalse(doctor["ok"])
@@ -166,10 +195,28 @@ class UniversalAgentAdapterTests(unittest.TestCase):
                 prompt_transport="stdin",
                 doctor_argv=["provider", "--help"],
                 required_help_flags=["--prompt", "--approval-mode"],
+                sandbox_argv=PROTECTED_SANDBOX_ARGV,
             )
             doctor = adapter.doctor(Path(temp))
             self.assertTrue(doctor["ok"])
             self.assertEqual(doctor["missing_required_flags"], [])
+            self.assertEqual(doctor["missing_provider_sandbox_modes"], [])
+
+    def test_generic_doctor_rejects_missing_protected_sandbox_mode(self):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.adapters.generic.shutil.which", return_value="/usr/bin/provider"
+        ):
+            adapter = GenericAdapter(
+                ["provider", "-p", "job"],
+                _Runner(),
+                prompt_transport="stdin",
+                sandbox_argv={"workspace-write": ["--mode", "edit"]},
+            )
+
+            doctor = adapter.doctor(Path(temp))
+
+            self.assertFalse(doctor["ok"])
+            self.assertEqual(doctor["missing_provider_sandbox_modes"], ["read-only"])
 
     def test_factory_builds_transactional_protocol_for_any_generic_worker(self):
         runner = _Runner()
@@ -188,6 +235,15 @@ class UniversalAgentAdapterTests(unittest.TestCase):
         self.assertIsInstance(adapter.inner, TransactionalAdapter)
         self.assertIsInstance(adapter.inner.inner, GenericAdapter)
         self.assertEqual(adapter.inner.inner.prompt_transport, "stdin")
+        with patch(
+            "manageroo.adapters.generic.shutil.which", return_value="/usr/bin/future-agent"
+        ):
+            doctor = adapter.doctor(Path.cwd())
+        self.assertFalse(doctor["ok"])
+        self.assertEqual(
+            doctor["missing_provider_sandbox_modes"],
+            ["read-only", "workspace-write"],
+        )
 
     def test_claude_and_gemini_presets_use_stdin_and_provider_safety_modes(self):
         claude = AGENT_PRESETS["claude-code"]
