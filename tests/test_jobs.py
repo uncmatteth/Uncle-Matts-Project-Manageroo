@@ -6,7 +6,7 @@ from pathlib import Path
 from manageroo.context import ContextRequest
 from manageroo.errors import SafetyError
 from manageroo.jobs import AttemptStatus, JobStatus, JobStore
-from manageroo.util import atomic_write_json
+from manageroo.util import atomic_write_json, sha256_file
 
 
 class JobStoreTests(unittest.TestCase):
@@ -154,6 +154,39 @@ class JobStoreTests(unittest.TestCase):
             self.assertEqual(reloaded.output_artifact, "agent/001-product-analyst.json")
             self.assertEqual(len(JobStore(run_root).attempts_for(job.id)), 2)
 
+    def test_completed_job_rejects_artifact_that_conflicts_with_attempt_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            attempt = store.begin_attempt(job.id)
+            output = run_root / "agent-output" / job.id / "001.json"
+            atomic_write_json(output, {"ok": True})
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            atomic_write_json(artifact, {"ok": False})
+            store.complete_attempt(
+                job.id,
+                attempt.attempt_id,
+                output_path=output,
+                data={"ok": True},
+                command=["mock"],
+            )
+
+            with self.assertRaisesRegex(SafetyError, "does not match its result"):
+                store.complete_job(
+                    job.id,
+                    output_artifact="agent/001-product-analyst.json",
+                    data={"ok": True},
+                    artifact_path=artifact,
+                )
+
+            self.assertEqual(store.load_job(job.id).status, JobStatus.RUNNING.value)
+
     def test_delayed_attempt_failure_cannot_downgrade_completed_state(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)
@@ -270,6 +303,34 @@ class JobStoreTests(unittest.TestCase):
             reloaded = store.load_job(job.id)
             self.assertEqual(reloaded.status, JobStatus.PENDING.value)
             self.assertEqual(reloaded.failure_type, "StaleArtifact")
+
+    def test_completed_data_rejects_artifact_that_conflicts_with_recorded_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_job(
+                job.id,
+                output_artifact="agent/001-product-analyst.json",
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+            atomic_write_json(artifact, {"ok": False})
+            completed = store.load_job(job.id)
+            completed.output_artifact_sha256 = sha256_file(artifact)
+            store.save_job(completed)
+
+            self.assertIsNone(store.completed_data(job.id, run_root / "artifacts"))
+            reloaded = store.load_job(job.id)
+            self.assertEqual(reloaded.status, JobStatus.PENDING.value)
+            self.assertEqual(reloaded.failure_type, "MismatchedArtifactResult")
 
     def test_blocked_and_failed_jobs_outrank_pending_jobs_in_status(self):
         with tempfile.TemporaryDirectory() as temp:

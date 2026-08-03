@@ -72,7 +72,7 @@ Every worker call is represented as a durable job:
 `-- agent-output/<job-id>/<attempt-id>.json
 ```
 
-Completed jobs are loaded from recorded artifacts. They are not rerun merely because a chat was compacted or a new worker process starts. A completed job record must include a matching output-artifact SHA-256 hash or it is treated as stale.
+Completed jobs are loaded from recorded artifacts. They are not rerun merely because a chat was compacted or a new worker process starts. A completed job record must include a matching output-artifact SHA-256 hash, and the parsed artifact must match the recorded result hash, or it is treated as stale.
 
 `manageroo run --continue <run-id>` replays the Python controller from the saved run folder. The old worker process is not trusted or required. Replay keeps logical job IDs stable so later attempts continue the original job instead of creating shifted duplicate work.
 

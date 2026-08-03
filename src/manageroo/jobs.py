@@ -401,6 +401,12 @@ class JobStore:
                 f"Completed job artifact path does not match its run-owned artifact reference: {relative}"
             )
         result_hash = sha256_json(data)
+        try:
+            artifact_data = read_json(actual)
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise SafetyError(f"Completed job artifact is not valid JSON: {relative}") from exc
+        if sha256_json(artifact_data) != result_hash:
+            raise SafetyError(f"Completed job artifact does not match its result: {relative}")
         with config_mutation_lock(self._job_path(job_id)):
             job = self.load_job(job_id)
             attempts = self.attempts_for(job_id)
@@ -469,7 +475,18 @@ class JobStore:
                 job.failure = f"Completed job artifact changed: {relative}"
                 self.save_job(job)
                 return None
-            return read_json(path)
+            data = read_json(path)
+            result_hash = sha256_json(data)
+            attempts = self.attempts_for(job_id)
+            if result_hash != job.result_sha256 or (
+                attempts and attempts[-1].result_sha256 != result_hash
+            ):
+                job.status = JobStatus.PENDING.value
+                job.failure_type = "MismatchedArtifactResult"
+                job.failure = f"Completed job artifact does not match its recorded result: {relative}"
+                self.save_job(job)
+                return None
+            return data
 
     def status_summary(self) -> dict[str, Any]:
         jobs = self.list_jobs()
