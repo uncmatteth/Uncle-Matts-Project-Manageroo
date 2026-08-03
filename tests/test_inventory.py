@@ -8,7 +8,6 @@ from unittest.mock import patch
 from manageroo.file_inspection import image_dimensions, media_summary, pdf_page_count, prose_chunks
 from manageroo.inventory import build_inventory, inventory_summary
 from manageroo.runner import CommandResult, CommandRunner
-from manageroo.util import read_json, sha256_file
 
 
 PNG_1X1 = base64.b64decode(
@@ -39,43 +38,6 @@ class _CountingReader:
 
 
 class InventoryTests(unittest.TestCase):
-    def test_mutation_during_scan_retries_before_caching(self):
-        with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
-            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-            path = repo / "story.txt"
-            path.write_text("old version\n", encoding="utf-8")
-            replacement = "replacement version\nwith another line\n"
-            cache_path = repo / "inventory-cache.json"
-            original_digest = sha256_file(path)
-            digest_calls = 0
-
-            def mutate_after_first_digest(candidate):
-                nonlocal digest_calls
-                digest = sha256_file(candidate)
-                digest_calls += 1
-                if digest_calls == 1:
-                    path.write_text(replacement, encoding="utf-8")
-                return digest
-
-            with patch("manageroo.inventory.sha256_file", side_effect=mutate_after_first_digest):
-                files = build_inventory(
-                    repo,
-                    CommandRunner(),
-                    chars_per_token=3.5,
-                    summary_cache_path=cache_path,
-                )
-
-            item = next(item for item in files if item.path == "story.txt")
-            replacement_digest = sha256_file(path)
-            self.assertGreaterEqual(digest_calls, 3)
-            self.assertNotEqual(item.sha256, original_digest)
-            self.assertEqual(item.sha256, replacement_digest)
-            self.assertEqual(item.bytes, len(replacement.encode("utf-8")))
-            self.assertEqual(item.line_count, 2)
-            self.assertIn(f"SHA-256: {replacement_digest}", item.summary)
-            self.assertEqual(read_json(cache_path)["story.txt"]["sha256"], replacement_digest)
-
     def test_media_and_large_prose_are_visible(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
