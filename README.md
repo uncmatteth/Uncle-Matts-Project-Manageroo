@@ -344,7 +344,7 @@ To run the supervisor directly from a terminal, outside the `manageroo` command 
 clawpatch-supervise --repo . --branch current --push each
 ```
 
-This displays the exact current finding as `[current/total] SHOW`, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. Interrupting the command preserves durable progress; rerun the same command to reconcile and resume.
+This displays the exact current finding as `[current/total] SHOW`, where `total` combines findings already open before review with findings created by the current review, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. Interrupting the command preserves durable progress; rerun the same command to reconcile and resume.
 
 Preview the complete closeout lifecycle without changing the repository:
 

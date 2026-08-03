@@ -445,7 +445,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             repo = Path(temp)
             self.init_repo(repo)
             json_clawpatch.side_effect = [
-                {"activeLocks": 0, "lockFiles": 0},
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 4},
                 {"reviewed": 4, "findings": 0},
                 {"dryRun": True, "wouldReview": 0},
@@ -476,7 +476,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             repo = Path(temp)
             self.init_repo(repo)
             json_clawpatch.side_effect = [
-                {"activeLocks": 0, "lockFiles": 0},
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 3},
                 {"reviewed": 3, "findings": 1},
                 {"dryRun": True, "wouldReview": 0},

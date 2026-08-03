@@ -1337,7 +1337,7 @@ def release_sweep(
     open_findings = status.get("openFindings")
     reviewed_findings = review.get("review", {}).get("findings", 0)
     total_findings = (
-        open_findings
+        open_findings + reviewed_findings
         if isinstance(open_findings, int) and not isinstance(open_findings, bool)
         else reviewed_findings
     )
