@@ -106,6 +106,12 @@ def _render_event(event: dict[str, Any]) -> str:
     if phase == "fixed":
         commit = event.get("commit") or "no source commit required"
         return f"\n{_counter(event)} FIXED\ncommit: {commit}"
+    if phase == "continuing":
+        commit = event.get("commit") or "no source commit required"
+        return (
+            f"\n{_counter(event)} OPEN - CONTINUING SAME FINDING\n"
+            f"commit: {commit}"
+        )
     detail = event.get("detail") or event.get("command") or phase or "working"
     return f"{_counter(event)} {str(detail).upper()}"
 
