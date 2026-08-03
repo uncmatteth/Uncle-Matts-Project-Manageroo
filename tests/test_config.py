@@ -1,4 +1,5 @@
 import multiprocessing
+import os
 import tempfile
 import tomllib
 import unittest
@@ -7,6 +8,7 @@ from unittest import mock
 
 from manageroo.config import apply_agent_preset, config_template
 from manageroo.config_lock import config_mutation_lock
+from manageroo.errors import SafetyError
 
 
 def _hold_lock_before_owner_publication(config_path, publication_paused, release) -> None:
@@ -41,6 +43,26 @@ def _enter_config_lock(config_path, lock_opened, entered) -> None:
 
 
 class ConfigTests(unittest.TestCase):
+    def test_config_lock_rejects_hard_link_without_overwriting_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config_path = root / "config.toml"
+            cache = root / "cache"
+            cache.mkdir()
+            target = root / "do-not-overwrite.txt"
+            target.write_text("keep me\n", encoding="utf-8")
+            target.chmod(0o600)
+            try:
+                os.link(target, cache / "config.toml.manageroo.lock")
+            except (OSError, NotImplementedError):
+                self.skipTest("hard links are unavailable on this platform")
+
+            with self.assertRaisesRegex(SafetyError, "unsafe"):
+                with config_mutation_lock(config_path):
+                    self.fail("hard-linked lock must not be acquired")
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "keep me\n")
+
     def test_contender_waits_while_owner_metadata_is_unpublished(self):
         with tempfile.TemporaryDirectory() as temp:
             config_path = Path(temp) / "config.toml"
