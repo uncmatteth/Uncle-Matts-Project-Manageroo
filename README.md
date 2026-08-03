@@ -344,7 +344,7 @@ To run the supervisor directly from a terminal, outside the `manageroo` command 
 clawpatch-supervise --repo . --branch current --push each
 ```
 
-This displays the exact current finding as `[current/total] SHOW`, where `total` combines findings already open before review with findings created by the current review, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. Interrupting the command preserves durable progress; rerun the same command to reconcile and resume. An exhausted checkpoint can also survive a clean, descendant supervisor-only upgrade when every intervening path is an approved supervisor path and is disjoint from the finding evidence.
+This displays the exact current finding as `[current/total] SHOW`, where `total` combines findings already open before review with findings created by the current review, prints the finding evidence and repair scope, prints each ClawPatch `fix` command before execution, keeps retries on the same counter and finding, and reports the verified commit. A heartbeat remains visible every 30 seconds while a long ClawPatch or Codex child is running. Retryable source failures run in visibly numbered three-attempt recovery cycles without advancing the queue or terminating the supervisor. Interrupting the command preserves durable progress; rerun the same command to reconcile and resume. A recovery checkpoint can also survive a clean, descendant supervisor-only upgrade when every intervening path is an approved supervisor path and is disjoint from the finding evidence.
 
 Preview the complete closeout lifecycle without changing the repository:
 
@@ -380,16 +380,16 @@ records `clawpatch show --json`, and automatically runs Clawpatch's explicit
 finding-scoped `fix`. It never builds a queue from a report, substitutes a
 Manageroo-written repair, triages a finding as resolved, or hand-repairs source.
 
-Every Clawpatch child command has a 15-minute watchdog. A timeout kills the
-complete Clawpatch/Codex process group and stops without rerunning that timed-out
-command. Other transient non-fix failures get at most three announced attempts.
-Finding-scoped source repair is also capped at three attempts per invocation.
-Each failed source attempt is preserved in a verified named Git stash, the same
-finding is reopened with the actual failure evidence, and the queue never
-advances. Exhaustion retains the current-finding checkpoint and reports the last
-stash plus the exact resume command; it does not run final closure, commit, or
-push. Missing executables, authentication failure, malformed JSON, unsafe paths,
-or contradictory state still stop immediately.
+Every Clawpatch child command has a 15-minute watchdog. A timeout kills that
+complete Clawpatch/Codex process group. Other transient non-fix failures get at
+most three announced attempts. Finding-scoped source repairs run in bounded
+three-attempt recovery cycles while the external supervisor remains alive. Each
+failed source attempt is preserved in a verified named Git stash, its stash
+reference and changed paths are fed back into Clawpatch's finding state, and the
+same finding is reopened. After a cycle, Manageroo visibly starts another cycle
+on that finding with bounded backoff; it does not advance, run final closure,
+commit, or push the failed repair. Missing executables, authentication failure,
+malformed JSON, unsafe paths, or contradictory state still stop immediately.
 
 After a successful fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, requires revalidation for the same finding

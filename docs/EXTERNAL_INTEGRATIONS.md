@@ -190,14 +190,14 @@ source on a host that already supplies isolation. Manageroo's path restrictions,
 project gates, revalidation, and exact-path commit rules still apply.
 
 Every Clawpatch child command has a 15-minute process-group watchdog. A timeout
-kills the process group and stops without a hidden restart. Provider and other
-transient non-fix failures get at most three attempts, each printed with its
-exact command and fresh phase timer. Source fixes get at most three attempts per
-invocation. Failed source edits are preserved in verified named Git stashes;
-Manageroo reopens only the same finding with the actual failure evidence and
-never advances after exhaustion. It retains the checkpoint and reports the last
-stash and exact resume command without running final closure, committing, or
-pushing. Revalidation that is `uncertain` because read-only execution is blocked
+kills that process group. Provider and other transient non-fix failures get at
+most three attempts, each printed with its exact command and fresh phase timer.
+Source fixes run in visibly numbered three-attempt recovery cycles while the
+supervisor remains alive. Failed source edits are preserved in verified named
+Git stashes; Manageroo feeds the stash reference and changed paths into the
+finding's failure evidence, reopens only that same finding, and starts another
+bounded cycle with backoff. It never advances, runs final closure, commits, or
+pushes a failed repair. Revalidation that is `uncertain` because read-only execution is blocked
 gets one controlled workspace-write retry guarded by an exact source fingerprint,
 not a new source fix.
 
@@ -210,7 +210,7 @@ records that inspection but does not execute or fill in the template. Its
 explicit release policy sends every current open finding to Clawpatch's own
 finding-scoped `fix`. Failed attempts are never called fixed or skipped:
 Manageroo preserves them, reconciles Clawpatch's current state, and retries the
-same finding only within the three-attempt bound.
+same finding in bounded, visibly numbered three-attempt cycles.
 
 The implementation is native Python and uses argv-only subprocesses. It does
 not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports

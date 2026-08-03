@@ -654,7 +654,9 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         preserve.assert_called_once_with(repo.resolve(), "fnd_one", "open")
         reopen.assert_called_once()
         self.assertEqual(reopen.call_args.args, (repo.resolve(), "fnd_one"))
-        self.assertEqual(reopen.call_args.kwargs["failure"], "validation stayed open")
+        self.assertIn("validation stayed open", reopen.call_args.kwargs["failure"])
+        self.assertIn("stash@{0}", reopen.call_args.kwargs["failure"])
+        self.assertIn("app.py", reopen.call_args.kwargs["failure"])
         self.assertEqual(reopen.call_args.kwargs["current_number"], 1)
         self.assertEqual(reopen.call_args.kwargs["total"], 1)
         self.assertIn(call(1), sleep.call_args_list)
@@ -744,7 +746,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.1")
-    def test_source_fix_attempts_stop_after_three_instead_of_looping_forever(
+    def test_source_fix_recovery_starts_a_new_bounded_cycle_without_advancing(
         self,
         _version,
         _processes,
@@ -769,13 +771,16 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 "review": {"reviewed": 1, "findings": 1},
                 "completion": {"dryRun": True, "wouldReview": 0},
             }
-            next_finding.return_value = (
-                "fnd_one",
-                {
-                    "finding": {"id": "fnd_one", "status": "open"},
-                    "next": "clawpatch show --finding fnd_one",
-                },
-            )
+            next_finding.side_effect = [
+                (
+                    "fnd_one",
+                    {
+                        "finding": {"id": "fnd_one", "status": "open"},
+                        "next": "clawpatch show --finding fnd_one",
+                    },
+                ),
+                (None, {"finding": None, "next": "none"}),
+            ]
             inspected = {
                 "finding": {"id": "fnd_one", "status": "open"},
                 "validation": [],
@@ -788,6 +793,11 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                     "repair remained open", finding_id="fnd_one", outcome="open"
                 )
                 for _ in range(3)
+            ] + [
+                (
+                    {"finding_id": "fnd_one", "commit": "abc123"},
+                    False,
+                )
             ]
             preserve.return_value = {
                 "created": True,
@@ -796,23 +806,32 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 "paths": ["app.py"],
             }
 
-            with self.assertRaisesRegex(SafetyError, "exhausted 3 source-fix attempts") as raised:
-                release_sweep(repo, apply=True, branch="current")
+            final_closure.return_value = {"status": {"openFindings": 0}}
+            progress_events = []
+
+            report = release_sweep(
+                repo,
+                apply=True,
+                branch="current",
+                progress=progress_events.append,
+            )
 
             checkpoint = _load_release_progress(repo)
-            self.assertIsNotNone(checkpoint)
-            self.assertEqual(checkpoint["finding_id"], "fnd_one")
-            self.assertEqual(checkpoint["retry_count"], 3)
-            self.assertEqual(checkpoint["phase"], "fix-attempts-exhausted")
-            self.assertIn("failure outcome: open", str(raised.exception))
-            self.assertIn("preserved stash: stash@{0}", str(raised.exception))
-            self.assertIn("resume command: clawpatch-supervise", str(raised.exception))
+            self.assertIsNone(checkpoint)
+            self.assertEqual(report["finding_count"], 1)
+            cycles = [event for event in progress_events if event["phase"] == "retry-cycle"]
+            self.assertEqual(len(cycles), 1)
+            self.assertEqual(cycles[0]["cycle"], 2)
+            self.assertEqual(cycles[0]["finding_id"], "fnd_one")
+            self.assertIn("stash@{0}", cycles[0]["preserved_stash"])
 
-        self.assertEqual(execute_fix.call_count, 3)
+        self.assertEqual(execute_fix.call_count, 4)
         self.assertEqual(preserve.call_count, 3)
-        self.assertEqual(reopen.call_count, 2)
-        self.assertEqual(next_finding.call_count, 1)
-        final_closure.assert_not_called()
+        self.assertEqual(reopen.call_count, 3)
+        self.assertIn("stash@{0}", reopen.call_args.kwargs["failure"])
+        self.assertIn("app.py", reopen.call_args.kwargs["failure"])
+        self.assertEqual(next_finding.call_count, 2)
+        final_closure.assert_called_once()
 
     @patch("manageroo.clawpatch_release._next_finding")
     @patch("manageroo.clawpatch_release._json_clawpatch")

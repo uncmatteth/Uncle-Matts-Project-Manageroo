@@ -24,13 +24,16 @@ MINIMUM_CLAWPATCH_VERSION = (0, 7, 1)
 CLAWPATCH_CODEX_RELEASE_TIMEOUT_MS = 900_000
 CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
 CLAWPATCH_TRANSIENT_MAX_ATTEMPTS = 3
-CLAWPATCH_FIX_MAX_ATTEMPTS = 3
+CLAWPATCH_FIX_ATTEMPTS_PER_CYCLE = 3
+# Kept as a compatibility alias for installed-runtime checks from the first
+# supervisor release. It is a per-cycle bound, not a terminal attempt limit.
+CLAWPATCH_FIX_MAX_ATTEMPTS = CLAWPATCH_FIX_ATTEMPTS_PER_CYCLE
 RELEASE_PROGRESS_VERSION = 1
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "clawpatch map -> complete review of every pending feature -> clawpatch next/show -> one fix -> "
     "complete project gates -> exact fixed revalidation -> on retryable failure preserve/reopen/retry "
-    "the same finding up to three attempts -> exact-path commit/push when authorized -> repeat the "
+    "the same finding in bounded three-attempt recovery cycles -> exact-path commit/push when authorized -> repeat the "
     "open queue -> final closure"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
@@ -806,6 +809,40 @@ def _preserve_unresolved_source(repo: Path, finding_id: str, reason: str) -> dic
     return {"created": True, "ref": ref, "sha": sha, "paths": paths, "message": message}
 
 
+def _latest_preserved_source(repo: Path, finding_id: str) -> dict[str, Any]:
+    output = _git_text(repo, ["git", "stash", "list", "--format=%gd%x09%H%x09%gs"])
+    marker = f"manageroo clawpatch unresolved {finding_id}:"
+    for line in output.splitlines():
+        ref, separator, remainder = line.partition("\t")
+        sha, second_separator, subject = remainder.partition("\t")
+        if not separator or not second_separator or marker not in subject:
+            continue
+        paths = sorted(
+            path
+            for path in _must_run(
+                ["git", "stash", "show", "--name-only", "--format=", ref],
+                cwd=repo,
+                timeout=120,
+            ).splitlines()
+            if path
+        )
+        return {"created": True, "ref": ref, "sha": sha, "paths": paths, "message": subject}
+    return {"created": False, "ref": "", "sha": "", "paths": []}
+
+
+def _retry_failure_context(message: str, preserved: dict[str, Any]) -> str:
+    if not preserved.get("created"):
+        return message
+    ref = str(preserved.get("ref") or "")
+    paths = preserved.get("paths") or []
+    return (
+        f"{message}\nPrevious Clawpatch-owned source attempt is preserved at {ref}. "
+        f"Its changed paths were: {', '.join(str(path) for path in paths)}. "
+        f"Inspect it read-only with git stash show --patch {ref}; use that evidence "
+        "to avoid repeating the same incomplete repair, but do not apply it blindly."
+    )
+
+
 def _release_progress_path(repo: Path) -> Path:
     return repo / PROJECT_DIR / "cache" / "clawpatch-release-progress.json"
 
@@ -818,10 +855,22 @@ def _write_release_progress(
     head_before: str,
     retry_count: int,
     phase: str,
+    cycle_count: int = 1,
+    last_stash_ref: str = "",
+    last_stash_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     if not _FINDING_ID.fullmatch(finding_id):
         raise SafetyError(f"Cannot checkpoint invalid Clawpatch finding ID {finding_id!r}.")
-    if not branch or not head_before or retry_count < 0 or not phase:
+    stash_paths = list(last_stash_paths or [])
+    if (
+        not branch
+        or not head_before
+        or retry_count < 0
+        or cycle_count < 1
+        or not phase
+        or (last_stash_ref and not re.fullmatch(r"stash@\{\d+\}", last_stash_ref))
+        or any(not isinstance(path, str) or not path for path in stash_paths)
+    ):
         raise SafetyError("Cannot checkpoint malformed Clawpatch release progress.")
     progress = {
         "version": RELEASE_PROGRESS_VERSION,
@@ -830,6 +879,9 @@ def _write_release_progress(
         "branch": branch,
         "head_before": head_before,
         "retry_count": retry_count,
+        "cycle_count": cycle_count,
+        "last_stash_ref": last_stash_ref,
+        "last_stash_paths": stash_paths,
         "phase": phase,
         "updated_at": utc_now(),
     }
@@ -847,6 +899,10 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
         raise SafetyError(f"Clawpatch release progress is unreadable: {path}") from exc
     if not isinstance(progress, dict):
         raise SafetyError("Clawpatch release progress is malformed.")
+    progress = dict(progress)
+    progress.setdefault("cycle_count", 1)
+    progress.setdefault("last_stash_ref", "")
+    progress.setdefault("last_stash_paths", [])
     required_strings = ("repo", "finding_id", "branch", "head_before", "phase", "updated_at")
     if (
         progress.get("version") != RELEASE_PROGRESS_VERSION
@@ -855,6 +911,19 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
         or isinstance(progress.get("retry_count"), bool)
         or not isinstance(progress.get("retry_count"), int)
         or progress["retry_count"] < 0
+        or isinstance(progress.get("cycle_count"), bool)
+        or not isinstance(progress.get("cycle_count"), int)
+        or progress["cycle_count"] < 1
+        or not isinstance(progress.get("last_stash_ref"), str)
+        or (
+            bool(progress.get("last_stash_ref"))
+            and not re.fullmatch(r"stash@\{\d+\}", str(progress["last_stash_ref"]))
+        )
+        or not isinstance(progress.get("last_stash_paths"), list)
+        or any(
+            not isinstance(path, str) or not path
+            for path in progress.get("last_stash_paths", [])
+        )
     ):
         raise SafetyError("Clawpatch release progress is malformed.")
     if Path(progress["repo"]).resolve() != repo.resolve():
@@ -866,7 +935,7 @@ def _checkpoint_can_follow_supervisor_upgrade(
     repo: Path,
     progress: dict[str, Any],
 ) -> bool:
-    if progress.get("phase") != "fix-attempts-exhausted":
+    if progress.get("phase") not in {"fix-attempts-exhausted", "fix-cycle-recovery"}:
         return False
     finding_id = progress.get("finding_id")
     old_head = progress.get("head_before")
@@ -1321,6 +1390,9 @@ def release_sweep(
                     head_before=head_before,
                     retry_count=int(durable_progress["retry_count"]),
                     phase=str(durable_progress["phase"]),
+                    cycle_count=int(durable_progress.get("cycle_count", 1)),
+                    last_stash_ref=str(durable_progress.get("last_stash_ref", "")),
+                    last_stash_paths=list(durable_progress.get("last_stash_paths", [])),
                 )
             else:
                 subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
@@ -1456,10 +1528,21 @@ def release_sweep(
             _clear_release_progress(root)
             durable_progress = None
         elif recovery_show is not None:
+            recovery_preserved = {
+                "created": bool(durable_progress.get("last_stash_ref")),
+                "ref": durable_progress.get("last_stash_ref", ""),
+                "paths": durable_progress.get("last_stash_paths", []),
+            }
+            if not recovery_preserved["created"]:
+                recovery_preserved = _latest_preserved_source(root, recovery_id)
             recovered_inspection = _reopen_current_finding(
                 root,
                 recovery_id,
                 env=env,
+                failure=_retry_failure_context(
+                    "Manageroo resumed the same interrupted Clawpatch finding.",
+                    recovery_preserved,
+                ),
                 progress=progress,
                 total=total_findings,
             )
@@ -1509,18 +1592,18 @@ def release_sweep(
             if durable_progress is not None and durable_progress["finding_id"] == finding_id
             else 0
         )
+        cycle_count = (
+            int(durable_progress.get("cycle_count", 1))
+            if durable_progress is not None and durable_progress["finding_id"] == finding_id
+            else 1
+        )
         if (
             durable_progress is not None
             and durable_progress.get("phase") == "fix-attempts-exhausted"
             and retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS
         ):
             retry_count = 0
-        if retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS:
-            raise SafetyError(
-                f"Clawpatch finding {finding_id} already failed "
-                f"{CLAWPATCH_FIX_MAX_ATTEMPTS} source-fix attempts. Manageroo will not "
-                "resume an exhausted repair loop without changed external state."
-            )
+            cycle_count += 1
         while True:
             attempt_head = _git_text(root, ["git", "rev-parse", "HEAD"])
             _write_release_progress(
@@ -1530,6 +1613,7 @@ def release_sweep(
                 head_before=attempt_head,
                 retry_count=retry_count,
                 phase="fix",
+                cycle_count=cycle_count,
             )
             if progress is not None:
                 progress(
@@ -1541,6 +1625,7 @@ def release_sweep(
                         "retry": retry_count,
                         "attempt": retry_count + 1,
                         "max_attempts": CLAWPATCH_FIX_MAX_ATTEMPTS,
+                        "cycle": cycle_count,
                         "command": f"clawpatch fix --finding {finding_id}",
                     }
                 )
@@ -1580,6 +1665,7 @@ def release_sweep(
                         head_before=attempt_head,
                         retry_count=retry_count,
                         phase="revalidation-blocked",
+                        cycle_count=cycle_count,
                     )
                     if progress is not None:
                         progress(
@@ -1615,49 +1701,58 @@ def release_sweep(
                             "error": str(exc),
                         }
                     )
+                preserved_ref = preserved.get("ref") or "no source changes"
+                preserved_paths = preserved.get("paths") or []
+                failure_context = _retry_failure_context(str(exc), preserved)
                 if retry_count >= CLAWPATCH_FIX_MAX_ATTEMPTS:
+                    cycle_count += 1
+                    retry_count = 0
                     _write_release_progress(
                         root,
                         finding_id=finding_id,
                         branch=selected_branch,
                         head_before=attempt_head,
                         retry_count=retry_count,
-                        phase="fix-attempts-exhausted",
+                        phase="fix-cycle-recovery",
+                        cycle_count=cycle_count,
+                        last_stash_ref=str(preserved.get("ref") or ""),
+                        last_stash_paths=list(preserved_paths),
                     )
-                    preserved_ref = preserved.get("ref") or "no source changes"
-                    escaped_repo = str(root).replace('"', '\\"')
-                    resume_command = (
-                        f'clawpatch-supervise --repo "{escaped_repo}" --branch current '
-                        f"--push {push_mode}"
+                    if progress is not None:
+                        progress(
+                            {
+                                "phase": "retry-cycle",
+                                "current": current_finding,
+                                "total": total_findings,
+                                "finding_id": finding_id,
+                                "cycle": cycle_count,
+                                "attempts_per_cycle": CLAWPATCH_FIX_MAX_ATTEMPTS,
+                                "outcome": exc.outcome,
+                                "preserved_stash": preserved_ref,
+                                "preserved_paths": preserved_paths,
+                            }
+                        )
+                else:
+                    _write_release_progress(
+                        root,
+                        finding_id=finding_id,
+                        branch=selected_branch,
+                        head_before=attempt_head,
+                        retry_count=retry_count,
+                        phase="retry",
+                        cycle_count=cycle_count,
                     )
-                    raise SafetyError(
-                        f"Clawpatch finding {finding_id} exhausted "
-                        f"{CLAWPATCH_FIX_MAX_ATTEMPTS} source-fix attempts.\n"
-                        f"failure outcome: {reason}\n"
-                        f"preserved stash: {preserved_ref}\n"
-                        "Manageroo kept the current-finding checkpoint, did not advance the "
-                        "queue, and did not commit or push the failed repair.\n"
-                        f"resume command: {resume_command}\n"
-                        f"last failure:\n{exc}"
-                    ) from exc
-                _write_release_progress(
-                    root,
-                    finding_id=finding_id,
-                    branch=selected_branch,
-                    head_before=attempt_head,
-                    retry_count=retry_count,
-                    phase="retry",
-                )
                 inspected = _reopen_current_finding(
                     root,
                     finding_id,
                     env=env,
-                    failure=str(exc),
+                    failure=failure_context,
                     progress=progress,
                     current_number=current_finding,
                     total=total_findings,
                 )
-                time.sleep(min(2 ** min(retry_count - 1, 6), 60))
+                backoff_step = cycle_count if retry_count == 0 else retry_count
+                time.sleep(min(2 ** min(max(backoff_step - 1, 0), 6), 60))
                 durable_progress = _load_release_progress(root)
                 continue
             _clear_release_progress(root)
