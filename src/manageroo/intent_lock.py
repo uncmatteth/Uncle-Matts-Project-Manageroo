@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -11,7 +12,7 @@ from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
 from .project import git_root
-from .util import atomic_write_json, atomic_write_text, read_json, sha256_file, sha256_text, utc_now
+from .util import atomic_write_json, atomic_write_text, sha256_bytes, sha256_file, sha256_text, utc_now
 
 INTENT_DIR = "intent"
 INTENT_LOCK_NAME = "INTENT-LOCK.json"
@@ -141,6 +142,11 @@ def _publish_lock_pair(path: Path, lock: dict[str, Any]) -> Path:
     return markdown_path
 
 
+def _read_lock_snapshot(path: Path) -> tuple[dict[str, Any], str]:
+    snapshot = path.read_bytes()
+    return json.loads(snapshot.decode("utf-8")), sha256_bytes(snapshot)
+
+
 def capture_intent_lock(repo_path: Path, *, want: str = "", outcomes: list[str] | None = None, must_not: list[str] | None = None, proof: list[str] | None = None, corrections: list[str] | None = None, rejected: list[str] | None = None, questions: list[str] | None = None, scopes: list[str] | None = None, source: str = "", force: bool = False) -> dict[str, Any]:
     repo = git_root(repo_path)
     path = intent_lock_path(repo)
@@ -150,7 +156,8 @@ def capture_intent_lock(repo_path: Path, *, want: str = "", outcomes: list[str] 
             raise ConfigurationError(f"Intent lock already exists: {path}. Use `--force` only when replacing the current locked intent.")
         lock = _lock_payload(repo, want=want, outcomes=outcomes, must_not=must_not, proof=proof, corrections=corrections, rejected=rejected, questions=questions, scopes=scopes, source=source)
         markdown_path = _publish_lock_pair(path, lock)
-    return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(markdown_path), "lock_hash": sha256_file(path), "next_command": f"{PUBLIC_COMMAND} compact audit {repo} --summary SUMMARY.md", "lock": lock}
+        lock, lock_hash = _read_lock_snapshot(path)
+    return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(markdown_path), "lock_hash": lock_hash, "next_command": f"{PUBLIC_COMMAND} compact audit {repo} --summary SUMMARY.md", "lock": lock}
 
 
 def read_intent_lock(repo_path: Path) -> dict[str, Any]:
@@ -158,8 +165,8 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
     path = intent_lock_path(repo)
     if not path.exists():
         return {"ok": False, "repo": str(repo), "path": str(path), "error": "No intent lock exists yet.", "next_command": f'{PUBLIC_COMMAND} intent capture {repo} --want "..." --must-not "..." --proof "..."'}
-    lock = read_json(path)
-    return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(intent_lock_markdown_path(repo)), "lock_hash": sha256_file(path), "lock": lock}
+    lock, lock_hash = _read_lock_snapshot(path)
+    return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(intent_lock_markdown_path(repo)), "lock_hash": lock_hash, "lock": lock}
 
 
 def _required_phrases(lock: dict[str, Any]) -> list[dict[str, str]]:

@@ -30,6 +30,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change | Artifact hash ledger | Detective, blocks next phase |
 | Compaction cannot drop must-not rules | Intent lock plus compaction audit | Detective, blocks continuation |
+| Concurrent intent replacement cannot pair one payload with another generation's hash | Hash and parse one immutable JSON byte snapshot; writers hold the mutation lock through capture result construction | Preventive |
 | Worker memory cannot become run truth | Durable job store, packet manifests, artifact hashes | Preventive in controller |
 | Failed worker attempt is not treated as completion | Worker-attempt records plus retry/failed-job status | Preventive in controller |
 | Concurrent callers cannot allocate the same worker attempt | Per-job interprocess lock plus exclusive attempt-file reservation | Preventive |

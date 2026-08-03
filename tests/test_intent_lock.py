@@ -5,14 +5,14 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
 from manageroo.cli import main
 from manageroo.errors import ConfigurationError
-from manageroo.intent_lock import audit_compaction_text, capture_intent_lock, format_compaction_audit, intent_lock_path, save_compaction_checkpoint
-from manageroo.util import atomic_write_json, sha256_file
+from manageroo.intent_lock import audit_compaction_text, capture_intent_lock, format_compaction_audit, intent_lock_path, read_intent_lock, save_compaction_checkpoint
+from manageroo.util import atomic_write_json, sha256_bytes, sha256_file
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,6 +71,111 @@ class IntentLockTests(unittest.TestCase):
             markdown = lock.with_suffix(".md").read_text(encoding="utf-8")
             self.assertIn("First intent wins.", markdown)
             self.assertNotIn("Second intent loses.", markdown)
+
+    def test_read_stays_consistent_during_forced_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Original intent.")
+            lock = intent_lock_path(repo)
+            snapshot_read = threading.Event()
+            replacement_done = threading.Event()
+            result: dict[str, object] = {}
+            original_open = Path.open
+
+            @contextmanager
+            def delayed_open(path, *args, **kwargs):
+                with original_open(path, *args, **kwargs) as handle:
+                    yield handle
+                if (
+                    path == lock
+                    and threading.current_thread().name == "intent-lock-reader"
+                    and not snapshot_read.is_set()
+                ):
+                    snapshot_read.set()
+                    if not replacement_done.wait(timeout=5):
+                        raise TimeoutError("test did not replace the intent lock")
+
+            def read_lock() -> None:
+                try:
+                    result["report"] = read_intent_lock(repo)
+                except BaseException as exc:
+                    result["error"] = exc
+
+            with mock.patch.object(Path, "open", delayed_open):
+                reader = threading.Thread(target=read_lock, name="intent-lock-reader")
+                reader.start()
+                self.assertTrue(snapshot_read.wait(timeout=5))
+                capture_intent_lock(repo, want="Replacement intent.", force=True)
+                replacement_done.set()
+                reader.join(timeout=5)
+
+            self.assertFalse(reader.is_alive())
+            self.assertNotIn("error", result)
+            report = result["report"]
+            self.assertIsInstance(report, dict)
+            serialized = json.dumps(
+                report["lock"], indent=2, sort_keys=True, ensure_ascii=False
+            ) + "\n"
+            self.assertEqual(report["lock_hash"], sha256_bytes(serialized.encode("utf-8")))
+
+    def test_capture_stays_consistent_during_competing_forced_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Initial intent.")
+            lock = intent_lock_path(repo)
+            snapshot_started = threading.Event()
+            release_snapshot = threading.Event()
+            results: dict[str, object] = {}
+            original_open = Path.open
+
+            def delayed_open(path, *args, **kwargs):
+                if (
+                    path == lock
+                    and threading.current_thread().name == "first-force-capture"
+                    and not snapshot_started.is_set()
+                ):
+                    snapshot_started.set()
+                    if not release_snapshot.wait(timeout=5):
+                        raise TimeoutError("test did not release the first capture")
+                return original_open(path, *args, **kwargs)
+
+            def capture(name: str, want: str) -> None:
+                try:
+                    results[name] = capture_intent_lock(repo, want=want, force=True)
+                except BaseException as exc:
+                    results[name] = exc
+
+            with mock.patch.object(Path, "open", delayed_open):
+                first = threading.Thread(
+                    target=capture,
+                    args=("first", "First replacement."),
+                    name="first-force-capture",
+                )
+                second = threading.Thread(
+                    target=capture,
+                    args=("second", "Second replacement."),
+                    name="second-force-capture",
+                )
+                first.start()
+                self.assertTrue(snapshot_started.wait(timeout=5))
+                second.start()
+                second.join(timeout=0.2)
+                release_snapshot.set()
+                first.join(timeout=5)
+                second.join(timeout=5)
+
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            for name in ("first", "second"):
+                with self.subTest(capture=name):
+                    report = results[name]
+                    self.assertIsInstance(report, dict)
+                    serialized = json.dumps(
+                        report["lock"], indent=2, sort_keys=True, ensure_ascii=False
+                    ) + "\n"
+                    self.assertEqual(
+                        report["lock_hash"], sha256_bytes(serialized.encode("utf-8"))
+                    )
 
     def test_failed_initial_capture_can_be_retried_without_force(self):
         with tempfile.TemporaryDirectory() as temp:
