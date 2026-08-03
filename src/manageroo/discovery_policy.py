@@ -6,10 +6,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .config_lock import config_mutation_lock
 from .discovery_preflight import build_discovery_preflight
 from .errors import BlockingDecisionError, ValidationError
 from .system_capacity import host_capacity
-from .util import atomic_write_json, atomic_write_text, read_json, utc_now
+from .util import atomic_write_json, atomic_write_text, read_json, sha256_json, utc_now
 
 
 def _decision_paths(run_root: Path) -> tuple[Path, Path, Path, Path]:
@@ -28,14 +29,26 @@ def _resolution_path(run_root: Path) -> Path:
 
 def decisions_fully_resolved(run_root: Path) -> bool:
     _, _, product_path, _ = _decision_paths(run_root)
-    if not _resolution_path(run_root).is_file() or not product_path.is_file():
+    resolution_path = _resolution_path(run_root)
+    if not resolution_path.is_file() or not product_path.is_file():
         return False
     product = read_json(product_path)
     if not isinstance(product, dict):
         return False
-    decisions, _ = _normalized_product_decisions(product)
+    decisions, decision_ids = _normalized_product_decisions(product)
+    resolution = read_json(resolution_path)
+    if not isinstance(resolution, dict):
+        return False
+    if resolution.get("product_model_sha256") != sha256_json(product):
+        return False
+    try:
+        answers = _validated_answers(resolution, decision_ids)
+    except ValidationError:
+        return False
     return bool(decisions) and all(
-        bool(str(item.get("chosen") or "").strip()) for item in decisions
+        bool(chosen := str(item.get("chosen") or "").strip())
+        and answers.get(str(item["id"])) == chosen
+        for item in decisions
     )
 
 
@@ -145,68 +158,87 @@ def _normalized_product_decisions(product: dict[str, Any]) -> tuple[list[dict[st
 
 def apply_resolved_decisions(run_root: Path, *, artifact_store: Any | None = None) -> bool:
     _, resolved_path, product_path, markdown_path = _decision_paths(run_root)
-    claimed_path = _claim_resolved_input(resolved_path)
-    if claimed_path is None:
+    if not resolved_path.is_file():
         return False
-    try:
-        if not product_path.is_file():
-            raise ValidationError("Resolved decisions exist but the saved product model is missing.")
-        resolved = read_json(claimed_path)
-        if not isinstance(resolved, dict):
-            raise ValidationError("Resolved decisions file must contain a JSON object.")
-        product = read_json(product_path)
-        if not isinstance(product, dict):
-            raise ValidationError("Saved product model must contain a JSON object.")
-        decisions, decision_ids = _normalized_product_decisions(product)
-        answers = _validated_answers(resolved, decision_ids)
+    resolution_path = _resolution_path(run_root)
+    with config_mutation_lock(product_path):
+        claimed_path = _claim_resolved_input(resolved_path)
+        if claimed_path is None:
+            return False
+        try:
+            if not product_path.is_file():
+                raise ValidationError("Resolved decisions exist but the saved product model is missing.")
+            resolved = read_json(claimed_path)
+            if not isinstance(resolved, dict):
+                raise ValidationError("Resolved decisions file must contain a JSON object.")
+            product = read_json(product_path)
+            if not isinstance(product, dict):
+                raise ValidationError("Saved product model must contain a JSON object.")
+            decisions, decision_ids = _normalized_product_decisions(product)
+            answers = _validated_answers(resolved, decision_ids)
 
-        unresolved: list[str] = []
-        applied: list[dict[str, str]] = []
-        product_changed = False
-        for decision in decisions:
-            decision_id = str(decision["id"]).strip()
-            existing = str(decision.get("chosen") or "").strip()
-            chosen = answers.get(decision_id)
-            if existing:
-                if chosen and chosen != existing:
-                    raise ValidationError(
-                        f"Resolved decision {decision_id!r} conflicts with the already-applied choice {existing!r}."
-                    )
-                if chosen:
+            unresolved: list[str] = []
+            applied: list[dict[str, str]] = []
+            product_changed = False
+            for decision in decisions:
+                decision_id = str(decision["id"]).strip()
+                existing = str(decision.get("chosen") or "").strip()
+                chosen = answers.get(decision_id)
+                if existing:
+                    if chosen and chosen != existing:
+                        raise ValidationError(
+                            f"Resolved decision {decision_id!r} conflicts with the already-applied choice {existing!r}."
+                        )
                     applied.append({"id": decision_id, "chosen": existing})
-                continue
-            if not chosen:
-                unresolved.append(decision_id)
-                continue
-            options = [str(item) for item in decision.get("options", [])]
-            if chosen not in options:
-                raise ValidationError(
-                    f"Resolved decision {decision_id!r} chose {chosen!r}, which is not one of the allowed options: {options}"
-                )
-            decision["chosen"] = chosen
-            decision["resolution_source"] = "operator answer via manageroo decisions"
-            product_changed = True
-            applied.append({"id": decision_id, "chosen": chosen})
+                    continue
+                if not chosen:
+                    unresolved.append(decision_id)
+                    continue
+                options = [str(item) for item in decision.get("options", [])]
+                if chosen not in options:
+                    raise ValidationError(
+                        f"Resolved decision {decision_id!r} chose {chosen!r}, which is not one of the allowed options: {options}"
+                    )
+                decision["chosen"] = chosen
+                decision["resolution_source"] = "operator answer via manageroo decisions"
+                product_changed = True
+                applied.append({"id": decision_id, "chosen": chosen})
 
-        if unresolved:
-            raise ValidationError("Not all blocking decisions have answers: " + ", ".join(unresolved))
+            if unresolved:
+                raise ValidationError("Not all blocking decisions have answers: " + ", ".join(unresolved))
 
-        product["blocking_decisions"] = decisions
-        resolution = {"applied_at": utc_now(), "answers": applied}
-        if artifact_store is None:
-            if product_changed:
-                atomic_write_json(product_path, product)
-            atomic_write_json(_resolution_path(run_root), resolution)
-        else:
-            if product_changed:
-                artifact_store.write_json("planning/product-model.json", product, lock=True)
-            if not _resolution_path(run_root).is_file():
-                artifact_store.write_json("planning/decision-resolution.json", resolution, lock=True)
-        _finish_claim(claimed_path, markdown_path)
-        return True
-    except Exception:
-        _restore_failed_claim(claimed_path, resolved_path)
-        raise
+            product["blocking_decisions"] = decisions
+            resolution = {
+                "applied_at": utc_now(),
+                "answers": applied,
+                "product_model_sha256": sha256_json(product),
+            }
+            if resolution_path.is_file():
+                existing_resolution = read_json(resolution_path)
+                if not isinstance(existing_resolution, dict) or (
+                    existing_resolution.get("answers") != resolution["answers"]
+                    or existing_resolution.get("product_model_sha256")
+                    != resolution["product_model_sha256"]
+                ):
+                    raise ValidationError(
+                        "Existing decision resolution does not match the current product model."
+                    )
+
+            if artifact_store is None:
+                if product_changed:
+                    atomic_write_json(product_path, product)
+                if not resolution_path.is_file():
+                    atomic_write_json(resolution_path, resolution)
+            else:
+                if product_changed:
+                    artifact_store.write_json("planning/product-model.json", product, lock=True)
+                if not resolution_path.is_file():
+                    artifact_store.write_json("planning/decision-resolution.json", resolution, lock=True)
+            _finish_claim(claimed_path, markdown_path)
+            return True
+        except Exception:
+            _restore_failed_claim(claimed_path, resolved_path)
+            raise
 
 
 def install_discovery_policy(orchestrator_module: Any) -> None:

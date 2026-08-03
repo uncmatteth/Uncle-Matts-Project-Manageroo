@@ -1,12 +1,19 @@
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from manageroo.discovery_policy import decisions_fully_resolved, install_discovery_policy
+import manageroo.discovery_policy as discovery_policy
+from manageroo.discovery_policy import (
+    apply_resolved_decisions,
+    decisions_fully_resolved,
+    install_discovery_policy,
+)
 from manageroo.errors import ValidationError
+from manageroo.util import atomic_write_json, read_json, sha256_json
 
 
 class _Artifacts:
@@ -112,6 +119,99 @@ class DiscoveryPolicyTests(unittest.TestCase):
 
                 with self.assertRaises(ValidationError):
                     decisions_fully_resolved(run_root)
+
+    def test_concurrent_decision_applications_serialize_and_keep_artifacts_consistent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            planning = run_root / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "product-model.json",
+                {
+                    "blocking_decisions": [
+                        {
+                            "id": "DEPLOY-1",
+                            "options": ["Blue", "Green"],
+                            "chosen": None,
+                        }
+                    ]
+                },
+            )
+            atomic_write_json(
+                planning / "resolved-decisions.json",
+                {"answers": [{"id": "DEPLOY-1", "chosen": "Blue"}]},
+            )
+
+            first_claimed = threading.Event()
+            release_first = threading.Event()
+            second_claimed = threading.Event()
+            claim_guard = threading.Lock()
+            claim_count = 0
+            real_claim = discovery_policy._claim_resolved_input
+            results: list[bool] = []
+            errors: list[BaseException] = []
+
+            def coordinated_claim(path: Path) -> Path | None:
+                nonlocal claim_count
+                claimed = real_claim(path)
+                if claimed is None:
+                    return None
+                with claim_guard:
+                    claim_count += 1
+                    claim_number = claim_count
+                if claim_number == 1:
+                    first_claimed.set()
+                    if not release_first.wait(timeout=5):
+                        raise TimeoutError("test did not release the first decision claim")
+                else:
+                    second_claimed.set()
+                return claimed
+
+            def apply() -> None:
+                try:
+                    results.append(apply_resolved_decisions(run_root))
+                except BaseException as exc:
+                    errors.append(exc)
+
+            with patch(
+                "manageroo.discovery_policy._claim_resolved_input",
+                side_effect=coordinated_claim,
+            ):
+                first = threading.Thread(target=apply)
+                second = threading.Thread(target=apply)
+                first.start()
+                self.assertTrue(first_claimed.wait(timeout=5))
+                atomic_write_json(
+                    planning / "resolved-decisions.json",
+                    {"answers": [{"id": "DEPLOY-1", "chosen": "Green"}]},
+                )
+                second.start()
+                try:
+                    self.assertFalse(second_claimed.wait(timeout=0.2))
+                finally:
+                    release_first.set()
+                first.join(timeout=5)
+                second.join(timeout=5)
+
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            self.assertEqual(results, [True])
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], ValidationError)
+            self.assertIn("conflicts with the already-applied choice", str(errors[0]))
+
+            product = read_json(planning / "product-model.json")
+            resolution = read_json(planning / "decision-resolution.json")
+            self.assertEqual(product["blocking_decisions"][0]["chosen"], "Blue")
+            self.assertEqual(
+                resolution["answers"],
+                [{"id": "DEPLOY-1", "chosen": "Blue"}],
+            )
+            self.assertEqual(resolution["product_model_sha256"], sha256_json(product))
+            self.assertEqual(
+                read_json(planning / "resolved-decisions.json")["answers"],
+                [{"id": "DEPLOY-1", "chosen": "Green"}],
+            )
 
 
 if __name__ == "__main__":

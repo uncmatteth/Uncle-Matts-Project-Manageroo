@@ -28,6 +28,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Concurrent callers cannot allocate the same worker attempt | Per-job interprocess lock plus exclusive attempt-file reservation | Preventive |
 | Cached references cannot bypass project config mutation locking | Lock inside each public read-modify-write mutation entry point | Preventive |
 | Concurrent adapters cannot exceed the durable worker-call budget | Interprocess ledger lock around reload, limit check, increment, and atomic write | Preventive |
+| Concurrent decision submissions can diverge product and resolution artifacts | Run-scoped interprocess transaction lock plus a product-model digest in the resolution record | Preventive and detective |
 | Concurrent skill installers cannot overlap or overwrite a linked lock target | Permanent cross-platform advisory lock on a validated private regular file; existing contents are not rewritten | Preventive |
 | Idea-inbox lock acquisition cannot overwrite a linked target | Reject symlinks, Windows reparse points, multiple links, and opened-path identity mismatches before truncation | Preventive |
 | Concurrent worker attempts cannot share one repository transaction | Interprocess lock keyed to the canonical Git common directory, held from pristine check through validation or rollback | Preventive |
