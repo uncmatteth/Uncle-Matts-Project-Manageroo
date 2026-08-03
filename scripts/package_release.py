@@ -12,6 +12,10 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from manageroo.config_lock import config_mutation_lock  # noqa: E402
+
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
 PROJECT_VERSION = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
 VERSION_TAG = f"v{PROJECT_VERSION}"
@@ -22,6 +26,7 @@ INSTALLER_ZIP = f"{ARTIFACT_BASENAME}.zip"
 SOURCE_ZIP = f"{ARTIFACT_BASENAME}-source.zip"
 OUTPUT = ROOT.parent / INSTALLER_ZIP
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
+RELEASE_LOCK_TARGET = ROOT / ".manageroo" / "release-publication"
 EXCLUDED_PARTS = {
     ".git", ".manageroo", ".venv", ".clawpatch", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", "__pycache__", "dist", "build",
@@ -268,6 +273,15 @@ def _publish_archive_pair(candidate_output: Path, candidate_source: Path) -> Non
                 backup.unlink()
 
 
+def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: Path) -> None:
+    RELEASE_LOCK_TARGET.parent.mkdir(mode=0o700, exist_ok=True)
+    if RELEASE_LOCK_TARGET.parent.is_symlink() or not RELEASE_LOCK_TARGET.parent.is_dir():
+        raise RuntimeError(f"Release lock directory is unsafe: {RELEASE_LOCK_TARGET.parent}")
+    with config_mutation_lock(RELEASE_LOCK_TARGET, timeout_seconds=600.0):
+        _publish_archive_pair(candidate_output, candidate_source)
+        refresh_drop_folder(drop_dir, OUTPUT, SOURCE_OUTPUT)
+
+
 def main() -> int:
     result = subprocess.run([sys.executable, "scripts/verify_release.py"], cwd=ROOT, shell=False)
     if result.returncode:
@@ -305,9 +319,7 @@ def main() -> int:
         )
         if smoke.returncode:
             return smoke.returncode
-        _publish_archive_pair(candidate_output, candidate_source)
-
-    refresh_drop_folder(DEFAULT_DROP_DIR, OUTPUT, SOURCE_OUTPUT)
+        _publish_release(candidate_output, candidate_source, DEFAULT_DROP_DIR)
     print(OUTPUT)
     print(SOURCE_OUTPUT)
     print(DEFAULT_DROP_DIR)
