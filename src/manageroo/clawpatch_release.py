@@ -34,6 +34,23 @@ LIFECYCLE = (
     "open queue -> final closure"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
+_SUPERVISOR_UPGRADE_PATHS = frozenset(
+    {
+        "BUILD-VALIDATION.json",
+        "README.md",
+        "docs/ARCHITECTURE.md",
+        "docs/ENFORCEMENT_MATRIX.md",
+        "docs/EXTERNAL_INTEGRATIONS.md",
+        "docs/LIMITATIONS.md",
+        "docs/SOLO_OPERATOR_MODE.md",
+        "src/manageroo/clawpatch_external.py",
+        "src/manageroo/clawpatch_release.py",
+        "src/manageroo/runner.py",
+        "tests/test_clawpatch_release_sweep.py",
+        "tests/test_external_clawpatch_supervisor.py",
+        "tests/test_final_clawpatch_regressions.py",
+    }
+)
 
 
 class _UnresolvedFinding(SafetyError):
@@ -844,6 +861,48 @@ def _load_release_progress(repo: Path) -> dict[str, Any] | None:
     return progress
 
 
+def _checkpoint_can_follow_supervisor_upgrade(
+    repo: Path,
+    progress: dict[str, Any],
+) -> bool:
+    if progress.get("phase") != "fix-attempts-exhausted":
+        return False
+    finding_id = progress.get("finding_id")
+    old_head = progress.get("head_before")
+    if not isinstance(finding_id, str) or not isinstance(old_head, str):
+        return False
+    current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    ancestor = _run(
+        ["git", "merge-base", "--is-ancestor", old_head, current_head],
+        cwd=repo,
+        timeout=60,
+    )
+    if ancestor.returncode:
+        return False
+    changed_output = _must_run(
+        ["git", "diff", "--name-only", "--diff-filter=ACMRT", f"{old_head}..{current_head}"],
+        cwd=repo,
+        timeout=60,
+    )
+    changed_paths = {line.strip() for line in changed_output.splitlines() if line.strip()}
+    if not changed_paths or not changed_paths.issubset(_SUPERVISOR_UPGRADE_PATHS):
+        return False
+    finding_path = repo / ".clawpatch" / "findings" / f"{finding_id}.json"
+    try:
+        finding = json.loads(finding_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    evidence = finding.get("evidence") if isinstance(finding, dict) else None
+    if not isinstance(evidence, list):
+        return False
+    evidence_paths = {
+        item["path"]
+        for item in evidence
+        if isinstance(item, dict) and isinstance(item.get("path"), str)
+    }
+    return changed_paths.isdisjoint(evidence_paths)
+
+
 def _clear_release_progress(repo: Path) -> None:
     _release_progress_path(repo).unlink(missing_ok=True)
 
@@ -1251,14 +1310,26 @@ def release_sweep(
                 f"{durable_progress['branch']!r}, not {current_branch!r}."
             )
         if durable_progress["head_before"] != head_before:
-            subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
-            expected = f"clawpatch fix: {durable_progress['finding_id']}"
-            if preexisting_source or subject != expected:
-                raise SafetyError(
-                    "Interrupted Clawpatch release progress no longer matches the current Git HEAD."
+            if not preexisting_source and _checkpoint_can_follow_supervisor_upgrade(
+                root, durable_progress
+            ):
+                durable_progress = _write_release_progress(
+                    root,
+                    finding_id=str(durable_progress["finding_id"]),
+                    branch=str(durable_progress["branch"]),
+                    head_before=head_before,
+                    retry_count=int(durable_progress["retry_count"]),
+                    phase=str(durable_progress["phase"]),
                 )
-            _clear_release_progress(root)
-            durable_progress = None
+            else:
+                subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
+                expected = f"clawpatch fix: {durable_progress['finding_id']}"
+                if preexisting_source or subject != expected:
+                    raise SafetyError(
+                        "Interrupted Clawpatch release progress no longer matches the current Git HEAD."
+                    )
+                _clear_release_progress(root)
+                durable_progress = None
     if preexisting_source and durable_progress is None:
         raise SafetyError("Clawpatch release sweep found pre-existing source changes: " + ", ".join(preexisting_source))
     selected_branch = current_branch

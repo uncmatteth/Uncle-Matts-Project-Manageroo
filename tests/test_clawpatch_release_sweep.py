@@ -12,6 +12,7 @@ from unittest.mock import call, patch
 from manageroo.clawpatch_release import (
     _MissingFinding,
     _UnresolvedFinding,
+    _checkpoint_can_follow_supervisor_upgrade,
     _fix_command,
     _is_clawpatch_argv,
     _json_clawpatch,
@@ -171,6 +172,47 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
             ).stdout.splitlines()
             self.assertEqual(stashed, ["app.py"])
+
+    def test_exhausted_checkpoint_follows_only_a_disjoint_supervisor_upgrade(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            finding_id = "fnd_one"
+            finding_path = repo / ".clawpatch" / "findings" / f"{finding_id}.json"
+            finding_path.parent.mkdir(parents=True)
+            finding_path.write_text(
+                json.dumps(
+                    {
+                        "findingId": finding_id,
+                        "evidence": [{"path": "src/manageroo/release_ready.py"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            old_head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            (repo / "README.md").write_text("controller docs\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "controller upgrade"], cwd=repo, check=True)
+            progress = {
+                "finding_id": finding_id,
+                "head_before": old_head,
+                "phase": "fix-attempts-exhausted",
+            }
+
+            self.assertTrue(_checkpoint_can_follow_supervisor_upgrade(repo, progress))
+
+            source = repo / "src" / "manageroo" / "release_ready.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("changed finding source\n", encoding="utf-8")
+            subprocess.run(["git", "add", str(source.relative_to(repo))], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "finding source changed"], cwd=repo, check=True)
+            self.assertFalse(_checkpoint_can_follow_supervisor_upgrade(repo, progress))
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_complete_review_uses_mapped_feature_count_and_proves_zero_pending(
