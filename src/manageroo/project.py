@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from html import escape
 from pathlib import Path
 
@@ -310,6 +309,9 @@ def _preflight_initialize_project(repo: Path) -> None:
     manageroo = repo / ".manageroo"
     if manageroo.exists() and (manageroo.is_symlink() or not manageroo.is_dir()):
         raise ValueError(f"Refusing to initialize through unsafe Manageroo directory: {manageroo}")
+    brief_path = manageroo / "PRODUCT-BRIEF.md"
+    if brief_path.is_symlink() or (brief_path.exists() and not brief_path.is_file()):
+        raise ValueError(f"Refusing to initialize through unsafe product brief file: {brief_path}")
     _read_utf8_preflight(project_memory_path(repo), label="project memory file")
     for directory in (
         repo / ".agents",
@@ -366,7 +368,8 @@ def initialize_project(
     config_path = write_config(repo, agent, gates)
     brief_path = manageroo / "PRODUCT-BRIEF.md"
     if not brief_path.exists():
-        shutil.copy2(asset_path("templates/PRODUCT-BRIEF.md"), brief_path)
+        brief_source = asset_path("templates/PRODUCT-BRIEF.md")
+        atomic_write_text(brief_path, brief_source.read_text(encoding="utf-8"))
     memory_result = ensure_project_memory(
         repo,
         project_summary=project_summary,

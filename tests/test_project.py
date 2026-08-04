@@ -186,6 +186,30 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertFalse((manageroo / "config.toml").exists())
             self.assertFalse((manageroo / "PRODUCT-BRIEF.md").exists())
 
+    def test_initialization_rejects_unsafe_product_brief_before_mutating_repo(self):
+        unsafe_kinds = ("directory",) if os.name == "nt" else ("dangling-symlink", "directory")
+        for unsafe_kind in unsafe_kinds:
+            with self.subTest(unsafe_kind=unsafe_kind), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                repo = root / "repo"
+                repo.mkdir()
+                subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+                (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+                manageroo = repo / ".manageroo"
+                manageroo.mkdir()
+                brief = manageroo / "PRODUCT-BRIEF.md"
+                outside = root / "outside-brief.md"
+                if unsafe_kind == "dangling-symlink":
+                    brief.symlink_to(outside)
+                else:
+                    brief.mkdir()
+
+                with self.assertRaises(ValueError):
+                    initialize_project(repo, agent="mock")
+
+                self.assertFalse((manageroo / "config.toml").exists())
+                self.assertFalse(outside.exists())
+
     def test_initialization_preserves_existing_instruction_context_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
