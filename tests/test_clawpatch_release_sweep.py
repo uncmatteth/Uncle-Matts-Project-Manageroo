@@ -392,6 +392,52 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._json_clawpatch")
+    def test_fresh_windows_run_makes_clawpatch_wrapper_validation_executable(
+        self, json_clawpatch, _processes
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            (repo / "gradlew.bat").write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+            subprocess.run(["git", "add", "gradlew.bat"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "wrapper"], cwd=repo, check=True)
+            state = repo / ".clawpatch"
+            state.mkdir()
+            config = {
+                "schemaVersion": 1,
+                "commands": {
+                    "typecheck": "./gradlew build",
+                    "lint": None,
+                    "format": None,
+                    "test": "npm run test",
+                },
+            }
+            (state / "config.json").write_text(
+                json.dumps(config) + "\n",
+                encoding="utf-8",
+            )
+
+            def initialize(*_args, **_kwargs):
+                state.mkdir()
+                (state / "config.json").write_text(
+                    json.dumps(config) + "\n",
+                    encoding="utf-8",
+                )
+                return {"created": True}
+
+            json_clawpatch.side_effect = initialize
+            _prepare_fresh_release(
+                repo,
+                env={"PATH": "test"},
+                platform_name="nt",
+            )
+
+            normalized = json.loads((state / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(normalized["commands"]["typecheck"], "gradlew.bat build")
+            self.assertEqual(normalized["commands"]["test"], "npm run test")
+
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_fresh_run_discards_only_checkpoint_owned_interrupted_source(
         self, json_clawpatch, _processes
     ):

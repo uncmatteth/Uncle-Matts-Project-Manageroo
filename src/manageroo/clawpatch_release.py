@@ -26,7 +26,8 @@ MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
 CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
 RELEASE_PROGRESS_VERSION = 4
 LIFECYCLE = (
-    "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
+    "repository/process/Git preflight -> native validation-wrapper normalization -> "
+    "clawpatch status --json -> stale-lock cleanup when proven -> "
     "configured repository baseline gates when present -> clawpatch map -> complete review of every "
     "pending feature in bounded ClawPatch worker waves with an exact decreasing-pending proof -> "
     "clawpatch next/show -> same-finding fix iterations while each produces a new "
@@ -1414,6 +1415,49 @@ def _committed_clawpatch_config(repo: Path) -> str | None:
     return result.stdout if result.returncode == 0 and result.stdout.strip() else None
 
 
+def _normalize_clawpatch_validation_commands(
+    repo: Path,
+    *,
+    platform_name: str,
+) -> None:
+    """Make repository-local wrapper commands executable by native Windows ClawPatch."""
+    if platform_name != "nt":
+        return
+    config_path = repo / ".clawpatch" / "config.json"
+    if not config_path.is_file():
+        return
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SafetyError("Clawpatch configuration is malformed.") from exc
+    commands = config.get("commands") if isinstance(config, dict) else None
+    if not isinstance(commands, dict):
+        raise SafetyError("Clawpatch configuration has no valid command map.")
+
+    changed = False
+    for name, command in list(commands.items()):
+        if not isinstance(command, str):
+            continue
+        match = re.match(r"^\./([A-Za-z0-9_.-]+)(?=\s|$)", command)
+        if match is None:
+            continue
+        wrapper_name = match.group(1)
+        wrapper = next(
+            (
+                candidate.name
+                for candidate in (repo / f"{wrapper_name}.bat", repo / f"{wrapper_name}.cmd")
+                if candidate.is_file()
+            ),
+            None,
+        )
+        if wrapper is None:
+            continue
+        commands[name] = wrapper + command[match.end() :]
+        changed = True
+    if changed:
+        atomic_write_json(config_path, config)
+
+
 def _fresh_checkpoint_owned_paths(
     repo: Path,
     source_changes: list[str],
@@ -1549,6 +1593,7 @@ def _prepare_fresh_release(
     env: dict[str, str],
     progress: Callable[[dict[str, Any]], None] | None = None,
     state_root: Path | None = None,
+    platform_name: str = os.name,
 ) -> None:
     """Delete only Clawpatch run state, preserve project configuration, and initialize again."""
     _require_no_process(repo)
@@ -1624,6 +1669,7 @@ def _prepare_fresh_release(
     if config_text is not None:
         config_path = clawpatch_state_root / "config.json"
         config_path.write_text(config_text, encoding="utf-8")
+    _normalize_clawpatch_validation_commands(repo, platform_name=platform_name)
 
 
 def _commit_attempt(

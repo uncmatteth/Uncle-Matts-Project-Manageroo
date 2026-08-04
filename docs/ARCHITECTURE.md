@@ -127,6 +127,11 @@ reports the pending count and current job count. Manageroo runs one
 features by exactly the child's reviewed count. There is no arbitrary wave cap;
 zero pending completes review, no progress stops, and the 900-second process-tree
 watchdog remains enforced per child instead of spanning the whole repository.
+After every fresh ClawPatch initialization on native Windows, Manageroo rewrites
+only a leading repository-local `./wrapper` validation command when a matching
+`.bat` or `.cmd` wrapper actually exists. This keeps ClawPatch's chosen command
+and arguments intact while preventing a POSIX wrapper spelling such as
+`./gradlew build` from failing every repair under `cmd.exe`.
 The controller then obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
