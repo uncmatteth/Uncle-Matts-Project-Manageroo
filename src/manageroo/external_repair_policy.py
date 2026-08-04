@@ -32,6 +32,37 @@ def _actual_checkpoint_paths(orchestrator: Any, baseline: str, checkpoint: str) 
     return sorted({safe_repo_relative(item) for item in result.stdout.split("\0") if item})
 
 
+def _staged_workspace_tree(orchestrator: Any) -> str:
+    """Capture the exact workspace tree that the controller approved for checkpointing."""
+
+    assert orchestrator.workspace is not None
+    staged = orchestrator.runner.run(
+        ["git", "add", "-A"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=120,
+    )
+    tree = orchestrator.runner.run(
+        ["git", "write-tree"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if not staged.passed or not tree.passed or not tree.stdout.strip():
+        raise SafetyError("Could not capture the approved external repair workspace tree.")
+    return tree.stdout.strip()
+
+
+def _checkpoint_tree(orchestrator: Any, checkpoint: str) -> str:
+    assert orchestrator.workspace is not None
+    result = orchestrator.runner.run(
+        ["git", "rev-parse", f"{checkpoint}^{{tree}}"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if not result.passed or not result.stdout.strip():
+        raise SafetyError("Could not inspect the external repair checkpoint tree.")
+    return result.stdout.strip()
+
+
 def _restore_checkpoint(orchestrator: Any, *, name: str, checkpoint: str) -> None:
     assert orchestrator.workspace is not None
     reset = orchestrator.runner.run(
@@ -409,9 +440,14 @@ def run_external_review_repair_lanes(
                 record["policy_error"] = policy_error
 
             if record.get("ok") and changed_paths:
+                approved_tree = _staged_workspace_tree(self)
                 checkpoint = self.mirror.checkpoint(
                     _checkpoint_message(name, str(self.run_id), before_command)
                 )
+                if _checkpoint_tree(self, checkpoint) != approved_tree:
+                    raise SafetyError(
+                        "External review/repair lane content changed during checkpoint creation."
+                    )
                 checkpoint_paths = _actual_checkpoint_paths(self, before_command, checkpoint)
                 ScopePolicy(tuple(allowed_paths)).validate_paths(checkpoint_paths)
                 if checkpoint_paths != changed_paths:
