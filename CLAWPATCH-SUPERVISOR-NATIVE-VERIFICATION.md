@@ -7,12 +7,12 @@ Windows and native macOS. It does not authorize a live project queue.
 
 - Repository: `https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git`
 - Branch: `fix/clawpatch-partial-progress-loop`
-- Supervisor source pin: `c038fdee0a34d8b77f11e90465eec41e88d9fb8a`
+- Supervisor source pin: `3c35bce6b54bf7810e7db40949ae7979d4b91925`
 - ClawPatch: `0.7.2`
 - Codex CLI: `0.144.4`
 - Child watchdog and provider timeout: `900` seconds
-- Windows installer SHA-256: `e2bed805da93538eb7a1202720087bf8e9371595660ed24c0640a11b00dc9b44`
-- macOS installer SHA-256: `4746212d917ddc1d58fbba2df75bd82cdd8431f6c14d403d95709600c4ce9c20`
+- Windows installer SHA-256: `fd45d0259112528c3727798c46e226c7c510b140710e2641b9cfcf69b2a3736e`
+- macOS installer SHA-256: `cb5f111834252f9ce215ce981ca35603a79311e600f4f1b8695018a43233c2a5`
 
 The handoff commit that adds these installer and instruction files is allowed to
 be newer than the supervisor source pin. The supervisor implementation installed
@@ -96,6 +96,10 @@ The native tests must prove all of these behaviors in disposable repositories:
 21. Child output containing malformed UTF-8 remains bounded and readable, absent
     output is safely sanitized, and a green baseline that changes project source
     stops before map or review with the exact changed paths.
+22. A bounded root PEP 621 pytest project receives a temporary external Python
+    environment containing pytest plus its declared runtime and test/dev
+    dependencies. Only ClawPatch children receive it, dependency failure stops
+    before map/review, and cleanup leaves the repository byte-for-byte unchanged.
 
 ## Windows agent instructions
 
@@ -125,14 +129,14 @@ Confirm the branch is clean and tracks
 ### Verify the Windows installer
 
 ```powershell
-$ExpectedInstallerHash = "e2bed805da93538eb7a1202720087bf8e9371595660ed24c0640a11b00dc9b44"
+$ExpectedInstallerHash = "fd45d0259112528c3727798c46e226c7c510b140710e2641b9cfcf69b2a3736e"
 $ActualInstallerHash = (Get-FileHash -Algorithm SHA256 .\Install-ClawPatch-Supervisor-Windows.ps1).Hash.ToLowerInvariant()
 if ($ActualInstallerHash -ne $ExpectedInstallerHash) {
     throw "Windows installer hash mismatch: $ActualInstallerHash"
 }
 
 $InstallerText = Get-Content -Raw .\Install-ClawPatch-Supervisor-Windows.ps1
-if ($InstallerText -notmatch "c038fdee0a34d8b77f11e90465eec41e88d9fb8a") {
+if ($InstallerText -notmatch "3c35bce6b54bf7810e7db40949ae7979d4b91925") {
     throw "Windows installer does not pin the repaired supervisor commit."
 }
 ```
@@ -234,10 +238,10 @@ Confirm the branch is clean and tracks
 
 ```bash
 set -euo pipefail
-expected_installer_hash="4746212d917ddc1d58fbba2df75bd82cdd8431f6c14d403d95709600c4ce9c20"
+expected_installer_hash="cb5f111834252f9ce215ce981ca35603a79311e600f4f1b8695018a43233c2a5"
 actual_installer_hash="$(shasum -a 256 Install-ClawPatch-Supervisor-macOS.sh | awk '{print $1}')"
 test "${actual_installer_hash}" = "${expected_installer_hash}"
-grep -F "c038fdee0a34d8b77f11e90465eec41e88d9fb8a" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
+grep -F "3c35bce6b54bf7810e7db40949ae7979d4b91925" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
 ```
 
 ### Run the native macOS source proof
