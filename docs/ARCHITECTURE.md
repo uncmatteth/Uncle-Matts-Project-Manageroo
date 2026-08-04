@@ -171,6 +171,10 @@ Every bare external invocation starts fresh. It first proves and recovers any
 temporary iteration commit, then discards only the exact checkpoint-owned dirty
 paths before rebuilding ClawPatch run/discovery state. Unrelated dirty source
 blocks unchanged.
+After final open and uncertain reports are empty and every gate passes, generated
+ClawPatch runtime state is removed and the committed `.clawpatch` tree is restored
+exactly unless the operator explicitly authorized a separate state-only commit.
+An exact source fingerprint guards this cleanup.
 One explicit timeout controls both the child-process watchdog
 and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
 Operator interruption also terminates and reaps that complete child group before

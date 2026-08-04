@@ -82,6 +82,7 @@ def _render_event(event: dict[str, Any]) -> str:
         "commit": "COMMIT",
         "push": "PUSH",
         "report": "REPORT",
+        "state-cleanup": "CLAWPATCH STATE CLEANUP",
     }
     if phase in command_phases:
         attempt = event.get("attempt")

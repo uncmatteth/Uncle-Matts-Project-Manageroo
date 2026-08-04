@@ -12,6 +12,7 @@ from manageroo.clawpatch_release import (
     _load_release_progress,
     _prepare_fresh_release,
     _process_finding_until_fixed,
+    _restore_committed_clawpatch_state,
     _resolve_uncertain_findings,
     _write_release_progress,
 )
@@ -38,6 +39,44 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
             ["git", "rev-parse", "HEAD"], cwd=repo, text=True
         ).strip()
         return branch, head
+
+    def test_final_state_cleanup_restores_committed_config_and_removes_runtime_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            _branch, _head = self.init_repo(repo)
+            state = repo / ".clawpatch"
+            state.mkdir()
+            (state / "config.json").write_text('{"committed":true}\n', encoding="utf-8")
+            (state / "project.json").write_text('{"name":"original"}\n', encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "-f", ".clawpatch/config.json", ".clawpatch/project.json"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(["git", "commit", "-q", "-m", "track config"], cwd=repo, check=True)
+
+            (state / "config.json").write_text('{"committed":false}\n', encoding="utf-8")
+            (state / "runs").mkdir()
+            (state / "runs" / "generated.json").write_text("{}\n", encoding="utf-8")
+            source_before = (repo / "app.py").read_bytes()
+
+            _restore_committed_clawpatch_state(repo)
+
+            self.assertEqual(
+                (state / "config.json").read_text(encoding="utf-8"),
+                '{"committed":true}\n',
+            )
+            self.assertEqual(
+                (state / "project.json").read_text(encoding="utf-8"),
+                '{"name":"original"}\n',
+            )
+            self.assertFalse((state / "runs").exists())
+            self.assertEqual((repo / "app.py").read_bytes(), source_before)
+            self.assertEqual(
+                subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
+                "",
+            )
 
     @patch("manageroo.clawpatch_release._push_and_verify")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
@@ -412,6 +451,10 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             branch, _head = self.init_repo(repo)
+            (repo / ".clawpatch" / "runs").mkdir(parents=True)
+            (repo / ".clawpatch" / "runs" / "generated.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
             recovered = {
                 "finding_id": "fnd_uncertain",
                 "revalidation": {"outcome": "fixed"},
@@ -445,6 +488,7 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
             )
 
             self.assertEqual(closure["recovered_findings"], [recovered])
+            self.assertFalse((repo / ".clawpatch").exists())
             resolve_uncertain.assert_called_once_with(
                 repo,
                 env={},

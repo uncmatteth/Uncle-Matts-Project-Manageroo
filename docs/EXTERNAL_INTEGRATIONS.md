@@ -276,7 +276,10 @@ arbitrary attempt cap and never substitutes a Manageroo-written repair.
 
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
-Manageroo creates one separate `.clawpatch/**`-only final state commit.
+Manageroo creates one separate `.clawpatch/**`-only final state commit. Otherwise,
+after successful closure, Manageroo removes generated runtime state and restores
+the committed `.clawpatch` tree exactly; committed configuration is preserved and
+project source is fingerprinted before and after cleanup.
 
 Clawpatch 0.7.2's `show` output includes a human triage template. Manageroo
 records that inspection but does not execute or fill in the template. Its

@@ -531,7 +531,10 @@ Git worktree.
 Tracked `.clawpatch/**` state is never mixed
 into a source-repair commit. To publish tracked state after closure, explicitly
 add `--publish-clawpatch-state` together with a push mode; Manageroo creates one
-separate final state-only commit and verifies the live remote SHA.
+separate final state-only commit and verifies the live remote SHA. Without that
+option, successful closure removes generated ClawPatch runtime state and restores
+the repository's committed `.clawpatch` files byte-for-byte, so committed
+configuration is preserved and the worktree finishes clean.
 
 Dry-run is the default. `--apply` explicitly authorizes fixes and exact-path
 source commits. Nothing is pushed unless you add `--push each` or `--push final`.

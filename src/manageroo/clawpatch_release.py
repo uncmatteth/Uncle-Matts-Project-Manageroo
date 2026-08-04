@@ -2139,6 +2139,39 @@ def _publish_final_state(repo: Path, *, branch: str) -> str:
     return _git_text(repo, ["git", "rev-parse", "HEAD"])
 
 
+def _restore_committed_clawpatch_state(repo: Path) -> None:
+    state_root = repo / ".clawpatch"
+    if state_root.is_symlink() or state_root.resolve().parent != repo.resolve():
+        raise SafetyError("Final Clawpatch state cleanup requires a safe repository directory.")
+    before_source = _source_state_fingerprint(repo)
+    if state_root.exists():
+        if not state_root.is_dir():
+            raise SafetyError("Final Clawpatch state path is not a directory.")
+        shutil.rmtree(state_root)
+    tracked = [
+        path
+        for path in _must_run(
+            ["git", "ls-tree", "-r", "--name-only", "-z", "HEAD", "--", ".clawpatch"],
+            cwd=repo,
+            timeout=120,
+        ).split("\0")
+        if path
+    ]
+    if tracked:
+        _must_run(
+            ["git", "restore", "--source=HEAD", "--staged", "--worktree", "--", ".clawpatch"],
+            cwd=repo,
+            timeout=120,
+        )
+    remaining_state = [
+        path
+        for path in _status_paths(repo)
+        if path == ".clawpatch" or path.startswith(".clawpatch/")
+    ]
+    if remaining_state or _source_state_fingerprint(repo) != before_source:
+        raise SafetyError("Final Clawpatch state cleanup did not preserve exact project source.")
+
+
 def _execute_fix(
     repo: Path,
     finding_id: str,
@@ -2694,12 +2727,25 @@ def _final_closure(
         if push_mode == "none":
             raise SafetyError("Publishing final Clawpatch state requires explicit --push each or --push final authorization.")
         state_commit = _publish_final_state(repo, branch=branch)
+    elif (repo / ".clawpatch").exists() or state_paths:
+        if progress is not None:
+            progress(
+                {
+                    "phase": "state-cleanup",
+                    "current": current,
+                    "total": total,
+                    "command": "restore committed .clawpatch state",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            )
+        _restore_committed_clawpatch_state(repo)
     if push_mode == "final" or state_commit:
         _push_and_verify(repo, branch, first=not pushed)
         pushed = True
     if _status_paths(repo):
         raise SafetyError(
-            "Final authorized Git worktree is not clean. Manageroo will not auto-publish or discard Clawpatch state: "
+            "Final authorized Git worktree is not clean after restoring committed Clawpatch state: "
             + ", ".join(_status_paths(repo))
         )
     _require_no_process(repo)
