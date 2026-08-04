@@ -165,6 +165,8 @@ The surrounding stack provides first-class capabilities without taking control a
 Successful external repair reports are reusable only for the same run, command configuration,
 approved paths, and inputs. Continuation verifies the recorded checkpoint chain and Git diffs,
 then restores the exact clean final checkpoint; incomplete legacy reports fail closed.
+Before the final report exists, successful lane manifests form the same command-ordered chain, so
+an interrupted run restores its latest validated checkpoint without repeating completed lanes.
 
 These systems are capabilities, not completion authorities.
 

@@ -116,6 +116,8 @@ def _existing_checkpoint(
         raise SafetyError(f"Command-owned {name} checkpoint manifest is invalid.")
     if str(payload.get("run_id") or "") != str(orchestrator.run_id):
         return None
+    if str(payload.get("name") or "") != name:
+        raise SafetyError(f"Command-owned {name} checkpoint manifest names another lane.")
     if str(payload.get("baseline") or "") != baseline:
         return None
     checkpoint = str(payload.get("checkpoint") or "").strip()
@@ -139,9 +141,83 @@ def _existing_checkpoint(
         )
     changed_paths = _actual_checkpoint_paths(orchestrator, baseline, checkpoint)
     recorded_paths = sorted({safe_repo_relative(str(item)) for item in payload.get("changed_paths", []) or []})
-    if recorded_paths and recorded_paths != changed_paths:
+    if recorded_paths != changed_paths:
         raise SafetyError(f"Command-owned {name} checkpoint manifest does not match its Git diff.")
     return checkpoint, changed_paths
+
+
+def _existing_checkpoint_chain(
+    orchestrator: Any,
+    commands: list[tuple[str, Any]],
+    *,
+    allowed_paths: list[str],
+    input_fingerprint: str,
+) -> list[dict[str, Any]]:
+    """Validate and restore the contiguous same-run checkpoint prefix."""
+
+    chain: list[dict[str, Any]] = []
+    policy = ScopePolicy(tuple(allowed_paths))
+    expected_baseline = ""
+    missing_prefix = False
+    for lane_index, (name, _argv_template) in enumerate(commands):
+        manifest_path = _checkpoint_manifest_path(orchestrator, name)
+        if not manifest_path.is_file():
+            missing_prefix = True
+            continue
+        try:
+            payload = read_json(manifest_path)
+        except Exception as exc:
+            raise SafetyError(f"Command-owned {name} checkpoint manifest is unreadable: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise SafetyError(f"Command-owned {name} checkpoint manifest is invalid.")
+        if str(payload.get("run_id") or "") != str(orchestrator.run_id):
+            missing_prefix = True
+            continue
+        if missing_prefix:
+            raise SafetyError(
+                f"Command-owned {name} checkpoint chain is not contiguous in configured order."
+            )
+        recorded_index = payload.get("lane_index")
+        if recorded_index is not None and recorded_index != lane_index:
+            raise SafetyError(f"Command-owned {name} checkpoint lane order has changed.")
+        recorded_fingerprint = str(payload.get("input_fingerprint") or "")
+        if recorded_fingerprint and recorded_fingerprint != input_fingerprint:
+            raise SafetyError(f"Command-owned {name} checkpoint inputs have changed.")
+        baseline = str(payload.get("baseline") or "").strip()
+        if not baseline:
+            raise SafetyError(f"Command-owned {name} checkpoint manifest has no baseline SHA.")
+        if expected_baseline and baseline != expected_baseline:
+            raise SafetyError("Command-owned external repair checkpoint chain is invalid.")
+        resumed = _existing_checkpoint(orchestrator, name, baseline=baseline)
+        if resumed is None:
+            raise SafetyError(f"Command-owned {name} checkpoint manifest is stale.")
+        checkpoint, changed_paths = resumed
+        policy.validate_paths(changed_paths)
+        chain.append(
+            {
+                "name": name,
+                "baseline": baseline,
+                "checkpoint": checkpoint,
+                "changed_paths": changed_paths,
+            }
+        )
+        expected_baseline = checkpoint
+
+    if not chain:
+        return []
+    current_head = orchestrator.mirror.head()
+    boundaries = {chain[0]["baseline"]}
+    boundaries.update(item["checkpoint"] for item in chain)
+    if current_head not in boundaries:
+        raise SafetyError(
+            "Command-owned external repair workspace HEAD is outside the validated checkpoint chain."
+        )
+    _restore_checkpoint(
+        orchestrator,
+        name="interrupted external review/repair",
+        checkpoint=chain[-1]["checkpoint"],
+    )
+    return chain
 
 
 def _require_clean_lane_start(orchestrator: Any, name: str) -> None:
@@ -374,28 +450,33 @@ def run_external_review_repair_lanes(
     records: list[dict] = []
     failed: list[str] = []
     rollback_verified = True
-    for name, argv_template in commands:
-        baseline = self.mirror.head()
-        resumed = _existing_checkpoint(self, name, baseline=baseline)
-        if resumed is not None:
-            checkpoint, changed_paths = resumed
+    checkpoint_chain = _existing_checkpoint_chain(
+        self,
+        commands,
+        allowed_paths=allowed_paths,
+        input_fingerprint=input_fingerprint,
+    )
+    for lane_index, (name, argv_template) in enumerate(commands):
+        if lane_index < len(checkpoint_chain):
+            resumed = checkpoint_chain[lane_index]
+            changed_paths = resumed["changed_paths"]
             ScopePolicy(tuple(allowed_paths)).validate_paths(changed_paths)
-            _restore_checkpoint(self, name=name, checkpoint=checkpoint)
-            records.append(
-                {
-                    "name": name,
-                    "enabled": True,
-                    "ok": True,
-                    "resumed_from_checkpoint": True,
-                    "checkpoint": checkpoint,
-                    "baseline": baseline,
-                    "command_owned_repair_lane": True,
-                    "ai_freehand_repair_allowed": False,
-                    "changed_paths": changed_paths,
-                }
-            )
+            record = {
+                "name": name,
+                "enabled": True,
+                "ok": True,
+                "resumed_from_checkpoint": True,
+                "baseline": resumed["baseline"],
+                "command_owned_repair_lane": True,
+                "ai_freehand_repair_allowed": False,
+                "changed_paths": changed_paths,
+            }
+            if changed_paths:
+                record["checkpoint"] = resumed["checkpoint"]
+            records.append(record)
             continue
 
+        baseline = self.mirror.head()
         _require_clean_lane_start(self, name)
         before_command = baseline
         try:
@@ -439,28 +520,33 @@ def run_external_review_repair_lanes(
                 record["ok"] = False
                 record["policy_error"] = policy_error
 
-            if record.get("ok") and changed_paths:
-                approved_tree = _staged_workspace_tree(self)
-                checkpoint = self.mirror.checkpoint(
-                    _checkpoint_message(name, str(self.run_id), before_command)
-                )
-                if _checkpoint_tree(self, checkpoint) != approved_tree:
-                    raise SafetyError(
-                        "External review/repair lane content changed during checkpoint creation."
+            if record.get("ok"):
+                checkpoint = before_command
+                checkpoint_paths: list[str] = []
+                if changed_paths:
+                    approved_tree = _staged_workspace_tree(self)
+                    checkpoint = self.mirror.checkpoint(
+                        _checkpoint_message(name, str(self.run_id), before_command)
                     )
-                checkpoint_paths = _actual_checkpoint_paths(self, before_command, checkpoint)
-                ScopePolicy(tuple(allowed_paths)).validate_paths(checkpoint_paths)
-                if checkpoint_paths != changed_paths:
-                    raise SafetyError(
-                        "External review/repair lane paths changed during checkpoint creation."
-                    )
-                record["checkpoint"] = checkpoint
-                record["changed_paths"] = checkpoint_paths
+                    if _checkpoint_tree(self, checkpoint) != approved_tree:
+                        raise SafetyError(
+                            "External review/repair lane content changed during checkpoint creation."
+                        )
+                    checkpoint_paths = _actual_checkpoint_paths(self, before_command, checkpoint)
+                    ScopePolicy(tuple(allowed_paths)).validate_paths(checkpoint_paths)
+                    if checkpoint_paths != changed_paths:
+                        raise SafetyError(
+                            "External review/repair lane paths changed during checkpoint creation."
+                        )
+                    record["checkpoint"] = checkpoint
+                    record["changed_paths"] = checkpoint_paths
                 atomic_write_json(
                     _checkpoint_manifest_path(self, name),
                     {
                         "run_id": str(self.run_id),
                         "name": name,
+                        "lane_index": lane_index,
+                        "input_fingerprint": input_fingerprint,
                         "baseline": before_command,
                         "checkpoint": checkpoint,
                         "changed_paths": checkpoint_paths,

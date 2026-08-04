@@ -132,6 +132,59 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
             )
 
+    def test_interrupted_final_report_write_resumes_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            calls = {"count": 0}
+            holder = {}
+
+            def command(**_kwargs):
+                calls["count"] += 1
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("repaired\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            write_json = fake.artifacts.write_json
+
+            def interrupt_final_report(relative, data, **kwargs):
+                if relative == "review/external-review-repair.json":
+                    raise OSError("final report write interrupted")
+                return write_json(relative, data, **kwargs)
+
+            with patch.object(fake.artifacts, "write_json", side_effect=interrupt_final_report):
+                with self.assertRaisesRegex(OSError, "final report write interrupted"):
+                    run_external_review_repair_lanes(
+                        fake,
+                        brief="repair",
+                        plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                        gate_results=[],
+                    )
+
+            manifest_path = (
+                run_root
+                / "artifacts"
+                / "review"
+                / "external-state"
+                / "clawpatch-checkpoint.json"
+            )
+            checkpoint = read_json(manifest_path)["checkpoint"]
+            self.assertEqual(fake.mirror.head(), checkpoint)
+
+            resumed = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                gate_results=[],
+            )
+
+            self.assertEqual(calls["count"], 1)
+            self.assertTrue(resumed["records"][0]["resumed_from_checkpoint"])
+            self.assertEqual(resumed["records"][0]["checkpoint"], checkpoint)
+            self.assertEqual(fake.mirror.head(), checkpoint)
+
     def test_command_exception_restores_exact_clean_baseline(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
