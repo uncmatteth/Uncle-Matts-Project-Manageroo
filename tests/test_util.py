@@ -44,6 +44,28 @@ class RedactTextTests(unittest.TestCase):
             ["curl", "-H", "Authorization: Basic <REDACTED>"],
         )
 
+    def test_comma_delimited_authorization_credentials_are_fully_redacted(self):
+        for scheme, credentials in (
+            (
+                "AWS4-HMAC-SHA256",
+                "Credential=AKIA/example, SignedHeaders=host, Signature=deadbeef",
+            ),
+            (
+                "Digest",
+                'username="Mufasa", realm="test", nonce="abc", response="deadbeef"',
+            ),
+        ):
+            with self.subTest(scheme=scheme):
+                header = f"Authorization: {scheme} {credentials}"
+                self.assertEqual(
+                    redact_text(f"request failed: {header}\nstatus: 401"),
+                    f"request failed: Authorization: {scheme} <REDACTED>\nstatus: 401",
+                )
+                self.assertEqual(
+                    redact_argv(["curl", "-H", header]),
+                    ["curl", "-H", f"Authorization: {scheme} <REDACTED>"],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

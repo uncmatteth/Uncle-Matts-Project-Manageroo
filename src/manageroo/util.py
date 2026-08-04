@@ -30,8 +30,8 @@ _AUTHORIZATION_SCHEME_RE = re.compile(
     (?:
         (?P<quoted>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')
         |
-        (?P<scheme>[^\s,;}}"']+)
-        (?:(?P<separator>[ \t]+)(?P<credentials>[^\s,;}}]+(?:[ \t]+[^\s,;}}]+)*))?
+        (?P<scheme>[^\s\r\n}}"']+)
+        (?:(?P<separator>[ \t]+)(?P<credentials>[^\r\n]+))?
     )
     '''
 )
