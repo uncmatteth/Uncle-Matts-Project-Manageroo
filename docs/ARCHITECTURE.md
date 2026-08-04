@@ -128,9 +128,9 @@ it cannot silently modify the repair. A durable per-finding progress record bind
 the repository, branch, HEAD, finding, phase, and exact owned source paths.
 Ordinary relaunch refuses continuation. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
-The portable external supervisor instead defines explicit `--fresh` as a full
-source-and-ClawPatch-state reset so it can start clean in any Git repository
-without a prior Manageroo checkpoint.
+The portable external supervisor applies the same source-ownership rule while
+keeping its checkpoint outside the target repository; without a valid matching
+checkpoint, dirty source blocks fresh cleanup unchanged.
 One explicit timeout controls both the child-process watchdog
 and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
 Operator interruption also terminates and reaps that complete child group before
@@ -140,8 +140,8 @@ An explicit fresh run through the Manageroo project command may discard dirty
 source only when durable progress binds the interrupted `fix` to the current
 repository, branch, and compatible HEAD, and the dirty-path set exactly matches
 the checkpoint's recorded owned paths. The separately installed external
-supervisor treats `--fresh` as explicit authorization to discard every current
-source change and old `.clawpatch` state before reinitialization.
+supervisor enforces the same ownership check before removing old `.clawpatch`
+state and reinitializing.
 
 ## Parallel mapping and review, sequential implementation
 

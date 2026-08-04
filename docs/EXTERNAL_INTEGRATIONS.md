@@ -215,11 +215,10 @@ records that inspection but does not execute or fill in the template. Its
 explicit release policy sends every current open finding to Clawpatch's own
 finding-scoped `fix`. Failed attempts are never called fixed or skipped:
 the supervisor stops and requires an explicit operator decision. Only `--fresh`
-can automatically discard source and initialize a new Clawpatch run. In the
-portable external supervisor, that flag explicitly discards every current
-source change whether or not a checkpoint exists, so operators must commit or
-copy work they want to keep first. The Manageroo project command keeps the
-stricter exact-checkpoint ownership rule.
+can discard source and initialize a new Clawpatch run, and only when a valid
+release-progress checkpoint owns the exact dirty paths on the matching branch
+and HEAD. Uncheckpointed or unrelated source changes block both the portable
+external supervisor and the Manageroo project command unchanged.
 
 The implementation is native Python and uses argv-only subprocesses. It does
 not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports
@@ -234,15 +233,15 @@ not extend Manageroo's outer watchdog. Durable progress lives beside the
 Manageroo-owned `clawpatch-supervise` installation for the external command and
 under `.manageroo/cache` for the Manageroo project command. Ordinary relaunch
 refuses to guess a continuation for an interrupted finding. For the external
-`clawpatch-supervise` command, explicit `--fresh` discards all current tracked
-and untracked source changes and old `.clawpatch` run state, then initializes a
-clean run. The Manageroo project command remains narrower: its `--fresh` may
-discard source only when current dirty paths exactly equal the checkpoint-owned
-paths.
+`clawpatch-supervise` command, explicit `--fresh` may discard source only when
+current dirty paths exactly equal the checkpoint-owned paths and the checkpoint
+matches the repository, branch, and compatible HEAD. Otherwise it refuses
+before removing old `.clawpatch` run state. The Manageroo project command uses
+the same source-ownership rule.
 On upgrade, the external runner recognizes and verifies its legacy version-2
 checkpoint under `.manageroo/cache`, moves that ownership record into the
 Manageroo-owned external state directory, and then applies the external fresh
-reset contract.
+cleanup contract.
 Manageroo is not an OS daemon and
 cannot relaunch its own terminated controller process.
 

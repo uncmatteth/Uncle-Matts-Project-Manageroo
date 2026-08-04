@@ -249,7 +249,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
-    def test_external_fresh_discards_current_source_changes_without_checkpoint(
+    def test_external_fresh_refuses_current_source_changes_without_checkpoint(
         self,
         _version,
         _processes,
@@ -267,7 +267,8 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             source.write_text("before\n", encoding="utf-8")
             subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
-            source.write_text("discard this external fresh work\n", encoding="utf-8")
+            source.write_text("preserve this external fresh work\n", encoding="utf-8")
+            source_before = source.read_bytes()
             stale = repo / ".clawpatch" / "findings" / "stale.json"
             stale.parent.mkdir(parents=True)
             stale.write_text("{}\n", encoding="utf-8")
@@ -288,21 +289,16 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 "manageroo.clawpatch_release._external_state_home",
                 return_value=manageroo_state,
             ):
-                report = release_sweep(
-                    repo,
-                    apply=True,
-                    branch="current",
-                    fresh=True,
-                    integration_mode="external",
-                )
+                with self.assertRaisesRegex(SafetyError, "refuses unrelated source changes"):
+                    release_sweep(
+                        repo,
+                        apply=True,
+                        branch="current",
+                        fresh=True,
+                        integration_mode="external",
+                    )
 
-            self.assertTrue(report["ok"])
-            self.assertEqual(source.read_text(encoding="utf-8"), "before\n")
-            self.assertFalse(stale.exists())
-            self.assertEqual(
-                subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
-                "",
-            )
+            self.assertEqual(source.read_bytes(), source_before)
 
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._must_run")
