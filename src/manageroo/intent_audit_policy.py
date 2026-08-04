@@ -3,9 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .branding import PUBLIC_COMMAND
-
-
 _NEGATION_IN_CLAUSE = re.compile(
     r"\b(?:[a-z]+n't|"
     r"cannot|can't|did not|didn't|do not|don't|failed|fails|failing|is not|isn't|"
@@ -155,7 +152,9 @@ def install_intent_audit_policy(intent_lock_module: Any) -> None:
             report["ok"] = False
             report["status"] = "blocked"
             report["confidence_claims_blocking"] = True
-            report["next_command"] = f"{PUBLIC_COMMAND} intent show {report.get('repo', repo_path)}"
+            report["next_command"] = intent_lock_module.render_next_command(
+                "intent", "show", report.get("repo", repo_path)
+            )
         else:
             report["confidence_claims_blocking"] = False
         return report

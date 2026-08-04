@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -41,6 +42,10 @@ def intent_lock_path(repo: Path) -> Path:
 
 def intent_lock_markdown_path(repo: Path) -> Path:
     return intent_root(repo) / INTENT_LOCK_MARKDOWN_NAME
+
+
+def render_next_command(*arguments: str | Path) -> str:
+    return shlex.join([PUBLIC_COMMAND, *(str(argument) for argument in arguments)])
 
 
 def _clean(value: str) -> str:
@@ -158,7 +163,10 @@ def _invalid_intent_lock(repo: Path, path: Path, detail: str) -> dict[str, Any]:
         "repo": str(repo),
         "path": str(path),
         "error": f"INTENT-LOCK.json is invalid: {detail}",
-        "next_command": f'{PUBLIC_COMMAND} intent capture {repo} --want "..." --must-not "..." --proof "..." --force',
+        "next_command": render_next_command(
+            "intent", "capture", repo, "--want", "...", "--must-not", "...",
+            "--proof", "...", "--force",
+        ),
     }
 
 
@@ -199,14 +207,14 @@ def capture_intent_lock(repo_path: Path, *, want: str = "", outcomes: list[str] 
         lock = _lock_payload(repo, want=want, outcomes=outcomes, must_not=must_not, proof=proof, corrections=corrections, rejected=rejected, questions=questions, scopes=scopes, source=source)
         markdown_path = _publish_lock_pair(path, lock)
         lock, lock_hash = _read_lock_snapshot(path)
-    return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(markdown_path), "lock_hash": lock_hash, "next_command": f"{PUBLIC_COMMAND} compact audit {repo} --summary SUMMARY.md", "lock": lock}
+    return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(markdown_path), "lock_hash": lock_hash, "next_command": render_next_command("compact", "audit", repo, "--summary", "SUMMARY.md"), "lock": lock}
 
 
 def read_intent_lock(repo_path: Path) -> dict[str, Any]:
     repo = git_root(repo_path)
     path = intent_lock_path(repo)
     if not path.exists():
-        return {"ok": False, "repo": str(repo), "path": str(path), "error": "No intent lock exists yet.", "next_command": f'{PUBLIC_COMMAND} intent capture {repo} --want "..." --must-not "..." --proof "..."'}
+        return {"ok": False, "repo": str(repo), "path": str(path), "error": "No intent lock exists yet.", "next_command": render_next_command("intent", "capture", repo, "--want", "...", "--must-not", "...", "--proof", "...")}
     lock, lock_hash = _read_lock_snapshot(path)
     if not isinstance(lock, dict):
         return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
@@ -251,7 +259,7 @@ def audit_compaction_text(repo_path: Path, summary_text: str, *, summary_path: P
         "lock_hash": lock_report["lock_hash"], "summary_path": str(summary_path.resolve()) if summary_path else "",
         "summary_hash": sha256_text(summary_text), "missing": missing, "warnings": warnings,
         "checked_categories": sorted({item["category"] for item in _required_phrases(lock)}),
-        "next_command": f"{PUBLIC_COMMAND} intent show {repo}" if missing else f"{PUBLIC_COMMAND} run --repo {repo} --apply",
+        "next_command": render_next_command("intent", "show", repo) if missing else render_next_command("run", "--repo", repo, "--apply"),
     }
 
 

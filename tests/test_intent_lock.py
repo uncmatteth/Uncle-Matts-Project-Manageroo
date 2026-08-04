@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -26,6 +27,34 @@ class IntentLockTests(unittest.TestCase):
             repo = self._repo(Path(temp))
             result = capture_intent_lock(repo, want="Build the release helper without pretending it deploys.", outcomes=["Writes a release handoff"], must_not=["Do not deploy production"], proof=["release-ready reports READY"], corrections=["The command name is manageroo"], rejected=["Do not add GitHub Actions"], questions=["Which deployment target should the operator use?"], scopes=["Only this Git repo"], source="operator-chat")
             self.assertTrue(result["ok"]); lock = intent_lock_path(repo); self.assertTrue(lock.is_file()); payload = json.loads(lock.read_text(encoding="utf-8")); self.assertEqual(payload["want"], "Build the release helper without pretending it deploys."); self.assertIn("Do not deploy production", payload["must_not"]); self.assertIn("Do not add GitHub Actions", payload["rejected"]); markdown = lock.with_suffix(".md").read_text(encoding="utf-8"); self.assertIn("## Must Not Happen", markdown); self.assertIn("Do not deploy production", markdown); self.assertIn("## Rejected Ideas", markdown)
+
+    def test_next_commands_shell_quote_repository_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "repo's; touch injected"
+            root.mkdir()
+            repo = self._repo(root)
+            commands = [read_intent_lock(repo)["next_command"]]
+            commands.append(capture_intent_lock(repo, want="Build it.")["next_command"])
+            intent_lock_path(repo).write_text("[]", encoding="utf-8")
+            commands.append(read_intent_lock(repo)["next_command"])
+            capture_intent_lock(repo, want="Build it.", force=True)
+            commands.append(audit_compaction_text(repo, "")["next_command"])
+            commands.append(audit_compaction_text(repo, "Build it.")["next_command"])
+            capture_intent_lock(
+                repo,
+                want="Ship it.",
+                proof=["The release gate has not run."],
+                force=True,
+            )
+            confidence_report = audit_compaction_text(
+                repo,
+                "Ship it. The release gate has not run. Production-ready.",
+            )
+            commands.append(confidence_report["next_command"])
+
+            for command in commands:
+                with self.subTest(command=command):
+                    self.assertEqual(shlex.split(command).count(str(repo)), 1)
 
     def test_concurrent_capture_allows_exactly_one_non_force_writer(self):
         with tempfile.TemporaryDirectory() as temp:
