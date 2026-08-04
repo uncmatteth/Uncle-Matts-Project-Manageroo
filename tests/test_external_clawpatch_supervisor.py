@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -11,6 +12,69 @@ from manageroo.errors import SafetyError
 
 
 class ExternalClawpatchSupervisorTests(unittest.TestCase):
+    def test_validation_service_is_visible_and_scoped_to_clawpatch_children(self):
+        calls = []
+        lifecycle = []
+
+        @contextmanager
+        def fake_provision(repo: Path, *, progress):
+            lifecycle.append(("start", repo))
+            progress(
+                {
+                    "phase": "validation-service-start",
+                    "current": "?",
+                    "total": "?",
+                    "command": "create owned disposable PostgreSQL validation database",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            )
+            try:
+                yield {
+                    "TEST_DATABASE_URL": "postgresql://127.0.0.1:49152/test",
+                    "BTT_ALLOW_DATABASE_RESET": "true",
+                }
+            finally:
+                lifecycle.append(("cleanup", repo))
+
+        def fake_sweep(repo: Path, **kwargs):
+            calls.append((repo, kwargs))
+            return {
+                "ok": True,
+                "finding_count": 0,
+                "open_findings": 0,
+                "git_head": "abc123",
+            }
+
+        def fake_idle(repo: Path):
+            lifecycle.append(("idle", repo))
+
+        output = StringIO()
+        with redirect_stdout(output):
+            code = main(
+                ["--repo", "."],
+                run_sweep=fake_sweep,
+                provision_validation_environment=fake_provision,
+                ensure_repository_idle=fake_idle,
+                heartbeat_seconds=0,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual([item[0] for item in lifecycle], ["idle", "start", "cleanup"])
+        self.assertEqual(
+            calls[0][1]["child_env_overrides"],
+            {
+                "TEST_DATABASE_URL": "postgresql://127.0.0.1:49152/test",
+                "BTT_ALLOW_DATABASE_RESET": "true",
+            },
+        )
+        self.assertIn("VALIDATION SERVICE START", output.getvalue())
+        self.assertLess(
+            output.getvalue().index("PROCESS PREFLIGHT"),
+            output.getvalue().index("VALIDATION SERVICE START"),
+        )
+        self.assertEqual(output.getvalue().count("PROCESS PREFLIGHT"), 1)
+
     def test_resume_phase_explains_source_clean_planned_attempt(self):
         self.assertEqual(
             _render_event(

@@ -26,7 +26,8 @@ MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
 CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
 RELEASE_PROGRESS_VERSION = 4
 LIFECYCLE = (
-    "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
+    "repository/process/Git preflight -> exact-owned disposable validation-service setup when the "
+    "repository declares a supported contract -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "configured repository baseline gates when present -> clawpatch map -> complete review of every "
     "pending feature in bounded ClawPatch worker waves with an exact decreasing-pending proof -> "
     "clawpatch next/show -> same-finding fix iterations while each produces a new "
@@ -41,6 +42,7 @@ LIFECYCLE = (
     "review generation finds zero findings; a repeated non-clean source tree stops as nonconvergent"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SUPERVISOR_UPGRADE_PATHS = frozenset(
     {
         "BUILD-VALIDATION.json",
@@ -53,7 +55,9 @@ _SUPERVISOR_UPGRADE_PATHS = frozenset(
         "src/manageroo/clawpatch_external.py",
         "src/manageroo/clawpatch_release.py",
         "src/manageroo/runner.py",
+        "src/manageroo/validation_services.py",
         "tests/test_clawpatch_release_sweep.py",
+        "tests/test_disposable_validation_services.py",
         "tests/test_external_clawpatch_supervisor.py",
         "tests/test_final_clawpatch_regressions.py",
     }
@@ -84,6 +88,7 @@ def _release_clawpatch_env(
     trusted_host_codex_sandbox_bypass: bool,
     allow_sandbox_bypass_fallback: bool = False,
     child_timeout_seconds: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    child_env_overrides: dict[str, str] | None = None,
 ) -> dict[str, str]:
     if child_timeout_seconds < 60:
         raise SafetyError("Clawpatch child timeout must be at least 60 seconds.")
@@ -96,6 +101,10 @@ def _release_clawpatch_env(
         child_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
     elif allow_sandbox_bypass_fallback:
         child_env["MANAGEROO_CLAWPATCH_ALLOW_BYPASS_FALLBACK"] = "1"
+    for name, value in (child_env_overrides or {}).items():
+        if not _ENV_NAME.fullmatch(name) or "\x00" in value:
+            raise SafetyError("Manageroo received an invalid validation-service environment value.")
+        child_env[name] = value
     return child_env
 
 
@@ -374,6 +383,15 @@ def _require_no_process(repo: Path) -> None:
     active = _active_clawpatch_processes(repo)
     if active:
         raise SafetyError(f"A Clawpatch process is already active for this repository: {active}")
+
+
+def require_external_clawpatch_preflight(repo: Path) -> None:
+    """Prove tool, Git, and process readiness before external service setup."""
+    root = _git_root(repo)
+    _clawpatch_version(root)
+    _git_text(root, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    _git_text(root, ["git", "rev-parse", "HEAD"])
+    _require_no_process(root)
 
 
 def _version_tuple(text: str) -> tuple[int, int, int]:
@@ -2035,6 +2053,23 @@ def _process_finding_until_fixed(
                     seen_states=seen_states,
                     state_root=state_root,
                 )
+            except _UnresolvedFinding as progress_exc:
+                _stop_finding_iteration(
+                    repo,
+                    finding_id=finding_id,
+                    branch=branch,
+                    original_head=original_head,
+                    temporary_commit=temporary_commit,
+                    seen_states=seen_states,
+                    state_root=state_root,
+                )
+                if progress_exc.outcome == "no-progress":
+                    raise _UnresolvedFinding(
+                        f"{progress_exc}\nOriginal Clawpatch failure: {exc}",
+                        finding_id=finding_id,
+                        outcome="no-progress",
+                    ) from exc
+                raise
             except BaseException:
                 _stop_finding_iteration(
                     repo,
@@ -2970,6 +3005,7 @@ def release_sweep(
     child_timeout_seconds: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
     progress: Callable[[dict[str, Any]], None] | None = None,
     integration_mode: str = "manageroo",
+    child_env_overrides: dict[str, str] | None = None,
     _fixed_point_generation: int = 1,
     _fixed_point_seen_trees: tuple[str, ...] = (),
     _prior_results: tuple[dict[str, Any], ...] = (),
@@ -3026,6 +3062,7 @@ def release_sweep(
         trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass,
         allow_sandbox_bypass_fallback=(integration_mode == "external"),
         child_timeout_seconds=child_timeout_seconds,
+        child_env_overrides=child_env_overrides,
     )
     if integration_mode == "external":
         _migrate_legacy_external_progress(root, state_root=state_root)
@@ -3649,6 +3686,7 @@ def release_sweep(
             child_timeout_seconds=child_timeout_seconds,
             progress=progress,
             integration_mode=integration_mode,
+            child_env_overrides=child_env_overrides,
             _fixed_point_generation=_fixed_point_generation + 1,
             _fixed_point_seen_trees=(*_fixed_point_seen_trees, generation_tree),
             _prior_results=tuple(report["results"]),

@@ -269,13 +269,13 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
                         "before\nvaluable partial\n", encoding="utf-8"
                     )
                 raise _UnresolvedFinding(
-                    "validation failed after applying fix",
+                    "validation failed after applying fix: database assertion failed",
                     finding_id="fnd_one",
                     outcome="fix-validation-failed",
                 )
 
             execute_fix.side_effect = fix_side_effect
-            with self.assertRaisesRegex(Exception, "no source changes"):
+            with self.assertRaisesRegex(Exception, "no source changes") as caught:
                 _process_finding_until_fixed(
                     repo,
                     "fnd_one",
@@ -286,6 +286,12 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
                     pushed=False,
                     state_root=state_root,
                 )
+
+            self.assertIn(
+                "Original Clawpatch failure: validation failed after applying fix: "
+                "database assertion failed",
+                str(caught.exception),
+            )
 
             current_head = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=repo, text=True

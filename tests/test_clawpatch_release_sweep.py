@@ -521,6 +521,21 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(fallback["MANAGEROO_CLAWPATCH_ALLOW_BYPASS_FALLBACK"], "1")
         self.assertEqual(authorized["CLAWPATCH_CODEX_SANDBOX"], "bypass")
 
+    def test_release_environment_scopes_validated_service_variables_to_children(self):
+        child = _release_clawpatch_env(
+            trusted_host_codex_sandbox_bypass=False,
+            child_env_overrides={
+                "TEST_DATABASE_URL": "postgresql://127.0.0.1:49152/test",
+                "BTT_ALLOW_DATABASE_RESET": "true",
+            },
+        )
+
+        self.assertEqual(
+            child["TEST_DATABASE_URL"],
+            "postgresql://127.0.0.1:49152/test",
+        )
+        self.assertEqual(child["BTT_ALLOW_DATABASE_RESET"], "true")
+
     def test_process_matcher_ignores_clawpatch_mentions_inside_gbrain_context(self):
         gbrain = [
             "bun",

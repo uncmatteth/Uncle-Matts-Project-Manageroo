@@ -75,6 +75,9 @@ Every worker call is represented as a durable job:
 Completed jobs are loaded from recorded artifacts. They are not rerun merely because a chat was compacted or a new worker process starts. A completed job record must include a matching output-artifact SHA-256 hash, and the parsed artifact must match the recorded result hash, or it is treated as stale.
 
 `manageroo run --continue <run-id>` replays the Python controller from the saved run folder. The old worker process is not trusted or required. Replay keeps logical job IDs stable so later attempts continue the original job instead of creating shifted duplicate work.
+Product-analysis continuation also reuses the locked system-capacity and
+unknown-unknowns-preflight artifacts from that run; volatile host values such as
+free disk space cannot change the durable worker specification between attempts.
 
 ## Evidence retrieval, not AI memory
 
@@ -139,6 +142,19 @@ macOS filesystem identity checks canonicalize the `/var` to `/private/var`
 alias before containment and package-manager ownership comparisons. The native
 macOS installer also discovers Homebrew at its standard Apple Silicon and Intel
 locations when a non-login shell does not include Homebrew on `PATH`.
+Before the queue, the external supervisor may satisfy one narrowly discovered
+repository validation contract: tests that explicitly require
+`TEST_DATABASE_URL` plus an `*_ALLOW_DATABASE_RESET` guard, together with one
+root Compose file declaring one official versioned PostgreSQL image. Manageroo
+does not start that Compose stack or use its volumes. It creates a separately
+named Docker container with tmpfs database storage, a random password, and one
+random loopback-only port, then passes the URL and reset guard only to child
+ClawPatch processes. Repository identity labels prove ownership before stale
+container recovery or deletion. An unknown image, ambiguous Compose state,
+missing reset guard, foreign same-named container, or unavailable Docker fails
+closed or leaves automatic provisioning disabled; no existing database is
+reset. Cleanup runs after completion, stop, failure, or interruption and a
+cleanup failure is reported.
 The controller then obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and

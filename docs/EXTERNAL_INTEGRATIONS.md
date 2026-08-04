@@ -215,6 +215,21 @@ mandatory before review, after each fix, and at final closure. External durable
 checkpoint and proof files live in the Manageroo-owned external-runner state
 directory, so the command adds nothing to the target worktree or Git metadata.
 
+The external supervisor can provision one strict disposable validation service
+without changing that ownership boundary. If bounded test/spec source explicitly
+uses `TEST_DATABASE_URL` and an `*_ALLOW_DATABASE_RESET` guard, and exactly one
+root Compose file declares exactly one official versioned PostgreSQL image,
+Manageroo verifies the resolved Compose image and starts a separate Docker
+container. The container uses tmpfs instead of project volumes, a random
+password, a random loopback-only port, and deterministic repository ownership
+labels. Only ClawPatch children receive the test URL and reset flag. Manageroo
+never launches the repository Compose stack, never connects to an existing
+database, and never resets a database it does not own. A stale container is
+removed only after its name and both ownership labels match exactly; a foreign
+collision stops untouched. The terminal displays validation-service start,
+ready, and cleanup phases. Docker absence or service failure stops before the
+queue with a direct explanation, and cleanup is attempted on every exit path.
+
 The trusted-host bypass is explicit and temporary. It sets Clawpatch's documented
 Codex sandbox override only in child-process environment and never persists it.
 It removes the nested Codex approval/sandbox boundary, so use it only for trusted

@@ -3,11 +3,17 @@ from __future__ import annotations
 import argparse
 import threading
 import time
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Callable
 
-from .clawpatch_release import CLAWPATCH_CHILD_WATCHDOG_SECONDS, release_sweep
+from .clawpatch_release import (
+    CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    release_sweep,
+    require_external_clawpatch_preflight,
+)
 from .errors import SafetyError
+from .validation_services import provision_disposable_validation_environment
 
 
 def _counter(event: dict[str, Any]) -> str:
@@ -71,6 +77,7 @@ def _render_event(event: dict[str, Any]) -> str:
         "status": "STATUS",
         "lock-cleanup": "LOCK CLEANUP",
         "baseline-validation": "BASELINE VALIDATION",
+        "validation-service-start": "VALIDATION SERVICE START",
         "map": "MAP",
         "review": "REVIEW",
         "review-verification": "REVIEW VERIFICATION",
@@ -94,6 +101,10 @@ def _render_event(event: dict[str, Any]) -> str:
         )
     if phase == "finding":
         return _render_inspection(event)
+    if phase == "validation-service-ready":
+        return f"\n{_counter(event)} VALIDATION SERVICE READY\n$ {event.get('detail', '')}"
+    if phase == "validation-service-cleanup":
+        return f"\n{_counter(event)} VALIDATION SERVICE CLEANUP\n$ {event.get('detail', '')}"
     if phase == "fix":
         attempt = int(event.get("attempt", 1))
         maximum = event.get("max_attempts")
@@ -139,6 +150,10 @@ def main(
     argv: list[str] | None = None,
     *,
     run_sweep: Callable[..., dict[str, Any]] = release_sweep,
+    provision_validation_environment: Callable[..., AbstractContextManager[dict[str, str]]] = (
+        provision_disposable_validation_environment
+    ),
+    ensure_repository_idle: Callable[[Path], None] = require_external_clawpatch_preflight,
     heartbeat_seconds: float = 30,
 ) -> int:
     parser = argparse.ArgumentParser(
@@ -192,6 +207,10 @@ def main(
             state["changed"] = time.monotonic()
         print(_render_event(event), flush=True)
 
+    def display_after_external_preflight(event: dict[str, Any]) -> None:
+        if event.get("phase") != "preflight":
+            display(event)
+
     def heartbeat() -> None:
         while not stopped.wait(heartbeat_seconds):
             with state_lock:
@@ -225,18 +244,32 @@ def main(
         flush=True,
     )
     try:
-        report = run_sweep(
-            Path(args.repo),
-            apply=True,
-            branch=args.branch,
-            push_mode=args.push,
-            publish_clawpatch_state=args.publish_clawpatch_state,
-            trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
-            fresh=args.fresh,
-            child_timeout_seconds=watchdog_seconds,
-            progress=display,
-            integration_mode="external",
+        repo = Path(args.repo)
+        display(
+            {
+                "phase": "preflight",
+                "current": "?",
+                "total": "?",
+                "command": "clawpatch --version",
+                "attempt": 1,
+                "max_attempts": 1,
+            }
         )
+        ensure_repository_idle(repo)
+        with provision_validation_environment(repo, progress=display) as child_env_overrides:
+            report = run_sweep(
+                repo,
+                apply=True,
+                branch=args.branch,
+                push_mode=args.push,
+                publish_clawpatch_state=args.publish_clawpatch_state,
+                trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
+                fresh=args.fresh,
+                child_timeout_seconds=watchdog_seconds,
+                progress=display_after_external_preflight,
+                integration_mode="external",
+                child_env_overrides=child_env_overrides,
+            )
     except SafetyError as exc:
         print(f"\nSTOPPED: {exc}", flush=True)
         return 2

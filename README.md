@@ -386,7 +386,14 @@ prints the finding evidence and repair scope, prints each numbered ClawPatch
 it does not, ClawPatch owns validation through its `fix` result and exact-finding
 revalidation; the supervisor does not invent test commands. External checkpoint
 and proof files stay in the Manageroo-owned external-runner state directory
-rather than adding files to the target worktree or its Git metadata. A heartbeat remains visible every 30
+rather than adding files to the target worktree or its Git metadata. A repository
+whose tests explicitly declare `TEST_DATABASE_URL` plus an
+`*_ALLOW_DATABASE_RESET` guard and one official versioned PostgreSQL Compose
+image gets a separate owned disposable database automatically. It uses tmpfs,
+a random password, and a random loopback-only port; the repository Compose
+volume and every existing database remain untouched. The terminal shows service
+start, ready, and cleanup, and only ClawPatch children receive its variables.
+A heartbeat remains visible every 30
 seconds while a long ClawPatch or Codex child is running. The explicit 15-minute
 value controls both the outer process watchdog and ClawPatch's Codex provider.
 Missing findings, provider failures, timeouts, unsupported revalidation, unsafe

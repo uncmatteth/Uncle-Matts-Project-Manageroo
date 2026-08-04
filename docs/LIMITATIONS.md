@@ -35,6 +35,15 @@ The installed external supervisor makes one final child-scoped trusted-host
 revalidation if read-only and workspace-write validation both remain uncertain.
 The source fingerprint guard remains active, and a finding still uncertain after
 that bounded sequence is a real blocker.
+Its automatic service support is intentionally limited to one disposable
+PostgreSQL convention: bounded test/spec source must explicitly use
+`TEST_DATABASE_URL` and an `*_ALLOW_DATABASE_RESET` guard, exactly one root
+Compose file must identify one official versioned PostgreSQL image, and Docker
+must be available. The service is a separate tmpfs-backed loopback container;
+Manageroo does not start arbitrary Compose services, provision other databases,
+infer test commands, reuse project volumes, or connect to an existing database.
+Repositories outside that exact contract must provide their validation service
+explicitly.
 Large complete reviews are split into one ClawPatch worker-wave per child using
 the job count returned by review dry-run. Each wave must reduce the pending
 feature count by its exact reported review count. This avoids making repository

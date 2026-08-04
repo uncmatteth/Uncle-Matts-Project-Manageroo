@@ -252,7 +252,15 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
     def current_capacity(self) -> dict:
         cached = getattr(self, "_manageroo_host_capacity", None)
         if cached is None:
-            cached = host_capacity(self.source_repo)
+            capacity_path = self.artifacts.root / "discovery" / "system-capacity.json"
+            if capacity_path.is_file():
+                cached = read_json(capacity_path)
+                if not isinstance(cached, dict):
+                    raise ValidationError(
+                        "Saved system-capacity artifact is malformed; start a fresh run."
+                    )
+            else:
+                cached = host_capacity(self.source_repo)
             self._manageroo_host_capacity = cached
         return cached
 
@@ -269,12 +277,18 @@ def install_discovery_policy(orchestrator_module: Any) -> None:
             capacity = current_capacity(self)
             brief_marker = "Product brief:\n"
             brief = instructions.split(brief_marker, 1)[1] if brief_marker in instructions else instructions
-            preflight = build_discovery_preflight(self.source_repo, brief, capacity)
             capacity_path = self.artifacts.root / "discovery" / "system-capacity.json"
             preflight_path = self.artifacts.root / "discovery" / "unknown-unknowns-preflight.json"
             if not capacity_path.is_file():
                 self.artifacts.write_json("discovery/system-capacity.json", capacity, lock=True)
-            if not preflight_path.is_file():
+            if preflight_path.is_file():
+                preflight = read_json(preflight_path)
+                if not isinstance(preflight, dict):
+                    raise ValidationError(
+                        "Saved unknown-unknowns preflight artifact is malformed; start a fresh run."
+                    )
+            else:
+                preflight = build_discovery_preflight(self.source_repo, brief, capacity)
                 self.artifacts.write_json("discovery/unknown-unknowns-preflight.json", preflight, lock=True)
             kwargs["instructions"] = (
                 instructions
