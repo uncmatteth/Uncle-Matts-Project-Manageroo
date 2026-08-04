@@ -244,6 +244,7 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
                 ["commit", "push"],
             )
 
+    @patch("manageroo.clawpatch_release._revalidate")
     @patch("manageroo.clawpatch_release._push_and_verify")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._execute_fix")
@@ -252,6 +253,7 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
         execute_fix,
         _processes,
         push_and_verify,
+        revalidate,
     ):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -275,6 +277,7 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
                 )
 
             execute_fix.side_effect = fix_side_effect
+            revalidate.return_value = {"finding": "fnd_one", "outcome": "open"}
             with self.assertRaisesRegex(Exception, "no source changes"):
                 _process_finding_until_fixed(
                     repo,
@@ -307,6 +310,89 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
             self.assertTrue(checkpoint["temporary_commit"])
             push_and_verify.assert_not_called()
 
+    @patch("manageroo.clawpatch_release._run_project_gates", return_value=[{"gate": "ok"}])
+    @patch("manageroo.clawpatch_release._revalidate")
+    @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._execute_fix")
+    def test_no_further_source_change_revalidates_saved_repair_and_advances(
+        self,
+        execute_fix,
+        _processes,
+        push_and_verify,
+        revalidate,
+        run_project_gates,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            branch, original_head = self.init_repo(repo)
+            state_root = root / "state"
+            calls = 0
+
+            def fix_side_effect(*_args, **_kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    (repo / "app.py").write_text(
+                        "before\ncomplete repair\n", encoding="utf-8"
+                    )
+                raise _UnresolvedFinding(
+                    "validation failed after applying fix",
+                    finding_id="fnd_one",
+                    outcome="fix-validation-failed",
+                )
+
+            execute_fix.side_effect = fix_side_effect
+            revalidate.return_value = {"finding": "fnd_one", "outcome": "fixed"}
+
+            record, pushed, continuations = _process_finding_until_fixed(
+                repo,
+                "fnd_one",
+                inspected={"finding": {"id": "fnd_one", "status": "open"}},
+                env={},
+                push_mode="each",
+                branch=branch,
+                pushed=False,
+                state_root=state_root,
+            )
+
+            final_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            self.assertEqual(calls, 2)
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "rev-list", "--count", f"{original_head}..{final_head}"],
+                    cwd=repo,
+                    text=True,
+                ).strip(),
+                "1",
+            )
+            self.assertEqual(record["commit"], final_head)
+            self.assertEqual(record["files_changed"], ["app.py"])
+            self.assertEqual(continuations, 1)
+            self.assertTrue(pushed)
+            self.assertEqual(
+                subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
+                "",
+            )
+            self.assertIsNone(_load_release_progress(repo, state_root=state_root))
+            revalidate.assert_called_once_with(
+                repo,
+                "fnd_one",
+                env={},
+                expected_paths=["app.py"],
+                committed_base=original_head,
+            )
+            run_project_gates.assert_called_once_with(
+                repo,
+                finding_id="fnd_one",
+                required=True,
+            )
+            push_and_verify.assert_called_once_with(repo, branch, first=True)
+
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_interrupted_temporary_commit_is_proven_recovered_and_freshly_initialized(
@@ -322,7 +408,10 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
             (repo / "unrelated.txt").write_text("preserve me\n", encoding="utf-8")
             config = repo / ".clawpatch" / "config.json"
             config.parent.mkdir(parents=True)
-            config.write_text('{"provider":"codex"}\n', encoding="utf-8")
+            config.write_text(
+                '{"provider":"codex","commands":{"test":"python -m unittest"}}\n',
+                encoding="utf-8",
+            )
             subprocess.run(
                 ["git", "add", "-f", "unrelated.txt", ".clawpatch/config.json"],
                 cwd=repo,
@@ -390,7 +479,10 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
             self.assertEqual(
                 (repo / "unrelated.txt").read_text(encoding="utf-8"), "preserve me\n"
             )
-            self.assertEqual(config.read_text(encoding="utf-8"), '{"provider":"codex"}\n')
+            self.assertEqual(
+                config.read_text(encoding="utf-8"),
+                '{"provider":"codex","commands":{"test":"python -m unittest"}}\n',
+            )
             self.assertTrue((repo / ".clawpatch/project.json").is_file())
             self.assertIsNone(_load_release_progress(repo, state_root=state_root))
             json_clawpatch.assert_called_once()

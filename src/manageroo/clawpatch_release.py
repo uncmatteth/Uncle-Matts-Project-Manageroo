@@ -804,11 +804,19 @@ def _revalidate(
     *,
     env: dict[str, str],
     expected_paths: list[str],
+    committed_base: str = "",
     progress: Callable[[dict[str, Any]], None] | None = None,
     current: int | str = "?",
     total: int | str = "?",
 ) -> dict[str, Any]:
-    if sorted(expected_paths) != _source_paths(repo):
+    if committed_base:
+        if _source_paths(repo) or sorted(expected_paths) != _paths_between(
+            repo, committed_base, _git_text(repo, ["git", "rev-parse", "HEAD"])
+        ):
+            raise SafetyError(
+                "Revalidation committed paths no longer match the saved Clawpatch iteration."
+            )
+    elif sorted(expected_paths) != _source_paths(repo):
         raise SafetyError(
             "Revalidation source paths no longer match the validated Clawpatch patch attempt."
         )
@@ -2055,6 +2063,7 @@ def _process_finding_until_fixed(
                     state_root=state_root,
                 )
                 raise
+            converged_record: dict[str, Any] | None = None
             try:
                 temporary_commit, _owned_paths, _state = _save_partial_iteration(
                     repo,
@@ -2065,6 +2074,69 @@ def _process_finding_until_fixed(
                     seen_states=seen_states,
                     state_root=state_root,
                 )
+            except _UnresolvedFinding as save_exc:
+                if save_exc.outcome == "no-progress" and temporary_commit:
+                    try:
+                        owned_paths = _paths_between(repo, original_head, temporary_commit)
+                        validation = _revalidate(
+                            repo,
+                            finding_id,
+                            env=env,
+                            expected_paths=owned_paths,
+                            committed_base=original_head,
+                        )
+                        if validation.get("outcome") == "fixed":
+                            gate_runs = _run_project_gates(
+                                repo,
+                                finding_id=finding_id,
+                                required=require_project_gates,
+                            )
+                        else:
+                            gate_runs = []
+                    except BaseException:
+                        _stop_finding_iteration(
+                            repo,
+                            finding_id=finding_id,
+                            branch=branch,
+                            original_head=original_head,
+                            temporary_commit=temporary_commit,
+                            seen_states=seen_states,
+                            state_root=state_root,
+                        )
+                        raise
+                    if validation.get("outcome") == "fixed":
+                        converged_record = {
+                            "finding_id": finding_id,
+                            "inspection": inspected,
+                            "head_before": original_head,
+                            "patch_attempt": "converged-revalidation",
+                            "files_changed": owned_paths,
+                            "gate_runs": gate_runs,
+                            "revalidation": validation,
+                            "commit": "",
+                        }
+                    else:
+                        _stop_finding_iteration(
+                            repo,
+                            finding_id=finding_id,
+                            branch=branch,
+                            original_head=original_head,
+                            temporary_commit=temporary_commit,
+                            seen_states=seen_states,
+                            state_root=state_root,
+                        )
+                        raise save_exc
+                else:
+                    _stop_finding_iteration(
+                        repo,
+                        finding_id=finding_id,
+                        branch=branch,
+                        original_head=original_head,
+                        temporary_commit=temporary_commit,
+                        seen_states=seen_states,
+                        state_root=state_root,
+                    )
+                    raise
             except BaseException:
                 _stop_finding_iteration(
                     repo,
@@ -2076,20 +2148,23 @@ def _process_finding_until_fixed(
                     state_root=state_root,
                 )
                 raise
-            continuations += 1
-            if progress is not None:
-                progress(
-                    {
-                        "phase": "continuing",
-                        "current": current,
-                        "total": total,
-                        "finding_id": finding_id,
-                        "commit": temporary_commit,
-                        "detail": "partial repair preserved locally; continuing same finding",
-                    }
-                )
-            attempt += 1
-            continue
+            if converged_record is not None:
+                record = converged_record
+            else:
+                continuations += 1
+                if progress is not None:
+                    progress(
+                        {
+                            "phase": "continuing",
+                            "current": current,
+                            "total": total,
+                            "finding_id": finding_id,
+                            "commit": temporary_commit,
+                            "detail": "partial repair preserved locally; continuing same finding",
+                        }
+                    )
+                attempt += 1
+                continue
         except BaseException:
             _stop_finding_iteration(
                 repo,

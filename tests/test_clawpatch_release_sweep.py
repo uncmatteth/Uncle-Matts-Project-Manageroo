@@ -2546,6 +2546,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             ],
         )
 
+    @patch("manageroo.clawpatch_release._revalidate")
     @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._execute_fix")
     @patch("manageroo.clawpatch_release._show_finding")
@@ -2564,6 +2565,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         show_finding,
         execute_fix,
         final_closure,
+        revalidate,
     ):
         progress_events = []
         with tempfile.TemporaryDirectory() as temp:
@@ -2602,6 +2604,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 )
 
             execute_fix.side_effect = fail_once
+            revalidate.return_value = {"finding": "fnd_one", "outcome": "open"}
 
             with self.assertRaisesRegex(SafetyError, "stopped"):
                 release_sweep(
