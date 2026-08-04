@@ -214,6 +214,13 @@ attempt. It does not invoke `fix`, remap, or review before returning to `next`.
 Any missing, stale, or ambiguous proof stops with the checkpoint and edits
 unchanged.
 
+If the worktree is source-clean and the checkpoint predates current HEAD, the
+external supervisor inspects descendant commits. It clears the checkpoint only
+when one commit's exact non-ClawPatch path set equals the checkpoint-owned path
+set. Generic commit subjects do not block this proof, while commits containing
+any additional source path do. With no ClawPatch project state, the external
+supervisor runs `clawpatch init` automatically before status, map, and review.
+
 An `open` revalidation is also a documented state transition rather than a
 failed command. Manageroo commits only the current applied patch-attempt paths
 as a continuation checkpoint, verifies an authorized push, and calls
@@ -249,7 +256,8 @@ not extend Manageroo's outer watchdog. Durable progress lives beside the
 Manageroo-owned `clawpatch-supervise` installation for the external command and
 under `.manageroo/cache` for the Manageroo project command. Ordinary relaunch
 resumes only the exact stopped applied attempt proven by that record and current
-Clawpatch state; it refuses to guess when any ownership proof differs. For the external
+Clawpatch state, or clears an already-committed checkpoint using exact descendant
+Git path proof; it refuses to guess when any ownership proof differs. For the external
 `clawpatch-supervise` command, explicit `--fresh` discards all current tracked
 and untracked source changes and old `.clawpatch` run state, then initializes a
 clean run. The Manageroo project command remains narrower: its `--fresh` may

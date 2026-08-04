@@ -1003,6 +1003,58 @@ def _checkpoint_can_follow_supervisor_upgrade(
     return changed_paths.isdisjoint(evidence_paths)
 
 
+def _checkpoint_completed_commit(
+    repo: Path,
+    progress: dict[str, Any],
+) -> str:
+    if progress.get("phase") != "stopped":
+        return ""
+    old_head = progress.get("head_before")
+    owned_paths = progress.get("owned_paths")
+    if (
+        not isinstance(old_head, str)
+        or not isinstance(owned_paths, list)
+        or not owned_paths
+    ):
+        return ""
+    expected = sorted(str(path) for path in owned_paths)
+    current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    ancestor = _run(
+        ["git", "merge-base", "--is-ancestor", old_head, current_head],
+        cwd=repo,
+        timeout=60,
+    )
+    if ancestor.returncode:
+        return ""
+    commits = _must_run(
+        ["git", "rev-list", "--reverse", f"{old_head}..{current_head}"],
+        cwd=repo,
+        timeout=60,
+    ).splitlines()
+    for commit in commits:
+        changed = _must_run(
+            [
+                "git",
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "--no-renames",
+                "-r",
+                commit,
+            ],
+            cwd=repo,
+            timeout=60,
+        ).splitlines()
+        source_paths = sorted(
+            path
+            for path in changed
+            if path and path != ".clawpatch" and not path.startswith(".clawpatch/")
+        )
+        if source_paths == expected:
+            return commit
+    return ""
+
+
 def _clear_release_progress(repo: Path, *, state_root: Path | None = None) -> None:
     _release_progress_path(repo, state_root=state_root).unlink(missing_ok=True)
 
@@ -1685,12 +1737,7 @@ def release_sweep(
                         state_root=state_root,
                     )
                 else:
-                    subject = _git_text(root, ["git", "show", "-s", "--format=%s", "HEAD"])
-                    expected_subjects = {
-                        f"clawpatch fix: {durable_progress['finding_id']}",
-                        f"clawpatch continuation: {durable_progress['finding_id']}",
-                    }
-                    if subject not in expected_subjects:
+                    if not _checkpoint_completed_commit(root, durable_progress):
                         raise SafetyError(
                             "Interrupted Clawpatch release progress no longer matches the "
                             "current Git HEAD."
@@ -1762,6 +1809,33 @@ def release_sweep(
                 "Resumed Clawpatch attempt did not leave a source-clean continuation point: "
                 + ", ".join(preexisting_source)
             )
+    if (
+        integration_mode == "external"
+        and not fresh
+        and not (root / ".clawpatch" / "project.json").is_file()
+    ):
+        if progress is not None:
+            progress(
+                {
+                    "phase": "init",
+                    "current": "?",
+                    "total": "?",
+                    "command": "clawpatch init --json",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            )
+        initialized = _json_clawpatch(
+            root,
+            ["clawpatch", "init", "--json"],
+            env=env,
+            progress=None,
+        )
+        if initialized.get("created") is not True or initialized.get("next") != "clawpatch map":
+            raise SafetyError("Clawpatch initialization returned an unexpected state transition.")
+        if _source_paths(root):
+            raise SafetyError("Clawpatch initialization unexpectedly changed project source files.")
+        report["init"] = initialized
     if not resumed_checkpoint and durable_progress is None and branch == "auto" and current_branch in {"main", "master", "HEAD"}:
         selected_branch = "clawpatch/release-sweep-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         _must_run(["git", "switch", "-c", selected_branch], cwd=root, timeout=120)

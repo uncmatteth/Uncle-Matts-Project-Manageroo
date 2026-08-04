@@ -138,6 +138,11 @@ and revalidation without invoking `fix` again; an `open` outcome creates the
 same continuation commit and reenters `next`. Any mismatch or ambiguity refuses
 continuation and preserves the checkpoint and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
+When the worktree is source-clean because the stopped attempt was already
+committed, the external supervisor clears the stale checkpoint only after Git
+proves that one descendant commit's complete non-ClawPatch path set exactly
+equals the checkpoint-owned paths. A new external repository is initialized
+automatically, making bare `clawpatch-supervise` the normal universal interface.
 The portable external supervisor instead defines explicit `--fresh` as a full
 source-and-ClawPatch-state reset so it can start clean in any Git repository
 without a prior Manageroo checkpoint.

@@ -65,6 +65,7 @@ def _render_event(event: dict[str, Any]) -> str:
     phase = event.get("phase")
     command_phases = {
         "preflight": "PROCESS PREFLIGHT",
+        "init": "INIT",
         "status": "STATUS",
         "lock-cleanup": "LOCK CLEANUP",
         "baseline-validation": "BASELINE VALIDATION",

@@ -6,11 +6,26 @@ from pathlib import Path
 import tomllib
 import unittest
 
-from manageroo.clawpatch_external import main
+from manageroo.clawpatch_external import _render_event, main
 from manageroo.errors import SafetyError
 
 
 class ExternalClawpatchSupervisorTests(unittest.TestCase):
+    def test_init_phase_displays_the_exact_command(self):
+        self.assertEqual(
+            _render_event(
+                {
+                    "phase": "init",
+                    "current": "?",
+                    "total": "?",
+                    "command": "clawpatch init --json",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            ),
+            "\n[?/?] INIT (attempt 1/1)\n$ clawpatch init --json",
+        )
+
     def test_package_installs_external_supervisor_command(self):
         project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
         self.assertEqual(
@@ -90,7 +105,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
 
         output = StringIO()
         with redirect_stdout(output):
-            code = main(["--repo", "."], run_sweep=fake_sweep, heartbeat_seconds=0)
+            code = main([], run_sweep=fake_sweep, heartbeat_seconds=0)
 
         rendered = output.getvalue()
         self.assertEqual(code, 0)
@@ -110,6 +125,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
         self.assertEqual(calls[0][1]["integration_mode"], "external")
+        self.assertFalse(calls[0][1]["fresh"])
 
     def test_terminal_command_renders_stopped_state_without_retrying(self):
         def fake_sweep(_repo: Path, **kwargs):

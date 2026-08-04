@@ -341,14 +341,19 @@ This is useful when a long project history has been summarized and you want to c
 To run the supervisor directly from a terminal, outside the `manageroo` command tree, use:
 
 ```bash
-clawpatch-supervise --repo . --branch current --push each --fresh --timeout-minutes 15
+clawpatch-supervise
 ```
 
 This works in any Git repository; the target does not need Manageroo project
-configuration. For this external command, `--fresh` explicitly discards every
-current tracked or untracked source change and all old `.clawpatch` run state;
-commit or copy anything you want to keep before running it. It then starts a
-clean ClawPatch run, preserves committed ClawPatch
+configuration. The command uses the current directory, current branch, verified
+pushes after each repair, and the shared 15-minute timeout. It initializes
+ClawPatch automatically when the repository is new. When an old stopped
+checkpoint remains after its exact owned source paths were already committed,
+the supervisor proves that completion from descendant Git history and clears
+the obsolete external checkpoint automatically. It never requires a
+repository-specific cleanup command.
+
+The command preserves committed ClawPatch
 configuration, displays the exact current finding as `[current/total] SHOW`,
 prints the finding evidence and repair scope, prints one ClawPatch `fix` command
 before execution, and reports the verified commit. If the target has
@@ -359,8 +364,12 @@ and proof files stay in the Manageroo-owned external-runner state directory
 rather than adding files to the target worktree or its Git metadata. A heartbeat remains visible every 30
 seconds while a long ClawPatch or Codex child is running. The explicit 15-minute
 value controls both the outer process watchdog and ClawPatch's Codex provider.
-Any command failure, missing finding, non-`fixed` final revalidation, unsafe
+Any command failure, missing finding, unsupported revalidation, unsafe
 state, or interruption stops immediately with source edits left in place.
+
+`--fresh` is not part of the normal one-command workflow. It is a destructive
+explicit reset that discards current source changes and old `.clawpatch` state;
+use it only when that reset is actually intended.
 
 Preview the complete closeout lifecycle without changing the repository:
 
@@ -415,6 +424,7 @@ The implemented ClawPatch 0.7.2 state machine is:
 | Fix exits nonzero, gates fail, or revalidation remains `uncertain` or `false-positive` | Stop with source edits in place and the queue unchanged |
 | A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
 | A stopped checkpoint matches the branch, finding, and current dirty paths, and one applied patch attempt matches current HEAD | Resume that existing attempt at project gates and revalidation; do not rerun `fix` |
+| A stopped checkpoint's exact owned source paths already appear as one exact descendant source commit and the worktree is source-clean | Clear that completed stale checkpoint automatically and continue normally |
 | A prior checkpoint is missing or fails any ownership check | Refuse automatic continuation; Manageroo-project `--fresh` requires its exact owned paths, while external-supervisor `--fresh` discards the current source changes before reinitializing |
 
 After each applied fix, Manageroo requires the matching patch-attempt record,
@@ -453,7 +463,9 @@ Before each finding-scoped fix, Manageroo writes durable progress. The external
 Manageroo project command stores it under `.manageroo/cache`. On a handled
 failure or interruption it records the exact
 source paths that appeared while that one owned fix was active. A later ordinary
-run refuses to continue that checkpoint. When the operator explicitly uses
+run resumes an exact applied attempt, or clears a completed stale checkpoint
+only when descendant Git history contains one commit whose non-ClawPatch paths
+exactly equal those owned paths. When the operator explicitly uses
 `--fresh` through the Manageroo project command, source is discarded only when
 the current dirty-path set exactly matches that checkpoint ownership record.
 The portable external supervisor has a deliberately stronger reset contract:
