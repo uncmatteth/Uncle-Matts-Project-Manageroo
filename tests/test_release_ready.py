@@ -1,11 +1,13 @@
 import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import manageroo.release_ready as release_ready_module
 from manageroo.checks import add_check_gate
 from manageroo.project import initialize_project
 from manageroo.release_proof_policy import source_tree_digest
@@ -176,6 +178,49 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertFalse(item["ok"])
             self.assertIn("Git worktree changed", item["detail"])
             self.assertIn("Do not ship yet.", Path(report["handoff_path"]).read_text(encoding="utf-8"))
+
+    def test_release_ready_binds_ship_artifact_before_post_status_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            self._completed_run(repo)
+            original_git_status = release_ready_module._git_status
+            status_calls = 0
+
+            def mutate_after_status_snapshot(path: Path) -> tuple[bool, str]:
+                nonlocal status_calls
+                result = original_git_status(path)
+                if path.resolve() == repo.resolve():
+                    status_calls += 1
+                    if status_calls == 3:
+                        (repo / "README.md").write_text(
+                            "mutation after final status snapshot\n", encoding="utf-8"
+                        )
+                return result
+
+            with patch(
+                "manageroo.release_ready._git_status",
+                side_effect=mutate_after_status_snapshot,
+            ):
+                report = self._release_ready(repo)
+
+            self.assertEqual(status_calls, 3)
+            self.assertTrue(report["ok"], report)
+            artifact = report["release_artifact"]
+            artifact_path = Path(artifact["path"])
+            self.assertTrue(artifact_path.is_file())
+            self.assertEqual(sha256_file(artifact_path), artifact["sha256"])
+            with tarfile.open(artifact_path, "r") as archive:
+                readme = archive.extractfile("README.md")
+                self.assertIsNotNone(readme)
+                self.assertEqual(readme.read(), b"fixture\n")
+            self.assertEqual(
+                (repo / "README.md").read_text(encoding="utf-8"),
+                "mutation after final status snapshot\n",
+            )
+            handoff = Path(report["handoff_path"]).read_text(encoding="utf-8")
+            self.assertIn("## Immutable Release Artifact", handoff)
+            self.assertIn(artifact["sha256"], handoff)
+            self.assertIn("Deploy this artifact, not the mutable source worktree.", handoff)
 
     def test_release_ready_rejects_gate_mutation_inside_disposable_checkout(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -3,13 +3,58 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .errors import SafetyError
-from .util import atomic_write_text, read_json
+from .util import atomic_write_text, read_json, sha256_file
+
+
+def _build_release_artifact(repo: Path, release_head: str) -> dict[str, str]:
+    """Package the exact candidate commit so shipping never depends on later worktree bytes."""
+    if len(release_head) not in (40, 64) or any(
+        character not in "0123456789abcdef" for character in release_head.lower()
+    ):
+        raise SafetyError("Release candidate HEAD is not a full Git object ID.")
+    artifact_dir = repo / PROJECT_DIR / "cache" / "release-artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / f"manageroo-release-{release_head}.tar"
+    with tempfile.TemporaryDirectory(prefix="candidate-", dir=artifact_dir) as temp:
+        candidate_path = Path(temp) / artifact_path.name
+        try:
+            archived = subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    f"core.hooksPath={os.devnull}",
+                    "archive",
+                    "--format=tar",
+                    f"--output={candidate_path}",
+                    release_head,
+                ],
+                cwd=repo,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=300,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise SafetyError(f"Could not build the immutable release artifact: {exc}") from exc
+        if archived.returncode != 0 or not candidate_path.is_file():
+            detail = archived.stderr.strip() or archived.stdout.strip() or "git archive failed"
+            raise SafetyError(f"Could not build the immutable release artifact: {detail}")
+        artifact_sha256 = sha256_file(candidate_path)
+        os.replace(candidate_path, artifact_path)
+    return {
+        "kind": "git-archive",
+        "path": str(artifact_path),
+        "sha256": artifact_sha256,
+        "git_head": release_head,
+    }
 
 
 @contextmanager
@@ -135,6 +180,27 @@ def install_release_ready_policy(release_ready_module: Any) -> None:
             return invalid_schema("applied_to_source must be a boolean")
         return original_latest(repo)
 
+    def _handoff_markdown(report: dict[str, Any]) -> str:
+        markdown = release_ready_module._production_handoff_markdown(report)
+        artifact = report.get("release_artifact")
+        if not report.get("ok") or not isinstance(artifact, dict):
+            return markdown
+        anchor = "## What Changed\n"
+        if anchor not in markdown:
+            raise SafetyError("Production handoff has no immutable-artifact insertion point.")
+        section = "\n".join(
+            [
+                "## Immutable Release Artifact",
+                "",
+                f"- Path: `{artifact['path']}`",
+                f"- Git commit: `{artifact['git_head']}`",
+                f"- SHA-256: `{artifact['sha256']}`",
+                "- Deploy this artifact, not the mutable source worktree.",
+                "",
+            ]
+        )
+        return markdown.replace(anchor, section + anchor, 1)
+
     def release_ready_hardened(*args: Any, **kwargs: Any) -> dict[str, Any]:
         repo_arg = args[0] if args else kwargs.get("repo_path")
         repo = release_ready_module.git_root(Path(repo_arg))
@@ -143,11 +209,13 @@ def install_release_ready_policy(release_ready_module: Any) -> None:
             handoff_path = Path(
                 str(report.get("handoff_path") or release_ready_module._handoff_path(repo))
             )
+            if report.get("ok"):
+                report["release_artifact"] = _build_release_artifact(repo, release_head)
 
             # Render only from the authoritative final report. The original implementation
             # may have written a READY handoff before its post-write cleanliness check downgraded
             # the result, so overwrite that artifact after every final-state transition.
-            handoff_markdown = release_ready_module._production_handoff_markdown(report)
+            handoff_markdown = _handoff_markdown(report)
             atomic_write_text(handoff_path, handoff_markdown)
             try:
                 persisted = handoff_path.read_text(encoding="utf-8")
@@ -197,9 +265,23 @@ def install_release_ready_policy(release_ready_module: Any) -> None:
                         )
                     )
                     report["next_commands"] = ["git status --short"]
-                    handoff_markdown = release_ready_module._production_handoff_markdown(report)
+                    handoff_markdown = _handoff_markdown(report)
                     atomic_write_text(handoff_path, handoff_markdown)
                     persisted = handoff_path.read_text(encoding="utf-8")
+
+            if report.get("ok"):
+                artifact = report.get("release_artifact")
+                if not isinstance(artifact, dict):
+                    raise SafetyError("Ready result has no immutable release artifact.")
+                artifact_path = Path(str(artifact.get("path") or ""))
+                if (
+                    not artifact_path.is_file()
+                    or sha256_file(artifact_path) != artifact.get("sha256")
+                    or artifact.get("git_head") != release_head
+                ):
+                    raise SafetyError(
+                        "Immutable release artifact does not match the finalized release candidate."
+                    )
 
             expected_status = f"Status: {report.get('status')}"
             expected_decision = (

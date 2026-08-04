@@ -220,7 +220,10 @@ clone checked out at the exact candidate commit. After every gate, Manageroo
 rejects any HEAD, tracked, untracked, or ignored mutation before another gate
 can run or the release can be authorized. An official Git reference transaction
 holds that candidate HEAD while final evidence is persisted, followed by another
-HEAD, source-digest, and cleanliness snapshot. The repository's configured gate uses
+HEAD, source-digest, and cleanliness snapshot. A READY handoff binds deployment
+to a tar archive generated from that locked commit and records the archive's
+SHA-256, so a later source-worktree mutation cannot change the authorized ship
+bytes. The repository's configured gate uses
 `verify_release.py --check-only` and an isolated bytecode cache; the normal
 operator invocation still refreshes `BUILD-VALIDATION.json`.
 
