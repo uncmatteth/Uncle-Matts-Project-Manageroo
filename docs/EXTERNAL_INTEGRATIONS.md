@@ -217,6 +217,10 @@ writable Codex sandbox still blocks required host facilities such as Gradle's
 socket-based lock service, the external supervisor makes one final
 child-scoped trusted-host revalidation. These are validation-environment
 transitions, not new source fixes; a result that remains uncertain stops.
+If exact revalidation returns `fixed` with unchanged HEAD and no source changes
+because an overlapping earlier finding already supplied the repair, Manageroo
+records no source commit required and continues. It does not treat the absence
+of a redundant second edit as no progress.
 
 When the normal open queue is empty, final closure checks the uncertain report.
 It does not manufacture a queue from that report: it uses ClawPatch 0.7.2's
@@ -271,7 +275,9 @@ An `open` revalidation is also a same-finding state transition rather than a
 completed repair. Manageroo adds only the current applied patch-attempt paths to
 the local temporary iteration commit and runs that finding's `fix` again. It
 does not push until exact `fixed` revalidation converts all combined work into
-one normal final commit directly above the finding's original HEAD. This has no
+one normal final commit directly above the finding's original HEAD. A fixed
+overlapping finding that leaves both HEAD and source unchanged needs no second
+commit or push. This has no
 arbitrary attempt cap and never substitutes a Manageroo-written repair.
 
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after

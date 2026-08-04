@@ -105,8 +105,11 @@ Clawpatch release commits use exact source paths owned by the current finding.
 Manageroo stages only those source paths. A validation-failed-after-apply result
 or `open` revalidation creates or amends one recognizable local-only temporary
 iteration commit, then the same finding's `fix` runs again from the clean
-combined tree. Only exact `fixed` completes the finding and converts that work
-into one normal commit directly above the finding's original HEAD. It never
+combined tree. Only exact `fixed` completes the finding and converts changed
+source into one normal commit directly above the finding's original HEAD. When
+an overlapping earlier finding already supplied the repair, exact `fixed` with
+unchanged HEAD and no source changes completes without manufacturing an empty
+commit or push. It never
 builds a finding queue from reports or mixes `.clawpatch/**` state into a source
 commit. The Manageroo project command requires configured Manageroo
 gates and runs them against the unchanged repository baseline. The separately

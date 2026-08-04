@@ -452,7 +452,7 @@ The implemented ClawPatch 0.7.2 state machine is:
 | Read-only revalidation is `uncertain` | Revalidate the same repair with workspace-write, guarded by an exact source fingerprint; the external supervisor makes one final child-scoped trusted-host pass if workspace-write is still blocked |
 | Open queue is empty but `report --status uncertain` is nonempty | Select each item through `next --status uncertain`, rerun exact-finding revalidation with the same guarded workspace-write escalation, accept `fixed` without a source commit, and send an `open` outcome back through the normal same-finding repair loop |
 | Revalidation is `open` | Add the exact new patch paths to the same local temporary iteration commit and rerun the same finding; do not push |
-| Revalidation is exactly `fixed` | Amend/squash the combined repair into exactly one normal commit above the finding's start HEAD, verify any authorized push, then call `next` |
+| Revalidation is exactly `fixed` | If this finding changed source, amend/squash the combined repair into exactly one normal commit above its start HEAD and verify any authorized push. If an overlapping prior finding already supplied the repair and this finding leaves HEAD and source unchanged, record `no source commit required`. Then call `next`. |
 | An iteration changes nothing, repeats a seen tree, or cycles to the original tree | Unwind the temporary commit to visible source edits at the original HEAD, checkpoint exact ownership, and stop without advancing |
 | Provider/timeout/missing-finding errors, gates fail, or revalidation remains `uncertain` or `false-positive` | Stop with combined source edits in place and the queue unchanged |
 | A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
@@ -469,7 +469,8 @@ only exact source paths. Partial iterations remain local and are amended into
 one temporary commit so ClawPatch always sees a clean combined tree. There is
 no arbitrary attempt cap: only a genuinely new Git tree permits another same-
 finding attempt. A finding is counted complete only after exact `fixed`
-revalidation, one final combined commit, and required push verification.
+revalidation and either one final combined commit with required push verification,
+or proof that HEAD and source remained unchanged because no additional repair was needed.
 Clawpatch state metadata is never mixed into a source commit.
 
 After a stopped process is relaunched, Manageroo resumes only when the durable

@@ -81,6 +81,73 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._push_and_verify")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._execute_fix")
+    def test_overlapping_finding_fixed_by_prior_commit_needs_no_second_commit(
+        self,
+        execute_fix,
+        _processes,
+        push_and_verify,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            branch, _base_head = self.init_repo(repo)
+            (repo / "app.py").write_text(
+                "already repaired by prior finding\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "add", "--", "app.py"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "prior finding"], cwd=repo, check=True
+            )
+            starting_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            state_root = root / "state"
+            progress_events = []
+            execute_fix.return_value = (
+                {
+                    "finding_id": "fnd_overlap",
+                    "files_changed": [],
+                    "revalidation": {"finding": "fnd_overlap", "outcome": "fixed"},
+                    "commit": "",
+                },
+                False,
+            )
+
+            record, pushed, continuations = _process_finding_until_fixed(
+                repo,
+                "fnd_overlap",
+                inspected={"finding": {"id": "fnd_overlap", "status": "open"}},
+                env={},
+                push_mode="each",
+                branch=branch,
+                pushed=True,
+                state_root=state_root,
+                progress=progress_events.append,
+            )
+
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+                ).strip(),
+                starting_head,
+            )
+            self.assertEqual(record["files_changed"], [])
+            self.assertEqual(record["commit"], "")
+            self.assertTrue(pushed)
+            self.assertEqual(continuations, 0)
+            self.assertEqual(
+                subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
+                "",
+            )
+            self.assertIsNone(_load_release_progress(repo, state_root=state_root))
+            self.assertNotIn("commit", [event["phase"] for event in progress_events])
+            self.assertNotIn("push", [event["phase"] for event in progress_events])
+            push_and_verify.assert_not_called()
+
+    @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._execute_fix")
     def test_partial_repair_is_locally_preserved_then_finished_as_one_final_commit(
         self,
         execute_fix,

@@ -2035,7 +2035,15 @@ def _process_finding_until_fixed(
                 state_root=state_root,
             )
             raise SafetyError("Clawpatch returned an unsupported revalidation outcome.")
-        if progress is not None:
+        no_commit_required = not temporary_commit and not _source_paths(repo)
+        if (
+            no_commit_required
+            and _git_text(repo, ["git", "rev-parse", "HEAD"]) != original_head
+        ):
+            raise SafetyError(
+                "Git history changed while Clawpatch fixed a finding without source changes."
+            )
+        if progress is not None and not no_commit_required:
             commit_command = (
                 f"git commit --amend -m 'clawpatch fix: {finding_id}'"
                 if temporary_commit
@@ -2052,28 +2060,33 @@ def _process_finding_until_fixed(
                     "max_attempts": 1,
                 }
             )
-        try:
-            commit = _finalize_finding_commit(
-                repo,
-                finding_id=finding_id,
-                branch=branch,
-                original_head=original_head,
-                temporary_commit=temporary_commit,
-                seen_states=seen_states,
-            )
-        except BaseException:
-            _stop_finding_iteration(
-                repo,
-                finding_id=finding_id,
-                branch=branch,
-                original_head=original_head,
-                temporary_commit=temporary_commit,
-                seen_states=seen_states,
-                state_root=state_root,
-            )
-            raise
+        if no_commit_required:
+            commit = ""
+        else:
+            try:
+                commit = _finalize_finding_commit(
+                    repo,
+                    finding_id=finding_id,
+                    branch=branch,
+                    original_head=original_head,
+                    temporary_commit=temporary_commit,
+                    seen_states=seen_states,
+                )
+            except BaseException:
+                _stop_finding_iteration(
+                    repo,
+                    finding_id=finding_id,
+                    branch=branch,
+                    original_head=original_head,
+                    temporary_commit=temporary_commit,
+                    seen_states=seen_states,
+                    state_root=state_root,
+                )
+                raise
         record["head_before"] = original_head
-        record["files_changed"] = _paths_between(repo, original_head, commit)
+        record["files_changed"] = (
+            _paths_between(repo, original_head, commit) if commit else []
+        )
         record["commit"] = commit
         _write_release_progress(
             repo,
@@ -2085,7 +2098,7 @@ def _process_finding_until_fixed(
             source_states=sorted(seen_states),
             state_root=state_root,
         )
-        if push_mode == "each":
+        if push_mode == "each" and commit:
             if progress is not None:
                 push_argv = (
                     f"git push -u origin {branch}"
