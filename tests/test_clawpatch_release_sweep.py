@@ -30,6 +30,7 @@ from manageroo.clawpatch_release import (
     _publish_final_state,
     _push_and_verify,
     _release_clawpatch_env,
+    _rebuilt_generation_owns_checkpoint_source,
     _require_synchronized_remote_branch,
     _resume_stopped_attempt,
     _revalidate,
@@ -1198,6 +1199,189 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
         self.assertIsNotNone(checkpoint)
         self.assertEqual(checkpoint["head_before"], head)
+
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._next_finding")
+    @patch("manageroo.clawpatch_release._review_all_features")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._resume_stopped_attempt")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_rebuilt_clawpatch_generation_discards_only_fingerprinted_interrupted_source(
+        self,
+        _version,
+        _processes,
+        resume_stopped,
+        json_clawpatch,
+        review_all,
+        next_finding,
+        final_closure,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            test = repo / "test_app.py"
+            source.write_text("before\n", encoding="utf-8")
+            test.write_text("before test\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py", "test_app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("interrupted repair\n", encoding="utf-8")
+            test.write_text("interrupted regression test\n", encoding="utf-8")
+            _write_release_progress(
+                repo,
+                finding_id="fnd_old",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py", "test_app.py"],
+            )
+            state = repo / ".clawpatch"
+            (state / "features").mkdir(parents=True)
+            (state / "findings").mkdir()
+            (state / "patches").mkdir()
+            (state / "runs").mkdir()
+            (state / "reports").mkdir()
+            (state / "project.json").write_text(
+                json.dumps(
+                    {
+                        "createdAt": "2099-01-01T00:00:00.000Z",
+                        "git": {"headSha": head, "currentBranch": branch},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state / "features" / "feat_new.json").write_text("{}\n", encoding="utf-8")
+            json_clawpatch.side_effect = [
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+            ]
+            review_all.return_value = {
+                "review": {"reviewed": 1, "findings": 0},
+                "completion": {"wouldReview": 0},
+            }
+            next_finding.return_value = (None, {"finding": None})
+            final_closure.return_value = {"pushed": False}
+
+            report = release_sweep(repo, apply=True, branch="current")
+            source_text = source.read_text(encoding="utf-8")
+            test_text = test.read_text(encoding="utf-8")
+            checkpoint = _load_release_progress(repo)
+
+        self.assertEqual(source_text, "before\n")
+        self.assertEqual(test_text, "before test\n")
+        self.assertEqual(report["reset_recovery"]["finding_id"], "fnd_old")
+        self.assertIsNone(checkpoint)
+        resume_stopped.assert_not_called()
+        self.assertEqual(
+            [invocation.args[1] for invocation in json_clawpatch.call_args_list],
+            [["clawpatch", "status", "--json"], ["clawpatch", "map", "--json"]],
+        )
+
+    @patch("manageroo.clawpatch_release._resume_stopped_attempt")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_rebuilt_generation_preserves_source_when_fingerprint_changed_after_checkpoint(
+        self,
+        _version,
+        _processes,
+        resume_stopped,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("interrupted repair\n", encoding="utf-8")
+            _write_release_progress(
+                repo,
+                finding_id="fnd_old",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            source.write_text("operator edit after interruption\n", encoding="utf-8")
+            state = repo / ".clawpatch"
+            for directory in ("findings", "patches", "runs", "reports"):
+                (state / directory).mkdir(parents=True, exist_ok=True)
+            (state / "project.json").write_text(
+                json.dumps(
+                    {
+                        "createdAt": "2099-01-01T00:00:00.000Z",
+                        "git": {"headSha": head, "currentBranch": branch},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(SafetyError, "exact source changes remain"):
+                release_sweep(repo, apply=True, branch="current")
+            source_text = source.read_text(encoding="utf-8")
+            checkpoint = _load_release_progress(repo)
+
+        self.assertEqual(source_text, "operator edit after interruption\n")
+        self.assertIsNotNone(checkpoint)
+        resume_stopped.assert_called_once()
+
+    def test_rebuilt_generation_accepts_exact_legacy_v2_checkpoint_owned_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("legacy interrupted repair\n", encoding="utf-8")
+            _write_release_progress(
+                repo,
+                finding_id="fnd_old",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            progress_path = repo / ".manageroo" / "cache" / "clawpatch-release-progress.json"
+            raw = json.loads(progress_path.read_text(encoding="utf-8"))
+            raw["version"] = 2
+            raw.pop("owned_source_fingerprint")
+            progress_path.write_text(json.dumps(raw), encoding="utf-8")
+            state = repo / ".clawpatch"
+            for directory in ("findings", "patches", "runs", "reports"):
+                (state / directory).mkdir(parents=True, exist_ok=True)
+            (state / "project.json").write_text(
+                json.dumps(
+                    {
+                        "createdAt": "2099-01-01T00:00:00.000Z",
+                        "git": {"headSha": head, "currentBranch": branch},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            progress = _load_release_progress(repo)
+
+            self.assertTrue(_rebuilt_generation_owns_checkpoint_source(repo, progress))
 
 
     @patch("manageroo.clawpatch_release._final_closure")

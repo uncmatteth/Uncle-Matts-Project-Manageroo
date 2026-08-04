@@ -350,7 +350,12 @@ pushes after each repair, and the shared 15-minute timeout. It initializes
 ClawPatch automatically when the repository is new. When an old stopped
 checkpoint remains after its exact owned source paths were already committed,
 the supervisor proves that completion from descendant Git history and clears
-the obsolete external checkpoint automatically. It never requires a
+the obsolete external checkpoint automatically. If the operator deliberately
+recreates `.clawpatch`, the supervisor recognizes the newer empty run generation,
+restores only the exact stopped-attempt source bytes proven by its checkpoint,
+clears that checkpoint, and starts the normal lifecycle. Legacy version-2
+checkpoints use the narrower file-timestamp proof available in that schema.
+Any changed or additional source path still stops without cleanup. It never requires a
 repository-specific cleanup command.
 
 The command preserves committed ClawPatch
@@ -426,6 +431,7 @@ The implemented ClawPatch 0.7.2 state machine is:
 | A stopped checkpoint matches the branch, finding, and current dirty paths, and one applied patch attempt matches current HEAD | Resume that existing attempt at project gates and revalidation; do not rerun `fix` |
 | An interrupted `planned` attempt has no source changes, belongs to the same open finding, and matches current HEAD | Preserve ClawPatch state, clear only the external checkpoint, require `next` to return that same finding, then continue through `show` and `fix` |
 | A stopped checkpoint's exact owned source paths already appear as one exact descendant source commit and the worktree is source-clean | Clear that completed stale checkpoint automatically and continue normally |
+| `.clawpatch` was deliberately rebuilt after a stopped attempt | When the new generation is empty, branch and HEAD still match, and the exact dirty source fingerprint still matches, restore only those checkpoint-owned files and continue normally; preserve everything on any mismatch |
 | A prior checkpoint is missing or fails any ownership check | Refuse automatic continuation; Manageroo-project `--fresh` requires its exact owned paths, while external-supervisor `--fresh` discards the current source changes before reinitializing |
 
 After each applied fix, Manageroo requires the matching patch-attempt record,
@@ -442,6 +448,9 @@ Clawpatch patch-attempt record matches current HEAD. It runs gates and revalidat
 for that already-applied attempt, creates the same exact-path `open` or `fixed`
 commit, and continues from `next` without rerunning `fix`, remapping, or reviewing
 the repository. Any ambiguity leaves the checkpoint and edits untouched.
+Stopped checkpoints include an exact source-content fingerprint. A newer, empty
+`.clawpatch` generation is treated as an intentional reset only when that
+fingerprint, branch, HEAD, owned path set, and generation timestamps all agree.
 
 Clawpatch's `show` output ends with a human triage template. That template is
 not an executable workflow command. Manageroo preserves the inspection output

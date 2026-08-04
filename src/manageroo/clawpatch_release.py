@@ -23,7 +23,7 @@ from .util import atomic_write_json, utc_now
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
 CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
-RELEASE_PROGRESS_VERSION = 2
+RELEASE_PROGRESS_VERSION = 3
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "configured repository baseline gates when present -> clawpatch map -> complete review of every "
@@ -731,6 +731,19 @@ def _source_state_fingerprint(repo: Path) -> dict[str, Any]:
     return {"paths": paths, "diff": diff, "untracked": untracked_hashes}
 
 
+def _owned_source_fingerprint(repo: Path, paths: list[str]) -> str:
+    exact_paths = sorted(set(paths))
+    if not exact_paths or _source_paths(repo) != exact_paths:
+        return ""
+    payload = json.dumps(
+        _source_state_fingerprint(repo),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _revalidation_payload(
     repo: Path,
     finding_id: str,
@@ -890,6 +903,7 @@ def _write_release_progress(
         "branch": branch,
         "head_before": head_before,
         "owned_paths": exact_owned_paths,
+        "owned_source_fingerprint": _owned_source_fingerprint(repo, exact_owned_paths),
         "phase": phase,
         "updated_at": utc_now(),
     }
@@ -913,8 +927,9 @@ def _load_release_progress(
         raise SafetyError("Clawpatch release progress is malformed.")
     progress = dict(progress)
     required_strings = ("repo", "finding_id", "branch", "head_before", "phase", "updated_at")
+    stored_version = progress.get("version")
     if (
-        progress.get("version") != RELEASE_PROGRESS_VERSION
+        stored_version not in {2, RELEASE_PROGRESS_VERSION}
         or any(not isinstance(progress.get(field), str) or not progress[field] for field in required_strings)
         or not _FINDING_ID.fullmatch(str(progress.get("finding_id", "")))
         or not isinstance(progress.get("owned_paths"), list)
@@ -924,6 +939,13 @@ def _load_release_progress(
         )
     ):
         raise SafetyError("Clawpatch release progress is malformed.")
+    owned_source_fingerprint = progress.get("owned_source_fingerprint", "")
+    if not isinstance(owned_source_fingerprint, str) or (
+        owned_source_fingerprint
+        and not re.fullmatch(r"[0-9a-f]{64}", owned_source_fingerprint)
+    ):
+        raise SafetyError("Clawpatch release progress has a malformed source fingerprint.")
+    progress["owned_source_fingerprint"] = owned_source_fingerprint
     _validate_attempt_paths_syntax(list(progress["owned_paths"]))
     if Path(progress["repo"]).resolve() != repo.resolve():
         raise SafetyError("Clawpatch release progress belongs to a different repository.")
@@ -1108,6 +1130,91 @@ def _checkpoint_unapplied_attempt(
 
 def _clear_release_progress(repo: Path, *, state_root: Path | None = None) -> None:
     _release_progress_path(repo, state_root=state_root).unlink(missing_ok=True)
+
+
+def _parse_checkpoint_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _empty_clawpatch_history(repo: Path) -> bool:
+    state = repo / ".clawpatch"
+    if state.is_symlink() or not state.is_dir():
+        return False
+    for name in ("findings", "patches", "runs", "reports"):
+        directory = state / name
+        if directory.exists() and (
+            directory.is_symlink()
+            or not directory.is_dir()
+            or any(path.is_file() or path.is_symlink() for path in directory.rglob("*"))
+        ):
+            return False
+    return True
+
+
+def _rebuilt_generation_owns_checkpoint_source(
+    repo: Path,
+    progress_record: dict[str, Any],
+) -> bool:
+    """Prove a manual .clawpatch reset superseded one exact stopped attempt."""
+    owned_paths = sorted(str(path) for path in progress_record.get("owned_paths", []))
+    if (
+        progress_record.get("phase") != "stopped"
+        or not owned_paths
+        or _source_paths(repo) != owned_paths
+        or not _empty_clawpatch_history(repo)
+    ):
+        return False
+    finding_id = str(progress_record.get("finding_id", ""))
+    if (repo / ".clawpatch" / "findings" / f"{finding_id}.json").exists():
+        return False
+    project_path = repo / ".clawpatch" / "project.json"
+    if project_path.is_symlink() or not project_path.is_file():
+        return False
+    try:
+        project = json.loads(project_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(project, dict) or not isinstance(project.get("git"), dict):
+        return False
+    project_git = project["git"]
+    current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    current_branch = _git_text(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    if (
+        project_git.get("headSha") != current_head
+        or project_git.get("currentBranch") != current_branch
+        or progress_record.get("head_before") != current_head
+        or progress_record.get("branch") != current_branch
+    ):
+        return False
+    generation_time = _parse_checkpoint_time(project.get("createdAt"))
+    checkpoint_time = _parse_checkpoint_time(progress_record.get("updated_at"))
+    if generation_time is None or checkpoint_time is None or generation_time <= checkpoint_time:
+        return False
+    recorded_fingerprint = str(progress_record.get("owned_source_fingerprint", ""))
+    if recorded_fingerprint:
+        return _owned_source_fingerprint(repo, owned_paths) == recorded_fingerprint
+    if progress_record.get("version") != 2:
+        return False
+    # Version 2 did not record content hashes. Its one safe compatibility path requires every
+    # owned file to predate the durable stop record as well as the reset generation.
+    try:
+        return all(
+            not (repo / path).is_symlink()
+            and (repo / path).is_file()
+            and datetime.fromtimestamp((repo / path).stat().st_mtime, timezone.utc)
+            <= checkpoint_time
+            for path in owned_paths
+        )
+    except OSError:
+        return False
 
 
 def _committed_clawpatch_config(repo: Path) -> str | None:
@@ -1797,6 +1904,33 @@ def release_sweep(
                         )
                     _clear_release_progress(root, state_root=state_root)
                     durable_progress = None
+    if durable_progress is not None and _rebuilt_generation_owns_checkpoint_source(
+        root, durable_progress
+    ):
+        reset_finding = str(durable_progress["finding_id"])
+        reset_paths = list(durable_progress["owned_paths"])
+        if progress is not None:
+            progress(
+                {
+                    "phase": "reset-recovery",
+                    "current": "?",
+                    "total": "?",
+                    "finding_id": reset_finding,
+                    "command": "restore exact fingerprinted interrupted source",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                    "owned_paths": reset_paths,
+                }
+            )
+        _discard_checkpoint_owned_source(root, reset_paths)
+        _clear_release_progress(root, state_root=state_root)
+        report["reset_recovery"] = {
+            "finding_id": reset_finding,
+            "owned_paths": reset_paths,
+            "generation": "rebuilt",
+        }
+        durable_progress = None
+        preexisting_source = _source_paths(root)
     if preexisting_source and durable_progress is None:
         raise SafetyError("Clawpatch release sweep found pre-existing source changes: " + ", ".join(preexisting_source))
     if durable_progress is not None and branch not in {"auto", "current", current_branch}:

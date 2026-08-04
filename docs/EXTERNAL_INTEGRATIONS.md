@@ -214,6 +214,17 @@ attempt. It does not invoke `fix`, remap, or review before returning to `next`.
 Any missing, stale, or ambiguous proof stops with the checkpoint and edits
 unchanged.
 
+A stopped checkpoint records an exact source-content fingerprint. If an operator
+deletes and recreates `.clawpatch`, the next ordinary invocation recognizes that
+intent only when `project.json` proves a newer generation at the same branch and
+HEAD, the new findings/patches/runs/reports history is empty, and the complete
+current dirty source path set and fingerprint still equal the checkpoint. It
+restores only those exact owned paths, clears the obsolete external checkpoint,
+and proceeds through the normal status/map/review lifecycle. A modified owned
+file or any additional source path blocks cleanup. Legacy version-2 checkpoints,
+which predate fingerprints, are accepted only when every exact owned regular file
+also predates the durable stop record.
+
 An interrupted provider can leave a ClawPatch patch attempt in `planned` state
 before any source edit exists. For that source-clean case, the supervisor
 requires the checkpoint branch and HEAD, same open finding, empty attempt path

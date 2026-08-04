@@ -138,6 +138,12 @@ and revalidation without invoking `fix` again; an `open` outcome creates the
 same continuation commit and reenters `next`. Any mismatch or ambiguity refuses
 continuation and preserves the checkpoint and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
+The stopped checkpoint also records an exact source-content fingerprint. When an
+operator rebuilds `.clawpatch`, ordinary relaunch recognizes the newer empty run
+generation only if repository, branch, HEAD, owned paths, and fingerprint still
+agree. It then restores only those owned paths and clears the obsolete checkpoint;
+changed or additional source paths fail closed. Legacy version-2 checkpoints use
+their narrower pre-checkpoint file-timestamp proof for this one compatibility path.
 If interruption leaves a source-clean `planned` attempt, ordinary relaunch
 requires the same open finding, branch, current HEAD, empty changed-file record,
 and no active process. It preserves ClawPatch state and reenters only through
