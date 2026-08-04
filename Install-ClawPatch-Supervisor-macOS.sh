@@ -13,7 +13,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 # Exact versions from the verified supervisor source.
-MANAGEROO_COMMIT="f229d994f284e1aecfd0bf79ecca340a7c589ba2"
+MANAGEROO_COMMIT="9c5c0a3eda772cac7be0a846508796cd69dee49f"
 MANAGEROO_SOURCE="git+https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git@${MANAGEROO_COMMIT}"
 CODEX_PACKAGE="@openai/codex@0.144.4"
 CLAWPATCH_PACKAGE="clawpatch@0.7.2"
