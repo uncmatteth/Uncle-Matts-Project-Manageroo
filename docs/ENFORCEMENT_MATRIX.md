@@ -29,6 +29,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change | Artifact hash ledger | Detective, blocks next phase |
+| Failed or interrupted artifact replacement desynchronizes content and ledger metadata | Write-ahead staging with prior-artifact and prior-ledger recovery under the transaction lock | Preventive and recoverable |
 | Compaction cannot drop must-not rules or audit a structurally invalid intent lock | Intent lock plus compaction audit, with schema validation | Detective, blocks continuation |
 | Concurrent intent replacement cannot pair one payload with another generation's hash | Hash and parse one immutable JSON byte snapshot; writers hold the mutation lock through capture result construction | Preventive |
 | Worker memory cannot become run truth | Durable job store, packet manifests, artifact hashes | Preventive in controller |

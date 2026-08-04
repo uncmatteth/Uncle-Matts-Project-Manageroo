@@ -27,6 +27,7 @@ from manageroo.project_memory import ensure_project_memory
 from manageroo.runner import CommandResult, CommandRunner
 from manageroo.skill_pack import scan_skill_folder
 from manageroo.stack_doctor import _safe_probe_record
+from manageroo.util import sha256_file
 from manageroo.workspace import WorkspaceMirror
 
 
@@ -40,6 +41,51 @@ class ClawpatchRegressionTests(unittest.TestCase):
                 with self.assertRaises(SafetyError):
                     store.write_text(value, "x")
             self.assertFalse(outside.exists())
+
+    def test_artifact_store_rolls_back_overwrite_when_ledger_write_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "artifacts"
+            store = ArtifactStore(root)
+            store.write_text("result.txt", "original\n")
+
+            with patch(
+                "manageroo.artifacts.atomic_write_json",
+                side_effect=OSError("injected ledger failure"),
+            ):
+                with self.assertRaises(OSError):
+                    store.write_text("result.txt", "replacement\n")
+
+            reopened = ArtifactStore(root)
+            artifact = root / "result.txt"
+            ledger = json.loads(reopened.ledger_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact.read_text(encoding="utf-8"), "original\n")
+            self.assertEqual(
+                ledger["artifacts"]["result.txt"]["sha256"],
+                sha256_file(artifact),
+            )
+
+    def test_artifact_store_recovers_interrupted_overwrite_when_reopened(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "artifacts"
+            store = ArtifactStore(root)
+            store.write_text("result.txt", "original\n")
+
+            with patch(
+                "manageroo.artifacts.atomic_write_json",
+                side_effect=KeyboardInterrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    store.write_text("result.txt", "replacement\n")
+
+            artifact = root / "result.txt"
+            self.assertEqual(artifact.read_text(encoding="utf-8"), "replacement\n")
+            reopened = ArtifactStore(root)
+            ledger = json.loads(reopened.ledger_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact.read_text(encoding="utf-8"), "original\n")
+            self.assertEqual(
+                ledger["artifacts"]["result.txt"]["sha256"],
+                sha256_file(artifact),
+            )
 
     def test_context_packets_are_contained_and_empty_files_compile(self):
         with tempfile.TemporaryDirectory() as temp:

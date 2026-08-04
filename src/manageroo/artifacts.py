@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import shutil
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -29,7 +31,9 @@ class ArtifactStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.ledger_path = self.root / "artifact-ledger.json"
         self.lock_path = self.root / ".artifact-ledger.lock"
+        self.transaction_path = self.root / ".artifact-ledger.transaction"
         with self._transaction_lock():
+            self._recover_pending_transaction()
             if not self.ledger_path.exists():
                 atomic_write_json(self.ledger_path, {"artifacts": {}})
 
@@ -261,7 +265,10 @@ class ArtifactStore:
         normalized = candidate.as_posix()
         if any(part in {"", ".", ".."} for part in candidate.parts):
             raise SafetyError(f"Artifact path is unsafe: {relative}")
-        if normalized == self.ledger_path.name or candidate.parts[0] == self.lock_path.name:
+        if normalized == self.ledger_path.name or candidate.parts[0] in {
+            self.lock_path.name,
+            self.transaction_path.name,
+        }:
             raise SafetyError(f"Artifact path is reserved: {relative}")
         destination = (self.root / candidate).resolve()
         try:
@@ -270,27 +277,112 @@ class ArtifactStore:
             raise SafetyError(f"Artifact path escapes artifact root: {relative}") from exc
         return normalized, destination
 
-    def _record_locked_transaction(self, relative: str, locked: bool) -> ArtifactRecord:
-        normalized, path = self._safe_path(relative)
-        record = ArtifactRecord(
-            path=normalized,
-            sha256=sha256_file(path),
-            locked=locked,
-            created_at=utc_now(),
+    @staticmethod
+    def _atomic_copy(source: Path, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.",
+            dir=str(destination.parent),
         )
-        ledger = self._ledger()
-        ledger["artifacts"][normalized] = record.__dict__
-        atomic_write_json(self.ledger_path, ledger)
-        return record
+        try:
+            with os.fdopen(fd, "wb") as destination_handle:
+                with source.open("rb") as source_handle:
+                    shutil.copyfileobj(source_handle, destination_handle)
+                    destination_handle.flush()
+                    os.fsync(destination_handle.fileno())
+            os.replace(temporary_name, destination)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
+
+    def _recover_pending_transaction(self) -> None:
+        if self.transaction_path.is_symlink():
+            raise SafetyError(
+                f"Artifact transaction path is unsafe: {self.transaction_path}"
+            )
+        if not self.transaction_path.exists():
+            return
+        if not self.transaction_path.is_dir():
+            raise SafetyError(
+                f"Artifact transaction path is unsafe: {self.transaction_path}"
+            )
+
+        marker_path = self.transaction_path / "pending.json"
+        if not marker_path.exists():
+            shutil.rmtree(self.transaction_path)
+            return
+        try:
+            pending = read_json(marker_path)
+        except (OSError, ValueError) as exc:
+            raise SafetyError(
+                f"Artifact transaction marker is malformed: {marker_path}"
+            ) from exc
+        if not isinstance(pending, dict) or type(pending.get("had_artifact")) is not bool:
+            raise SafetyError(f"Artifact transaction marker is malformed: {marker_path}")
+
+        _, path = self._safe_path(str(pending.get("path") or ""))
+        artifact_before = self.transaction_path / "artifact.before"
+        ledger_before = self.transaction_path / "ledger.before"
+        try:
+            if pending["had_artifact"]:
+                if not artifact_before.is_file() or artifact_before.is_symlink():
+                    raise SafetyError(
+                        f"Artifact transaction backup is missing: {artifact_before}"
+                    )
+                self._atomic_copy(artifact_before, path)
+            else:
+                path.unlink(missing_ok=True)
+            if not ledger_before.is_file() or ledger_before.is_symlink():
+                raise SafetyError(f"Artifact ledger backup is missing: {ledger_before}")
+            self._atomic_copy(ledger_before, self.ledger_path)
+        except OSError as exc:
+            raise SafetyError(
+                f"Could not recover artifact transaction: {self.transaction_path}: {exc}"
+            ) from exc
+        shutil.rmtree(self.transaction_path)
 
     def _write(self, relative: str, writer: Any, *, lock: bool) -> ArtifactRecord:
         with self._transaction_lock():
+            self._recover_pending_transaction()
             normalized, path = self._safe_path(relative)
-            current = self._ledger().get("artifacts", {}).get(normalized)
+            ledger = self._ledger()
+            current = ledger.get("artifacts", {}).get(normalized)
             if current and current.get("locked"):
                 raise SafetyError(f"Attempt to overwrite locked artifact: {normalized}")
-            writer(path)
-            return self._record_locked_transaction(normalized, lock)
+
+            self.transaction_path.mkdir()
+            staged_path = self.transaction_path / "artifact.after"
+            marker_path = self.transaction_path / "pending.json"
+            try:
+                self._atomic_copy(self.ledger_path, self.transaction_path / "ledger.before")
+                had_artifact = path.exists()
+                if had_artifact:
+                    self._atomic_copy(path, self.transaction_path / "artifact.before")
+                writer(staged_path)
+                record = ArtifactRecord(
+                    path=normalized,
+                    sha256=sha256_file(staged_path),
+                    locked=lock,
+                    created_at=utc_now(),
+                )
+                atomic_write_text(
+                    marker_path,
+                    json.dumps(
+                        {"had_artifact": had_artifact, "path": normalized},
+                        sort_keys=True,
+                    )
+                    + "\n",
+                )
+                path.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staged_path, path)
+                ledger["artifacts"][normalized] = record.__dict__
+                atomic_write_json(self.ledger_path, ledger)
+                marker_path.unlink()
+            except Exception:
+                self._recover_pending_transaction()
+                raise
+            shutil.rmtree(self.transaction_path, ignore_errors=True)
+            return record
 
     def write_json(self, relative: str, data: Any, *, lock: bool = False) -> ArtifactRecord:
         return self._write(relative, lambda path: atomic_write_json(path, data), lock=lock)
@@ -300,6 +392,7 @@ class ArtifactStore:
 
     def verify_locked(self) -> None:
         with self._transaction_lock():
+            self._recover_pending_transaction()
             ledger = self._ledger()
             for relative, record in ledger.get("artifacts", {}).items():
                 if not record.get("locked"):
