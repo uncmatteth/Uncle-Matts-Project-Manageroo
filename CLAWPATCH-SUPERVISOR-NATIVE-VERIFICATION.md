@@ -7,12 +7,12 @@ Windows and native macOS. It does not authorize a live project queue.
 
 - Repository: `https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git`
 - Branch: `fix/clawpatch-partial-progress-loop`
-- Supervisor source pin: `d690c3679e78ac7d9fd523e760732608896d6758`
+- Supervisor source pin: `c038fdee0a34d8b77f11e90465eec41e88d9fb8a`
 - ClawPatch: `0.7.2`
 - Codex CLI: `0.144.4`
 - Child watchdog and provider timeout: `900` seconds
-- Windows installer SHA-256: `3816cb8552d91bdb07a6bb57931caa5364b7180ba52bb239d14e4310a3ed522c`
-- macOS installer SHA-256: `a1fe09262ed89ae0084e746ff9e01634c00e11d1da9c1291024c4d1f3a24e21b`
+- Windows installer SHA-256: `e2bed805da93538eb7a1202720087bf8e9371595660ed24c0640a11b00dc9b44`
+- macOS installer SHA-256: `4746212d917ddc1d58fbba2df75bd82cdd8431f6c14d403d95709600c4ce9c20`
 
 The handoff commit that adds these installer and instruction files is allowed to
 be newer than the supervisor source pin. The supervisor implementation installed
@@ -90,6 +90,12 @@ The native tests must prove all of these behaviors in disposable repositories:
     untouched.
 19. A continued durable product-analysis job reuses its locked capacity and
     unknown-unknowns-preflight artifacts even when live free disk space changes.
+20. The Windows launcher preserves the exact supported Node directory selected
+    by the installer, fails if that executable disappears, and enables UTF-8
+    Python I/O. `npm.cmd` is accepted by generated default safety policy.
+21. Child output containing malformed UTF-8 remains bounded and readable, absent
+    output is safely sanitized, and a green baseline that changes project source
+    stops before map or review with the exact changed paths.
 
 ## Windows agent instructions
 
@@ -119,14 +125,14 @@ Confirm the branch is clean and tracks
 ### Verify the Windows installer
 
 ```powershell
-$ExpectedInstallerHash = "3816cb8552d91bdb07a6bb57931caa5364b7180ba52bb239d14e4310a3ed522c"
+$ExpectedInstallerHash = "e2bed805da93538eb7a1202720087bf8e9371595660ed24c0640a11b00dc9b44"
 $ActualInstallerHash = (Get-FileHash -Algorithm SHA256 .\Install-ClawPatch-Supervisor-Windows.ps1).Hash.ToLowerInvariant()
 if ($ActualInstallerHash -ne $ExpectedInstallerHash) {
     throw "Windows installer hash mismatch: $ActualInstallerHash"
 }
 
 $InstallerText = Get-Content -Raw .\Install-ClawPatch-Supervisor-Windows.ps1
-if ($InstallerText -notmatch "d690c3679e78ac7d9fd523e760732608896d6758") {
+if ($InstallerText -notmatch "c038fdee0a34d8b77f11e90465eec41e88d9fb8a") {
     throw "Windows installer does not pin the repaired supervisor commit."
 }
 ```
@@ -228,10 +234,10 @@ Confirm the branch is clean and tracks
 
 ```bash
 set -euo pipefail
-expected_installer_hash="a1fe09262ed89ae0084e746ff9e01634c00e11d1da9c1291024c4d1f3a24e21b"
+expected_installer_hash="4746212d917ddc1d58fbba2df75bd82cdd8431f6c14d403d95709600c4ce9c20"
 actual_installer_hash="$(shasum -a 256 Install-ClawPatch-Supervisor-macOS.sh | awk '{print $1}')"
 test "${actual_installer_hash}" = "${expected_installer_hash}"
-grep -F "d690c3679e78ac7d9fd523e760732608896d6758" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
+grep -F "c038fdee0a34d8b77f11e90465eec41e88d9fb8a" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
 ```
 
 ### Run the native macOS source proof
