@@ -11,6 +11,7 @@ from manageroo.stack_update import (
     CLAWPATCH_PACKAGE,
     GITNEXUS_PACKAGE,
     _replace_autoreview,
+    _update_autoreview,
     apply_stack_updates,
     format_stack_update,
     stack_update_plan,
@@ -65,6 +66,26 @@ class StackUpdateTests(unittest.TestCase):
         if argv[1:] == ["bin", "-g"]:
             return {"ok": True, "exit_code": 0, "argv": argv, "output": "/usr/bin\n"}
         return {"ok": False, "exit_code": 1, "argv": argv, "output": "not installed"}
+
+    @staticmethod
+    def _fake_autoreview_git_run(argv, **kwargs):
+        if argv[1:3] == ["clone", "--no-checkout"]:
+            checkout = Path(argv[-1])
+            checkout.mkdir(parents=True)
+            return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+        if "checkout" in argv:
+            skill = Path(kwargs["cwd"]) / "skills" / "autoreview"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("new\n", encoding="utf-8")
+            return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+        if "rev-parse" in argv:
+            return {
+                "ok": True,
+                "exit_code": 0,
+                "argv": argv,
+                "output": AUTOREVIEW_COMMIT + "\n",
+            }
+        return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
 
     def test_plan_is_dry_run_and_uses_release_pinned_update_paths(self):
         def which(name: str):
@@ -414,9 +435,10 @@ class StackUpdateTests(unittest.TestCase):
             alias.symlink_to(target, target_is_directory=True)
             replacements = []
 
-            def fake_update(destinations):
-                resolved = [Path(path).resolve() for path in destinations]
-                replacements.extend(resolved)
+            def fake_update(installations):
+                replacements.extend(
+                    Path(item["resolved_path"]) for item in installations
+                )
                 return {"ok": True, "name": "autoreview", "installations": []}
 
             with patch("manageroo.stack_update.Path.home", return_value=home), patch(
@@ -426,6 +448,75 @@ class StackUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(alias.is_symlink())
             self.assertEqual(replacements, [target.resolve()])
+
+    def test_autoreview_retargeted_alias_is_rejected_without_touching_victim(self):
+        if os.name == "nt":
+            self.skipTest("symlink setup is platform-dependent on Windows")
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            target = home / ".codex" / "skills" / "autoreview"
+            target.mkdir(parents=True)
+            (target / "SKILL.md").write_text(
+                "---\nname: autoreview\n---\nold\n",
+                encoding="utf-8",
+            )
+            alias = home / ".agents" / "skills" / "autoreview"
+            alias.parent.mkdir(parents=True)
+            alias.symlink_to(target, target_is_directory=True)
+            victim = home / "victim"
+            victim.mkdir()
+            (victim / "KEEP.txt").write_text("untouched\n", encoding="utf-8")
+
+            with patch("manageroo.stack_update.Path.home", return_value=home), patch(
+                "manageroo.stack_update.shutil.which", return_value=None
+            ):
+                plan = stack_update_plan(["autoreview"])
+            installation_records = plan["tools"][0]["installation_records"]
+            alias.unlink()
+            alias.symlink_to(victim, target_is_directory=True)
+
+            with patch(
+                "manageroo.stack_update.shutil.which",
+                side_effect=lambda name: "/usr/bin/git" if name == "git" else None,
+            ), patch("manageroo.stack_update._run", side_effect=self._fake_autoreview_git_run):
+                result = _update_autoreview(installation_records)
+
+            self.assertFalse(result["ok"], result)
+            self.assertEqual((victim / "KEEP.txt").read_text(encoding="utf-8"), "untouched\n")
+            self.assertEqual(
+                (target / "SKILL.md").read_text(encoding="utf-8"),
+                "---\nname: autoreview\n---\nold\n",
+            )
+
+    def test_autoreview_replaced_directory_is_rejected_without_touching_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            destination = home / ".codex" / "skills" / "autoreview"
+            destination.mkdir(parents=True)
+            original_skill = "---\nname: autoreview\n---\nold\n"
+            (destination / "SKILL.md").write_text(original_skill, encoding="utf-8")
+
+            with patch("manageroo.stack_update.Path.home", return_value=home), patch(
+                "manageroo.stack_update.shutil.which", return_value=None
+            ):
+                plan = stack_update_plan(["autoreview"])
+            installation_records = plan["tools"][0]["installation_records"]
+            moved = destination.with_name("autoreview-original")
+            destination.rename(moved)
+            destination.mkdir()
+            (destination / "SKILL.md").write_text(original_skill, encoding="utf-8")
+            (destination / "KEEP.txt").write_text("untouched\n", encoding="utf-8")
+
+            with patch(
+                "manageroo.stack_update.shutil.which",
+                side_effect=lambda name: "/usr/bin/git" if name == "git" else None,
+            ), patch("manageroo.stack_update._run", side_effect=self._fake_autoreview_git_run):
+                result = _update_autoreview(installation_records)
+
+            self.assertFalse(result["ok"], result)
+            self.assertEqual((destination / "KEEP.txt").read_text(encoding="utf-8"), "untouched\n")
+            self.assertEqual((destination / "SKILL.md").read_text(encoding="utf-8"), original_skill)
+            self.assertEqual((moved / "SKILL.md").read_text(encoding="utf-8"), original_skill)
 
     def test_autoreview_alias_targeting_another_skill_is_rejected_without_changes(self):
         if os.name == "nt":

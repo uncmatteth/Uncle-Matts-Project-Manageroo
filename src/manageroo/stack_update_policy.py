@@ -176,8 +176,24 @@ def install_stack_update_policy(module: Any) -> None:
         except OSError as exc:
             return {"ok": False, "exit_code": 127, "argv": argv, "output": str(exc)}
 
-    def hardened_replace(source: Path, destination: Path) -> dict[str, Any]:
+    def hardened_replace(
+        source: Path,
+        destination: Path,
+        installation: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         destination = destination.expanduser()
+        identity_error = (
+            module._autoreview_installation_error(installation, destination)
+            if installation is not None
+            else None
+        )
+        if identity_error:
+            return {
+                "ok": False,
+                "name": "autoreview",
+                "path": str(destination),
+                "error": f"Unsafe AUTOREVIEW destination rejected: {identity_error}",
+            }
         if destination.is_symlink():
             return {
                 "ok": False,
@@ -185,15 +201,40 @@ def install_stack_update_policy(module: Any) -> None:
                 "path": str(destination),
                 "error": "Refusing to replace a symlink alias directly; update its resolved target instead.",
             }
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        if installation is None:
+            destination.parent.mkdir(parents=True, exist_ok=True)
         stage: Path | None = None
         rollback_root: Path | None = None
         previous: Path | None = None
         try:
             with _destination_lock(destination):
+                identity_error = (
+                    module._autoreview_installation_error(installation, destination)
+                    if installation is not None
+                    else None
+                )
+                if identity_error:
+                    return {
+                        "ok": False,
+                        "name": "autoreview",
+                        "path": str(destination),
+                        "error": f"Unsafe AUTOREVIEW destination rejected: {identity_error}",
+                    }
                 stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.manageroo-stage-", dir=str(destination.parent)))
                 shutil.rmtree(stage)
                 shutil.copytree(source, stage)
+                identity_error = (
+                    module._autoreview_installation_error(installation, destination)
+                    if installation is not None
+                    else None
+                )
+                if identity_error:
+                    return {
+                        "ok": False,
+                        "name": "autoreview",
+                        "path": str(destination),
+                        "error": f"Unsafe AUTOREVIEW destination rejected: {identity_error}",
+                    }
                 if destination.exists():
                     rollback_root, previous = module._temporary_rollback_path(destination)
                     destination.rename(previous)

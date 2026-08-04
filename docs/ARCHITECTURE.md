@@ -155,7 +155,9 @@ The surrounding stack provides first-class capabilities without taking control a
 
 - **GitNexus**: recommended repository/code-graph intelligence for exploration, dependency awareness, impact analysis, debugging, and refactoring. The installer can install and configure GitNexus. Repository indexing is project-specific. Manageroo remains usable when GitNexus is intentionally skipped or unavailable.
 - **GBrain**: external durable knowledge retrieval and capture when a task explicitly needs external memory or a knowledge base.
-- **AUTOREVIEW**: command-owned external review lane.
+- **AUTOREVIEW**: command-owned external review lane. Stack updates retain the
+  discovered candidate, approved root, resolved target, and filesystem identities;
+  any destination change before replacement fails closed without updating it.
 - **Clawpatch**: command-owned review and repair lane. Its own command owns its findings and repairs.
 - **Obsidian**: human-readable Markdown knowledge lane.
 - **Document/prose command lane**: optional evidence over a run-owned manifest for long prose, PDFs, transcripts, articles, and exact-text workflows.

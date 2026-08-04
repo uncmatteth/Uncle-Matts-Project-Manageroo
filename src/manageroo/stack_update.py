@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import platform
 import shutil
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -108,7 +109,72 @@ def _skill_frontmatter_name(path: Path) -> str:
     return ""
 
 
-def _autoreview_installations() -> tuple[list[Path], list[dict[str, str]]]:
+def _autoreview_installation_error(
+    installation: dict[str, Any], destination: Path
+) -> str | None:
+    path_fields = ("candidate_path", "approved_root", "resolved_path")
+    identity_fields = (
+        "candidate_device",
+        "candidate_inode",
+        "approved_root_device",
+        "approved_root_inode",
+        "target_device",
+        "target_inode",
+    )
+    if any(not isinstance(installation.get(field), str) for field in path_fields) or any(
+        not isinstance(installation.get(field), int) for field in identity_fields
+    ):
+        return "planned destination identity is missing or malformed"
+
+    candidate = Path(installation["candidate_path"]).expanduser()
+    approved_root = Path(installation["approved_root"]).expanduser()
+    target = Path(installation["resolved_path"]).expanduser()
+    if destination != target:
+        return "mutation target does not match the planned resolved destination"
+    if target.name != "autoreview" or target.parent != approved_root:
+        return "planned target is not directly beneath its approved skill root"
+    try:
+        candidate_state = candidate.lstat()
+        approved_root_state = approved_root.lstat()
+        target_state = target.lstat()
+        current_root = approved_root.resolve(strict=True)
+        current_target = candidate.resolve(strict=True)
+    except OSError as exc:
+        return f"planned destination can no longer be verified: {exc}"
+    if current_root != approved_root or not stat.S_ISDIR(approved_root_state.st_mode):
+        return "approved skill root changed after planning"
+    if (
+        candidate_state.st_dev,
+        candidate_state.st_ino,
+    ) != (
+        installation["candidate_device"],
+        installation["candidate_inode"],
+    ):
+        return "AUTOREVIEW candidate identity changed after planning"
+    if current_target != target:
+        return "AUTOREVIEW candidate resolves to a different target than the plan"
+    if (
+        approved_root_state.st_dev,
+        approved_root_state.st_ino,
+    ) != (
+        installation["approved_root_device"],
+        installation["approved_root_inode"],
+    ):
+        return "approved skill root identity changed after planning"
+    if not stat.S_ISDIR(target_state.st_mode) or (
+        target_state.st_dev,
+        target_state.st_ino,
+    ) != (
+        installation["target_device"],
+        installation["target_inode"],
+    ):
+        return "AUTOREVIEW target identity changed after planning"
+    if _skill_frontmatter_name(target / "SKILL.md").casefold() != "autoreview":
+        return "SKILL.md no longer identifies the AUTOREVIEW skill"
+    return None
+
+
+def _autoreview_installations() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     roots = [
         Path.home() / ".agents" / "skills",
         Path.home() / ".codex" / "skills",
@@ -122,7 +188,7 @@ def _autoreview_installations() -> tuple[list[Path], list[dict[str, str]]]:
             continue
         if resolved_root not in approved_roots:
             approved_roots.append(resolved_root)
-    resolved: list[Path] = []
+    installations: list[dict[str, Any]] = []
     unsafe: list[dict[str, str]] = []
     for path in candidates:
         if not (path / "SKILL.md").is_file():
@@ -152,9 +218,37 @@ def _autoreview_installations() -> tuple[list[Path], list[dict[str, str]]]:
                 }
             )
             continue
-        if target not in resolved:
-            resolved.append(target)
-    return resolved, unsafe
+        if any(item["resolved_path"] == str(target) for item in installations):
+            continue
+        try:
+            candidate_state = path.lstat()
+            approved_root_state = target.parent.lstat()
+            target_state = target.lstat()
+        except OSError:
+            continue
+        installation = {
+            "candidate_path": str(path),
+            "approved_root": str(target.parent),
+            "resolved_path": str(target),
+            "candidate_device": candidate_state.st_dev,
+            "candidate_inode": candidate_state.st_ino,
+            "approved_root_device": approved_root_state.st_dev,
+            "approved_root_inode": approved_root_state.st_ino,
+            "target_device": target_state.st_dev,
+            "target_inode": target_state.st_ino,
+        }
+        identity_error = _autoreview_installation_error(installation, target)
+        if identity_error:
+            unsafe.append(
+                {
+                    "path": str(path),
+                    "resolved_path": str(target),
+                    "reason": identity_error,
+                }
+            )
+            continue
+        installations.append(installation)
+    return installations, unsafe
 
 
 def _manageroo_owned_trufflehog_path(active_path: str | None) -> Path | None:
@@ -261,7 +355,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     obsidian = shutil.which("obsidian")
     trufflehog = shutil.which("trufflehog")
     owned_trufflehog = _manageroo_owned_trufflehog_path(trufflehog)
-    autoreview_paths, unsafe_autoreview_paths = _autoreview_installations()
+    autoreview_installations, unsafe_autoreview_paths = _autoreview_installations()
 
     gitnexus_commands = _pinned_package_commands(
         executable=gitnexus,
@@ -320,14 +414,15 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
         ),
         _tool(
             "autoreview",
-            bool(autoreview_paths or unsafe_autoreview_paths),
+            bool(autoreview_installations or unsafe_autoreview_paths),
             [],
             AUTOREVIEW_REFERENCE,
             (
                 f"Updates each unique resolved AUTOREVIEW installation from pinned commit {AUTOREVIEW_COMMIT}. "
                 "Skill-root symlinks remain symlinks and aliases to the same target are updated only once."
             ),
-            install_paths=[str(path) for path in autoreview_paths],
+            install_paths=[item["resolved_path"] for item in autoreview_installations],
+            installation_records=autoreview_installations,
             unsafe_destinations=unsafe_autoreview_paths,
         ),
         _tool(
@@ -366,8 +461,24 @@ def _temporary_rollback_path(destination: Path) -> tuple[Path, Path]:
     return rollback_root, rollback_root / destination.name
 
 
-def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
+def _replace_autoreview(
+    source: Path,
+    destination: Path,
+    installation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     destination = destination.expanduser()
+    identity_error = (
+        _autoreview_installation_error(installation, destination)
+        if installation is not None
+        else None
+    )
+    if identity_error:
+        return {
+            "ok": False,
+            "name": "autoreview",
+            "path": str(destination),
+            "error": f"Unsafe AUTOREVIEW destination rejected: {identity_error}",
+        }
     if destination.is_symlink():
         return {
             "ok": False,
@@ -383,6 +494,13 @@ def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
     previous: Path | None = None
     try:
         shutil.copytree(source, stage)
+        identity_error = (
+            _autoreview_installation_error(installation, destination)
+            if installation is not None
+            else None
+        )
+        if identity_error:
+            raise OSError(f"Unsafe AUTOREVIEW destination rejected: {identity_error}")
         if destination.exists():
             rollback_root, previous = _temporary_rollback_path(destination)
             destination.rename(previous)
@@ -443,12 +561,19 @@ def _replace_autoreview(source: Path, destination: Path) -> dict[str, Any]:
         }
 
 
-def _update_autoreview(destinations: Iterable[Path]) -> dict[str, Any]:
-    targets: list[Path] = []
-    for path in destinations:
-        target = Path(path).expanduser().resolve()
-        if target not in targets:
-            targets.append(target)
+def _update_autoreview(installations: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    targets: list[tuple[Path, dict[str, Any]]] = []
+    for installation in installations:
+        target_value = installation.get("resolved_path")
+        if not isinstance(target_value, str):
+            return {
+                "ok": False,
+                "name": "autoreview",
+                "error": "planned AUTOREVIEW destination identity is missing or malformed",
+            }
+        target = Path(target_value).expanduser()
+        if all(existing != target for existing, _record in targets):
+            targets.append((target, installation))
     if not targets:
         return {"ok": True, "name": "autoreview", "skipped": True, "reason": "not installed"}
     git = shutil.which("git")
@@ -492,7 +617,10 @@ def _update_autoreview(destinations: Iterable[Path]) -> dict[str, Any]:
         )
         if not (sanitized / "SKILL.md").is_file() or (sanitized / "CLAUDE.md").exists():
             return {"ok": False, "name": "autoreview", "error": "sanitized autoreview tree is invalid"}
-        results = [_replace_autoreview(sanitized, destination) for destination in targets]
+        results = [
+            _replace_autoreview(sanitized, destination, installation)
+            for destination, installation in targets
+        ]
         return {
             "ok": all(item.get("ok") for item in results),
             "name": "autoreview",
@@ -530,7 +658,7 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
                     }
                 )
                 continue
-            results.append(_update_autoreview(Path(path) for path in tool.get("install_paths", [])))
+            results.append(_update_autoreview(tool.get("installation_records", [])))
             continue
         commands = tool.get("commands", [])
         if not commands:
