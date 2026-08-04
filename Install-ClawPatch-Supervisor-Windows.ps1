@@ -19,11 +19,19 @@ $Venv = Join-Path $InstallRoot "venv-f59afab"
 $BinDir = Join-Path $env:USERPROFILE ".local\bin"
 $NpmBin = Join-Path $env:APPDATA "npm"
 $ProgramsBin = Join-Path $env:LOCALAPPDATA "Programs\bin"
+$script:NodeRuntime = $null
 
 function Refresh-ProcessPath {
     $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    $parts = @($script:BinDir, $script:NpmBin, $script:ProgramsBin, $machinePath, $userPath) |
+    $parts = @(
+        $script:BinDir,
+        $script:NodeRuntime,
+        $script:NpmBin,
+        $script:ProgramsBin,
+        $machinePath,
+        $userPath
+    ) |
         Where-Object { $_ }
     $env:Path = $parts -join ";"
 }
@@ -144,6 +152,9 @@ if (-not $NodeSelection) {
     throw "ClawPatch requires Node.js 22 or newer. Install it, open a new PowerShell window, and rerun this installer."
 }
 $NodeExe = [string]$NodeSelection.Path
+$NodeRuntime = Split-Path -Parent $NodeExe
+$script:NodeRuntime = $NodeRuntime
+Refresh-ProcessPath
 
 $NpmBesideNode = Join-Path (Split-Path -Parent $NodeExe) "npm.cmd"
 $NpmExe = Resolve-NativeCommand @() @($NpmBesideNode)
@@ -224,7 +235,14 @@ $launcherLines = @(
     "@echo off",
     "setlocal",
     "set `"SUPERVISOR_VENV=$Venv`"",
-    "set `"PATH=%SUPERVISOR_VENV%\Scripts;$NpmBin;$ProgramsBin;%PATH%`"",
+    "set `"NODE_RUNTIME=$NodeRuntime`"",
+    "if not exist `"$NodeExe`" (",
+    "  echo ClawPatch supervisor Node runtime is missing: $NodeExe 1>&2",
+    "  exit /b 1",
+    ")",
+    "set `"PYTHONUTF8=1`"",
+    "set `"PYTHONIOENCODING=utf-8`"",
+    "set `"PATH=%SUPERVISOR_VENV%\Scripts;%NODE_RUNTIME%;$NpmBin;$ProgramsBin;%PATH%`"",
     "`"%SUPERVISOR_VENV%\Scripts\clawpatch-supervise.exe`" %*",
     "exit /b %ERRORLEVEL%"
 )

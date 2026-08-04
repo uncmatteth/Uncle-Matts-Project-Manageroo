@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from manageroo.acceptance import _needs_demonstration, build_acceptance_evidence
 from manageroo.chiptune import ThemePlayback
+from manageroo.clawpatch_release import _run as run_clawpatch_process
 from manageroo.evidence import ProjectMemoryEvidenceProvider, normalize_external_payload
 from manageroo.gbrain_setup import gbrain_setup_status, summarize_sync_status
 from manageroo.runner import CommandRunner
@@ -216,6 +217,36 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         self.assertTrue(result.timed_out)
         self.assertIn("partial stdout", result.stdout)
         self.assertIn("partial stderr", result.stderr)
+
+    def test_command_runner_decodes_utf8_output_with_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = CommandRunner().run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import os; os.write(1, b'before\\x8fafter\\n')",
+                ],
+                cwd=Path(temp),
+                timeout_seconds=5,
+            )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.stdout, "before\ufffdafter\n")
+
+    def test_clawpatch_process_reader_decodes_utf8_output_with_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = run_clawpatch_process(
+                [
+                    sys.executable,
+                    "-c",
+                    "import os; os.write(1, b'before\\x8fafter\\n')",
+                ],
+                cwd=Path(temp),
+                timeout=5,
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "before\ufffdafter\n")
 
     @unittest.skipIf(os.name == "nt", "POSIX process-group assertion")
     def test_command_runner_timeout_kills_the_supervised_child_process_group(self):

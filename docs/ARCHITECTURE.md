@@ -123,7 +123,10 @@ checkpoint and proof artifacts live in the Manageroo-owned external-runner state
 directory rather than in the target worktree or Git metadata. A red configured
 baseline is reported with the exact failing gate, command, exit code, and captured
 output; Clawpatch is not sent into a finding repair that cannot possibly satisfy
-the mandatory whole-project gate. The cross-platform controller reviews all pending Clawpatch
+the mandatory whole-project gate. A gate that exits successfully but changes any
+tracked or unignored project source also stops before map or review, with the exact
+paths left visible; validation side effects are never treated as finding input. The
+cross-platform controller reviews all pending Clawpatch
 features in bounded worker waves. Before each wave, ClawPatch's review dry-run
 reports the pending count and current job count. Manageroo runs one
 `review --limit <jobs>` child and requires the next dry-run to decrease pending
@@ -132,7 +135,11 @@ zero pending completes review, no progress stops, and the 900-second process-tre
 watchdog remains enforced per child instead of spanning the whole repository.
 On Windows, argv-only child execution resolves native command shims and invokes
 `.cmd` or `.bat` launchers through `COMSPEC /d /s /c` while retaining
-`shell=False`. Persistent byte-range lock files update owner metadata in place
+`shell=False`. The native installer records the exact supported Node directory it
+verified, pins that directory in the generated launcher, and enables UTF-8 Python
+I/O. Controller child readers decode UTF-8 with replacement so one malformed byte
+cannot erase gate diagnostics, and output sanitization accepts absent streams.
+Persistent byte-range lock files update owner metadata in place
 instead of truncating a file another Windows process has locked. Git reference
 transactions use an exact binary UTF-8/LF protocol, and console status markers
 fall back to ASCII when the active stream encoding cannot represent Unicode.

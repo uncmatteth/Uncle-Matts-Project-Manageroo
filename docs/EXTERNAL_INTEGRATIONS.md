@@ -344,7 +344,17 @@ The implementation is native Python and uses argv-only subprocesses. It does
 not depend on Bash, PowerShell scripts, `jq`, or copy/paste loops, and supports
 Windows, macOS, and Linux. On Windows, Manageroo resolves command shims and uses
 native PowerShell process inspection conservatively to prevent concurrent
-Clawpatch execution.
+Clawpatch execution. The Windows installer preserves the exact Node runtime it
+verified in the generated launcher, enables UTF-8 Python I/O, and fails clearly
+if that Node executable later disappears. `npm.cmd` is part of the generated
+default safety policy. Child output is decoded as UTF-8 with replacement so
+validation diagnostics survive malformed bytes.
+
+Configured baseline gates must also be source-clean. Manageroo checks again
+immediately after the gates return successfully and stops before map or review
+if a build or test changed tracked or unignored source. It reports and preserves
+those exact paths instead of staging, restoring, or treating them as ClawPatch
+repair input.
 
 Manageroo gives each Clawpatch child process group and provider the same explicit timeout and sets
 the same default for its Codex worker. A user-supplied

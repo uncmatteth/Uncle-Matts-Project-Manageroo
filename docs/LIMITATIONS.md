@@ -44,6 +44,14 @@ Manageroo does not start arbitrary Compose services, provision other databases,
 infer test commands, reuse project volumes, or connect to an existing database.
 Repositories outside that exact contract must provide their validation service
 explicitly.
+Configured baseline gates must be both green and source-clean. If a successful
+gate changes tracked or unignored project files, the supervisor stops before
+map/review and leaves those paths visible. Manageroo does not guess that a file
+such as a framework-generated type declaration is safe to restore.
+On Windows, the installer pins the supported Node directory it actually
+verified and enables UTF-8 Python I/O in the launcher. Controller child readers
+use UTF-8 replacement decoding and tolerate absent output during sanitization;
+this preserves diagnostics but cannot reconstruct a malformed byte exactly.
 Large complete reviews are split into one ClawPatch worker-wave per child using
 the job count returned by review dry-run. Each wave must reduce the pending
 feature count by its exact reported review count. This avoids making repository

@@ -2279,6 +2279,58 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         )
         execute_fix.assert_not_called()
 
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._next_finding", return_value=(None, {"finding": None}))
+    @patch("manageroo.clawpatch_release._review_all_features")
+    @patch("manageroo.clawpatch_release._run_project_gates")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_green_baseline_that_mutates_source_blocks_before_map_and_review(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        run_project_gates,
+        review_all,
+        _next_finding,
+        final_closure,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            generated = repo / "next-env.d.ts"
+            generated.write_text('import "./.next/types/routes.d.ts";\n', encoding="utf-8")
+            subprocess.run(["git", "add", "next-env.d.ts"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "tracked source"], cwd=repo, check=True)
+            json_clawpatch.side_effect = [
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+            ]
+            review_all.return_value = {
+                "review": {"reviewed": 1, "findings": 0},
+                "completion": {"dryRun": True, "wouldReview": 0},
+            }
+            final_closure.return_value = {"needs_fresh_review": False, "pushed": False}
+
+            def mutate_source(*_args, **_kwargs):
+                generated.write_text(
+                    'import "./.next/dev/types/routes.d.ts";\n',
+                    encoding="utf-8",
+                )
+                return []
+
+            run_project_gates.side_effect = mutate_source
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "baseline validation changed project source files: next-env.d.ts",
+            ):
+                release_sweep(repo, apply=True, branch="current")
+
+        self.assertEqual(json_clawpatch.call_count, 1)
+        review_all.assert_not_called()
+
 
     def test_project_gate_failure_surfaces_the_exact_command_output(self):
         with tempfile.TemporaryDirectory() as temp:

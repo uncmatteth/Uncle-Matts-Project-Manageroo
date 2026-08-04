@@ -160,6 +160,8 @@ class CommandRunner:
                     env=process_env,
                     input=input_text,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=timeout_seconds,
@@ -223,6 +225,8 @@ class CommandRunner:
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
             "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
             "shell": False,
         }
         if os.name == "nt":

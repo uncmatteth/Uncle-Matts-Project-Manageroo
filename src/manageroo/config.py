@@ -47,7 +47,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "budget": {"max_total_worker_calls": 80, "max_runtime_minutes": 240},
     "safety": {
         "allowed_programs": [
-            "python", "python3", "node", "npm", "pnpm", "yarn", "bun",
+            "python", "python3", "node", "npm", "npm.cmd", "pnpm", "yarn", "bun",
             "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make",
         ],
         "block_agent_commits": True,
@@ -208,7 +208,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "max_runtime_minutes = 240",
         "",
         "[safety]",
-        'allowed_programs = ["python", "python3", "node", "npm", "pnpm", "yarn", "bun", "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make"]',
+        'allowed_programs = ["python", "python3", "node", "npm", "npm.cmd", "pnpm", "yarn", "bun", "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make"]',
         "block_agent_commits = true",
         "require_source_unchanged_before_apply = true",
         "",

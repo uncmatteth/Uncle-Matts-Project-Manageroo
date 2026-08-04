@@ -149,6 +149,8 @@ def _run(
             command,
             cwd=str(cwd),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             env=env,
@@ -3466,6 +3468,12 @@ def release_sweep(
             finding_id="baseline-preflight",
             required=require_project_gates,
         )
+        baseline_changes = _source_paths(root)
+        if baseline_changes:
+            raise SafetyError(
+                "Clawpatch baseline validation changed project source files: "
+                + ", ".join(baseline_changes)
+            )
 
     if resumed_checkpoint:
         mapped = {"resumed": True, "features": 0}

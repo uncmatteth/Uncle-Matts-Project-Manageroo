@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import importlib.util
+import tomllib
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 from manageroo.artifacts import ArtifactStore
 from manageroo.branding import status_line
+from manageroo.config import config_template
 from manageroo.release_ready_policy import _hold_release_head
 from manageroo.runner import _platform_argv
 
@@ -54,6 +56,11 @@ class _FakeTransaction:
 
 
 class WindowsNativeRegressionTests(unittest.TestCase):
+    def test_default_config_allows_the_native_windows_npm_shim(self):
+        config = tomllib.loads(config_template("mock", []))
+
+        self.assertIn("npm.cmd", config["safety"]["allowed_programs"])
+
     def test_windows_pid_probe_does_not_treat_invalid_pid_as_live(self):
         with (
             patch("manageroo.artifacts.os.name", "nt"),
@@ -109,6 +116,18 @@ class WindowsNativeRegressionTests(unittest.TestCase):
         self.assertIn("Sort-Object -Property Version -Descending", text)
         self.assertIn("if ($candidate.Major -ge 22)", text)
         self.assertIn('Join-Path (Split-Path -Parent $NodeExe) "npm.cmd"', text)
+
+    def test_windows_supervisor_launcher_pins_the_node_runtime_verified_by_installer(self):
+        text = (ROOT / "Install-ClawPatch-Supervisor-Windows.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("$NodeRuntime = Split-Path -Parent $NodeExe", text)
+        self.assertIn('set `"NODE_RUNTIME=$NodeRuntime`"', text)
+        self.assertIn('if not exist `"$NodeExe`" (', text)
+        self.assertIn("%NODE_RUNTIME%", text)
+        self.assertIn('set `"PYTHONUTF8=1`"', text)
+        self.assertIn('set `"PYTHONIOENCODING=utf-8`"', text)
 
     def test_macos_supervisor_installer_finds_standard_homebrew_locations(self):
         text = (ROOT / "Install-ClawPatch-Supervisor-macOS.sh").read_text(
