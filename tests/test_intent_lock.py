@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class IntentLockTests(unittest.TestCase):
     def _repo(self, root: Path) -> Path:
-        repo = root / "product"; repo.mkdir(); subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True); (repo / "README.md").write_text("# Product\n", encoding="utf-8"); return repo
+        repo = root / "product"; repo.mkdir(); subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True); (repo / "README.md").write_text("# Product\n", encoding="utf-8"); return repo.resolve()
 
     def test_capture_writes_machine_and_human_intent_lock(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -19,7 +19,7 @@ class CliNextTests(unittest.TestCase):
         repo.mkdir()
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
         (repo / "README.md").write_text("fixture\n", encoding="utf-8")
-        return repo
+        return repo.resolve()
 
     def test_uninitialized_git_repo_points_to_solo_front_door(self):
         with tempfile.TemporaryDirectory() as temp:

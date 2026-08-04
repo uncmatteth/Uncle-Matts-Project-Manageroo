@@ -160,7 +160,7 @@ class CapabilityRouterTests(unittest.TestCase):
             self.assertTrue(route["automatic"])
             self.assertFalse(route["user_selection_required"])
             self.assertEqual([item["name"] for item in route["selected"]], ["diagnose"])
-            self.assertEqual(route["selected"][0]["path"], str(diagnose))
+            self.assertEqual(route["selected"][0]["path"], str(diagnose.resolve()))
             prompt = render_capability_prompt(route)
             self.assertIn("Manageroo selected these capabilities automatically", prompt)
             self.assertIn("Investigate before editing", prompt)
@@ -1120,11 +1120,11 @@ class CapabilityRouterTests(unittest.TestCase):
 
             entries = {(item["name"], item["path"]) for item in route["catalog_entries"]}
             self.assertIn(
-                ("linked-directory", str((root / "linked-directory" / "SKILL.md").absolute())),
+                ("linked-directory", str(root.resolve() / "linked-directory" / "SKILL.md")),
                 entries,
             )
             self.assertIn(
-                ("linked-entrypoint", str((entrypoint_dir / "SKILL.md").absolute())),
+                ("linked-entrypoint", str(root.resolve() / "linked-entrypoint" / "SKILL.md")),
                 entries,
             )
             self.assertIn(("regular", str(regular.resolve())), entries)

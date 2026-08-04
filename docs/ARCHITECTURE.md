@@ -135,6 +135,10 @@ transactions use an exact binary UTF-8/LF protocol, and console status markers
 fall back to ASCII when the active stream encoding cannot represent Unicode.
 The release verifier gives the complete native unit suite its own 900-second
 limit so the verifier does not terminate a healthy Windows run at five minutes.
+macOS filesystem identity checks canonicalize the `/var` to `/private/var`
+alias before containment and package-manager ownership comparisons. The native
+macOS installer also discovers Homebrew at its standard Apple Silicon and Intel
+locations when a non-login shell does not include Homebrew on `PATH`.
 The controller then obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and

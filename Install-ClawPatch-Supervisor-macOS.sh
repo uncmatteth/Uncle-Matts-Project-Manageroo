@@ -28,6 +28,15 @@ LAUNCHER="${BIN_DIR}/clawpatch-supervise"
 mkdir -p "${INSTALL_ROOT}" "${NPM_ROOT}" "${BIN_DIR}"
 
 BREW_BIN="$(command -v brew || true)"
+if [[ -z "${BREW_BIN}" ]]; then
+    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        if [[ -x "${candidate}" ]]; then
+            BREW_BIN="${candidate}"
+            export PATH="$(dirname "${candidate}"):${PATH}"
+            break
+        fi
+    done
+fi
 
 install_with_brew() {
     local formula="$1"

@@ -75,6 +75,8 @@ Not every control is equally strong. This document distinguishes prevention from
 | Windows contender cannot inspect owner metadata while another process holds a byte-range lock | Rewrite the persistent lock payload in place without truncating the locked file | Preventive |
 | Windows cannot execute an npm or other `.cmd` shim directly with `shell=False` | Resolve the shim and invoke it through an explicit `COMSPEC /d /s /c` argv | Preventive |
 | Windows installer selects an incompatible or mismatched Node/npm pair | Probe all known Node candidates, choose one supported Node version, and prefer npm adjacent to that executable | Preventive |
+| macOS path aliases create false containment or package-manager ownership failures | Compare canonical filesystem parents while preserving the selected executable name | Preventive |
+| Non-login macOS shell hides an existing Homebrew installation | Probe `/opt/homebrew/bin/brew` and `/usr/local/bin/brew` before declaring Homebrew unavailable | Preventive |
 | Uninstall plan targets a lookalike or dangerously broad prefix | Reject prefixes that contain home or the current working directory; require a matching resolved install lock plus SHA-256-bound random ownership marker; old locks require matching app digest, launcher, venv, and prefix | Preventive |
 | Crash during final apply loses proof | Final result/report/patch are written before source apply; continue retries apply only | Detective and recoverable |
 | Acceptance cannot be auto-passed | `verification/acceptance-evidence.json` binds outcomes to gates, demo evidence, and review | Preventive in controller |

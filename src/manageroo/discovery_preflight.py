@@ -118,7 +118,7 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
             if not stat.S_ISREG(metadata.st_mode):
                 continue
             try:
-                relative = path.relative_to(repo)
+                relative = path.resolve(strict=False).relative_to(repo)
                 remaining = max_chars - consumed
                 with path.open("r", encoding="utf-8", errors="ignore") as handle:
                     text = handle.read(min(20_000, remaining))

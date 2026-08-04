@@ -110,6 +110,14 @@ class WindowsNativeRegressionTests(unittest.TestCase):
         self.assertIn("if ($candidate.Major -ge 22)", text)
         self.assertIn('Join-Path (Split-Path -Parent $NodeExe) "npm.cmd"', text)
 
+    def test_macos_supervisor_installer_finds_standard_homebrew_locations(self):
+        text = (ROOT / "Install-ClawPatch-Supervisor-macOS.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("/opt/homebrew/bin/brew /usr/local/bin/brew", text)
+        self.assertIn('export PATH="$(dirname "${candidate}"):${PATH}"', text)
+
     def test_release_verifier_allows_the_native_windows_suite_full_watchdog(self):
         spec = importlib.util.spec_from_file_location(
             "manageroo_verify_release_windows_regression",

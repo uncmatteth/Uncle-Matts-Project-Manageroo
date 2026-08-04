@@ -108,7 +108,8 @@ def _owned_by_manager(
         if root is None:
             return False
         try:
-            tool.absolute().relative_to(root.resolve(strict=False))
+            canonical_tool_location = tool.absolute().parent.resolve(strict=False) / tool.name
+            canonical_tool_location.relative_to(root.resolve(strict=False))
         except ValueError:
             return False
         if tool.is_symlink():

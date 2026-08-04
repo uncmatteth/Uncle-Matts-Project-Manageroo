@@ -52,7 +52,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
     @staticmethod
     def init_repo(repo: Path) -> None:
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
         (repo / ".gitignore").write_text(".clawpatch/\n.manageroo/\n", encoding="utf-8")
@@ -74,7 +74,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
     @staticmethod
     def init_plain_repo(repo: Path) -> None:
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
         (repo / ".gitignore").write_text(".clawpatch/\n", encoding="utf-8")
@@ -159,7 +159,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 )
 
             proof_path = Path(report["proof_path"])
-            self.assertIn(manageroo_state, proof_path.parents)
+            self.assertIn(manageroo_state.resolve(), proof_path.parents)
             self.assertTrue(proof_path.is_file())
             self.assertFalse((repo / ".manageroo").exists())
             self.assertFalse((repo / ".git" / "manageroo").exists())
@@ -425,7 +425,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             _write_release_progress(
                 repo,
                 finding_id=finding_id,
-                branch="master",
+                branch="main",
                 head_before=head,
                 phase="stopped",
                 owned_paths=["app.py"],
@@ -467,7 +467,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             feature.parent.mkdir(parents=True)
             feature.write_text('{"featureId":"feat_one"}\n', encoding="utf-8")
 
-            commit = _publish_final_state(repo, branch="master")
+            commit = _publish_final_state(repo, branch="main")
 
             head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
             self.assertEqual(commit, head)

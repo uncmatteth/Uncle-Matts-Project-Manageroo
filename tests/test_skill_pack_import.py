@@ -54,7 +54,7 @@ class SkillPackImportTests(unittest.TestCase):
 
             scan = scan_skill_folder(target, skills_dir=target)
             self.assertEqual(scan["candidate_count"], 1)
-            self.assertEqual(scan["candidates"][0]["path"], str(target / "existing-skill" / "SKILL.md"))
+            self.assertEqual(scan["candidates"][0]["path"], str((target / "existing-skill" / "SKILL.md").resolve()))
             reconcile = reconcile_skill_pack(skills_dir=target, apply=False, scan_default_roots=False)
             self.assertEqual(reconcile["duplicate_count"], 0)
 

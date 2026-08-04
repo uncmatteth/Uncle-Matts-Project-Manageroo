@@ -93,7 +93,7 @@ class ProjectInitializationTests(unittest.TestCase):
                 title="New Product",
                 description="Make the first release less painful.",
             )
-            self.assertEqual(Path(result["repo"]), repo)
+            self.assertEqual(Path(result["repo"]), repo.resolve())
             self.assertTrue((repo / ".git").is_dir())
             self.assertIn("New Product", (repo / "README.md").read_text(encoding="utf-8"))
             self.assertIn(".manageroo/runs/", (repo / ".gitignore").read_text(encoding="utf-8"))

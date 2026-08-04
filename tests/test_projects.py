@@ -23,7 +23,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
         repo.mkdir()
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
         (repo / "README.md").write_text(f"# {name}\n", encoding="utf-8")
-        return repo
+        return repo.resolve()
 
     def test_projects_json_finds_git_repos_and_next_commands(self):
         with tempfile.TemporaryDirectory() as temp:
