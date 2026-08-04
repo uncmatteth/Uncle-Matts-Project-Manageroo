@@ -192,7 +192,11 @@ automatically, making bare `clawpatch-supervise` the normal universal interface.
 Every bare external invocation starts fresh. It first proves and recovers any
 temporary iteration commit, then discards only the exact checkpoint-owned dirty
 paths before rebuilding ClawPatch run/discovery state. Unrelated dirty source
-blocks unchanged.
+blocks unchanged. If the worktree is clean and Git proves that the current
+branch advanced from the checkpoint's original HEAD without containing the
+checkpoint's temporary commit, that dangling checkpoint is obsolete: fresh
+startup retires only the external checkpoint and preserves the current commit
+and files exactly.
 After a fresh complete review finds zero findings, final open and uncertain
 reports are empty, and every gate passes, generated ClawPatch runtime state is
 removed and the committed `.clawpatch` tree is restored exactly unless the

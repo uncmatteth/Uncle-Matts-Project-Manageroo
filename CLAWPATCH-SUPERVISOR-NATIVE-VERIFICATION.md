@@ -57,25 +57,28 @@ The native tests must prove all of these behaviors in disposable repositories:
 7. An interrupted temporary commit is recovered only when the durable
    checkpoint proves repository, branch, starting HEAD, finding, temporary
    commit, and exact owned paths.
-8. Unrelated dirty source causes a safe refusal and remains untouched.
-9. Command shims resolve without `shell=True`.
-10. Timeout and interruption cleanup terminate and reap the complete process
+8. If clean current history advances from the recorded starting HEAD without
+   containing the temporary commit, fresh startup retires only that dangling
+   checkpoint and preserves current HEAD and files exactly.
+9. Unrelated dirty source causes a safe refusal and remains untouched.
+10. Command shims resolve without `shell=True`.
+11. Timeout and interruption cleanup terminate and reap the complete process
     tree, with the configured 900-second watchdog passed to the child.
-11. Progress output distinguishes a numbered fix attempt from a heartbeat and
+12. Progress output distinguishes a numbered fix attempt from a heartbeat and
     shows the active phase, exact command, elapsed time, and watchdog.
-12. Exact-path commits, branch synchronization, push verification, fresh-start
+13. Exact-path commits, branch synchronization, push verification, fresh-start
     ownership, and visible `[current/total]` phases remain enforced.
-13. A review generation that found or recovered findings cannot emit
+14. A review generation that found or recovered findings cannot emit
     `COMPLETE`; it must preserve committed configuration, rebuild generated
     ClawPatch state, map the repaired HEAD, and completely review it again.
-14. A two-generation simulation proves that the first generation repairs its
+15. A two-generation simulation proves that the first generation repairs its
     finding and the second fresh generation finds zero findings before
     `COMPLETE`; the proof records both generations and terminal output displays
     `fresh_review_generations=2`.
-15. A simulation in which a non-clean fresh generation repeats a source tree
+16. A simulation in which a non-clean fresh generation repeats a source tree
     stops as nonconvergent without another review, an arbitrary generation cap,
     or a false completion claim.
-16. A large-review simulation uses the job count returned by ClawPatch dry-run
+17. A large-review simulation uses the job count returned by ClawPatch dry-run
     as the next review limit, continues in bounded worker waves until pending is
     zero, and stops if a successful wave does not reduce pending features by its
     exact reported reviewed count. The 900-second watchdog remains unchanged

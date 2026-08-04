@@ -397,6 +397,80 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
 
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._json_clawpatch")
+    def test_fresh_retires_dangling_temporary_commit_after_branch_advances_cleanly(
+        self,
+        json_clawpatch,
+        _processes,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            branch, original_head = self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\npartial repair\n", encoding="utf-8")
+            subprocess.run(["git", "add", "--", "app.py"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "manageroo clawpatch iteration: fnd_one"],
+                cwd=repo,
+                check=True,
+            )
+            temporary_commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            state_root = root / "state"
+            _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=original_head,
+                phase="stopped",
+                owned_paths=["app.py"],
+                temporary_commit=temporary_commit,
+                source_states=[
+                    subprocess.check_output(
+                        ["git", "rev-parse", "HEAD^{tree}"], cwd=repo, text=True
+                    ).strip()
+                ],
+                state_root=state_root,
+            )
+
+            subprocess.run(["git", "reset", "--hard", original_head], cwd=repo, check=True)
+            source.write_text("before\nnew committed user work\n", encoding="utf-8")
+            user_file = repo / "user.txt"
+            user_file.write_text("preserve me\n", encoding="utf-8")
+            subprocess.run(["git", "add", "--", "app.py", "user.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "new user work"], cwd=repo, check=True)
+            current_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+
+            def initialize(*_args, **_kwargs):
+                project = repo / ".clawpatch" / "project.json"
+                project.parent.mkdir(parents=True, exist_ok=True)
+                project.write_text("{}\n", encoding="utf-8")
+                return {"created": True}
+
+            json_clawpatch.side_effect = initialize
+            _prepare_fresh_release(repo, env={}, state_root=state_root)
+
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+                ).strip(),
+                current_head,
+            )
+            self.assertEqual(source.read_text(encoding="utf-8"), "before\nnew committed user work\n")
+            self.assertEqual(user_file.read_text(encoding="utf-8"), "preserve me\n")
+            self.assertEqual(
+                subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True),
+                "",
+            )
+            self.assertIsNone(_load_release_progress(repo, state_root=state_root))
+            json_clawpatch.assert_called_once()
+
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_fresh_refuses_unrelated_dirty_source_and_changes_nothing(
         self,
         json_clawpatch,

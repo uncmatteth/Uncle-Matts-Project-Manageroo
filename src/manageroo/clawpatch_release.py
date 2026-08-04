@@ -1476,6 +1476,22 @@ def _recover_checkpoint_temporary_commit(
             )
         _must_run(["git", "reset", "--mixed", original_head], cwd=repo, timeout=120)
     elif current_head != original_head:
+        original_is_ancestor = _run(
+            ["git", "merge-base", "--is-ancestor", original_head, current_head],
+            cwd=repo,
+            timeout=60,
+        )
+        temporary_is_ancestor = _run(
+            ["git", "merge-base", "--is-ancestor", temporary_commit, current_head],
+            cwd=repo,
+            timeout=60,
+        )
+        if (
+            not source_changes
+            and original_is_ancestor.returncode == 0
+            and temporary_is_ancestor.returncode == 1
+        ):
+            return
         raise SafetyError(
             "Interrupted Clawpatch temporary commit no longer matches the current Git HEAD."
         )
