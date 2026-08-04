@@ -12,6 +12,7 @@ from unittest.mock import call, patch
 from manageroo.clawpatch_release import (
     _MissingFinding,
     _UnresolvedFinding,
+    _active_clawpatch_processes,
     _checkpoint_can_follow_supervisor_upgrade,
     _clawpatch_version,
     _commit_attempt,
@@ -511,6 +512,40 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 ["python", "/home/Tommy/.local/bin/clawpatch-supervise", "--repo", "."]
             )
         )
+
+    @patch("manageroo.clawpatch_release.Path.is_dir", return_value=False)
+    @patch("manageroo.clawpatch_release.os.name", "posix")
+    @patch("manageroo.clawpatch_release.os.getpid", return_value=101)
+    @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/lsof")
+    @patch("manageroo.clawpatch_release._run")
+    def test_unix_process_inventory_ignores_self_and_other_repositories(
+        self, run, _which, _getpid, _is_dir
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            other = root / "other"
+            repo.mkdir()
+            other.mkdir()
+
+            def inspect(argv, **_kwargs):
+                if argv[0] == "ps":
+                    return self.completed(
+                        argv,
+                        f"101 python3 -m manageroo.clawpatch_external --repo {repo}\n"
+                        f"202 clawpatch-supervise --repo {other}\n"
+                        "303 clawpatch map\n",
+                    )
+                pid = argv[argv.index("-p") + 1]
+                cwd = other if pid == "202" else repo
+                return self.completed(argv, f"p{pid}\nfcwd\nn{cwd}\n")
+
+            run.side_effect = inspect
+
+            self.assertEqual(
+                _active_clawpatch_processes(repo),
+                [{"pid": 303, "cwd": str(repo), "command": "clawpatch map"}],
+            )
 
     def test_pushable_branch_must_match_the_live_origin_sha_before_any_fix(self):
         with tempfile.TemporaryDirectory() as temp:

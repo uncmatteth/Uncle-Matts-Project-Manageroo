@@ -317,9 +317,43 @@ def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
     if result.returncode:
         raise SafetyError("Could not prove that no other Clawpatch process is active.")
     for line in result.stdout.splitlines():
-        if "clawpatch" in line.lower():
-            found.append({"pid": line.strip().split(maxsplit=1)[0], "cwd": "unknown", "command": line.strip()})
+        process = line.strip().split(maxsplit=1)
+        if len(process) != 2:
+            continue
+        try:
+            pid = int(process[0])
+        except ValueError:
+            continue
+        if pid == os.getpid():
+            continue
+        command = process[1]
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            continue
+        if not _is_clawpatch_argv(argv):
+            continue
+        cwd = _unix_process_cwd(pid, root)
+        if cwd == root:
+            found.append({"pid": pid, "cwd": str(cwd), "command": command})
     return found
+
+
+def _unix_process_cwd(pid: int, root: Path) -> Path | None:
+    lsof = shutil.which("lsof")
+    if lsof is None:
+        raise SafetyError("Could not inspect Clawpatch process working directories on Unix.")
+    result = _run([lsof, "-a", "-p", str(pid), "-d", "cwd", "-Fn"], cwd=root, timeout=30)
+    paths = [line[1:] for line in result.stdout.splitlines() if line.startswith("n")]
+    if not result.returncode and len(paths) == 1:
+        return Path(paths[0]).resolve()
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except OSError:
+        pass
+    raise SafetyError(f"Could not establish repository ownership for Clawpatch process {pid}.")
 
 
 def _windows_clawpatch_processes(root: Path) -> list[dict[str, Any]]:
