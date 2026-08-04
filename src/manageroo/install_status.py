@@ -288,8 +288,11 @@ def _safe_uninstall_prefix(prefix: Path) -> tuple[Path | None, str | None]:
         }
     except (OSError, RuntimeError, ValueError) as exc:
         return None, f"the prefix could not be resolved safely: {exc}"
-    if resolved in dangerous:
-        return None, "the prefix is the filesystem root, home directory, or current working directory"
+    if any(path == resolved or path.is_relative_to(resolved) for path in dangerous):
+        return None, (
+            "the prefix is the filesystem root, home directory, current working directory, "
+            "or an ancestor of home or the current working directory"
+        )
     if not resolved.is_dir():
         return None, "the prefix is not an existing directory"
     return resolved, None

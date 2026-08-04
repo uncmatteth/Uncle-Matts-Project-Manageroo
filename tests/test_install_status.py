@@ -230,6 +230,24 @@ class InstallStatusTests(unittest.TestCase):
                     self.assertEqual(plan["core_commands"], [])
                     self.assertTrue(plan["prefix_error"])
 
+    def test_uninstall_plan_refuses_owned_prefix_containing_current_working_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            child = prefix / "child"
+            child.mkdir(parents=True)
+            _write_owned_lock(prefix, {"external_tools": []})
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(child)
+                plan = uninstall_plan(prefix=prefix)
+            finally:
+                os.chdir(original_cwd)
+
+            self.assertFalse(plan["prefix_ownership_known"])
+            self.assertEqual(plan["core_paths"], [])
+            self.assertEqual(plan["core_commands"], [])
+            self.assertTrue(plan["prefix_error"])
+
     def test_uninstall_plan_includes_only_lock_proven_manageroo_owned_trufflehog(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
