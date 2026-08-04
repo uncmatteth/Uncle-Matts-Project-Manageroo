@@ -37,7 +37,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Worker memory cannot become run truth | Durable job store, packet manifests, artifact hashes | Preventive in controller |
 | Failed worker attempt is not treated as completion | Worker-attempt records plus retry/failed-job status | Preventive in controller |
 | Concurrent callers cannot allocate the same worker attempt | Per-job interprocess lock plus exclusive attempt-file reservation | Preventive |
-| Cached references cannot bypass project config mutation locking | Lock inside each public read-modify-write mutation entry point | Preventive |
+| Cached references or a writable cache directory cannot bypass project config mutation locking | Lock inside each public read-modify-write mutation entry point; validate cache ownership and permissions through a stable directory descriptor and use directory-relative lock operations | Preventive |
 | Concurrent adapters cannot exceed the durable worker-call budget | Interprocess ledger lock around reload, limit check, increment, and atomic write | Preventive |
 | Concurrent decision submissions can diverge product and resolution artifacts | Run-scoped interprocess transaction lock plus a product-model digest in the resolution record | Preventive and detective |
 | Concurrent skill installers cannot overlap or overwrite a linked lock target | Permanent cross-platform advisory lock on a validated private regular file; existing contents are not rewritten | Preventive |

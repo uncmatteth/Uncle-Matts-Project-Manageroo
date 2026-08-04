@@ -90,7 +90,9 @@ class PackageReleasePipelineTests(unittest.TestCase):
             events.append("write-installer" if path.name == package_release.INSTALLER_ZIP else "write-source")
             path.write_bytes(b"candidate")
 
-        with patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
+        with tempfile.TemporaryDirectory() as temp, patch.object(
+            package_release, "RELEASE_LOCK_TARGET", Path(temp) / "release-publication"
+        ), patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
             package_release, "generate_manifest", side_effect=lambda: events.append("manifest")
         ), patch.object(package_release, "included_files", return_value=[]), patch.object(
             package_release, "end_user_files", return_value=[]

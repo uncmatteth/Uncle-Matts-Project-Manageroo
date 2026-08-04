@@ -43,6 +43,23 @@ def _enter_config_lock(config_path, lock_opened, entered) -> None:
 
 
 class ConfigTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX directory permissions")
+    def test_config_lock_rejects_writable_existing_cache_before_creating_lock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config_path = root / "config.toml"
+            cache = root / "cache"
+            cache.mkdir()
+            cache.chmod(0o777)
+            lock_path = cache / "config.toml.manageroo.lock"
+
+            with self.assertRaisesRegex(SafetyError, "directory is unsafe"):
+                with config_mutation_lock(config_path):
+                    self.fail("unsafe cache directory must not be used")
+
+            self.assertFalse(lock_path.exists())
+            self.assertEqual(cache.stat().st_mode & 0o777, 0o777)
+
     def test_config_lock_rejects_hard_link_without_overwriting_target(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
