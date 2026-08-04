@@ -1,0 +1,57 @@
+﻿=== FINAL SOURCE HEAD ===
+0a1a2d9391c230f5297d7c192fd678eb185d6993
+ M BUILD-VALIDATION.json
+SOURCE_HEAD_EXIT_CODE=0
+=== COMMIT ANCESTRY ===
+ANCESTOR_EXIT_CODE=0
+4f666568bdc0727d643ac92c41e8b2a19d915742
+Bound large ClawPatch reviews by worker wave
+2026-08-04 15:23:27 -0400
+=== INSTALLED MANIFEST ===
+{
+    "installedAt":  "2026-08-04T15:53:30.4931370-04:00",
+    "managerooCommit":  "4f666568bdc0727d643ac92c41e8b2a19d915742",
+    "codexVersion":  "codex-cli 0.144.4",
+    "clawpatchVersion":  "0.7.2",
+    "launcher":  "C:\\Users\\david\\.local\\bin\\clawpatch-supervise.cmd",
+    "repository":  "C:\\Users\\david\\Documents\\Codex\\verification-repos\\manageroo-installer-clean-test-0a1a2d9"
+}
+
+=== PIP DIRECT_URL PROVENANCE ===
+{"url": "https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git", "vcs_info": {"commit_id": "4f666568bdc0727d643ac92c41e8b2a19d915742", "requested_revision": "4f666568bdc0727d643ac92c41e8b2a19d915742", "vcs": "git"}}
+=== FILE HASH COMPARISON: clawpatch_release.py ===
+SOURCE_BLOB=06163fd064f2e5d263e38cbc54348a06c81dfb30
+INSTALLED_BLOB=e2f898acfe28f6aac1e0eba4f8c6d8a2c6b148ad
+MATCH=False
+=== FILE HASH COMPARISON: clawpatch_external.py ===
+SOURCE_BLOB=39e791859c2fac4ce056eeaf238bac669b87622d
+INSTALLED_BLOB=442a62c399ce7555dc3039ff6755621277627c94
+MATCH=False
+=== INSTALLED COMMAND VERSIONS ===
+codex-cli 0.144.4
+CODEX_VERSION_EXIT_CODE=0
+0.7.2
+CLAWPATCH_VERSION_EXIT_CODE=0
+=== ACTIVE CLAWPATCH PROCESS CHECK ===
+{
+  "test_repo": [
+    {
+      "pid": 15260,
+      "cwd": "unknown; Windows process inspection is conservative",
+      "command": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -Command \"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n$ErrorActionPreference = 'Continue'\n$verifyRoot = 'C:\\Users\\david\\Documents\\Codex\\verification-logs\\manageroo-0a1a2d9-20260804'\n$worktree = 'C:\\Users\\david\\Documents\\Codex\\repos\\Uncle-Matts-Project-Manageroo-verify-0a1a2d9'\n$testRepo = 'C:\\Users\\david\\Documents\\Codex\\verification-repos\\manageroo-installer-clean-test-0a1a2d9'\n$commit = '4f666568bdc0727d643ac92c41e8b2a19d915742'\n$installRoot = Join-Path $env:LOCALAPPDATA 'ManagerooClawPatchSupervisor'\n$installedPy = Join-Path $installRoot 'venv-f59afab\\Lib\\site-packages\\manageroo\\clawpatch_release.py'\n$installedExternalPy = Join-Path $installRoot 'venv-f59afab\\Lib\\site-packages\\manageroo\\clawpatch_external.py'\n$directUrl = Join-Path $installRoot 'venv-f59afab\\Lib\\site-packages\\uncle_matts_project_manageroo-2026.7.19.1.dist-info\\direct_url.json'\n$venvPython = Join-Path $installRoot 'venv-f59afab\\Scripts\\python.exe'\n$log = Join-Path $verifyRoot '06-installed-provenance.log'\n& {\n  Write-Output '=== FINAL SOURCE HEAD ==='\n  git -C $worktree rev-parse HEAD\n  git -C $worktree status --short\n  Write-Output ('SOURCE_HEAD_EXIT_CODE=' + $LASTEXITCODE)\n\n  Write-Output '=== COMMIT ANCESTRY ==='\n  git -C $worktree merge-base --is-ancestor $commit HEAD\n  Write-Output ('ANCESTOR_EXIT_CODE=' + $LASTEXITCODE)\n  git -C $worktree show -s --format='%H%n%s%n%ci' $commit\n\n  Write-Output '=== INSTALLED MANIFEST ==='\n  Get-Content -LiteralPath (Join-Path $installRoot 'installed.json') -Raw\n\n  Write-Output '=== PIP DIRECT_URL PROVENANCE ==='\n  Get-Content -LiteralPath $directUrl -Raw\n\n  Write-Output '=== FILE HASH COMPARISON: clawpatch_release.py ==='\n  $sourceReleaseBlob = (git -C $worktree rev-parse ($commit + ':src/manageroo/clawpatch_release.py')).Trim()\n  $installedReleaseBlob = (git -C $worktree hash-object --no-filters $installedPy).Trim()\n  Write-Output ('SOURCE_BLOB=' + $sourceReleaseBlob)\n  Write-Output ('INSTALLED_BLOB=' + $installedReleaseBlob)\n  Write-Output ('MATCH=' + ($sourceReleaseBlob -eq $installedReleaseBlob))\n\n  Write-Output '=== FILE HASH COMPARISON: clawpatch_external.py ==='\n  $sourceExternalBlob = (git -C $worktree rev-parse ($commit + ':src/manageroo/clawpatch_external.py')).Trim()\n  $installedExternalBlob = (git -C $worktree hash-object --no-filters $installedExternalPy).Trim()\n  Write-Output ('SOURCE_BLOB=' + $sourceExternalBlob)\n  Write-Output ('INSTALLED_BLOB=' + $installedExternalBlob)\n  Write-Output ('MATCH=' + ($sourceExternalBlob -eq $installedExternalBlob))\n\n  Write-Output '=== INSTALLED COMMAND VERSIONS ==='\n  & (Join-Path $env:APPDATA 'npm\\codex.cmd') --version\n  Write-Output ('CODEX_VERSION_EXIT_CODE=' + $LASTEXITCODE)\n  & (Join-Path $env:APPDATA 'npm\\clawpatch.cmd') --version\n  Write-Output ('CLAWPATCH_VERSION_EXIT_CODE=' + $LASTEXITCODE)\n\n  Write-Output '=== ACTIVE CLAWPATCH PROCESS CHECK ==='\n  & $venvPython -c \\\"from pathlib import Path; from manageroo.clawpatch_release import _active_clawpatch_processes; import json; print(json.dumps({'test_repo': _active_clawpatch_processes(Path(r'$testRepo')), 'bob_repo': _active_clawpatch_processes(Path(r'C:\\Users\\david\\Documents\\Codex\\repos\\bobsturtletank'))}, indent=2, default=str))\\\"\n  Write-Output ('ACTIVE_PROCESS_CHECK_EXIT_CODE=' + $LASTEXITCODE)\n\n  Write-Output '=== TEST REPOSITORY STATUS ==='\n  git -C $testRepo rev-parse HEAD\n  git -C $testRepo status --short --ignored\n  Write-Output ('TEST_REPO_STATUS_EXIT_CODE=' + $LASTEXITCODE)\n} 2>&1 | Tee-Object -FilePath $log\nWrite-Output ('PROVENANCE_LOG=' + $log)\""
+    }
+  ],
+  "bob_repo": [
+    {
+      "pid": 15260,
+      "cwd": "unknown; Windows process inspection is conservative",
+      "command": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -Command \"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n$ErrorActionPreference = 'Continue'\n$verifyRoot = 'C:\\Users\\david\\Documents\\Codex\\verification-logs\\manageroo-0a1a2d9-20260804'\n$worktree = 'C:\\Users\\david\\Documents\\Codex\\repos\\Uncle-Matts-Project-Manageroo-verify-0a1a2d9'\n$testRepo = 'C:\\Users\\david\\Documents\\Codex\\verification-repos\\manageroo-installer-clean-test-0a1a2d9'\n$commit = '4f666568bdc0727d643ac92c41e8b2a19d915742'\n$installRoot = Join-Path $env:LOCALAPPDATA 'ManagerooClawPatchSupervisor'\n$installedPy = Join-Path $installRoot 'venv-f59afab\\Lib\\site-packages\\manageroo\\clawpatch_release.py'\n$installedExternalPy = Join-Path $installRoot 'venv-f59afab\\Lib\\site-packages\\manageroo\\clawpatch_external.py'\n$directUrl = Join-Path $installRoot 'venv-f59afab\\Lib\\site-packages\\uncle_matts_project_manageroo-2026.7.19.1.dist-info\\direct_url.json'\n$venvPython = Join-Path $installRoot 'venv-f59afab\\Scripts\\python.exe'\n$log = Join-Path $verifyRoot '06-installed-provenance.log'\n& {\n  Write-Output '=== FINAL SOURCE HEAD ==='\n  git -C $worktree rev-parse HEAD\n  git -C $worktree status --short\n  Write-Output ('SOURCE_HEAD_EXIT_CODE=' + $LASTEXITCODE)\n\n  Write-Output '=== COMMIT ANCESTRY ==='\n  git -C $worktree merge-base --is-ancestor $commit HEAD\n  Write-Output ('ANCESTOR_EXIT_CODE=' + $LASTEXITCODE)\n  git -C $worktree show -s --format='%H%n%s%n%ci' $commit\n\n  Write-Output '=== INSTALLED MANIFEST ==='\n  Get-Content -LiteralPath (Join-Path $installRoot 'installed.json') -Raw\n\n  Write-Output '=== PIP DIRECT_URL PROVENANCE ==='\n  Get-Content -LiteralPath $directUrl -Raw\n\n  Write-Output '=== FILE HASH COMPARISON: clawpatch_release.py ==='\n  $sourceReleaseBlob = (git -C $worktree rev-parse ($commit + ':src/manageroo/clawpatch_release.py')).Trim()\n  $installedReleaseBlob = (git -C $worktree hash-object --no-filters $installedPy).Trim()\n  Write-Output ('SOURCE_BLOB=' + $sourceReleaseBlob)\n  Write-Output ('INSTALLED_BLOB=' + $installedReleaseBlob)\n  Write-Output ('MATCH=' + ($sourceReleaseBlob -eq $installedReleaseBlob))\n\n  Write-Output '=== FILE HASH COMPARISON: clawpatch_external.py ==='\n  $sourceExternalBlob = (git -C $worktree rev-parse ($commit + ':src/manageroo/clawpatch_external.py')).Trim()\n  $installedExternalBlob = (git -C $worktree hash-object --no-filters $installedExternalPy).Trim()\n  Write-Output ('SOURCE_BLOB=' + $sourceExternalBlob)\n  Write-Output ('INSTALLED_BLOB=' + $installedExternalBlob)\n  Write-Output ('MATCH=' + ($sourceExternalBlob -eq $installedExternalBlob))\n\n  Write-Output '=== INSTALLED COMMAND VERSIONS ==='\n  & (Join-Path $env:APPDATA 'npm\\codex.cmd') --version\n  Write-Output ('CODEX_VERSION_EXIT_CODE=' + $LASTEXITCODE)\n  & (Join-Path $env:APPDATA 'npm\\clawpatch.cmd') --version\n  Write-Output ('CLAWPATCH_VERSION_EXIT_CODE=' + $LASTEXITCODE)\n\n  Write-Output '=== ACTIVE CLAWPATCH PROCESS CHECK ==='\n  & $venvPython -c \\\"from pathlib import Path; from manageroo.clawpatch_release import _active_clawpatch_processes; import json; print(json.dumps({'test_repo': _active_clawpatch_processes(Path(r'$testRepo')), 'bob_repo': _active_clawpatch_processes(Path(r'C:\\Users\\david\\Documents\\Codex\\repos\\bobsturtletank'))}, indent=2, default=str))\\\"\n  Write-Output ('ACTIVE_PROCESS_CHECK_EXIT_CODE=' + $LASTEXITCODE)\n\n  Write-Output '=== TEST REPOSITORY STATUS ==='\n  git -C $testRepo rev-parse HEAD\n  git -C $testRepo status --short --ignored\n  Write-Output ('TEST_REPO_STATUS_EXIT_CODE=' + $LASTEXITCODE)\n} 2>&1 | Tee-Object -FilePath $log\nWrite-Output ('PROVENANCE_LOG=' + $log)\""
+    }
+  ]
+}
+ACTIVE_PROCESS_CHECK_EXIT_CODE=0
+=== TEST REPOSITORY STATUS ===
+b190d4259f48d26d34873167587bd8712ab5302a
+?? .clawpatch/
+TEST_REPO_STATUS_EXIT_CODE=0
+

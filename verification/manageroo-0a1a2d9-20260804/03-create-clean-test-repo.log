@@ -1,0 +1,17 @@
+﻿Initialized empty Git repository in C:/Users/david/Documents/Codex/verification-repos/manageroo-installer-clean-test-0a1a2d9-origin.git/
+Initialized empty Git repository in C:/Users/david/Documents/Codex/verification-repos/manageroo-installer-clean-test-0a1a2d9/.git/
+[main (root-commit) b190d42] clean installer verification baseline
+git : To C:\Users\david\Documents\Codex\verification-repos\manageroo-installer-clean-test-0a1a2d9-origin.git
+At line:2 char:705
++ ... o remote add origin $origin; git -C $repo push -u origin main; Write- ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (To C:\Users\dav...a2d9-origin.git:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ * [new branch]      main -> main
+branch 'main' set up to track 'origin/main'.
+--- final
+b190d4259f48d26d34873167587bd8712ab5302a
+origin	C:\Users\david\Documents\Codex\verification-repos\manageroo-installer-clean-test-0a1a2d9-origin.git (fetch)
+origin	C:\Users\david\Documents\Codex\verification-repos\manageroo-installer-clean-test-0a1a2d9-origin.git (push)
+

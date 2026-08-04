@@ -1,0 +1,108 @@
+﻿Resolved Node executable: C:\Users\david\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64\node.exe
+Detected Node major version: 24
+Installing the exact Codex and ClawPatch versions used by the working supervisor...
+powershell.exe : npm WARN EBADENGINE Unsupported engine {
+At line:2 char:366
++ ... -node.log'; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm WARN EBADENGINE Unsupported engine {:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm WARN EBADENGINE   package: 'clawpatch@0.7.2',
+npm WARN EBADENGINE   required: { node: '>=22' },
+npm WARN EBADENGINE   current: { node: 'v20.15.0', npm: '9.2.0' }
+npm WARN EBADENGINE }
+
+changed 8 packages in 4s
+Installing the repaired Manageroo supervisor at 4f666568bdc0727d643ac92c41e8b2a19d915742...
+Collecting git+https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git@4f666568bdc0727d643ac92c41e8b2a19d915742
+  Cloning https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git (to revision 4f666568bdc0727d643ac92c41e8b2a19d915742) to c:\users\david\appdata\local\temp\pip-req-build-3bajeby8
+  Running command git clone --filter=blob:none --quiet https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git 
+'C:\Users\david\AppData\Local\Temp\pip-req-build-3bajeby8'
+  Running command git rev-parse -q --verify 'sha^4f666568bdc0727d643ac92c41e8b2a19d915742'
+  Running command git fetch -q https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git 
+4f666568bdc0727d643ac92c41e8b2a19d915742
+  Running command git checkout -q 4f666568bdc0727d643ac92c41e8b2a19d915742
+  Resolved https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git to commit 4f666568bdc0727d643ac92c41e8b2a19d915742
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting pytest<10,>=8
+  Downloading pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)
+Collecting colorama>=0.4 (from pytest<10,>=8)
+  Downloading colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+Collecting iniconfig>=1.0.1 (from pytest<10,>=8)
+  Downloading iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting packaging>=22 (from pytest<10,>=8)
+  Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy<2,>=1.5 (from pytest<10,>=8)
+  Downloading pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting pygments>=2.7.2 (from pytest<10,>=8)
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Downloading pytest-9.1.1-py3-none-any.whl (386 kB)
+   ---------------------------------------- 386.5/386.5 kB 6.1 MB/s eta 0:00:00
+Downloading colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+Downloading iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Downloading packaging-26.3-py3-none-any.whl (129 kB)
+   ---------------------------------------- 130.0/130.0 kB ? eta 0:00:00
+Downloading pluggy-1.6.0-py3-none-any.whl (20 kB)
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ---------------------------------------- 1.2/1.2 MB 26.0 MB/s eta 0:00:00
+Building wheels for collected packages: uncle-matts-project-manageroo
+  Building wheel for uncle-matts-project-manageroo (pyproject.toml): started
+  Building wheel for uncle-matts-project-manageroo (pyproject.toml): finished with status 'done'
+  Created wheel for uncle-matts-project-manageroo: filename=uncle_matts_project_manageroo-2026.7.19.1-py3-none-any.whl size=438811 sha256=00c843b7d55ed7a222ca454a07cdb0f393542ce791acbd22a9888dc4f9f3538e
+  Stored in directory: C:\Users\david\AppData\Local\Temp\pip-ephem-wheel-cache-wp7sx5do\wheels\48\94\a1\14cdc7bcc457743a7b265005292dd74a034addb4a1e2dae44c
+Successfully built uncle-matts-project-manageroo
+Installing collected packages: uncle-matts-project-manageroo, pygments, pluggy, packaging, iniconfig, colorama, pytest
+  Attempting uninstall: uncle-matts-project-manageroo
+    Found existing installation: uncle-matts-project-manageroo 2026.7.19.1
+    Uninstalling uncle-matts-project-manageroo-2026.7.19.1:
+      Successfully uninstalled uncle-matts-project-manageroo-2026.7.19.1
+  Attempting uninstall: pygments
+    Found existing installation: Pygments 2.20.0
+    Uninstalling Pygments-2.20.0:
+      Successfully uninstalled Pygments-2.20.0
+  Attempting uninstall: pluggy
+    Found existing installation: pluggy 1.6.0
+    Uninstalling pluggy-1.6.0:
+      Successfully uninstalled pluggy-1.6.0
+  Attempting uninstall: packaging
+    Found existing installation: packaging 26.2
+    Uninstalling packaging-26.2:
+      Successfully uninstalled packaging-26.2
+  Attempting uninstall: iniconfig
+    Found existing installation: iniconfig 2.3.0
+    Uninstalling iniconfig-2.3.0:
+      Successfully uninstalled iniconfig-2.3.0
+  Attempting uninstall: colorama
+    Found existing installation: colorama 0.4.6
+    Uninstalling colorama-0.4.6:
+      Successfully uninstalled colorama-0.4.6
+  Attempting uninstall: pytest
+    Found existing installation: pytest 9.1.1
+    Uninstalling pytest-9.1.1:
+      Successfully uninstalled pytest-9.1.1
+Successfully installed colorama-0.4.6 iniconfig-2.3.0 packaging-26.3 pluggy-1.6.0 pygments-2.20.0 pytest-9.1.1 uncle-matts-project-manageroo-2026.7.19.1
+Checking Codex login...
+Logged in using ChatGPT
+Initializing ClawPatch in the target repository...
+created: true
+next: clawpatch map
+root: C:/Users/david/Documents/Codex/verification-repos/manageroo-installer-clean-test-0a1a2d9
+state: ok
+provider: codex
+model: null
+reasoningEffort: null
+providerVersion: codex-cli 0.144.4
+secrets: redacted
+
+INSTALLATION VERIFIED. The supervisor was installed but was not started.
+Run it with this exact PowerShell command:
+
+Set-Location "C:\Users\david\Documents\Codex\verification-repos\manageroo-installer-clean-test-0a1a2d9"; & "$env:USERPROFILE\.local\bin\clawpatch-supervise.cmd" --repo . --branch current --push each --fresh
+If an older supervisor already stopped with checkpoint-owned source changes, run the same command with --resume-stopped instead of --fresh.
+

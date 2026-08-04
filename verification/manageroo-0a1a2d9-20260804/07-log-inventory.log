@@ -1,0 +1,20 @@
+﻿
+Name                                               Bytes Lines SHA256                                                          
+----                                               ----- ----- ------                                                          
+01-unittest-discover.log                          217816  2788 71c06b062234f6a8312f7197abbd0fea97c9f88a6defa2a3817ede88b465c4a7
+02-verify-release.log                             144034   343 8f786bc20ccf1da0b7d37f04b134c06e1e8274996ec4c3c68d10f34bbe0c40c9
+03-create-clean-test-repo.log                       1149    16 5a1f614db48ded85e7d60bb6ec350cbad933108336ac9819d6cb199b998c01ed
+04b-installer-bypass.log                            1141    16 00d71ca72d12f932b7b6763444ca02ba8ba106cadab69c5c47bd67a993579d32
+04c-installer-path-resolver-fix.log                 1692    29 296dca63cd5986c84b5bd3876391e2e7e5daba7d382f9cf3329d02a2353c9907
+04d-installer-path-resolver-fix-rerun.log           1151    18 c018125ba5bb6b5ce021f4c7e38905810bb7ecf0057c3d53f5870ad54e238301
+04e-installer-node-diagnostic.log                   1244    20 7cbb81db4ebc13a320b72328748fdbf1746a1c952791b5a3a783f60b74a1bd0c
+04f-installer-prefer-winget-node.log                6484   104 49592edf8b60df3bfc3bf8c6e5ced4863c3dfb7412e79a346328be8610b65844
+04g-unmodified-installer-node24-path.log             578     6 0f027ac8f5c9717fd6cafd1a46e3086046576a4c2c84d6258338d504200e6216
+04h-unmodified-installer-node24-path-complete.log   1894    26 8af81ed8b58d3ff3adb8f66cbe88640b2d84080d0e3ce0e7a418778447b3f1a4
+04i-unmodified-installer-node24-child-path.log      5721   108 67da4bc369c94fc655ce3e0e335f71b9b072f02a1787a0cc6306a73ae6438cd2
+05-clawpatch-supervise-help.log                      887    18 0b5260b696cb5d1cc8a0c46c793d72c0e1274ff16a4d697118302f40f17baa32
+06b-normalized-provenance-and-process-check.log      657    13 37289d09d44ef1df60845f33609e9393c8cff99281dd416a9a21031d83e66a34
+06-installed-provenance.log                         9414    55 a46b99e026ef881197670ed09be4cb383b9712bf80e2c26e605ba0021980a38e
+
+
+
