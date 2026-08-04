@@ -149,6 +149,56 @@ class PackageReleaseTests(unittest.TestCase):
                 self.skipTest("symlinks unavailable")
             self.assertFalse(package_release.release_file_allowed(link))
 
+    def test_release_file_list_rejects_parent_traversal_before_selection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp)
+            root = temp_root / "outer" / "project"
+            root.mkdir(parents=True)
+            victims = {
+                "../outside.txt": temp_root / "outer" / "outside.txt",
+                "../../outside.txt": temp_root / "outside.txt",
+            }
+            file_list = temp_root / "release-files"
+            for victim in victims.values():
+                victim.write_text("do not read or change\n", encoding="utf-8")
+
+            for entry, victim in victims.items():
+                with self.subTest(entry=entry):
+                    file_list.write_bytes(package_release.os.fsencode(entry) + b"\0")
+                    with (
+                        patch.object(package_release, "ROOT", root),
+                        patch.dict(
+                            package_release.os.environ,
+                            {package_release.RELEASE_FILE_LIST_ENV: str(file_list)},
+                        ),
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "Unsafe release file-list entry"):
+                            package_release.included_files()
+                    self.assertEqual(victim.read_text(encoding="utf-8"), "do not read or change\n")
+
+    def test_snapshot_staging_rejects_destination_escape_before_copy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_root = Path(temp)
+            root = temp_root / "project"
+            root.mkdir()
+            source = root / "README.md"
+            source.write_text("safe source\n", encoding="utf-8")
+            disguised_source = root / ".." / root.name / source.name
+            candidate_root = temp_root / "candidate"
+            candidate_root.mkdir()
+            snapshot_root = candidate_root / "snapshot"
+            escaped_destination = candidate_root / root.name / source.name
+
+            with (
+                patch.object(package_release, "ROOT", root),
+                patch.object(package_release, "included_files", return_value=[disguised_source]),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "unsafe release destination"):
+                    package_release._stage_release_snapshot(snapshot_root)
+
+            self.assertFalse(escaped_destination.exists())
+            self.assertEqual(source.read_text(encoding="utf-8"), "safe source\n")
+
     def test_generated_files_are_not_required_to_exist_before_selection(self):
         tracked = package_release._tracked_relative_paths()
         with patch.object(package_release, "_tracked_relative_paths", return_value=tracked - package_release.EXPLICIT_GENERATED):

@@ -49,10 +49,34 @@ END_USER_EXCLUDED = {
 RELEASE_FILE_LIST_ENV = "MANAGEROO_RELEASE_FILE_LIST"
 
 
-def release_file_allowed(path: Path) -> bool:
+def _strict_relative_path(path: Path, root: Path) -> Path | None:
     try:
-        relative = path.relative_to(ROOT)
+        relative = path.resolve().relative_to(root.resolve())
     except ValueError:
+        return None
+    if not relative.parts or path != root / relative:
+        return None
+    return relative
+
+
+def _validated_release_file_list_entry(relative: str) -> str:
+    components = [relative]
+    for separator in (os.sep, os.altsep):
+        if separator:
+            components = [part for component in components for part in component.split(separator)]
+    candidate = Path(relative)
+    if (
+        candidate.is_absolute()
+        or any(component in {"", ".", ".."} for component in components)
+        or _strict_relative_path(ROOT / candidate, ROOT) != candidate
+    ):
+        raise RuntimeError(f"Unsafe release file-list entry: {relative!r}")
+    return relative
+
+
+def release_file_allowed(path: Path) -> bool:
+    relative = _strict_relative_path(path, ROOT)
+    if relative is None:
         return False
     if path.is_symlink():
         return False
@@ -72,7 +96,7 @@ def _tracked_relative_paths() -> set[str]:
     snapshot_file_list = os.environ.get(RELEASE_FILE_LIST_ENV)
     if snapshot_file_list:
         return {
-            os.fsdecode(item)
+            _validated_release_file_list_entry(os.fsdecode(item))
             for item in Path(snapshot_file_list).read_bytes().split(b"\0")
             if item
         }
@@ -82,7 +106,11 @@ def _tracked_relative_paths() -> set[str]:
     )
     if result.returncode:
         raise RuntimeError("Unable to enumerate tracked release files: " + result.stderr.strip())
-    return {item for item in result.stdout.split("\0") if item}
+    return {
+        _validated_release_file_list_entry(item)
+        for item in result.stdout.split("\0")
+        if item
+    }
 
 
 def included_files() -> list[Path]:
@@ -139,13 +167,22 @@ def _stage_release_snapshot(snapshot_root: Path) -> Path:
     snapshot_root.mkdir(mode=0o700)
     relative_paths: list[str] = []
     for source in included_files():
+        try:
+            relative = source.relative_to(ROOT)
+        except ValueError as exc:
+            raise RuntimeError(f"Refusing unsafe release file while staging: {source}") from exc
+        destination = snapshot_root / relative
+        if _strict_relative_path(destination, snapshot_root) != relative:
+            raise RuntimeError(f"Refusing unsafe release destination while staging: {destination}")
         if source.is_symlink() or not release_file_allowed(source):
             raise RuntimeError(f"Refusing unsafe release file while staging: {source}")
-        relative = source.relative_to(ROOT)
-        destination = snapshot_root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination, follow_symlinks=False)
-        if destination.is_symlink() or not destination.is_file():
+        if (
+            destination.is_symlink()
+            or not destination.is_file()
+            or _strict_relative_path(destination, snapshot_root) != relative
+        ):
             raise RuntimeError(f"Release file became unsafe while staging: {source}")
         relative_paths.append(relative.as_posix())
 
@@ -193,9 +230,10 @@ def write_archive(output: Path, files: list[Path]) -> None:
     try:
         with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for path in files:
-                if path.is_symlink() or not release_file_allowed(path):
+                relative = _strict_relative_path(path, ROOT)
+                if relative is None or path.is_symlink() or not release_file_allowed(path):
                     raise RuntimeError(f"Refusing unsafe release file: {path}")
-                archive.write(path, arcname=f"{ARCHIVE_ROOT}/{path.relative_to(ROOT).as_posix()}")
+                archive.write(path, arcname=f"{ARCHIVE_ROOT}/{relative.as_posix()}")
         os.replace(temp_path, output)
     finally:
         if temp_path.exists():
