@@ -149,6 +149,11 @@ same local-only temporary iteration and continues the same finding without a
 push. Any mismatch or ambiguity refuses continuation and preserves the
 checkpoint and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
+An older stopped checkpoint may own zero paths because exact revalidation
+already returned `fixed` for an overlapping repair. Ordinary relaunch retires
+that checkpoint without rerunning `fix`, committing, or pushing only when the
+source tree is clean, checkpoint HEAD is current, the same finding remains
+`fixed`, and an applied zero-file patch attempt is bound to that HEAD.
 The stopped checkpoint also records an exact source-content fingerprint. When an
 operator rebuilds `.clawpatch`, ordinary relaunch recognizes the newer empty run
 generation only if repository, branch, HEAD, owned paths, and fingerprint still

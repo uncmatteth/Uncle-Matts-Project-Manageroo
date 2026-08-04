@@ -457,6 +457,7 @@ The implemented ClawPatch 0.7.2 state machine is:
 | Provider/timeout/missing-finding errors, gates fail, or revalidation remains `uncertain` or `false-positive` | Stop with combined source edits in place and the queue unchanged |
 | A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
 | A stopped checkpoint matches the branch, finding, and current dirty paths, and one applied patch attempt matches current HEAD | Resume that existing attempt at project gates and revalidation; do not rerun `fix` |
+| An older supervisor stopped after exact `fixed` because an overlapping repair produced no new source | Require a source-clean tree, unchanged checkpoint HEAD, the same finding still `fixed`, and an applied zero-file attempt at that HEAD; clear only the checkpoint and continue at `next` without a commit or push |
 | An interrupted `planned` attempt has no source changes, belongs to the same open finding, and matches current HEAD | Preserve ClawPatch state, clear only the external checkpoint, require `next` to return that same finding, then continue through `show` and `fix` |
 | A stopped checkpoint's exact owned source paths already appear as one exact descendant source commit and the worktree is source-clean | Clear that completed stale checkpoint automatically and continue normally |
 | `.clawpatch` was deliberately rebuilt after a stopped attempt | When the new generation is empty, branch and HEAD still match, and the exact dirty source fingerprint still matches, restore only those checkpoint-owned files and continue normally; preserve everything on any mismatch |
@@ -480,6 +481,11 @@ for that already-applied attempt. A `fixed` result creates the final exact-path
 commit; an `open` result becomes a local-only iteration commit and continues the
 same finding without pushing partial work. Any ambiguity leaves the checkpoint
 and edits untouched.
+For compatibility with a checkpoint written by an older supervisor after an
+overlapping finding was already fixed, a zero-path checkpoint is retired only
+when the worktree is source-clean, HEAD is unchanged, the same finding is
+currently `fixed`, and ClawPatch records an applied zero-file attempt at that
+HEAD. Relaunch records no source commit required and advances through `next`.
 Stopped checkpoints include an exact source-content fingerprint. A newer, empty
 `.clawpatch` generation is treated as an intentional reset only when that
 fingerprint, branch, HEAD, owned path set, and generation timestamps all agree.

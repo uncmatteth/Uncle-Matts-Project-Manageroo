@@ -238,6 +238,13 @@ attempt. It does not invoke `fix`, remap, or review before returning to `next`.
 Any missing, stale, or ambiguous proof stops with the checkpoint and edits
 unchanged.
 
+Compatibility recovery also handles an older supervisor that stopped after a
+fixed overlapping finding produced no new source. Manageroo clears only that
+zero-path checkpoint and continues through `next` when the source tree is clean,
+checkpoint HEAD is unchanged, the same finding remains `fixed`, and ClawPatch
+records an applied zero-file attempt for that finding and HEAD. It does not
+rerun `fix`, create an empty commit, or push.
+
 A stopped checkpoint records an exact source-content fingerprint. If an operator
 deletes and recreates `.clawpatch`, the next ordinary invocation recognizes that
 intent only when `project.json` proves a newer generation at the same branch and

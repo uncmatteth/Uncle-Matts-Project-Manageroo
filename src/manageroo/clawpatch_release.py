@@ -1141,6 +1141,7 @@ def _checkpoint_unapplied_attempt(
     *,
     env: dict[str, str],
     progress: Callable[[dict[str, Any]], None] | None = None,
+    inspected: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if (
         progress_record.get("phase") != "stopped"
@@ -1152,15 +1153,18 @@ def _checkpoint_unapplied_attempt(
     current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
     if progress_record.get("head_before") != current_head:
         return None
-    inspected = _show_finding(
-        repo,
-        finding_id,
-        env=env,
-        required_status="open",
-        progress=progress,
-        current=1,
-        total="?",
-    )
+    if inspected is None:
+        inspected = _show_finding(
+            repo,
+            finding_id,
+            env=env,
+            required_status=None,
+            progress=progress,
+            current=1,
+            total="?",
+        )
+    if inspected["finding"].get("status") != "open":
+        return None
     planned_attempts = []
     for attempt in inspected["patchAttempts"]:
         if not isinstance(attempt, dict) or attempt.get("status") != "planned":
@@ -1183,6 +1187,66 @@ def _checkpoint_unapplied_attempt(
         "finding_id": finding_id,
         "patch_attempts": planned_attempts,
         "inspection": inspected,
+    }
+
+
+def _checkpoint_fixed_without_source(
+    repo: Path,
+    progress_record: dict[str, Any],
+    *,
+    env: dict[str, str],
+    progress: Callable[[dict[str, Any]], None] | None = None,
+    inspected: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if (
+        progress_record.get("phase") != "stopped"
+        or progress_record.get("owned_paths") != []
+        or _source_paths(repo)
+    ):
+        return None
+    finding_id = str(progress_record["finding_id"])
+    current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    if progress_record.get("head_before") != current_head:
+        return None
+    if inspected is None:
+        inspected = _show_finding(
+            repo,
+            finding_id,
+            env=env,
+            required_status=None,
+            progress=progress,
+            current=1,
+            total="?",
+        )
+    if inspected["finding"].get("status") != "fixed":
+        return None
+    applied_attempts = []
+    for attempt in inspected["patchAttempts"]:
+        if not isinstance(attempt, dict) or attempt.get("status") != "applied":
+            continue
+        git_record = attempt.get("git")
+        finding_ids = attempt.get("findingIds")
+        if (
+            isinstance(finding_ids, list)
+            and finding_id in finding_ids
+            and attempt.get("filesChanged") == []
+            and isinstance(git_record, dict)
+            and git_record.get("baseSha") == current_head
+            and isinstance(attempt.get("patchAttemptId"), str)
+            and attempt["patchAttemptId"]
+        ):
+            applied_attempts.append(str(attempt["patchAttemptId"]))
+    if not applied_attempts:
+        raise SafetyError(
+            "A fixed source-clean checkpoint requires an applied zero-file patch attempt "
+            "bound to the same finding and current HEAD."
+        )
+    return {
+        "finding_id": finding_id,
+        "patch_attempt": applied_attempts[-1],
+        "patch_attempts": applied_attempts,
+        "inspection": inspected,
+        "head_before": current_head,
     }
 
 
@@ -2956,36 +3020,90 @@ def release_sweep(
                 "Only a stopped Clawpatch checkpoint can resume an existing applied attempt."
             )
         if durable_progress["owned_paths"] == []:
-            unapplied = _checkpoint_unapplied_attempt(
+            checkpoint_inspection = _show_finding(
+                root,
+                str(durable_progress["finding_id"]),
+                env=env,
+                required_status=None,
+                progress=progress,
+                current=1,
+                total="?",
+            )
+            fixed_without_source = _checkpoint_fixed_without_source(
                 root,
                 durable_progress,
                 env=env,
                 progress=progress,
+                inspected=checkpoint_inspection,
             )
-            if unapplied is None:
-                raise SafetyError(
-                    "Stopped Clawpatch progress has no source changes and no matching planned "
-                    "attempt at the current HEAD."
+            if fixed_without_source is not None:
+                finding_id = str(fixed_without_source["finding_id"])
+                record = {
+                    "finding_id": finding_id,
+                    "inspection": fixed_without_source["inspection"],
+                    "head_before": fixed_without_source["head_before"],
+                    "patch_attempt": fixed_without_source["patch_attempt"],
+                    "patch_attempts": list(fixed_without_source["patch_attempts"]),
+                    "files_changed": [],
+                    "gate_runs": [],
+                    "revalidation": {
+                        "finding": finding_id,
+                        "outcome": "fixed",
+                        "managerooResumedRecordedOutcome": True,
+                    },
+                    "commit": "",
+                    "resumed": True,
+                    "no_source_commit": True,
+                }
+                report["results"].append(record)
+                _clear_release_progress(root, state_root=state_root)
+                durable_progress = None
+                resumed_checkpoint = True
+                resumed_checkpoint_kind = "fixed no-source attempt"
+                if progress is not None:
+                    progress(
+                        {
+                            "phase": "fixed",
+                            "current": 1,
+                            "total": "?",
+                            "finding_id": finding_id,
+                            "commit": "",
+                            "detail": "fixed source-clean checkpoint; no source commit required",
+                            "resumed": True,
+                        }
+                    )
+            else:
+                unapplied = _checkpoint_unapplied_attempt(
+                    root,
+                    durable_progress,
+                    env=env,
+                    progress=progress,
+                    inspected=checkpoint_inspection,
                 )
-            expected_unapplied_finding = str(unapplied["finding_id"])
-            report["interrupted_unapplied_attempt"] = {
-                "finding_id": expected_unapplied_finding,
-                "patch_attempts": list(unapplied["patch_attempts"]),
-            }
-            _clear_release_progress(root, state_root=state_root)
-            durable_progress = None
-            resumed_checkpoint = True
-            resumed_checkpoint_kind = "stopped planned attempt"
-            if progress is not None:
-                progress(
-                    {
-                        "phase": "resume",
-                        "current": 1,
-                        "total": "?",
-                        "finding_id": expected_unapplied_finding,
-                        "detail": "source-clean planned attempt interrupted; resuming same finding",
-                    }
-                )
+                if unapplied is None:
+                    raise SafetyError(
+                        "Stopped Clawpatch progress has no source changes and no matching planned "
+                        "attempt at the current HEAD."
+                    )
+                expected_unapplied_finding = str(unapplied["finding_id"])
+                report["interrupted_unapplied_attempt"] = {
+                    "finding_id": expected_unapplied_finding,
+                    "patch_attempts": list(unapplied["patch_attempts"]),
+                }
+                _clear_release_progress(root, state_root=state_root)
+                durable_progress = None
+                resumed_checkpoint = True
+                resumed_checkpoint_kind = "stopped planned attempt"
+                if progress is not None:
+                    progress(
+                        {
+                            "phase": "resume",
+                            "current": 1,
+                            "total": "?",
+                            "finding_id": expected_unapplied_finding,
+                            "detail": "source-clean planned attempt interrupted; resuming same finding",
+                        }
+                    )
         else:
             try:
                 resumed, pushed = _resume_stopped_attempt(
