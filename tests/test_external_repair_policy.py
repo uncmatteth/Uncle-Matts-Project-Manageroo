@@ -200,6 +200,58 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
             )
 
+    def test_checkpoint_race_rejects_out_of_scope_paths_and_restores_baseline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            baseline = fake.mirror.head()
+            checkpoint = fake.mirror.checkpoint
+
+            def racing_checkpoint(message):
+                (fake.workspace / "forbidden.txt").write_text(
+                    "concurrent mutation\n", encoding="utf-8"
+                )
+                return checkpoint(message)
+
+            with patch.object(fake.mirror, "checkpoint", side_effect=racing_checkpoint):
+                with self.assertRaisesRegex(SafetyError, "rollback was verified"):
+                    run_external_review_repair_lanes(
+                        fake,
+                        brief="repair",
+                        plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                        gate_results=[],
+                    )
+
+            self.assertEqual(fake.mirror.head(), baseline)
+            self.assertEqual(
+                (fake.workspace / "tracked.txt").read_text(encoding="utf-8"), "baseline\n"
+            )
+            self.assertFalse((fake.workspace / "forbidden.txt").exists())
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+            self.assertFalse(
+                (run_root / "artifacts" / "review" / "external-review-repair.json").exists()
+            )
+            self.assertFalse(
+                (
+                    run_root
+                    / "artifacts"
+                    / "review"
+                    / "external-state"
+                    / "clawpatch-checkpoint.json"
+                ).exists()
+            )
+
     def test_checkpoint_manifest_write_failure_restores_exact_clean_baseline(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -412,7 +412,14 @@ def run_external_review_repair_lanes(
                 checkpoint = self.mirror.checkpoint(
                     _checkpoint_message(name, str(self.run_id), before_command)
                 )
+                checkpoint_paths = _actual_checkpoint_paths(self, before_command, checkpoint)
+                ScopePolicy(tuple(allowed_paths)).validate_paths(checkpoint_paths)
+                if checkpoint_paths != changed_paths:
+                    raise SafetyError(
+                        "External review/repair lane paths changed during checkpoint creation."
+                    )
                 record["checkpoint"] = checkpoint
+                record["changed_paths"] = checkpoint_paths
                 atomic_write_json(
                     _checkpoint_manifest_path(self, name),
                     {
@@ -420,9 +427,7 @@ def run_external_review_repair_lanes(
                         "name": name,
                         "baseline": before_command,
                         "checkpoint": checkpoint,
-                        "changed_paths": _actual_checkpoint_paths(
-                            self, before_command, checkpoint
-                        ),
+                        "changed_paths": checkpoint_paths,
                     },
                 )
         except Exception as exc:
