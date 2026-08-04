@@ -29,6 +29,11 @@ The installed external supervisor makes one final child-scoped trusted-host
 revalidation if read-only and workspace-write validation both remain uncertain.
 The source fingerprint guard remains active, and a finding still uncertain after
 that bounded sequence is a real blocker.
+Large complete reviews are split into one ClawPatch worker-wave per child using
+the job count returned by review dry-run. Each wave must reduce the pending
+feature count by its exact reported review count. This avoids making repository
+size share one watchdog, but a single feature/provider call that exceeds the
+configured 900-second child limit still stops as an external timeout.
 
 For a source-clean zero-path checkpoint whose finding disappeared after a manual ClawPatch rebuild, the supervisor may clear only the obsolete external checkpoint after proving a newer same-branch generation and checkpoint-to-generation-to-current Git ancestry. It does not remove or rewrite source or newer ClawPatch state in that transition.
 

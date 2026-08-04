@@ -28,7 +28,8 @@ RELEASE_PROGRESS_VERSION = 4
 LIFECYCLE = (
     "repository/process/Git preflight -> clawpatch status --json -> stale-lock cleanup when proven -> "
     "configured repository baseline gates when present -> clawpatch map -> complete review of every "
-    "pending feature -> clawpatch next/show -> same-finding fix iterations while each produces a new "
+    "pending feature in bounded ClawPatch worker waves with an exact decreasing-pending proof -> "
+    "clawpatch next/show -> same-finding fix iterations while each produces a new "
     "source tree -> local-only exact-path temporary commit for partial progress -> configured project "
     "gates when present -> exact fixed revalidation "
     "(with bounded read-only, workspace-write, and external trusted-host validation transitions) -> "
@@ -2434,12 +2435,14 @@ def _required_int(payload: dict[str, Any], field: str) -> int:
     return value
 
 
-def _review_completion(
+def _review_probe(
     repo: Path,
     *,
     env: dict[str, str],
     review_limit: int,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    current: int | str = "?",
+    total: int | str = "?",
 ) -> dict[str, Any]:
     payload = _json_clawpatch(
         repo,
@@ -2453,8 +2456,31 @@ def _review_completion(
         ],
         env=env,
         progress=progress,
+        current=current,
+        total=total,
     )
-    if payload.get("dryRun") is not True or _required_int(payload, "wouldReview") != 0:
+    if payload.get("dryRun") is not True:
+        raise SafetyError("Clawpatch review dry-run did not identify itself as a dry-run.")
+    pending = _required_int(payload, "wouldReview")
+    if pending < 0 or pending > max(review_limit, 1):
+        raise SafetyError("Clawpatch review dry-run returned an impossible pending count.")
+    return payload
+
+
+def _review_completion(
+    repo: Path,
+    *,
+    env: dict[str, str],
+    review_limit: int,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    payload = _review_probe(
+        repo,
+        env=env,
+        review_limit=review_limit,
+        progress=progress,
+    )
+    if _required_int(payload, "wouldReview") != 0:
         raise SafetyError("Clawpatch still has pending or errored features requiring review.")
     return payload
 
@@ -2469,22 +2495,85 @@ def _review_all_features(
     if mapped_features < 0:
         raise SafetyError("Clawpatch map returned a negative feature count.")
     review_limit = max(mapped_features, 1)
-    review = _json_clawpatch(
-        repo,
-        ["clawpatch", "review", "--limit", str(review_limit), "--json"],
-        env=env,
-        progress=progress,
-    )
-    reviewed = _required_int(review, "reviewed")
-    findings = _required_int(review, "findings")
-    if reviewed < 0 or reviewed > mapped_features or findings < 0:
-        raise SafetyError("Clawpatch review returned impossible completion counts.")
-    completion = _review_completion(
+    completion = _review_probe(
         repo,
         env=env,
         review_limit=review_limit,
         progress=progress,
+        current=0,
+        total=mapped_features,
     )
+    pending = _required_int(completion, "wouldReview")
+    reviewed_total = 0
+    findings_total = 0
+    batches: list[dict[str, Any]] = []
+    runs: list[str] = []
+    reports: list[str] = []
+    while pending > 0:
+        jobs = _required_int(completion, "jobs")
+        if jobs < 1:
+            raise SafetyError("Clawpatch review dry-run returned an invalid worker count.")
+        batch_limit = min(pending, jobs)
+        batch = _json_clawpatch(
+            repo,
+            ["clawpatch", "review", "--limit", str(batch_limit), "--json"],
+            env=env,
+            progress=progress,
+            current=reviewed_total + 1,
+            total=mapped_features,
+        )
+        reviewed = _required_int(batch, "reviewed")
+        findings = _required_int(batch, "findings")
+        if reviewed < 1 or reviewed > batch_limit or findings < 0:
+            raise SafetyError("Clawpatch review returned impossible batch counts.")
+        next_completion = _review_probe(
+            repo,
+            env=env,
+            review_limit=review_limit,
+            progress=progress,
+            current=reviewed_total + reviewed,
+            total=mapped_features,
+        )
+        remaining = _required_int(next_completion, "wouldReview")
+        if remaining >= pending:
+            raise SafetyError(
+                "Clawpatch review batch did not reduce pending features; stopping instead of "
+                "repeating the same review state."
+            )
+        if pending - remaining != reviewed:
+            raise SafetyError(
+                "Clawpatch review batch count did not match the pending-feature transition."
+            )
+        reviewed_total += reviewed
+        findings_total += findings
+        if reviewed_total > mapped_features:
+            raise SafetyError("Clawpatch review exceeded the mapped feature count.")
+        run = batch.get("run")
+        if isinstance(run, str) and run:
+            runs.append(run)
+        report_path = batch.get("report")
+        if isinstance(report_path, str) and report_path:
+            reports.append(report_path)
+        batches.append(batch)
+        pending = remaining
+        completion = next_completion
+    review = {
+        "reviewed": reviewed_total,
+        "findings": findings_total,
+        "jobs": max(
+            (
+                batch["jobs"]
+                for batch in batches
+                if isinstance(batch.get("jobs"), int)
+                and not isinstance(batch.get("jobs"), bool)
+            ),
+            default=0,
+        ),
+        "runs": runs,
+        "reports": reports,
+        "batches": batches,
+        "next": batches[-1].get("next", "clawpatch status") if batches else "clawpatch status",
+    }
     return {"review": review, "completion": completion}
 
 

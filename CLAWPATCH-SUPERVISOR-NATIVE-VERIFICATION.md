@@ -75,6 +75,11 @@ The native tests must prove all of these behaviors in disposable repositories:
 15. A simulation in which a non-clean fresh generation repeats a source tree
     stops as nonconvergent without another review, an arbitrary generation cap,
     or a false completion claim.
+16. A large-review simulation uses the job count returned by ClawPatch dry-run
+    as the next review limit, continues in bounded worker waves until pending is
+    zero, and stops if a successful wave does not reduce pending features by its
+    exact reported reviewed count. The 900-second watchdog remains unchanged
+    for every child process tree.
 
 ## Windows agent instructions
 

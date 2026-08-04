@@ -121,7 +121,13 @@ directory rather than in the target worktree or Git metadata. A red configured
 baseline is reported with the exact failing gate, command, exit code, and captured
 output; Clawpatch is not sent into a finding repair that cannot possibly satisfy
 the mandatory whole-project gate. The cross-platform controller reviews all pending Clawpatch
-features, obtains one current open finding from `next --json`, records `show`
+features in bounded worker waves. Before each wave, ClawPatch's review dry-run
+reports the pending count and current job count. Manageroo runs one
+`review --limit <jobs>` child and requires the next dry-run to decrease pending
+features by exactly the child's reviewed count. There is no arbitrary wave cap;
+zero pending completes review, no progress stops, and the 900-second process-tree
+watchdog remains enforced per child instead of spanning the whole repository.
+The controller then obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
 Manageroo never issues a triage command. There is no arbitrary fix-attempt cap,

@@ -713,23 +713,51 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             self.assertFalse(_checkpoint_can_follow_supervisor_upgrade(repo, progress))
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
-    def test_complete_review_uses_mapped_feature_count_and_proves_zero_pending(
+    def test_complete_review_uses_bounded_worker_waves_until_zero_pending(
         self, json_clawpatch
     ):
         json_clawpatch.side_effect = [
-            {"reviewed": 12, "findings": 4},
-            {"dryRun": True, "wouldReview": 0},
+            {"dryRun": True, "wouldReview": 12, "jobs": 4},
+            {"run": "run-1", "reviewed": 4, "findings": 1, "jobs": 4},
+            {"dryRun": True, "wouldReview": 8, "jobs": 4},
+            {"run": "run-2", "reviewed": 4, "findings": 2, "jobs": 4},
+            {"dryRun": True, "wouldReview": 4, "jobs": 4},
+            {"run": "run-3", "reviewed": 4, "findings": 1, "jobs": 4},
+            {"dryRun": True, "wouldReview": 0, "jobs": 4},
         ]
         result = _review_all_features(Path("/repo"), env={}, mapped_features=12)
         self.assertEqual(result["review"]["reviewed"], 12)
+        self.assertEqual(result["review"]["findings"], 4)
+        self.assertEqual(result["review"]["runs"], ["run-1", "run-2", "run-3"])
         self.assertEqual(
             json_clawpatch.call_args_list[0].args[1],
-            ["clawpatch", "review", "--limit", "12", "--json"],
+            ["clawpatch", "review", "--limit", "12", "--dry-run", "--json"],
         )
         self.assertEqual(
             json_clawpatch.call_args_list[1].args[1],
-            ["clawpatch", "review", "--limit", "12", "--dry-run", "--json"],
+            ["clawpatch", "review", "--limit", "4", "--json"],
         )
+        self.assertEqual(
+            json_clawpatch.call_args_list[3].args[1],
+            ["clawpatch", "review", "--limit", "4", "--json"],
+        )
+        self.assertEqual(
+            json_clawpatch.call_args_list[5].args[1],
+            ["clawpatch", "review", "--limit", "4", "--json"],
+        )
+
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    def test_complete_review_stops_when_a_batch_does_not_reduce_pending_features(
+        self, json_clawpatch
+    ):
+        json_clawpatch.side_effect = [
+            {"dryRun": True, "wouldReview": 12, "jobs": 4},
+            {"run": "run-1", "reviewed": 4, "findings": 1, "jobs": 4},
+            {"dryRun": True, "wouldReview": 12, "jobs": 4},
+        ]
+
+        with self.assertRaisesRegex(SafetyError, "did not reduce pending features"):
+            _review_all_features(Path("/repo"), env={}, mapped_features=12)
 
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._run")
@@ -2000,8 +2028,9 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             json_clawpatch.side_effect = [
                 {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 4},
+                {"dryRun": True, "wouldReview": 4, "jobs": 4},
                 {"reviewed": 4, "findings": 0},
-                {"dryRun": True, "wouldReview": 0},
+                {"dryRun": True, "wouldReview": 0, "jobs": 4},
                 {"finding": None, "status": "open", "next": "clawpatch report --status open"},
             ]
             final_closure.return_value = {"pushed": False}
@@ -2037,8 +2066,9 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             json_clawpatch.side_effect = [
                 {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 1},
+                {"dryRun": True, "wouldReview": 1, "jobs": 1},
                 {"reviewed": 1, "findings": 1},
-                {"dryRun": True, "wouldReview": 0},
+                {"dryRun": True, "wouldReview": 0, "jobs": 1},
                 {
                     "finding": {"id": "fnd_one", "status": "open"},
                     "next": "clawpatch show --finding fnd_one",
@@ -2051,8 +2081,9 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 {"finding": None, "status": "open"},
                 {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 1},
+                {"dryRun": True, "wouldReview": 1, "jobs": 1},
                 {"reviewed": 1, "findings": 0},
-                {"dryRun": True, "wouldReview": 0},
+                {"dryRun": True, "wouldReview": 0, "jobs": 1},
                 {"finding": None, "status": "open"},
             ]
             execute_fix.return_value = (
@@ -2100,8 +2131,9 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             first_generation = [
                 {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 1},
+                {"dryRun": True, "wouldReview": 1, "jobs": 1},
                 {"reviewed": 1, "findings": 1},
-                {"dryRun": True, "wouldReview": 0},
+                {"dryRun": True, "wouldReview": 0, "jobs": 1},
                 {
                     "finding": {"id": "fnd_one", "status": "open"},
                     "next": "clawpatch show --finding fnd_one",
@@ -2116,8 +2148,9 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             second_generation = [
                 {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 1},
+                {"dryRun": True, "wouldReview": 1, "jobs": 1},
                 {"reviewed": 1, "findings": 1},
-                {"dryRun": True, "wouldReview": 0},
+                {"dryRun": True, "wouldReview": 0, "jobs": 1},
                 {
                     "finding": {"id": "fnd_two", "status": "open"},
                     "next": "clawpatch show --finding fnd_two",
@@ -2176,7 +2209,6 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 {"activeLocks": 1, "lockFiles": 1, "openFindings": 0},
                 {"removed": 1},
                 {"features": 0},
-                {"reviewed": 0, "findings": 0},
                 {"dryRun": True, "wouldReview": 0},
                 {"finding": None, "status": "open", "next": "clawpatch report --status open"},
             ]
@@ -2273,8 +2305,9 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             json_clawpatch.side_effect = [
                 {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
                 {"features": 3},
+                {"dryRun": True, "wouldReview": 3, "jobs": 3},
                 {"reviewed": 3, "findings": 1},
-                {"dryRun": True, "wouldReview": 0},
+                {"dryRun": True, "wouldReview": 0, "jobs": 3},
                 {
                     "finding": {"id": "fnd_one", "status": "open"},
                     "next": "clawpatch show --finding fnd_one",

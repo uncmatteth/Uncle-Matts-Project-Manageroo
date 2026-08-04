@@ -439,6 +439,14 @@ only the exact changed paths, and commits only Clawpatch-owned attempts.
 Clawpatch owns finding selection and repair. Manageroo runs `clawpatch status
 --json`, clears only proven-stale locks, maps the repository, reviews every
 pending feature through Clawpatch, and proves no reviewable feature remains.
+Large reviews use ClawPatch's own resumable feature state in bounded worker
+waves: a dry-run reports the current worker count and pending features, one
+`review --limit <jobs>` child reviews a single parallel wave, and the next
+dry-run must show that pending features fell by exactly the reported reviewed
+count. This repeats without an arbitrary wave cap until pending is zero. The
+900-second watchdog still applies to every child process tree, so one genuinely
+stuck feature stops safely while a large healthy repository does not place its
+entire review under one 900-second clock.
 It then uses `clawpatch next --json` for exactly one current open finding,
 records `clawpatch show --json`, and automatically runs Clawpatch's explicit
 finding-scoped `fix`. It never builds a queue from a report, substitutes a

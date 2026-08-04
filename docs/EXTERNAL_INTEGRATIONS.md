@@ -190,6 +190,15 @@ staging, authorized commit/push boundaries, final zero-open and zero-lock proof,
 and remote-SHA verification without
 replacing Clawpatch's command-owned repair.
 
+The complete review is itself progress-bounded for large repositories. A
+ClawPatch dry-run supplies the remaining feature count and configured job count;
+Manageroo executes one `review --limit <jobs>` parallel worker wave per child
+and requires the next dry-run to decrease pending features by exactly the
+reported reviewed count. Waves continue until zero without an arbitrary cap.
+The 900-second watchdog remains a per-child process-tree limit, so a genuinely
+stuck feature still stops while hundreds of healthy features are not forced
+through one absolute 900-second command.
+
 That lifecycle reaches a fixed point rather than trusting one exhausted queue.
 Whenever a generation found or recovered findings, Manageroo completes its
 repairs and closure, preserves committed ClawPatch configuration, rebuilds
