@@ -212,13 +212,18 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             exc = subprocess.TimeoutExpired(["tool"], 1, output=b"partial stdout", stderr=b"partial stderr")
             with patch("manageroo.runner.subprocess.run", side_effect=exc):
-                result = CommandRunner().run(["tool"], cwd=Path(temp), timeout_seconds=1)
+                result = CommandRunner().run(
+                    ["tool"],
+                    cwd=Path(temp),
+                    timeout_seconds=1,
+                    kill_process_group=False,
+                )
         self.assertTrue(result.timed_out)
         self.assertIn("partial stdout", result.stdout)
         self.assertIn("partial stderr", result.stderr)
 
     @unittest.skipIf(os.name == "nt", "POSIX process-group assertion")
-    def test_command_runner_timeout_kills_the_supervised_child_process_group(self):
+    def test_command_runner_timeout_kills_the_default_child_process_group(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             marker = root / "orphan-ran.txt"
@@ -234,7 +239,6 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
                 [sys.executable, "-c", parent],
                 cwd=root,
                 timeout_seconds=1,
-                kill_process_group=True,
             )
             self.assertTrue(result.timed_out)
             time.sleep(2)

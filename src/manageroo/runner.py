@@ -130,8 +130,12 @@ class CommandRunner:
         input_text: str | None = None,
         log_name: str | None = None,
         check: bool = False,
-        kill_process_group: bool = False,
+        kill_process_group: bool = True,
     ) -> CommandResult:
+        """Run a command in an isolated process group by default.
+
+        Set ``kill_process_group=False`` only for commands known not to spawn descendants.
+        """
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise SafetyError("Commands must be non-empty argv arrays.")
         safe_argv = redact_argv(argv)
