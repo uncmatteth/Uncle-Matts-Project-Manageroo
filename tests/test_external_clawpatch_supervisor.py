@@ -221,7 +221,12 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
 
         output = StringIO()
         with redirect_stdout(output):
-            code = main([], run_sweep=fake_sweep, heartbeat_seconds=0)
+            code = main(
+                [],
+                run_sweep=fake_sweep,
+                ensure_repository_idle=lambda _repo: None,
+                heartbeat_seconds=0,
+            )
 
         rendered = output.getvalue()
         self.assertEqual(code, 0)
@@ -260,7 +265,12 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
 
         output = StringIO()
         with redirect_stdout(output):
-            code = main(["--repo", "."], run_sweep=fake_sweep, heartbeat_seconds=0)
+            code = main(
+                ["--repo", "."],
+                run_sweep=fake_sweep,
+                ensure_repository_idle=lambda _repo: None,
+                heartbeat_seconds=0,
+            )
 
         rendered = output.getvalue()
         self.assertEqual(code, 2)
@@ -279,6 +289,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             code = main(
                 ["--repo", ".", "--fresh"],
                 run_sweep=fake_sweep,
+                ensure_repository_idle=lambda _repo: None,
                 heartbeat_seconds=0,
             )
 
@@ -297,6 +308,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             code = main(
                 ["--repo", ".", "--resume-stopped"],
                 run_sweep=fake_sweep,
+                ensure_repository_idle=lambda _repo: None,
                 heartbeat_seconds=0,
             )
 
