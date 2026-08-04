@@ -38,7 +38,8 @@ function Add-UserPathEntry([string]$PathEntry) {
 
 function Resolve-NativeCommand([string[]]$Names, [string[]]$KnownPaths = @()) {
     foreach ($name in $Names) {
-        $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue
+        $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
         if ($command) { return $command.Source }
     }
     foreach ($candidate in $KnownPaths) {

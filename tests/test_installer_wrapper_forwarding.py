@@ -9,6 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallerWrapperForwardingTests(unittest.TestCase):
+    def test_windows_clawpatch_installer_selects_one_command_when_path_has_duplicates(self):
+        text = (ROOT / "Install-ClawPatch-Supervisor-Windows.ps1").read_text(encoding="utf-8")
+        self.assertRegex(
+            text,
+            re.compile(
+                r"Get-Command\s+\$name\s+-CommandType\s+Application\s+"
+                r"-ErrorAction\s+SilentlyContinue\s*\|\s*Select-Object\s+-First\s+1",
+                re.IGNORECASE,
+            ),
+        )
+
     def test_powershell_value_parameters_forward_to_their_exact_python_flags(self):
         text = (ROOT / "install.ps1").read_text(encoding="utf-8")
         mappings = {
