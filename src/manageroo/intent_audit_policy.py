@@ -7,7 +7,8 @@ from .branding import PUBLIC_COMMAND
 
 
 _NEGATION_IN_CLAUSE = re.compile(
-    r"\b(?:cannot|can't|did not|didn't|do not|don't|failed|fails|failing|is not|isn't|"
+    r"\b(?:[a-z]+n't|"
+    r"cannot|can't|did not|didn't|do not|don't|failed|fails|failing|is not|isn't|"
     r"must not|mustn't|never|no|not|should not|shouldn't|unsuccessful|unproven|"
     r"unsupported|without)\b",
     re.IGNORECASE,
