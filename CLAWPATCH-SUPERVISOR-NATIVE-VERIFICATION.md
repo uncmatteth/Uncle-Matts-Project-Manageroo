@@ -7,12 +7,12 @@ Windows and native macOS. It does not authorize a live project queue.
 
 - Repository: `https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git`
 - Branch: `fix/clawpatch-partial-progress-loop`
-- Supervisor source pin: `224be94da2fcaa51475a81b7cf05ae865b681ff7`
+- Supervisor source pin: `d690c3679e78ac7d9fd523e760732608896d6758`
 - ClawPatch: `0.7.2`
 - Codex CLI: `0.144.4`
 - Child watchdog and provider timeout: `900` seconds
-- Windows installer SHA-256: `5dd03c6d3e45e6d93b13688885d265c61541d28b001a429147eec51377b12650`
-- macOS installer SHA-256: `18bb69bd01f27253d0353cc5026803ca030286108734042f73c2553ebe49af4c`
+- Windows installer SHA-256: `3816cb8552d91bdb07a6bb57931caa5364b7180ba52bb239d14e4310a3ed522c`
+- macOS installer SHA-256: `a1fe09262ed89ae0084e746ff9e01634c00e11d1da9c1291024c4d1f3a24e21b`
 
 The handoff commit that adds these installer and instruction files is allowed to
 be newer than the supervisor source pin. The supervisor implementation installed
@@ -83,6 +83,13 @@ The native tests must prove all of these behaviors in disposable repositories:
     zero, and stops if a successful wave does not reduce pending features by its
     exact reported reviewed count. The 900-second watchdog remains unchanged
     for every child process tree.
+18. A supported PostgreSQL validation contract creates a separately owned,
+    tmpfs-backed, loopback-only disposable database, scopes credentials and the
+    reset guard only to ClawPatch children, and removes the container on every
+    exit path. Untrusted images and foreign same-named containers remain
+    untouched.
+19. A continued durable product-analysis job reuses its locked capacity and
+    unknown-unknowns-preflight artifacts even when live free disk space changes.
 
 ## Windows agent instructions
 
@@ -112,14 +119,14 @@ Confirm the branch is clean and tracks
 ### Verify the Windows installer
 
 ```powershell
-$ExpectedInstallerHash = "5dd03c6d3e45e6d93b13688885d265c61541d28b001a429147eec51377b12650"
+$ExpectedInstallerHash = "3816cb8552d91bdb07a6bb57931caa5364b7180ba52bb239d14e4310a3ed522c"
 $ActualInstallerHash = (Get-FileHash -Algorithm SHA256 .\Install-ClawPatch-Supervisor-Windows.ps1).Hash.ToLowerInvariant()
 if ($ActualInstallerHash -ne $ExpectedInstallerHash) {
     throw "Windows installer hash mismatch: $ActualInstallerHash"
 }
 
 $InstallerText = Get-Content -Raw .\Install-ClawPatch-Supervisor-Windows.ps1
-if ($InstallerText -notmatch "224be94da2fcaa51475a81b7cf05ae865b681ff7") {
+if ($InstallerText -notmatch "d690c3679e78ac7d9fd523e760732608896d6758") {
     throw "Windows installer does not pin the repaired supervisor commit."
 }
 ```
@@ -134,7 +141,7 @@ if ($LASTEXITCODE -ne 0) { throw "Complete Windows unit suite failed." }
 py -3 scripts\verify_release.py
 if ($LASTEXITCODE -ne 0) { throw "Windows release verifier failed." }
 
-py -3 -m unittest tests.test_clawpatch_partial_progress tests.test_clawpatch_release_sweep tests.test_external_clawpatch_supervisor tests.test_final_clawpatch_regressions -v
+py -3 -m unittest tests.test_clawpatch_partial_progress tests.test_clawpatch_release_sweep tests.test_disposable_validation_services tests.test_external_clawpatch_supervisor tests.test_final_clawpatch_regressions -v
 if ($LASTEXITCODE -ne 0) { throw "Windows supervisor regression suite failed." }
 ```
 
@@ -177,14 +184,18 @@ codex --version
 
 $InstalledRelease = (& $VenvPython -c "import manageroo.clawpatch_release as m; print(m.__file__)").Trim()
 $InstalledExternal = (& $VenvPython -c "import manageroo.clawpatch_external as m; print(m.__file__)").Trim()
+$InstalledServices = (& $VenvPython -c "import manageroo.validation_services as m; print(m.__file__)").Trim()
 
 $SourceReleaseHash = (Get-FileHash -Algorithm SHA256 .\src\manageroo\clawpatch_release.py).Hash.ToLowerInvariant()
 $InstalledReleaseHash = (Get-FileHash -Algorithm SHA256 $InstalledRelease).Hash.ToLowerInvariant()
 $SourceExternalHash = (Get-FileHash -Algorithm SHA256 .\src\manageroo\clawpatch_external.py).Hash.ToLowerInvariant()
 $InstalledExternalHash = (Get-FileHash -Algorithm SHA256 $InstalledExternal).Hash.ToLowerInvariant()
+$SourceServicesHash = (Get-FileHash -Algorithm SHA256 .\src\manageroo\validation_services.py).Hash.ToLowerInvariant()
+$InstalledServicesHash = (Get-FileHash -Algorithm SHA256 $InstalledServices).Hash.ToLowerInvariant()
 
 if ($SourceReleaseHash -ne $InstalledReleaseHash) { throw "Installed clawpatch_release.py does not match source." }
 if ($SourceExternalHash -ne $InstalledExternalHash) { throw "Installed clawpatch_external.py does not match source." }
+if ($SourceServicesHash -ne $InstalledServicesHash) { throw "Installed validation_services.py does not match source." }
 
 Get-Content -Raw (Join-Path $InstallRoot "installed.json")
 ```
@@ -217,10 +228,10 @@ Confirm the branch is clean and tracks
 
 ```bash
 set -euo pipefail
-expected_installer_hash="18bb69bd01f27253d0353cc5026803ca030286108734042f73c2553ebe49af4c"
+expected_installer_hash="a1fe09262ed89ae0084e746ff9e01634c00e11d1da9c1291024c4d1f3a24e21b"
 actual_installer_hash="$(shasum -a 256 Install-ClawPatch-Supervisor-macOS.sh | awk '{print $1}')"
 test "${actual_installer_hash}" = "${expected_installer_hash}"
-grep -F "224be94da2fcaa51475a81b7cf05ae865b681ff7" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
+grep -F "d690c3679e78ac7d9fd523e760732608896d6758" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
 ```
 
 ### Run the native macOS source proof
@@ -232,6 +243,7 @@ PYTHONPATH=src python3 scripts/verify_release.py
 PYTHONPATH=src python3 -m unittest \
   tests.test_clawpatch_partial_progress \
   tests.test_clawpatch_release_sweep \
+  tests.test_disposable_validation_services \
   tests.test_external_clawpatch_supervisor \
   tests.test_final_clawpatch_regressions -v
 ```
@@ -271,9 +283,11 @@ supervisor="${install_root}/venv/bin/clawpatch-supervise"
 
 installed_release="$("${venv_python}" -c 'import manageroo.clawpatch_release as m; print(m.__file__)')"
 installed_external="$("${venv_python}" -c 'import manageroo.clawpatch_external as m; print(m.__file__)')"
+installed_services="$("${venv_python}" -c 'import manageroo.validation_services as m; print(m.__file__)')"
 
 test "$(shasum -a 256 src/manageroo/clawpatch_release.py | awk '{print $1}')" = "$(shasum -a 256 "${installed_release}" | awk '{print $1}')"
 test "$(shasum -a 256 src/manageroo/clawpatch_external.py | awk '{print $1}')" = "$(shasum -a 256 "${installed_external}" | awk '{print $1}')"
+test "$(shasum -a 256 src/manageroo/validation_services.py | awk '{print $1}')" = "$(shasum -a 256 "${installed_services}" | awk '{print $1}')"
 
 cat "${install_root}/installed.json"
 ```
