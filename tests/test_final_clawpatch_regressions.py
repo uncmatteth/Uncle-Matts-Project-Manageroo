@@ -217,6 +217,21 @@ class FinalClawpatchRegressionTests(unittest.TestCase):
         self.assertIn("partial stdout", result.stdout)
         self.assertIn("partial stderr", result.stderr)
 
+    def test_process_group_decodes_child_output_as_utf8_on_windows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = CommandRunner().run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import os; os.write(1, bytes([102, 105, 120, 101, 100, 32, 226, 156, 147]))",
+                ],
+                cwd=Path(temp),
+                timeout_seconds=10,
+                kill_process_group=True,
+            )
+        self.assertTrue(result.passed)
+        self.assertEqual(result.stdout, "fixed " + chr(0x2713))
+
     @unittest.skipIf(os.name == "nt", "POSIX process-group assertion")
     def test_command_runner_timeout_kills_the_supervised_child_process_group(self):
         with tempfile.TemporaryDirectory() as temp:
