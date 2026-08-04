@@ -145,7 +145,7 @@ class SkillPackTransactionTests(unittest.TestCase):
                 return report
 
             with patch.object(skill_pack, "scan_skill_folder", side_effect=mutate_after_scan):
-                with self.assertRaisesRegex(ValueError, "Skill source changed after scan"):
+                with self.assertRaisesRegex(ValueError, "Skill source changed (after scan|during import)"):
                     import_skill_folder(source_root, skills_dir=skills, apply=True)
 
             self.assertEqual(snapshot(target), before)

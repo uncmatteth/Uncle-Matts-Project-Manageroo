@@ -89,7 +89,7 @@ def _source_file_matches(source_file: _ValidatedSourceFile, status: os.stat_resu
         stat.S_ISREG(status.st_mode)
         and status.st_dev == source_file.device
         and status.st_ino == source_file.inode
-        and status.st_mode == source_file.mode
+        and (os.name == "nt" or status.st_mode == source_file.mode)
         and status.st_size == source_file.size
         and status.st_mtime_ns == source_file.mtime_ns
         and status.st_ctime_ns == source_file.ctime_ns

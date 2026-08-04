@@ -40,6 +40,10 @@ the job count returned by review dry-run. Each wave must reduce the pending
 feature count by its exact reported review count. This avoids making repository
 size share one watchdog, but a single feature/provider call that exceeds the
 configured 900-second child limit still stops as an external timeout.
+The release verifier's 900-second unit-suite allowance prevents its own earlier
+five-minute Windows cutoff; it does not prove a hung test is healthy. Native
+symlink tests run when the host grants symlink creation and skip only when the
+operating system actually denies that capability.
 
 For a source-clean zero-path checkpoint whose finding disappeared after a manual ClawPatch rebuild, the supervisor may clear only the obsolete external checkpoint after proving a newer same-branch generation and checkpoint-to-generation-to-current Git ancestry. It does not remove or rewrite source or newer ClawPatch state in that transition.
 

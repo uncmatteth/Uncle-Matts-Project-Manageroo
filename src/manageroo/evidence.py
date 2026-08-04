@@ -259,7 +259,7 @@ class ProjectMemoryEvidenceProvider:
             EvidenceItem(
                 content=content[:MAX_EVIDENCE_CONTENT_CHARS],
                 source=self.name,
-                location=str(lexical.relative_to(self.repo)),
+                location=lexical.relative_to(self.repo).as_posix(),
                 authority="project_memory",
                 confidence=0.90,
                 freshness=0.85,

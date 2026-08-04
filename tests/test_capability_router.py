@@ -8,6 +8,8 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.support import symlink_or_skip
+
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.adapters.budget import BudgetedAdapter
 from manageroo.adapters.generic import GenericAdapter
@@ -958,7 +960,7 @@ class CapabilityRouterTests(unittest.TestCase):
             codex_home.mkdir()
             target = base / "managed-config.toml"
             target.write_text('[[skills.config]]\nname = "diagnose"\nenabled = false\n', encoding="utf-8")
-            (codex_home / "config.toml").symlink_to(target)
+            symlink_or_skip(self, target, codex_home / "config.toml")
             root = base / "skills"
             self._skill(root, "diagnose", "Use for confusing failures.")
             with patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False):
@@ -1073,7 +1075,7 @@ class CapabilityRouterTests(unittest.TestCase):
             index = CapabilityIndex([root])
             first = route_capabilities("Do ordinary local work.", index=index)
             root.rmdir()
-            root.symlink_to(target, target_is_directory=True)
+            symlink_or_skip(self, target, root, target_is_directory=True)
 
             second = route_capabilities("Do ordinary local work.", index=index)
 
@@ -1103,10 +1105,15 @@ class CapabilityRouterTests(unittest.TestCase):
             root = base / "skills"
             target = self._skill(base / "targets", "target", "Use for target work.")
             root.mkdir()
-            (root / "linked-directory").symlink_to(target.parent, target_is_directory=True)
+            symlink_or_skip(
+                self,
+                target.parent,
+                root / "linked-directory",
+                target_is_directory=True,
+            )
             entrypoint_dir = root / "linked-entrypoint"
             entrypoint_dir.mkdir()
-            (entrypoint_dir / "SKILL.md").symlink_to(target)
+            symlink_or_skip(self, target, entrypoint_dir / "SKILL.md")
             regular = self._skill(root, "regular", "Use for regular local work.")
 
             route = route_capabilities("Use $regular for regular local work.", roots=[root])
@@ -1129,7 +1136,7 @@ class CapabilityRouterTests(unittest.TestCase):
             actual = base / "actual"
             actual.mkdir()
             linked = base / "linked"
-            linked.symlink_to(actual, target_is_directory=True)
+            symlink_or_skip(self, actual, linked, target_is_directory=True)
 
             route = route_capabilities("Do ordinary local work.", roots=[linked])
 
@@ -1143,7 +1150,12 @@ class CapabilityRouterTests(unittest.TestCase):
             target = base / "target"
             self._skill(target / "nested", "nested-sentinel", "Nested sentinel.")
             root.mkdir()
-            (root / "linked-package").symlink_to(target, target_is_directory=True)
+            symlink_or_skip(
+                self,
+                target,
+                root / "linked-package",
+                target_is_directory=True,
+            )
 
             route = route_capabilities("Do ordinary local work.", roots=[root])
 
@@ -1376,7 +1388,7 @@ class CapabilityRouterTests(unittest.TestCase):
             linked = self._skill(root, "linked", "Use for linked specialist work.")
             outside = Path(temp) / "outside.txt"
             outside.write_text("secret", encoding="utf-8")
-            (linked.parent / "REFERENCE.md").symlink_to(outside)
+            symlink_or_skip(self, outside, linked.parent / "REFERENCE.md")
 
             route = route_capabilities("Use linked specialist work.", roots=[root])
             reasons = {item["reason"] for item in route["ignored"]}
@@ -1393,7 +1405,7 @@ class CapabilityRouterTests(unittest.TestCase):
             outside.write_text("secret", encoding="utf-8")
             index = CapabilityIndex([root])
             first, _ = index.load()
-            (skill.parent / "REFERENCE.md").symlink_to(outside)
+            symlink_or_skip(self, outside, skill.parent / "REFERENCE.md")
 
             second, ignored = index.load()
 

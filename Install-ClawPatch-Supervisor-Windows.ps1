@@ -36,17 +36,74 @@ function Add-UserPathEntry([string]$PathEntry) {
     }
 }
 
-function Resolve-NativeCommand([string[]]$Names, [string[]]$KnownPaths = @()) {
+function Resolve-NativeCommands([string[]]$Names, [string[]]$KnownPaths = @()) {
+    $resolved = [System.Collections.Generic.List[string]]::new()
     foreach ($name in $Names) {
-        $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue
-        if ($command) { return $command.Source }
+        $commands = @(Get-Command $name -CommandType Application -ErrorAction SilentlyContinue)
+        foreach ($command in $commands) {
+            if ($command.Source -and -not $resolved.Contains([string]$command.Source)) {
+                $resolved.Add([string]$command.Source)
+            }
+        }
     }
     foreach ($candidate in $KnownPaths) {
         if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-            return (Resolve-Path -LiteralPath $candidate).Path
+            $path = (Resolve-Path -LiteralPath $candidate).Path
+            if (-not $resolved.Contains([string]$path)) { $resolved.Add([string]$path) }
         }
     }
+    return @($resolved)
+}
+
+function Resolve-NativeCommand([string[]]$Names, [string[]]$KnownPaths = @()) {
+    $commands = @(Resolve-NativeCommands $Names $KnownPaths)
+    if ($commands.Count -gt 0) { return [string]$commands[0] }
     return $null
+}
+
+function Find-NodeKnownPaths {
+    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($candidate in @(
+        (Join-Path $env:ProgramFiles "nodejs\node.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\nodejs\node.exe")
+    )) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            $paths.Add((Resolve-Path -LiteralPath $candidate).Path)
+        }
+    }
+    $wingetRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    if (Test-Path -LiteralPath $wingetRoot -PathType Container) {
+        Get-ChildItem -LiteralPath $wingetRoot -Directory -Filter "OpenJS.NodeJS.LTS_*" -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Get-ChildItem -LiteralPath $_.FullName -File -Filter "node.exe" -Recurse -ErrorAction SilentlyContinue |
+                    ForEach-Object {
+                        if (-not $paths.Contains($_.FullName)) { $paths.Add($_.FullName) }
+                    }
+            }
+    }
+    return @($paths)
+}
+
+function Select-CompatibleNode {
+    $candidates = @(Resolve-NativeCommands @("node.exe", "node") @(Find-NodeKnownPaths))
+    $compatible = @()
+    foreach ($path in $candidates) {
+        try {
+            $versionText = [string](& $path -p "process.versions.node")
+            if ($LASTEXITCODE -ne 0) { continue }
+            $version = [version]$versionText.Trim()
+            $candidate = [pscustomobject]@{
+                Path = [string]$path
+                Version = $version
+                Major = $version.Major
+            }
+            if ($candidate.Major -ge 22) { $compatible += $candidate }
+        }
+        catch {
+            continue
+        }
+    }
+    return $compatible | Sort-Object -Property Version -Descending | Select-Object -First 1
 }
 
 function Install-WingetPackage([string]$Id, [string]$DisplayName) {
@@ -78,26 +135,19 @@ if (-not $GitExe) {
 }
 if (-not $GitExe) { throw "Git was installed but is not available. Open a new PowerShell window and rerun this installer." }
 
-$NodeExe = Resolve-NativeCommand @("node.exe", "node") @("$env:ProgramFiles\nodejs\node.exe")
-$NodeMajor = 0
-if ($NodeExe) {
-    $NodeMajorText = [string](& $NodeExe -p "process.versions.node.split('.')[0]")
-    if ($LASTEXITCODE -eq 0) { [void][int]::TryParse($NodeMajorText.Trim(), [ref]$NodeMajor) }
-}
-if (-not $NodeExe -or $NodeMajor -lt 22) {
+$NodeSelection = Select-CompatibleNode
+if (-not $NodeSelection) {
     Install-WingetPackage "OpenJS.NodeJS.LTS" "Node.js LTS"
-    $NodeExe = Resolve-NativeCommand @("node.exe", "node") @("$env:ProgramFiles\nodejs\node.exe")
-    if ($NodeExe) {
-        $NodeMajorText = [string](& $NodeExe -p "process.versions.node.split('.')[0]")
-        $NodeMajor = 0
-        if ($LASTEXITCODE -eq 0) { [void][int]::TryParse($NodeMajorText.Trim(), [ref]$NodeMajor) }
-    }
+    $NodeSelection = Select-CompatibleNode
 }
-if (-not $NodeExe -or $NodeMajor -lt 22) {
+if (-not $NodeSelection) {
     throw "ClawPatch requires Node.js 22 or newer. Install it, open a new PowerShell window, and rerun this installer."
 }
+$NodeExe = [string]$NodeSelection.Path
 
-$NpmExe = Resolve-NativeCommand @("npm.cmd") @("$env:ProgramFiles\nodejs\npm.cmd")
+$NpmBesideNode = Join-Path (Split-Path -Parent $NodeExe) "npm.cmd"
+$NpmExe = Resolve-NativeCommand @() @($NpmBesideNode)
+if (-not $NpmExe) { $NpmExe = Resolve-NativeCommand @("npm.cmd") }
 if (-not $NpmExe) { throw "Node.js is installed, but npm.cmd could not be found." }
 
 $PythonExe = $null

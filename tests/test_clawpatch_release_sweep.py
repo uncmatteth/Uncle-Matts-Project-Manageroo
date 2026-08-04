@@ -184,7 +184,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     def test_dedicated_external_venv_owns_its_state_beside_the_install(self):
         self.assertEqual(
             _external_state_home(),
-            Path("/home/test/.local/share/clawpatch-supervise/state"),
+            Path("/home/test/.local/share/clawpatch-supervise/state").resolve(),
         )
 
     @patch("manageroo.clawpatch_release._final_closure")

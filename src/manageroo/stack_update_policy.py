@@ -50,8 +50,10 @@ def _destination_lock(destination: Path, *, timeout: float = 30.0) -> Iterator[N
                     ) from exc
                 time.sleep(0.05)
 
-        os.ftruncate(fd, 0)
-        os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
+        owner_payload = f"pid={os.getpid()}\n".encode("utf-8")
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, owner_payload)
+        os.ftruncate(fd, len(owner_payload))
         os.fsync(fd)
         yield
     finally:

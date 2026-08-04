@@ -279,9 +279,21 @@ def status_line(
     stream: TextIO = sys.stdout,
 ) -> None:
     features = terminal_features(stream, animation=False)
-    marker = "✓" if ok is True else "✗" if ok is False else "◆"
+    encoding = getattr(stream, "encoding", None)
+    unicode_text = "✓✗◆—"
+    unicode_supported = True
+    if encoding:
+        try:
+            unicode_text.encode(encoding)
+        except (LookupError, UnicodeEncodeError):
+            unicode_supported = False
+    marker = (
+        ("✓" if ok is True else "✗" if ok is False else "◆")
+        if unicode_supported
+        else ("OK" if ok is True else "X" if ok is False else "*")
+    )
     text = f"{marker} {label}"
     if detail:
-        text += f" — {detail}"
+        text += f" {'—' if unicode_supported else '-'} {detail}"
     stream.write(_paint(text, 2 if ok is not False else 5, features) + "\n")
     stream.flush()

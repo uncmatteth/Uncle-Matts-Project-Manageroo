@@ -127,6 +127,14 @@ reports the pending count and current job count. Manageroo runs one
 features by exactly the child's reviewed count. There is no arbitrary wave cap;
 zero pending completes review, no progress stops, and the 900-second process-tree
 watchdog remains enforced per child instead of spanning the whole repository.
+On Windows, argv-only child execution resolves native command shims and invokes
+`.cmd` or `.bat` launchers through `COMSPEC /d /s /c` while retaining
+`shell=False`. Persistent byte-range lock files update owner metadata in place
+instead of truncating a file another Windows process has locked. Git reference
+transactions use an exact binary UTF-8/LF protocol, and console status markers
+fall back to ASCII when the active stream encoding cannot represent Unicode.
+The release verifier gives the complete native unit suite its own 900-second
+limit so the verifier does not terminate a healthy Windows run at five minutes.
 The controller then obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and

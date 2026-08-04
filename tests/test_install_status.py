@@ -152,8 +152,9 @@ class InstallStatusTests(unittest.TestCase):
     def test_live_probe_overrides_stale_cached_installed_status(self):
         with tempfile.TemporaryDirectory() as temp:
             lock = Path(temp) / "install-lock.json"
+            launcher_name = "manageroo.cmd" if os.name == "nt" else "manageroo"
             lock.write_text(json.dumps({
-                "launcher": "/tmp/bin/manageroo",
+                "launcher": str(Path(temp).resolve() / "bin" / launcher_name),
                 "external_tools": [{"name": "codex", "installed": True, "configured": True}],
                 "stack_summary": {"items": [{"name": "codex", "installed": True, "configured": True, "skipped": False, "needs_action": False, "next_commands": []}]},
             }), encoding="utf-8")

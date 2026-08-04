@@ -1,5 +1,6 @@
 import io
 import json
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -40,11 +41,14 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(payload["ok"], True)
             self.assertEqual(by_name["plain-repo"]["status"], "git repo")
-            self.assertEqual(by_name["plain-repo"]["next_command"], f"manageroo solo {repo}")
+            self.assertEqual(
+                by_name["plain-repo"]["next_command"],
+                shlex.join(["manageroo", "solo", str(repo)]),
+            )
             self.assertEqual(by_name["already-ready"]["status"], "initialized")
             self.assertEqual(
                 by_name["already-ready"]["next_command"],
-                f"manageroo next {initialized}",
+                shlex.join(["manageroo", "next", str(initialized)]),
             )
 
     def test_projects_discovers_linked_worktree_with_file_form_git_metadata(self):
@@ -95,7 +99,10 @@ class ProjectDiscoveryTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("PROJECT PICKER", output)
             self.assertIn(str(repo), output)
-            self.assertIn(f"Next: manageroo solo {repo}", output)
+            self.assertIn(
+                "Next: " + shlex.join(["manageroo", "solo", str(repo)]),
+                output,
+            )
             self.assertIn("New project:", output)
             self.assertIn("manageroo solo /path/to/new-project --create", output)
 
@@ -136,7 +143,10 @@ class ProjectDiscoveryTests(unittest.TestCase):
                 code = main(["projects", "--root", str(root), "--json"])
             self.assertEqual(code, 0)
             report = json.loads(stdout.getvalue())
-            self.assertEqual(selected_project_command(report, "1"), f"manageroo solo {alpha.resolve()}")
+            self.assertEqual(
+                selected_project_command(report, "1"),
+                shlex.join(["manageroo", "solo", str(alpha.resolve())]),
+            )
             for answer in ("0", "2", "99"):
                 with self.subTest(answer=answer):
                     with self.assertRaises(ValueError):
@@ -149,7 +159,9 @@ class ProjectDiscoveryTests(unittest.TestCase):
             new_path = root / "new-product"
             self.assertEqual(
                 selected_project_command(report, str(new_path)),
-                f"manageroo solo {new_path.resolve()} --create",
+                shlex.join(
+                    ["manageroo", "solo", str(new_path.resolve()), "--create"]
+                ),
             )
 
     def test_projects_add_initializes_selected_found_projects_and_manual_paths(self):
@@ -188,7 +200,10 @@ class ProjectDiscoveryTests(unittest.TestCase):
                 self.assertTrue(
                     (selected / ".agents" / "skills" / "uncle-matts-project-manageroo" / "SKILL.md").exists()
                 )
-                self.assertIn(f"Next: manageroo solo {selected}", output)
+                self.assertIn(
+                    "Next: " + shlex.join(["manageroo", "solo", str(selected)]),
+                    output,
+                )
             self.assertFalse((beta / ".manageroo").exists())
             self.assertFalse((beta / "AGENTS.md").exists())
             self.assertFalse((beta / "CONTEXT.md").exists())

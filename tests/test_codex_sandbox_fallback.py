@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,7 +13,8 @@ from manageroo.adapters.budget import BudgetedAdapter
 from manageroo.adapters.codex import CodexAdapter, _BWRAP_LOOPBACK_FAILURE
 from manageroo.capability_router import route_capabilities
 from manageroo.errors import AgentExecutionError
-from manageroo.runner import CommandResult
+from manageroo.runner import CommandResult, _platform_argv
+from tests.support import symlink_or_skip
 
 
 def _result(argv, cwd, *, exit_code=0, stdout="", stderr=""):
@@ -95,7 +97,9 @@ class CodexSandboxFallbackTests(unittest.TestCase):
 
                 with patch(
                     "manageroo.adapters.codex.shutil.which", return_value="/tools/codex"
-                ), patch("manageroo.adapters.codex.platform.system", return_value=system_name):
+                ), patch(
+                    "manageroo.adapters.codex.platform.system", return_value=system_name
+                ):
                     doctor = CodexAdapter("codex", runner).doctor(root)
 
                 self.assertTrue(doctor["ok"], doctor)
@@ -130,7 +134,12 @@ class CodexSandboxFallbackTests(unittest.TestCase):
 
                 with patch(
                     "manageroo.adapters.codex.shutil.which", return_value="/tools/codex"
-                ), patch("manageroo.adapters.codex.platform.system", return_value=system_name):
+                ), patch(
+                    "manageroo.adapters.codex.platform.system", return_value=system_name
+                ), patch(
+                    "manageroo.adapters.codex.platform.freedesktop_os_release",
+                    return_value={"ID": "ubuntu", "VERSION_ID": "24.04"},
+                ):
                     doctor = CodexAdapter("codex", runner).doctor(root)
 
                 self.assertFalse(doctor["ok"])
@@ -193,7 +202,13 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             profile = runner.profile_snapshots[0]
             self.assertEqual(profile.count("enabled = false"), 4)
             self.assertIn('name = "diagnose"', profile)
-            self.assertIn(str(root / "skills" / "diagnose" / "SKILL.md"), profile)
+            profile_data = tomllib.loads(profile)
+            disabled_paths = {
+                item.get("path")
+                for item in profile_data["skills"]["config"]
+                if "path" in item
+            }
+            self.assertIn(str(root / "skills" / "diagnose" / "SKILL.md"), disabled_paths)
             self.assertEqual(list(codex_home.glob("manageroo-*.config.toml")), [])
 
     def test_profile_name_collision_never_deletes_preexisting_file(self):
@@ -254,7 +269,7 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             adapter = CodexAdapter("codex", _Runner([]))
 
             baseline = subprocess.run(
-                ["codex", "debug", "prompt-input", "probe"],
+                _platform_argv(["codex", "debug", "prompt-input", "probe"], env),
                 cwd=root,
                 env=env,
                 text=True,
@@ -265,7 +280,10 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             with patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False):
                 with adapter._ephemeral_skill_profile(request) as profile:
                     isolated = subprocess.run(
-                        ["codex", "--profile", profile, "debug", "prompt-input", "probe"],
+                        _platform_argv(
+                            ["codex", "--profile", profile, "debug", "prompt-input", "probe"],
+                            env,
+                        ),
                         cwd=root,
                         env=env,
                         text=True,
@@ -298,7 +316,10 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             adapter = CodexAdapter("codex", _Runner([]))
 
             baseline = subprocess.run(
-                ["codex", "-C", str(mirror), "debug", "prompt-input", "probe"],
+                _platform_argv(
+                    ["codex", "-C", str(mirror), "debug", "prompt-input", "probe"],
+                    env,
+                ),
                 cwd=mirror,
                 env=env,
                 text=True,
@@ -309,7 +330,19 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             with patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False):
                 with adapter._ephemeral_skill_profile(request) as profile:
                     isolated = subprocess.run(
-                        ["codex", "--profile", profile, "-C", str(mirror), "debug", "prompt-input", "probe"],
+                        _platform_argv(
+                            [
+                                "codex",
+                                "--profile",
+                                profile,
+                                "-C",
+                                str(mirror),
+                                "debug",
+                                "prompt-input",
+                                "probe",
+                            ],
+                            env,
+                        ),
                         cwd=mirror,
                         env=env,
                         text=True,
@@ -341,13 +374,15 @@ class CodexSandboxFallbackTests(unittest.TestCase):
                 encoding="utf-8",
             )
             skills.mkdir(parents=True)
-            (skills / "symlink-directory-sentinel").symlink_to(
+            symlink_or_skip(
+                self,
                 directory_target.parent,
+                skills / "symlink-directory-sentinel",
                 target_is_directory=True,
             )
             entrypoint_dir = skills / "symlink-entrypoint-sentinel"
             entrypoint_dir.mkdir()
-            (entrypoint_dir / "SKILL.md").symlink_to(entrypoint_target)
+            symlink_or_skip(self, entrypoint_target, entrypoint_dir / "SKILL.md")
             request = _request(root)
             with patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False):
                 route = route_capabilities("Do ordinary local work.", roots=[skills])
@@ -356,7 +391,7 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             adapter = CodexAdapter("codex", _Runner([]))
 
             baseline = subprocess.run(
-                ["codex", "debug", "prompt-input", "probe"],
+                _platform_argv(["codex", "debug", "prompt-input", "probe"], env),
                 cwd=root,
                 env=env,
                 text=True,
@@ -367,7 +402,10 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             with patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False):
                 with adapter._ephemeral_skill_profile(request) as profile:
                     isolated = subprocess.run(
-                        ["codex", "--profile", profile, "debug", "prompt-input", "probe"],
+                        _platform_argv(
+                            ["codex", "--profile", profile, "debug", "prompt-input", "probe"],
+                            env,
+                        ),
                         cwd=root,
                         env=env,
                         text=True,

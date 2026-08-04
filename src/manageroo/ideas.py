@@ -72,8 +72,10 @@ def _exclusive_lock(path: Path, *, timeout_seconds: float = 10.0) -> Iterator[No
                     raise TimeoutError(f"Timed out waiting for idea-inbox lock: {path}") from exc
                 time.sleep(0.02)
 
-        os.ftruncate(fd, 0)
-        os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
+        owner_payload = f"pid={os.getpid()}\n".encode("utf-8")
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, owner_payload)
+        os.ftruncate(fd, len(owner_payload))
         os.fsync(fd)
         yield
     finally:

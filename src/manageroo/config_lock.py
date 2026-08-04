@@ -111,8 +111,10 @@ def config_mutation_lock(config_path: Path, *, timeout_seconds: float = 30.0) ->
                 time.sleep(0.05)
 
         _validate_lock_file(descriptor, lock_path)
-        os.ftruncate(descriptor, 0)
-        os.write(descriptor, f"pid={os.getpid()}\n".encode("utf-8"))
+        owner_payload = f"pid={os.getpid()}\n".encode("utf-8")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.write(descriptor, owner_payload)
+        os.ftruncate(descriptor, len(owner_payload))
         os.fsync(descriptor)
         yield
     finally:

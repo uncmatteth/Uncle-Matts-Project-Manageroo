@@ -50,6 +50,7 @@ BANNED_OVERCLAIM_PHRASES = (
     "ai can fix clawpatch findings",
     "silently self-improves",
 )
+UNIT_TEST_TIMEOUT_SECONDS = 900
 
 
 def stable_command_output(output: str) -> str:
@@ -259,6 +260,7 @@ def main(*, write_report: bool = True) -> int:
             ),
             run(
                 [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+                timeout=UNIT_TEST_TIMEOUT_SECONDS,
                 env_overrides=isolated_python_env,
             ),
         ]
