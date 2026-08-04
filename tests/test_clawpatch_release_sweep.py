@@ -2016,6 +2016,152 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(report["open_findings"], 0)
         self.assertTrue(final_closure.call_args.kwargs["publish_clawpatch_state"])
 
+    @patch("manageroo.clawpatch_release._prepare_fresh_release")
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._execute_fix")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_completed_queue_requires_a_fresh_zero_finding_review_generation(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        execute_fix,
+        final_closure,
+        prepare_fresh,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            json_clawpatch.side_effect = [
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+                {"reviewed": 1, "findings": 1},
+                {"dryRun": True, "wouldReview": 0},
+                {
+                    "finding": {"id": "fnd_one", "status": "open"},
+                    "next": "clawpatch show --finding fnd_one",
+                },
+                {
+                    "finding": {"id": "fnd_one", "status": "open"},
+                    "validation": [],
+                    "patchAttempts": [],
+                },
+                {"finding": None, "status": "open"},
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+                {"reviewed": 1, "findings": 0},
+                {"dryRun": True, "wouldReview": 0},
+                {"finding": None, "status": "open"},
+            ]
+            execute_fix.return_value = (
+                {
+                    "finding_id": "fnd_one",
+                    "files_changed": [],
+                    "revalidation": {"finding": "fnd_one", "outcome": "fixed"},
+                    "commit": "",
+                },
+                False,
+            )
+            final_closure.side_effect = [
+                {"pushed": False, "needs_fresh_review": True},
+                {"pushed": False, "needs_fresh_review": False},
+            ]
+
+            report = release_sweep(repo, apply=True, branch="current")
+
+        self.assertEqual(execute_fix.call_count, 1)
+        self.assertEqual(final_closure.call_count, 2)
+        prepare_fresh.assert_called_once()
+        self.assertEqual(report["finding_count"], 1)
+        self.assertEqual(len(report["review_generations"]), 2)
+        self.assertFalse(report["review_generations"][0]["clean"])
+        self.assertTrue(report["review_generations"][1]["clean"])
+
+    @patch("manageroo.clawpatch_release._prepare_fresh_release")
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._execute_fix")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_fresh_review_same_tree_repetition_stops_as_nonconvergent(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        execute_fix,
+        final_closure,
+        prepare_fresh,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            first_generation = [
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+                {"reviewed": 1, "findings": 1},
+                {"dryRun": True, "wouldReview": 0},
+                {
+                    "finding": {"id": "fnd_one", "status": "open"},
+                    "next": "clawpatch show --finding fnd_one",
+                },
+                {
+                    "finding": {"id": "fnd_one", "status": "open"},
+                    "validation": [],
+                    "patchAttempts": [],
+                },
+                {"finding": None, "status": "open"},
+            ]
+            second_generation = [
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+                {"reviewed": 1, "findings": 1},
+                {"dryRun": True, "wouldReview": 0},
+                {
+                    "finding": {"id": "fnd_two", "status": "open"},
+                    "next": "clawpatch show --finding fnd_two",
+                },
+                {
+                    "finding": {"id": "fnd_two", "status": "open"},
+                    "validation": [],
+                    "patchAttempts": [],
+                },
+                {"finding": None, "status": "open"},
+            ]
+            json_clawpatch.side_effect = first_generation + second_generation
+            execute_fix.side_effect = [
+                (
+                    {
+                        "finding_id": "fnd_one",
+                        "files_changed": [],
+                        "revalidation": {"finding": "fnd_one", "outcome": "fixed"},
+                        "commit": "",
+                    },
+                    False,
+                ),
+                (
+                    {
+                        "finding_id": "fnd_two",
+                        "files_changed": [],
+                        "revalidation": {"finding": "fnd_two", "outcome": "fixed"},
+                        "commit": "",
+                    },
+                    False,
+                ),
+            ]
+            final_closure.side_effect = [
+                {"pushed": False, "needs_fresh_review": True},
+                {"pushed": False, "needs_fresh_review": True},
+            ]
+
+            with self.assertRaisesRegex(SafetyError, "did not converge"):
+                release_sweep(repo, apply=True, branch="current")
+
+        self.assertEqual(execute_fix.call_count, 2)
+        self.assertEqual(final_closure.call_count, 2)
+        prepare_fresh.assert_called_once()
+
     @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])

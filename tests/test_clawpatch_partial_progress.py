@@ -504,7 +504,7 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._resolve_uncertain_findings")
     @patch("manageroo.clawpatch_release._review_completion", return_value={"done": True})
     @patch("manageroo.clawpatch_release._json_clawpatch")
-    def test_final_closure_recovers_existing_uncertain_finding_instead_of_stopping(
+    def test_final_closure_recovers_uncertain_finding_then_requires_fresh_review(
         self,
         json_clawpatch,
         _review,
@@ -555,7 +555,8 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
             )
 
             self.assertEqual(closure["recovered_findings"], [recovered])
-            self.assertFalse((repo / ".clawpatch").exists())
+            self.assertTrue(closure["needs_fresh_review"])
+            self.assertTrue((repo / ".clawpatch").exists())
             resolve_uncertain.assert_called_once_with(
                 repo,
                 env={},

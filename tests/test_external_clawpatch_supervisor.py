@@ -57,6 +57,21 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             "$ clawpatch revalidate --finding fnd_one --json",
         )
 
+    def test_fixed_point_rescan_phase_is_visible(self):
+        self.assertEqual(
+            _render_event(
+                {
+                    "phase": "fixed-point-rescan",
+                    "current": 14,
+                    "total": 14,
+                    "command": "start fresh ClawPatch map and complete review",
+                    "attempt": 2,
+                }
+            ),
+            "\n[14/14] FRESH FIXED-POINT REVIEW (generation 2)\n"
+            "$ start fresh ClawPatch map and complete review",
+        )
+
     def test_package_installs_external_supervisor_command(self):
         project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
         self.assertEqual(
@@ -132,7 +147,13 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
                     "commit": "abc123",
                 }
             )
-            return {"ok": True, "finding_count": 1, "open_findings": 0, "git_head": "abc123"}
+            return {
+                "ok": True,
+                "finding_count": 1,
+                "open_findings": 0,
+                "git_head": "abc123",
+                "review_generations": [{"clean": False}, {"clean": True}],
+            }
 
         output = StringIO()
         with redirect_stdout(output):
@@ -153,6 +174,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertNotIn("RETRY", rendered)
         self.assertNotIn("attempt 2", rendered)
         self.assertIn("[1/88] FIXED", rendered)
+        self.assertIn("fresh_review_generations=2", rendered)
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
         self.assertEqual(calls[0][1]["integration_mode"], "external")

@@ -190,6 +190,15 @@ staging, authorized commit/push boundaries, final zero-open and zero-lock proof,
 and remote-SHA verification without
 replacing Clawpatch's command-owned repair.
 
+That lifecycle reaches a fixed point rather than trusting one exhausted queue.
+Whenever a generation found or recovered findings, Manageroo completes its
+repairs and closure, preserves committed ClawPatch configuration, rebuilds
+generated run/discovery state, maps the repaired HEAD, and performs another
+complete review. Only a fresh full generation with zero findings can authorize
+`COMPLETE`. Each generation's HEAD and source tree are recorded; repeating a
+non-clean source tree stops as nonconvergent instead of looping or claiming a
+clean result. There is no arbitrary generation cap.
+
 In a plain Git repository, ClawPatch's applied `fix` result and exact-finding
 revalidation own repair validation; Manageroo does not guess a test runner or
 invent native gates. In a Manageroo-configured repository, those gates remain
@@ -290,9 +299,12 @@ arbitrary attempt cap and never substitutes a Manageroo-written repair.
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;
 Manageroo creates one separate `.clawpatch/**`-only final state commit. Otherwise,
-after successful closure, Manageroo removes generated runtime state and restores
-the committed `.clawpatch` tree exactly; committed configuration is preserved and
-project source is fingerprinted before and after cleanup.
+after a fresh zero-finding review generation and successful final closure,
+Manageroo removes generated runtime state and restores the committed
+`.clawpatch` tree exactly; committed configuration is preserved and project
+source is fingerprinted before and after cleanup. A nonempty generation uses
+intermediate closure and starts another fresh map/review generation instead of
+taking this terminal cleanup path.
 
 Clawpatch 0.7.2's `show` output includes a human triage template. Manageroo
 records that inspection but does not execute or fill in the template. Its

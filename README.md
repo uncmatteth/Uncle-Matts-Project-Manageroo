@@ -368,6 +368,16 @@ temporary iteration commit proven by the durable checkpoint. It may discard
 dirty source only when the complete dirty path set exactly equals that
 checkpoint's owned paths; unrelated work stops the fresh run unchanged.
 
+Exhausting that first queue is not completion. If a review generation found or
+recovered any findings, the supervisor preserves committed ClawPatch
+configuration, rebuilds only generated ClawPatch run/discovery state, maps the
+new HEAD, and performs another complete review. It repeats this fixed-point
+cycle without an arbitrary generation cap. `COMPLETE` is emitted only when a
+fresh full review generation at the final HEAD finds zero findings and final
+closure passes. If a non-clean generation repeats a source-tree state already
+seen in the same run, the supervisor stops as nonconvergent instead of claiming
+completion or reviewing the same tree forever.
+
 The command preserves committed ClawPatch
 configuration, displays the exact current finding as `[current/total] SHOW`,
 prints the finding evidence and repair scope, prints each numbered ClawPatch
@@ -463,6 +473,9 @@ The implemented ClawPatch 0.7.2 state machine is:
 | `.clawpatch` was deliberately rebuilt after a stopped attempt | When the new generation is empty, branch and HEAD still match, and the exact dirty source fingerprint still matches, restore only those checkpoint-owned files and continue normally; preserve everything on any mismatch |
 | A rebuilt generation supersedes a zero-path checkpoint and HEAD later advances | Require a source-clean worktree, absent old finding, newer generation on the same branch, and checkpoint-to-generation-to-current Git ancestry; clear only the obsolete external checkpoint |
 | A prior checkpoint is missing or fails any ownership check | Refuse cleanup or continuation; both fresh lanes require exact checkpoint ownership before discarding source |
+| A complete review generation found or recovered one or more findings | Finish that generation's exact-finding repairs and closure, rebuild generated ClawPatch state while preserving committed configuration, then map and completely review the resulting HEAD again |
+| A fresh full review generation finds zero findings | Run final closure and emit `COMPLETE` with every review generation recorded in the proof |
+| A non-clean fresh generation repeats a previously seen source tree | Stop as nonconvergent; do not claim completion and do not begin another generation |
 
 After each validated fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, revalidates the same finding, and stages
@@ -541,7 +554,12 @@ add `--publish-clawpatch-state` together with a push mode; Manageroo creates one
 separate final state-only commit and verifies the live remote SHA. Without that
 option, successful closure removes generated ClawPatch runtime state and restores
 the repository's committed `.clawpatch` files byte-for-byte, so committed
-configuration is preserved and the worktree finishes clean.
+configuration is preserved and the worktree finishes clean. That terminal
+cleanup is available only after a fresh zero-finding review generation. A
+generation that contained findings performs intermediate closure and starts a
+new map and complete review from the resulting source tree. The external proof
+records every generation's HEAD, source tree, mapped/reviewed feature counts,
+finding count, and whether it was the clean terminal generation.
 
 Dry-run is the default. `--apply` explicitly authorizes fixes and exact-path
 source commits. Nothing is pushed unless you add `--push each` or `--push final`.

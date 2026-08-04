@@ -119,6 +119,12 @@ def _render_event(event: dict[str, Any]) -> str:
             f"\n{_counter(event)} OPEN - CONTINUING SAME FINDING\n"
             f"commit: {commit}"
         )
+    if phase == "fixed-point-rescan":
+        generation = event.get("attempt", "?")
+        return (
+            f"\n{_counter(event)} FRESH FIXED-POINT REVIEW (generation {generation})\n"
+            f"$ {event.get('command', '')}"
+        )
     if phase == "resume":
         return (
             f"\n{_counter(event)} RESUME INTERRUPTED PLANNED ATTEMPT\n"
@@ -246,6 +252,7 @@ def main(
         "\nCOMPLETE: "
         f"fixed={report.get('finding_count', 0)} "
         f"open={report.get('open_findings', '?')} "
+        f"fresh_review_generations={len(report.get('review_generations', []))} "
         f"head={report.get('git_head', '')}",
         flush=True,
     )

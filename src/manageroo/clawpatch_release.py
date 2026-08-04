@@ -35,7 +35,9 @@ LIFECYCLE = (
     "one combined exact-path final commit/push when authorized -> an open revalidation amends the "
     "local iteration and reenters the same finding without a cap; no-progress, unsupported, failed, "
     "uncertain, or false-positive transitions stop with source changes intact -> "
-    "final closure"
+    "final open/uncertain closure -> rebuild generated ClawPatch state and repeat map plus complete "
+    "review at the new HEAD after every nonempty generation -> COMPLETE only after a fresh full "
+    "review generation finds zero findings; a repeated non-clean source tree stops as nonconvergent"
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
 _SUPERVISOR_UPGRADE_PATHS = frozenset(
@@ -2616,6 +2618,7 @@ def _final_closure(
     current: int | str = "?",
     total: int | str = "?",
     require_project_gates: bool = True,
+    require_fresh_review: bool = False,
 ) -> dict[str, Any]:
     _require_no_process(repo)
     review_completion = _review_completion(
@@ -2798,33 +2801,42 @@ def _final_closure(
     )
     if _source_paths(repo):
         raise SafetyError(f"Final closure found uncommitted source changes: {_source_paths(repo)}")
+    needs_fresh_review = require_fresh_review or bool(recovered_findings)
     state_commit = ""
-    state_paths = [path for path in _status_paths(repo) if path == ".clawpatch" or path.startswith(".clawpatch/")]
-    if state_paths and publish_clawpatch_state:
-        if push_mode == "none":
-            raise SafetyError("Publishing final Clawpatch state requires explicit --push each or --push final authorization.")
-        state_commit = _publish_final_state(repo, branch=branch)
-    elif (repo / ".clawpatch").exists() or state_paths:
-        if progress is not None:
-            progress(
-                {
-                    "phase": "state-cleanup",
-                    "current": current,
-                    "total": total,
-                    "command": "restore committed .clawpatch state",
-                    "attempt": 1,
-                    "max_attempts": 1,
-                }
+    if not needs_fresh_review:
+        state_paths = [
+            path
+            for path in _status_paths(repo)
+            if path == ".clawpatch" or path.startswith(".clawpatch/")
+        ]
+        if state_paths and publish_clawpatch_state:
+            if push_mode == "none":
+                raise SafetyError(
+                    "Publishing final Clawpatch state requires explicit --push each or --push "
+                    "final authorization."
+                )
+            state_commit = _publish_final_state(repo, branch=branch)
+        elif (repo / ".clawpatch").exists() or state_paths:
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "state-cleanup",
+                        "current": current,
+                        "total": total,
+                        "command": "restore committed .clawpatch state",
+                        "attempt": 1,
+                        "max_attempts": 1,
+                    }
+                )
+            _restore_committed_clawpatch_state(repo)
+        if push_mode == "final" or state_commit:
+            _push_and_verify(repo, branch, first=not pushed)
+            pushed = True
+        if _status_paths(repo):
+            raise SafetyError(
+                "Final authorized Git worktree is not clean after restoring committed "
+                "Clawpatch state: " + ", ".join(_status_paths(repo))
             )
-        _restore_committed_clawpatch_state(repo)
-    if push_mode == "final" or state_commit:
-        _push_and_verify(repo, branch, first=not pushed)
-        pushed = True
-    if _status_paths(repo):
-        raise SafetyError(
-            "Final authorized Git worktree is not clean after restoring committed Clawpatch state: "
-            + ", ".join(_status_paths(repo))
-        )
     _require_no_process(repo)
     return {
         "all_revalidation": all_validation,
@@ -2837,6 +2849,7 @@ def _final_closure(
         "state_commit": state_commit,
         "recovered_findings": recovered_findings,
         "recovered_continuations": recovered_continuations,
+        "needs_fresh_review": needs_fresh_review,
     }
 
 
@@ -2852,6 +2865,13 @@ def release_sweep(
     child_timeout_seconds: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
     progress: Callable[[dict[str, Any]], None] | None = None,
     integration_mode: str = "manageroo",
+    _fixed_point_generation: int = 1,
+    _fixed_point_seen_trees: tuple[str, ...] = (),
+    _prior_results: tuple[dict[str, Any], ...] = (),
+    _prior_continuations: tuple[dict[str, Any], ...] = (),
+    _prior_false_positives: tuple[dict[str, Any], ...] = (),
+    _prior_review_generations: tuple[dict[str, Any], ...] = (),
+    _already_pushed: bool = False,
 ) -> dict[str, Any]:
     """Automate Clawpatch's documented one-finding workflow without automatic triage."""
     root = _git_root(repo)
@@ -2886,10 +2906,12 @@ def release_sweep(
         "push_mode": push_mode,
         "integration_mode": integration_mode,
         "publish_clawpatch_state": publish_clawpatch_state,
-        "results": [],
-        "continuations": [],
-        "false_positives": [],
+        "results": list(_prior_results),
+        "continuations": list(_prior_continuations),
+        "false_positives": list(_prior_false_positives),
+        "review_generations": list(_prior_review_generations),
     }
+    generation_result_start = len(report["results"])
     if not apply:
         report["planned_branch"] = branch
         return report
@@ -2912,7 +2934,7 @@ def release_sweep(
     durable_progress = _load_release_progress(root, state_root=state_root)
     preexisting_source = _source_paths(root)
     selected_branch = current_branch
-    pushed = False
+    pushed = _already_pushed
     resumed_checkpoint = False
     expected_unapplied_finding: str | None = None
     resumed_checkpoint_kind = "stopped applied attempt"
@@ -3448,6 +3470,15 @@ def release_sweep(
                 }
             )
 
+    known_generation_findings = (
+        (
+            isinstance(open_findings, int)
+            and not isinstance(open_findings, bool)
+            and open_findings > 0
+        )
+        or reviewed_findings > 0
+        or len(report["results"]) > generation_result_start
+    )
     closure = _final_closure(
         root,
         env=env,
@@ -3461,9 +3492,66 @@ def release_sweep(
         current=current_finding,
         total=total_findings,
         require_project_gates=require_project_gates,
+        require_fresh_review=known_generation_findings,
     )
     report["results"].extend(closure.get("recovered_findings", []))
     report["continuations"].extend(closure.get("recovered_continuations", []))
+    generation_head = _git_text(root, ["git", "rev-parse", "HEAD"])
+    generation_tree = _git_text(root, ["git", "rev-parse", "HEAD^{tree}"])
+    needs_fresh_review = bool(closure.get("needs_fresh_review", False))
+    generation_record = {
+        "generation": _fixed_point_generation,
+        "head": generation_head,
+        "source_tree": generation_tree,
+        "mapped_features": mapped_features,
+        "reviewed_features": review.get("review", {}).get("reviewed", 0),
+        "review_findings": reviewed_findings,
+        "completed_findings": len(report["results"]) - generation_result_start,
+        "clean": not needs_fresh_review,
+    }
+    report["review_generations"].append(generation_record)
+    if needs_fresh_review:
+        if generation_tree in _fixed_point_seen_trees:
+            raise SafetyError(
+                "Fresh Clawpatch review did not converge: a non-clean generation repeated "
+                f"source tree {generation_tree}. Manageroo stopped without starting another "
+                "review generation."
+            )
+        if progress is not None:
+            progress(
+                {
+                    "phase": "fixed-point-rescan",
+                    "current": current_finding,
+                    "total": total_findings,
+                    "command": "start fresh ClawPatch map and complete review",
+                    "attempt": _fixed_point_generation + 1,
+                }
+            )
+        _prepare_fresh_release(
+            root,
+            env=env,
+            progress=progress,
+            state_root=state_root,
+        )
+        return release_sweep(
+            root,
+            apply=True,
+            branch="current",
+            push_mode=push_mode,
+            publish_clawpatch_state=publish_clawpatch_state,
+            trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass,
+            fresh=False,
+            child_timeout_seconds=child_timeout_seconds,
+            progress=progress,
+            integration_mode=integration_mode,
+            _fixed_point_generation=_fixed_point_generation + 1,
+            _fixed_point_seen_trees=(*_fixed_point_seen_trees, generation_tree),
+            _prior_results=tuple(report["results"]),
+            _prior_continuations=tuple(report["continuations"]),
+            _prior_false_positives=tuple(report["false_positives"]),
+            _prior_review_generations=tuple(report["review_generations"]),
+            _already_pushed=bool(closure.get("pushed", pushed)),
+        )
     final_head = _git_text(root, ["git", "rev-parse", "HEAD"])
     proof = {
         "status": "COMPLETE",
@@ -3473,9 +3561,10 @@ def release_sweep(
         "git_head": final_head,
         "clawpatch_version": version,
         "open_findings": 0,
-            "completed_findings": report["results"],
-            "continuation_attempts": report["continuations"],
+        "completed_findings": report["results"],
+        "continuation_attempts": report["continuations"],
         "false_positives": report["false_positives"],
+        "review_generations": report["review_generations"],
         "final_closure": closure,
     }
     proof_path = state_root / "clawpatch-release-proof.json"

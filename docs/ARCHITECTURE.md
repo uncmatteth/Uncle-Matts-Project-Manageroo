@@ -141,6 +141,14 @@ pre-existing uncertainty: `next --status uncertain`, `show`, then guarded
 exact-finding revalidation. `fixed` closes without a source commit, `open`
 re-enters the normal same-finding repair loop, and a second `uncertain` stops as
 an external validation blocker.
+Queue exhaustion is only generation closure. When that generation found or
+recovered findings, Manageroo preserves committed ClawPatch configuration,
+rebuilds generated run/discovery state, maps the resulting HEAD, and completes
+another full review. It repeats until a fresh full review generation finds zero
+findings. There is no arbitrary generation cap; a repeated non-clean source
+tree is deterministic nonconvergence and stops. Only the clean terminal
+generation can authorize `COMPLETE`, final state cleanup or publication, and
+the fixed-point proof that records every reviewed generation.
 Ordinary relaunch resumes a stopped applied attempt only when the durable
 checkpoint's branch, finding, and exact dirty path set agree, and exactly one
 applied Clawpatch patch-attempt record matches current HEAD. It resumes at gates
@@ -179,10 +187,12 @@ Every bare external invocation starts fresh. It first proves and recovers any
 temporary iteration commit, then discards only the exact checkpoint-owned dirty
 paths before rebuilding ClawPatch run/discovery state. Unrelated dirty source
 blocks unchanged.
-After final open and uncertain reports are empty and every gate passes, generated
-ClawPatch runtime state is removed and the committed `.clawpatch` tree is restored
-exactly unless the operator explicitly authorized a separate state-only commit.
-An exact source fingerprint guards this cleanup.
+After a fresh complete review finds zero findings, final open and uncertain
+reports are empty, and every gate passes, generated ClawPatch runtime state is
+removed and the committed `.clawpatch` tree is restored exactly unless the
+operator explicitly authorized a separate state-only commit. An exact source
+fingerprint guards this cleanup. A prior nonempty generation cannot take this
+terminal path; it must start the next fresh review generation instead.
 One explicit timeout controls both the child-process watchdog
 and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
 Operator interruption also terminates and reaps that complete child group before
