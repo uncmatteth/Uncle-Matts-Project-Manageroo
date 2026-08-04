@@ -2485,31 +2485,46 @@ def _resume_stopped_attempt(
             f"Stopped Clawpatch finding {finding_id} has unsupported status {finding_status!r}."
         )
     current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
-    candidates = []
-    for attempt in inspected["patchAttempts"]:
-        if not isinstance(attempt, dict) or attempt.get("status") != "applied":
-            continue
-        git_record = attempt.get("git")
-        if (
-            finding_id in attempt.get("findingIds", [])
-            and sorted(attempt.get("filesChanged", [])) == owned_paths
-            and isinstance(git_record, dict)
-            and git_record.get("baseSha") == current_head
-        ):
-            candidates.append(attempt)
-    if len(candidates) != 1:
-        raise SafetyError(
-            "Stopped Clawpatch progress requires exactly one applied patch attempt bound "
-            "to the current HEAD and owned source paths."
-        )
-    patch = candidates[0]
+    temporary_commit = str(checkpoint.get("temporary_commit") or "")
+    if temporary_commit:
+        original_head = str(checkpoint.get("head_before") or "")
+        if current_head != original_head or _verify_iteration_commit(
+            repo,
+            finding_id=finding_id,
+            original_head=original_head,
+            temporary_commit=temporary_commit,
+            require_current=False,
+        ) != owned_paths:
+            raise SafetyError(
+                "Stopped Clawpatch temporary iteration no longer matches its exact checkpoint."
+            )
+        patch_attempt_id = "checkpointed-iteration"
+    else:
+        candidates = []
+        for attempt in inspected["patchAttempts"]:
+            if not isinstance(attempt, dict) or attempt.get("status") != "applied":
+                continue
+            git_record = attempt.get("git")
+            if (
+                finding_id in attempt.get("findingIds", [])
+                and sorted(attempt.get("filesChanged", [])) == owned_paths
+                and isinstance(git_record, dict)
+                and git_record.get("baseSha") == current_head
+            ):
+                candidates.append(attempt)
+        if len(candidates) != 1:
+            raise SafetyError(
+                "Stopped Clawpatch progress requires exactly one applied patch attempt bound "
+                "to the current HEAD and owned source paths."
+            )
+        patch_attempt_id = str(candidates[0]["patchAttemptId"])
     _validate_attempt_paths(repo, owned_paths)
     gate_runs = _run_project_gates(
         repo,
         finding_id=finding_id,
         required=require_project_gates,
     )
-    if finding_status == "uncertain":
+    if finding_status == "uncertain" or temporary_commit:
         validation = _revalidate(
             repo,
             finding_id,
@@ -2540,7 +2555,7 @@ def _resume_stopped_attempt(
         "finding_id": finding_id,
         "inspection": inspected,
         "head_before": current_head,
-        "patch_attempt": patch["patchAttemptId"],
+        "patch_attempt": patch_attempt_id,
         "files_changed": owned_paths,
         "gate_runs": gate_runs,
         "revalidation": validation,

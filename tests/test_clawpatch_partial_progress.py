@@ -12,6 +12,7 @@ from manageroo.clawpatch_release import (
     _load_release_progress,
     _prepare_fresh_release,
     _process_finding_until_fixed,
+    _resume_stopped_attempt,
     _restore_committed_clawpatch_state,
     _resolve_uncertain_findings,
     _write_release_progress,
@@ -385,6 +386,77 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
                 env={},
                 expected_paths=["app.py"],
                 committed_base=original_head,
+            )
+            run_project_gates.assert_called_once_with(
+                repo,
+                finding_id="fnd_one",
+                required=True,
+            )
+            push_and_verify.assert_called_once_with(repo, branch, first=True)
+
+    @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch("manageroo.clawpatch_release._revalidate")
+    @patch("manageroo.clawpatch_release._run_project_gates", return_value=[{"gate": "ok"}])
+    @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_temporary_iteration_is_revalidated_and_committed_on_resume(
+        self,
+        show_finding,
+        run_project_gates,
+        revalidate,
+        push_and_verify,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            branch, original_head = self.init_repo(repo)
+            (repo / "app.py").write_text("before\ncomplete repair\n", encoding="utf-8")
+            subprocess.run(["git", "add", "--", "app.py"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "manageroo clawpatch iteration: fnd_one"],
+                cwd=repo,
+                check=True,
+            )
+            temporary_commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            subprocess.run(
+                ["git", "reset", "--mixed", original_head], cwd=repo, check=True
+            )
+            checkpoint = {
+                "finding_id": "fnd_one",
+                "owned_paths": ["app.py"],
+                "head_before": original_head,
+                "temporary_commit": temporary_commit,
+            }
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "patchAttempts": [],
+            }
+            revalidate.return_value = {"finding": "fnd_one", "outcome": "fixed"}
+
+            record, pushed = _resume_stopped_attempt(
+                repo,
+                checkpoint,
+                env={},
+                push_mode="each",
+                branch=branch,
+                pushed=False,
+            )
+
+            final_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            self.assertNotEqual(final_head, original_head)
+            self.assertEqual(record["commit"], final_head)
+            self.assertEqual(record["files_changed"], ["app.py"])
+            self.assertTrue(pushed)
+            revalidate.assert_called_once_with(
+                repo,
+                "fnd_one",
+                env={},
+                expected_paths=["app.py"],
+                progress=None,
             )
             run_project_gates.assert_called_once_with(
                 repo,
