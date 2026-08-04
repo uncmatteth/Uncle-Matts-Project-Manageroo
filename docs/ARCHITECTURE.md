@@ -144,6 +144,12 @@ generation only if repository, branch, HEAD, owned paths, and fingerprint still
 agree. It then restores only those owned paths and clears the obsolete checkpoint;
 changed or additional source paths fail closed. Legacy version-2 checkpoints use
 their narrower pre-checkpoint file-timestamp proof for this one compatibility path.
+When a stopped checkpoint owns no source paths and the old finding disappeared in
+a later ClawPatch generation, relaunch may retire only that external checkpoint
+after proving a clean worktree, a newer generation on the same branch, and the
+checkpoint-HEAD to generation-HEAD to current-HEAD ancestry chain. The later
+generation may already contain committed findings and runs because no source
+cleanup is performed in this zero-path transition.
 If interruption leaves a source-clean `planned` attempt, ordinary relaunch
 requires the same open finding, branch, current HEAD, empty changed-file record,
 and no active process. It preserves ClawPatch state and reenters only through

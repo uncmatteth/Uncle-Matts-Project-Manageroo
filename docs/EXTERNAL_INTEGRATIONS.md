@@ -225,6 +225,14 @@ file or any additional source path blocks cleanup. Legacy version-2 checkpoints,
 which predate fingerprints, are accepted only when every exact owned regular file
 also predates the durable stop record.
 
+The zero-path case has no source to restore. If that stopped finding disappears
+after a manual ClawPatch rebuild and later commits advance HEAD, the supervisor
+clears only the obsolete external checkpoint when the worktree is source-clean,
+the new project generation is newer on the same branch, and Git proves the
+checkpoint HEAD is an ancestor of the generation HEAD, which is an ancestor of
+current HEAD. Existing findings, runs, and committed source in that newer
+generation remain untouched.
+
 An interrupted provider can leave a ClawPatch patch attempt in `planned` state
 before any source edit exists. For that source-clean case, the supervisor
 requires the checkpoint branch and HEAD, same open finding, empty attempt path

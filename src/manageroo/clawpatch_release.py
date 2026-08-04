@@ -1217,6 +1217,66 @@ def _rebuilt_generation_owns_checkpoint_source(
         return False
 
 
+def _rebuilt_generation_supersedes_empty_checkpoint(
+    repo: Path,
+    progress_record: dict[str, Any],
+) -> bool:
+    """Prove a newer ClawPatch generation makes a source-clean checkpoint obsolete."""
+    if (
+        progress_record.get("phase") != "stopped"
+        or progress_record.get("owned_paths") != []
+        or _source_paths(repo)
+    ):
+        return False
+    state = repo / ".clawpatch"
+    project_path = state / "project.json"
+    if (
+        state.is_symlink()
+        or not state.is_dir()
+        or project_path.is_symlink()
+        or not project_path.is_file()
+    ):
+        return False
+    finding_id = str(progress_record.get("finding_id", ""))
+    if (state / "findings" / f"{finding_id}.json").exists():
+        return False
+    try:
+        project = json.loads(project_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(project, dict) or not isinstance(project.get("git"), dict):
+        return False
+    project_git = project["git"]
+    current_branch = _git_text(repo, ["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    checkpoint_head = str(progress_record.get("head_before", ""))
+    generation_head = project_git.get("headSha")
+    if (
+        progress_record.get("branch") != current_branch
+        or project_git.get("currentBranch") != current_branch
+        or not isinstance(generation_head, str)
+        or not re.fullmatch(r"[0-9a-f]{40,64}", checkpoint_head)
+        or not re.fullmatch(r"[0-9a-f]{40,64}", generation_head)
+        or not re.fullmatch(r"[0-9a-f]{40,64}", current_head)
+    ):
+        return False
+    generation_time = _parse_checkpoint_time(project.get("createdAt"))
+    checkpoint_time = _parse_checkpoint_time(progress_record.get("updated_at"))
+    if generation_time is None or checkpoint_time is None or generation_time <= checkpoint_time:
+        return False
+    checkpoint_to_generation = _run(
+        ["git", "merge-base", "--is-ancestor", checkpoint_head, generation_head],
+        cwd=repo,
+        timeout=60,
+    )
+    generation_to_current = _run(
+        ["git", "merge-base", "--is-ancestor", generation_head, current_head],
+        cwd=repo,
+        timeout=60,
+    )
+    return checkpoint_to_generation.returncode == 0 and generation_to_current.returncode == 0
+
+
 def _committed_clawpatch_config(repo: Path) -> str | None:
     current = repo / ".clawpatch" / "config.json"
     if current.is_file():
@@ -1869,7 +1929,29 @@ def release_sweep(
                 "Interrupted Clawpatch release progress is bound to branch "
                 f"{durable_progress['branch']!r}, not {current_branch!r}."
             )
-        if durable_progress["head_before"] != head_before:
+        if _rebuilt_generation_supersedes_empty_checkpoint(root, durable_progress):
+            reset_finding = str(durable_progress["finding_id"])
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "reset-recovery",
+                        "current": "?",
+                        "total": "?",
+                        "finding_id": reset_finding,
+                        "command": "retire source-clean checkpoint from prior ClawPatch generation",
+                        "attempt": 1,
+                        "max_attempts": 1,
+                        "owned_paths": [],
+                    }
+                )
+            _clear_release_progress(root, state_root=state_root)
+            report["reset_recovery"] = {
+                "finding_id": reset_finding,
+                "owned_paths": [],
+                "generation": "rebuilt",
+            }
+            durable_progress = None
+        if durable_progress is not None and durable_progress["head_before"] != head_before:
             if _checkpoint_can_follow_supervisor_upgrade(root, durable_progress):
                 durable_progress = _write_release_progress(
                     root,

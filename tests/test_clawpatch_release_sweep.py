@@ -1383,6 +1383,173 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
             self.assertTrue(_rebuilt_generation_owns_checkpoint_source(repo, progress))
 
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._next_finding")
+    @patch("manageroo.clawpatch_release._review_all_features")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._resume_stopped_attempt")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_rebuilt_generation_retires_empty_checkpoint_after_head_advances(
+        self,
+        _version,
+        _processes,
+        resume_stopped,
+        json_clawpatch,
+        review_all,
+        next_finding,
+        final_closure,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            stopped_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            _write_release_progress(
+                repo,
+                finding_id="fnd_deleted_generation",
+                branch=branch,
+                head_before=stopped_head,
+                phase="stopped",
+                owned_paths=[],
+            )
+
+            state = repo / ".clawpatch"
+            (state / "features").mkdir(parents=True)
+            (state / "findings").mkdir()
+            (state / "patches").mkdir()
+            (state / "runs").mkdir()
+            (state / "reports").mkdir()
+            (state / "project.json").write_text(
+                json.dumps(
+                    {
+                        "createdAt": "2099-01-01T00:00:00.000Z",
+                        "git": {"headSha": stopped_head, "currentBranch": branch},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state / "features" / "feat_new.json").write_text("{}\n", encoding="utf-8")
+            source.write_text("first committed repair\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "add", "-f", ".clawpatch/project.json", ".clawpatch/features/feat_new.json"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(["git", "commit", "-q", "-m", "clawpatch fix"], cwd=repo, check=True)
+            second = repo / "second.py"
+            second.write_text("second committed repair\n", encoding="utf-8")
+            (state / "findings" / "fnd_new.json").write_text("{}\n", encoding="utf-8")
+            subprocess.run(["git", "add", "second.py"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "add", "-f", ".clawpatch/findings/fnd_new.json"],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(["git", "commit", "-q", "-m", "clawpatch fix"], cwd=repo, check=True)
+
+            json_clawpatch.side_effect = [
+                {"activeLocks": 0, "lockFiles": 0, "openFindings": 0},
+                {"features": 1},
+            ]
+            review_all.return_value = {
+                "review": {"reviewed": 1, "findings": 0},
+                "completion": {"wouldReview": 0},
+            }
+            next_finding.return_value = (None, {"finding": None})
+            final_closure.return_value = {"pushed": False}
+
+            report = release_sweep(repo, apply=True, branch="current")
+            checkpoint = _load_release_progress(repo)
+
+        self.assertIsNone(checkpoint)
+        self.assertEqual(
+            report["reset_recovery"],
+            {
+                "finding_id": "fnd_deleted_generation",
+                "owned_paths": [],
+                "generation": "rebuilt",
+            },
+        )
+        resume_stopped.assert_not_called()
+        self.assertEqual(
+            [invocation.args[1] for invocation in json_clawpatch.call_args_list],
+            [["clawpatch", "status", "--json"], ["clawpatch", "map", "--json"]],
+        )
+
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_empty_checkpoint_is_preserved_when_old_finding_still_exists(
+        self,
+        _version,
+        _processes,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            stopped_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            _write_release_progress(
+                repo,
+                finding_id="fnd_still_present",
+                branch=branch,
+                head_before=stopped_head,
+                phase="stopped",
+                owned_paths=[],
+            )
+            state = repo / ".clawpatch"
+            (state / "findings").mkdir(parents=True)
+            (state / "project.json").write_text(
+                json.dumps(
+                    {
+                        "createdAt": "2099-01-01T00:00:00.000Z",
+                        "git": {"headSha": stopped_head, "currentBranch": branch},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state / "findings" / "fnd_still_present.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            source.write_text("committed change\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "add",
+                    "-f",
+                    ".clawpatch/project.json",
+                    ".clawpatch/findings/fnd_still_present.json",
+                ],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(["git", "commit", "-q", "-m", "later commit"], cwd=repo, check=True)
+
+            with self.assertRaisesRegex(SafetyError, "no longer matches the current Git HEAD"):
+                release_sweep(repo, apply=True, branch="current")
+            checkpoint = _load_release_progress(repo)
+
+        self.assertIsNotNone(checkpoint)
+        self.assertEqual(checkpoint["finding_id"], "fnd_still_present")
+
 
     @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._next_finding")

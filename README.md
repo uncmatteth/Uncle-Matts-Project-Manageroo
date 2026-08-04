@@ -357,6 +357,10 @@ clears that checkpoint, and starts the normal lifecycle. Legacy version-2
 checkpoints use the narrower file-timestamp proof available in that schema.
 Any changed or additional source path still stops without cleanup. It never requires a
 repository-specific cleanup command.
+If the stopped checkpoint owns no source paths, a rebuilt generation may already
+contain later committed ClawPatch work. The supervisor retires that obsolete
+checkpoint only when the worktree is source-clean, the old finding is absent,
+and Git proves checkpoint HEAD to generation HEAD to current HEAD ancestry.
 
 The command preserves committed ClawPatch
 configuration, displays the exact current finding as `[current/total] SHOW`,
@@ -432,6 +436,7 @@ The implemented ClawPatch 0.7.2 state machine is:
 | An interrupted `planned` attempt has no source changes, belongs to the same open finding, and matches current HEAD | Preserve ClawPatch state, clear only the external checkpoint, require `next` to return that same finding, then continue through `show` and `fix` |
 | A stopped checkpoint's exact owned source paths already appear as one exact descendant source commit and the worktree is source-clean | Clear that completed stale checkpoint automatically and continue normally |
 | `.clawpatch` was deliberately rebuilt after a stopped attempt | When the new generation is empty, branch and HEAD still match, and the exact dirty source fingerprint still matches, restore only those checkpoint-owned files and continue normally; preserve everything on any mismatch |
+| A rebuilt generation supersedes a zero-path checkpoint and HEAD later advances | Require a source-clean worktree, absent old finding, newer generation on the same branch, and checkpoint-to-generation-to-current Git ancestry; clear only the obsolete external checkpoint |
 | A prior checkpoint is missing or fails any ownership check | Refuse automatic continuation; Manageroo-project `--fresh` requires its exact owned paths, while external-supervisor `--fresh` discards the current source changes before reinitializing |
 
 After each applied fix, Manageroo requires the matching patch-attempt record,
