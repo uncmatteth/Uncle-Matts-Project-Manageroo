@@ -323,7 +323,7 @@ class RunArtifactEvidenceProvider:
         items: list[EvidenceItem] = []
         for relevance, mtime, path, text in candidates[:limit]:
             try:
-                location = str(path.relative_to(self.run_root))
+                location = path.relative_to(self.run_root).as_posix()
             except ValueError:
                 continue
             items.append(

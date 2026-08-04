@@ -92,7 +92,10 @@ def _source_file_matches(source_file: _ValidatedSourceFile, status: os.stat_resu
         and (os.name == "nt" or status.st_mode == source_file.mode)
         and status.st_size == source_file.size
         and status.st_mtime_ns == source_file.mtime_ns
-        and status.st_ctime_ns == source_file.ctime_ns
+        # On Windows, st_ctime_ns is creation metadata and can settle after a
+        # freshly written file is first reopened even though its identity,
+        # contents, size, and modification time are unchanged.
+        and (os.name == "nt" or status.st_ctime_ns == source_file.ctime_ns)
     )
 
 

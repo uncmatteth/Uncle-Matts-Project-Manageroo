@@ -94,7 +94,7 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
             evidence_module.EvidenceItem(
                 content=content[: evidence_module.MAX_EVIDENCE_CONTENT_CHARS],
                 source=self.name,
-                location=str(lexical.relative_to(self.repo)),
+                location=lexical.relative_to(self.repo).as_posix(),
                 authority="project_memory",
                 confidence=0.90,
                 freshness=0.85,
@@ -155,7 +155,7 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
         items = []
         for relevance, mtime, path, text in candidates[:limit]:
             try:
-                location = str(path.relative_to(self.run_root))
+                location = path.relative_to(self.run_root).as_posix()
             except ValueError:
                 continue
             try:

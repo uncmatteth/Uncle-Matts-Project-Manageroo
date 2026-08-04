@@ -373,8 +373,8 @@ def main() -> int:
                 if relative in CHECKSUM_EXCLUDED:
                     continue
                 checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative}")
-            (ROOT / "SHA256SUMS.txt").write_text(
-                "\n".join(checksums) + "\n", encoding="utf-8"
+            (ROOT / "SHA256SUMS.txt").write_bytes(
+                ("\n".join(checksums) + "\n").encode("utf-8")
             )
             archive_source = _release_fingerprint()
 

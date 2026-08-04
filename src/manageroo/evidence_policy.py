@@ -210,7 +210,33 @@ def install_evidence_policy(orchestrator_module) -> None:
     if getattr(original_external, "_manageroo_evidence_policy", False):
         return
 
+    def _has_unfinished_planning_job(self) -> bool:
+        if not bool(getattr(self, "continuing", False)):
+            return False
+        job_store = getattr(self, "job_store", None)
+        if job_store is None:
+            return False
+        return any(
+            job.role in PLANNING_EVIDENCE_ROLES and job.status != "complete"
+            for job in job_store.list_jobs()
+        )
+
     def _external_intelligence_with_evidence(self, brief: str, inventory: dict[str, Any]) -> dict[str, Any]:
+        if _has_unfinished_planning_job(self):
+            evidence_payload = self._artifact_json("discovery/evidence.json")
+            payload = self._artifact_json("discovery/external-intelligence.json")
+            if isinstance(evidence_payload, dict):
+                if not isinstance(payload, dict):
+                    payload = original_external(self, brief, inventory)
+                self._planning_evidence_items = _planning_items(evidence_payload)
+                return {
+                    **payload,
+                    "evidence_bundle": _evidence_summary(self, evidence_payload),
+                    "note": (
+                        str(payload.get("note") or "")
+                        + " Retrieved evidence is provenance-ranked context only; Manageroo remains the completion authority."
+                    ).strip(),
+                }
         payload = original_external(self, brief, inventory)
         identity = _discovery_identity(self, brief, inventory, payload)
         bundle = _bundle_from_discovery(self, brief, payload)

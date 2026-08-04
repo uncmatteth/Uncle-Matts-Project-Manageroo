@@ -13,6 +13,7 @@ from manageroo.branding import status_line
 from manageroo.config import config_template
 from manageroo.release_ready_policy import _hold_release_head
 from manageroo.runner import _platform_argv
+from manageroo.skill_pack import _source_file_matches
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,12 +100,33 @@ class WindowsNativeRegressionTests(unittest.TestCase):
 
     def test_status_line_falls_back_to_ascii_for_cp1252_stream(self):
         buffer = io.BytesIO()
-        stream = io.TextIOWrapper(buffer, encoding="cp1252", write_through=True)
+        stream = io.TextIOWrapper(buffer, encoding="cp1252", newline="", write_through=True)
 
         status_line("RUN", "ready", stream=stream)
 
         rendered = buffer.getvalue().decode("cp1252")
         self.assertEqual(rendered, "* RUN - ready\n")
+
+    def test_windows_source_identity_ignores_unstable_creation_timestamp(self):
+        source_file = SimpleNamespace(
+            device=1,
+            inode=2,
+            mode=0o100644,
+            size=3,
+            mtime_ns=4,
+            ctime_ns=5,
+        )
+        current_status = SimpleNamespace(
+            st_dev=1,
+            st_ino=2,
+            st_mode=0o100644,
+            st_size=3,
+            st_mtime_ns=4,
+            st_ctime_ns=6,
+        )
+
+        with patch("manageroo.skill_pack.os.name", "nt"):
+            self.assertTrue(_source_file_matches(source_file, current_status))
 
     def test_windows_supervisor_installer_selects_one_compatible_node_and_matching_npm(self):
         text = (ROOT / "Install-ClawPatch-Supervisor-Windows.ps1").read_text(

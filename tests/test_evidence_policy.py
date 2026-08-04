@@ -13,7 +13,7 @@ from manageroo.evidence_artifact_guard import (
     _validate_existing_evidence,
     install_evidence_artifact_guard,
 )
-from manageroo.evidence_policy import _bundle_from_discovery, install_evidence_policy
+from manageroo.evidence_policy import _bundle_from_discovery, _planning_items, install_evidence_policy
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 
@@ -107,6 +107,40 @@ class EvidencePolicyTests(unittest.TestCase):
             instance._external_intelligence("relevant project", {})
             result = instance._call(role="implementer", metadata={})
             self.assertNotIn("_evidence_items", result["metadata"])
+
+    def test_continuing_unfinished_planning_job_reuses_its_discovery_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = repo / ".manageroo" / "runs" / "run-1"
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
+            memory.parent.mkdir(parents=True)
+            memory.write_text("Original database evidence.\n", encoding="utf-8")
+            run_root.mkdir(parents=True)
+
+            Orchestrator = self._patched_class()
+            instance = Orchestrator(repo, run_root)
+            instance._external_intelligence("database evidence", {})
+            original = json.loads(
+                (instance.artifacts.root / "discovery" / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            instance.continuing = True
+            instance.job_store = SimpleNamespace(
+                list_jobs=lambda: [SimpleNamespace(role="product-analyst", status="failed")]
+            )
+            memory.write_text("Changed database evidence.\n", encoding="utf-8")
+
+            instance._external_intelligence("database evidence", {})
+
+            persisted = json.loads(
+                (instance.artifacts.root / "discovery" / "evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(persisted, original)
+            self.assertEqual(instance._planning_evidence_items, _planning_items(original))
 
     def test_self_rehashed_cached_evidence_is_regenerated_before_planning(self):
         with tempfile.TemporaryDirectory() as temp:

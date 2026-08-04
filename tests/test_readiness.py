@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -215,6 +216,7 @@ class ReadinessTests(unittest.TestCase):
                         "error": "missing required exec flags",
                     }
 
+            native_which = shutil.which
             with patch(
                 "manageroo.readiness.helper_skill_items",
                 return_value=[],
@@ -223,7 +225,9 @@ class ReadinessTests(unittest.TestCase):
                 return_value={"ok": False, "status": {"source_count": 0}},
             ), patch(
                 "manageroo.readiness.shutil.which",
-                return_value="/usr/bin/codex",
+                side_effect=lambda name, **kwargs: (
+                    "/usr/bin/codex" if name == "codex" else native_which(name, **kwargs)
+                ),
             ), patch(
                 "manageroo.readiness.build_adapter",
                 return_value=BadDoctorAdapter(),
