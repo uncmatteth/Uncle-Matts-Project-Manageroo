@@ -22,7 +22,7 @@ def _verified_bounded_text(path: Path, root: Path, *, max_bytes: int) -> tuple[s
         return None
     try:
         opened = os.fstat(fd)
-        if not stat.S_ISREG(opened.st_mode):
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
             return None
         proc_fd = Path(f"/proc/self/fd/{fd}")
         try:

@@ -205,6 +205,23 @@ class EvidenceTests(unittest.TestCase):
                 self.skipTest(f"symlink unavailable: {exc}")
             self.assertEqual(ProjectMemoryEvidenceProvider(repo).retrieve("database migration"), [])
 
+    def test_project_memory_rejects_hard_link_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            outside = root / "outside.md"
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
+            memory.parent.mkdir(parents=True)
+            outside.write_text("secret database migration", encoding="utf-8")
+            try:
+                os.link(outside, memory)
+            except OSError as exc:
+                self.skipTest(f"hard links unavailable: {exc}")
+            self.assertEqual(
+                ProjectMemoryEvidenceProvider(repo).retrieve("database migration"),
+                [],
+            )
+
     def test_project_memory_never_scans_beyond_bounded_input_prefix(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -222,6 +239,23 @@ class EvidenceTests(unittest.TestCase):
             artifact.write_bytes(b"x" * MAX_EVIDENCE_INPUT_BYTES + b"\nneedle-beyond-boundary\n")
             items = RunArtifactEvidenceProvider(run_root).retrieve("needle-beyond-boundary")
             self.assertEqual(items, [])
+
+    def test_run_artifact_rejects_hard_link_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_root = root / "run"
+            outside = root / "outside.txt"
+            artifact = run_root / "artifacts" / "leak.txt"
+            artifact.parent.mkdir(parents=True)
+            outside.write_text("secret artifact evidence", encoding="utf-8")
+            try:
+                os.link(outside, artifact)
+            except OSError as exc:
+                self.skipTest(f"hard links unavailable: {exc}")
+            self.assertEqual(
+                RunArtifactEvidenceProvider(run_root).retrieve("artifact evidence"),
+                [],
+            )
 
     def test_context_compiler_includes_ranked_evidence_with_provenance(self):
         with tempfile.TemporaryDirectory() as temp:

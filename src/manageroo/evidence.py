@@ -92,12 +92,14 @@ def _read_bounded_text(path: Path, *, max_bytes: int = MAX_EVIDENCE_INPUT_BYTES)
 
 
 def _safe_contained_file(root: Path, candidate: Path) -> Path | None:
-    """Reject direct symlinks and resolved paths that escape a trusted root."""
+    """Reject links and resolved paths that escape a trusted root."""
     try:
         if candidate.is_symlink():
             return None
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(root)
+        if resolved.stat().st_nlink != 1:
+            return None
     except (OSError, ValueError):
         return None
     return resolved if resolved.is_file() else None
