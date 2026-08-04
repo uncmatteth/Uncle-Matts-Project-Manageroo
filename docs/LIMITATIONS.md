@@ -44,6 +44,16 @@ Manageroo does not start arbitrary Compose services, provision other databases,
 infer test commands, reuse project volumes, or connect to an existing database.
 Repositories outside that exact contract must provide their validation service
 explicitly.
+Its automatic Python dependency support is intentionally limited to a regular
+root `pyproject.toml` that configures pytest and contains bounded static PEP 621
+requirement strings. It installs pytest, runtime dependencies, and only the
+`test`, `tests`, `dev`, or `development` optional groups into a temporary external
+virtual environment scoped to ClawPatch children. It does not install the project,
+write an in-repository environment, infer requirements files, or guess Poetry,
+Pipenv, uv, Conda, system packages, private credentials, or undeclared test tools.
+An unavailable package index, incompatible requirement, malformed manifest, or
+unsupported dependency convention remains a pre-queue blocker with captured pip
+output.
 Configured baseline gates must be both green and source-clean. If a successful
 gate changes tracked or unignored project files, the supervisor stops before
 map/review and leaves those paths visible. Manageroo does not guess that a file

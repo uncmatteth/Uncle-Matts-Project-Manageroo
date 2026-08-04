@@ -12,6 +12,34 @@ from manageroo.errors import SafetyError
 
 
 class ExternalClawpatchSupervisorTests(unittest.TestCase):
+    def test_python_validation_environment_lifecycle_is_visible(self):
+        self.assertEqual(
+            _render_event(
+                {
+                    "phase": "validation-environment-start",
+                    "current": "?",
+                    "total": "?",
+                    "command": "create disposable Python validation environment",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            ),
+            "\n[?/?] VALIDATION ENVIRONMENT START (attempt 1/1)\n"
+            "$ create disposable Python validation environment",
+        )
+        self.assertEqual(
+            _render_event(
+                {
+                    "phase": "validation-environment-cleanup",
+                    "current": "?",
+                    "total": "?",
+                    "detail": "disposable Python validation environment removed",
+                }
+            ),
+            "\n[?/?] VALIDATION ENVIRONMENT CLEANUP\n"
+            "$ disposable Python validation environment removed",
+        )
+
     def test_validation_service_is_visible_and_scoped_to_clawpatch_children(self):
         calls = []
         lifecycle = []

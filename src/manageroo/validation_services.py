@@ -6,7 +6,10 @@ import os
 import re
 import secrets
 import subprocess
+import sys
+import tempfile
 import time
+import tomllib
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +35,9 @@ _RESET_ENV = re.compile(r"\b([A-Z][A-Z0-9_]*ALLOW_DATABASE_RESET)\b")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
 _MAX_TEST_SOURCE_BYTES = 24 * 1024 * 1024
 _DEFAULT_READY_SECONDS = 90
+_MAX_PYTHON_REQUIREMENTS = 256
+_MAX_PYTHON_REQUIREMENT_BYTES = 4096
+_MAX_PYTHON_REQUIREMENTS_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,12 @@ class PostgresTestContract:
     image: str
     url_env: str
     reset_envs: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PythonTestContract:
+    pyproject_file: Path
+    requirements: tuple[str, ...]
 
 
 RunCommand = Callable[..., subprocess.CompletedProcess[str]]
@@ -185,6 +197,186 @@ def _compose_contract(repo: Path) -> PostgresTestContract | None:
     )
 
 
+def _python_test_contract(repo: Path) -> PythonTestContract | None:
+    pyproject_file = repo / "pyproject.toml"
+    if not pyproject_file.is_file() or pyproject_file.is_symlink():
+        return None
+    if pyproject_file.resolve().parent != repo.resolve():
+        return None
+    try:
+        with pyproject_file.open("rb") as handle:
+            payload = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise SafetyError(
+            "Manageroo could not read this repository's Python validation manifest."
+        ) from exc
+    tool = payload.get("tool")
+    pytest_configured = (
+        isinstance(tool, dict) and isinstance(tool.get("pytest"), dict)
+    ) or (repo / "pytest.ini").is_file()
+    if not pytest_configured:
+        return None
+    project = payload.get("project")
+    if not isinstance(project, dict):
+        return None
+    requirement_groups: list[object] = [project.get("dependencies", [])]
+    optional = project.get("optional-dependencies", {})
+    if not isinstance(optional, dict):
+        raise SafetyError("Python project.optional-dependencies must be a table.")
+    for name in ("test", "tests", "dev", "development"):
+        if name in optional:
+            requirement_groups.append(optional[name])
+    raw_requirements: list[object] = []
+    for group in requirement_groups:
+        if not isinstance(group, list):
+            raise SafetyError("Python project.dependencies must be a bounded string list.")
+        raw_requirements.extend(group)
+    if len(raw_requirements) > _MAX_PYTHON_REQUIREMENTS:
+        raise SafetyError("Manageroo refused unbounded Python dependency discovery.")
+    requirements: list[str] = []
+    total = 0
+    for value in raw_requirements:
+        if not isinstance(value, str):
+            raise SafetyError("Python project.dependencies must contain only strings.")
+        requirement = value.strip()
+        encoded_size = len(requirement.encode("utf-8"))
+        if (
+            not requirement
+            or "\x00" in requirement
+            or "\n" in requirement
+            or "\r" in requirement
+            or encoded_size > _MAX_PYTHON_REQUIREMENT_BYTES
+        ):
+            raise SafetyError("Python project.dependencies contains an unsafe requirement.")
+        total += encoded_size
+        if total > _MAX_PYTHON_REQUIREMENTS_BYTES:
+            raise SafetyError("Manageroo refused unbounded Python dependency discovery.")
+        requirements.append(requirement)
+    return PythonTestContract(
+        pyproject_file=pyproject_file,
+        requirements=tuple(requirements),
+    )
+
+
+def _python_environment_bin(environment: Path) -> tuple[Path, Path]:
+    executable_dir = environment / ("Scripts" if os.name == "nt" else "bin")
+    python = executable_dir / ("python.exe" if os.name == "nt" else "python")
+    return executable_dir, python
+
+
+def _checked_python_environment_command(
+    run: RunCommand,
+    argv: list[str],
+    *,
+    repo: Path,
+    timeout: int,
+    action: str,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        result = run(argv, cwd=repo, timeout=timeout)
+    except (FileNotFoundError, OSError) as exc:
+        raise SafetyError(
+            f"Disposable Python validation environment {action} could not start."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SafetyError(
+            f"Disposable Python validation environment {action} timed out."
+        ) from exc
+    if result.returncode != 0:
+        output = "\n".join(value for value in (result.stdout, result.stderr) if value)
+        raise SafetyError(
+            f"Disposable Python validation environment {action} failed with exit code "
+            f"{result.returncode}: {output[-4000:]}"
+        )
+    return result
+
+
+@contextmanager
+def _provision_python_test_environment(
+    repo: Path,
+    contract: PythonTestContract | None,
+    *,
+    run: RunCommand,
+    progress: Progress | None,
+) -> Iterator[dict[str, str]]:
+    if contract is None:
+        yield {}
+        return
+    if progress is not None:
+        progress(
+            {
+                "phase": "validation-environment-start",
+                "current": "?",
+                "total": "?",
+                "command": "create disposable Python validation environment",
+                "attempt": 1,
+                "max_attempts": 1,
+            }
+        )
+    try:
+        with tempfile.TemporaryDirectory(prefix="manageroo-validation-python-") as temp:
+            environment = Path(temp) / "venv"
+            _checked_python_environment_command(
+                run,
+                [sys.executable, "-m", "venv", str(environment)],
+                repo=repo,
+                timeout=120,
+                action="creation",
+            )
+            executable_dir, python = _python_environment_bin(environment)
+            if not python.is_file():
+                raise SafetyError(
+                    "Disposable Python validation environment did not create its interpreter."
+                )
+            _checked_python_environment_command(
+                run,
+                [
+                    str(python),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    "pytest>=8,<10",
+                    *contract.requirements,
+                ],
+                repo=repo,
+                timeout=900,
+                action="dependency installation",
+            )
+            child_path = str(executable_dir)
+            inherited_path = os.environ.get("PATH")
+            if inherited_path:
+                child_path += os.pathsep + inherited_path
+            child_env = {
+                "PATH": child_path,
+                "VIRTUAL_ENV": str(environment),
+                "PYTHONNOUSERSITE": "1",
+                "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+                "PIP_NO_INPUT": "1",
+            }
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "validation-environment-ready",
+                        "current": "?",
+                        "total": "?",
+                        "detail": "disposable Python validation environment ready",
+                    }
+                )
+            yield child_env
+    finally:
+        if progress is not None:
+            progress(
+                {
+                    "phase": "validation-environment-cleanup",
+                    "current": "?",
+                    "total": "?",
+                    "detail": "disposable Python validation environment removed",
+                }
+            )
+
+
 def _checked(
     run: RunCommand,
     argv: list[str],
@@ -297,7 +489,7 @@ def _remove_container(
 
 
 @contextmanager
-def provision_disposable_validation_environment(
+def _provision_postgres_test_environment(
     repo: Path,
     *,
     run: RunCommand = _run_command,
@@ -441,3 +633,32 @@ def provision_disposable_validation_environment(
                         "detail": "owned disposable PostgreSQL validation database removed",
                     }
                 )
+
+
+@contextmanager
+def provision_disposable_validation_environment(
+    repo: Path,
+    *,
+    run: RunCommand = _run_command,
+    progress: Progress | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    password_factory: Callable[[], str] = lambda: secrets.token_urlsafe(24),
+) -> Iterator[dict[str, str]]:
+    root = repo.expanduser().resolve()
+    python_contract = _python_test_contract(root)
+    with _provision_python_test_environment(
+        root,
+        python_contract,
+        run=run,
+        progress=progress,
+    ) as python_env:
+        with _provision_postgres_test_environment(
+            root,
+            run=run,
+            progress=progress,
+            sleep=sleep,
+            monotonic=monotonic,
+            password_factory=password_factory,
+        ) as postgres_env:
+            yield {**python_env, **postgres_env}

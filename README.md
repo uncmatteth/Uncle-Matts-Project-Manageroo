@@ -384,7 +384,11 @@ prints the finding evidence and repair scope, prints each numbered ClawPatch
 `fix` attempt before execution, and reports the verified commit. If the target has
 `.manageroo/config.toml`, its configured gates run as additional validation. If
 it does not, ClawPatch owns validation through its `fix` result and exact-finding
-revalidation; the supervisor does not invent test commands. External checkpoint
+revalidation; the supervisor does not invent test commands. A root PEP 621
+project that explicitly configures pytest receives a temporary external virtual
+environment containing pytest plus its bounded static runtime and test/dev
+dependency declarations. Only ClawPatch children receive that environment, and
+it is removed without writing dependency state into the project. External checkpoint
 and proof files stay in the Manageroo-owned external-runner state directory
 rather than adding files to the target worktree or its Git metadata. A repository
 whose tests explicitly declare `TEST_DATABASE_URL` plus an

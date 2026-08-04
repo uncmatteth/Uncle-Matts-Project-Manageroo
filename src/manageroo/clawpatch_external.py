@@ -77,6 +77,7 @@ def _render_event(event: dict[str, Any]) -> str:
         "status": "STATUS",
         "lock-cleanup": "LOCK CLEANUP",
         "baseline-validation": "BASELINE VALIDATION",
+        "validation-environment-start": "VALIDATION ENVIRONMENT START",
         "validation-service-start": "VALIDATION SERVICE START",
         "map": "MAP",
         "review": "REVIEW",
@@ -105,6 +106,10 @@ def _render_event(event: dict[str, Any]) -> str:
         return f"\n{_counter(event)} VALIDATION SERVICE READY\n$ {event.get('detail', '')}"
     if phase == "validation-service-cleanup":
         return f"\n{_counter(event)} VALIDATION SERVICE CLEANUP\n$ {event.get('detail', '')}"
+    if phase == "validation-environment-ready":
+        return f"\n{_counter(event)} VALIDATION ENVIRONMENT READY\n$ {event.get('detail', '')}"
+    if phase == "validation-environment-cleanup":
+        return f"\n{_counter(event)} VALIDATION ENVIRONMENT CLEANUP\n$ {event.get('detail', '')}"
     if phase == "fix":
         attempt = int(event.get("attempt", 1))
         maximum = event.get("max_attempts")

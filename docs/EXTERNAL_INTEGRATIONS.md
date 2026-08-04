@@ -209,8 +209,15 @@ non-clean source tree stops as nonconvergent instead of looping or claiming a
 clean result. There is no arbitrary generation cap.
 
 In a plain Git repository, ClawPatch's applied `fix` result and exact-finding
-revalidation own repair validation; Manageroo does not guess a test runner or
-invent native gates. In a Manageroo-configured repository, those gates remain
+revalidation own repair validation; Manageroo does not invent native gates. For
+a root PEP 621 project that explicitly configures pytest, the external supervisor
+can prepare a temporary external virtual environment from bounded static
+`project.dependencies` plus `test`/`tests`/`dev`/`development` optional groups.
+It installs pytest and those declarations with argv-only pip, changes no project
+files, scopes the environment to ClawPatch children, and removes it on every exit.
+Malformed, unbounded, or un-installable declarations stop before map/review;
+Manageroo does not guess Poetry, Pipenv, uv, Conda, or requirements-file behavior.
+In a Manageroo-configured repository, those gates remain
 mandatory before review, after each fix, and at final closure. External durable
 checkpoint and proof files live in the Manageroo-owned external-runner state
 directory, so the command adds nothing to the target worktree or Git metadata.

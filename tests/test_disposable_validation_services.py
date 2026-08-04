@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -94,6 +95,225 @@ def _postgres_repo(root: Path) -> Path:
 
 
 class DisposableValidationServiceTests(unittest.TestCase):
+    def test_pep621_pytest_project_gets_disposable_dependency_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            (repo / "tests").mkdir(parents=True)
+            (repo / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = 'fixture'\n"
+                "version = '1'\n"
+                "dependencies = ['Pillow>=10']\n"
+                "\n"
+                "[tool.pytest.ini_options]\n"
+                "testpaths = ['tests']\n",
+                encoding="utf-8",
+            )
+            (repo / "tests" / "test_image.py").write_text(
+                "from PIL import Image\n",
+                encoding="utf-8",
+            )
+            before = {
+                path.relative_to(repo): path.read_bytes()
+                for path in repo.rglob("*")
+                if path.is_file()
+            }
+            calls: list[list[str]] = []
+            events: list[dict] = []
+            created_environment: Path | None = None
+
+            def runner(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                nonlocal created_environment
+                del timeout
+                self.assertEqual(cwd, repo)
+                calls.append(list(argv))
+                if argv[:3] == [sys.executable, "-m", "venv"]:
+                    created_environment = Path(argv[3])
+                    executable_dir = created_environment / (
+                        "Scripts" if os.name == "nt" else "bin"
+                    )
+                    executable_dir.mkdir(parents=True)
+                    python_name = "python.exe" if os.name == "nt" else "python"
+                    (executable_dir / python_name).write_text("fixture", encoding="utf-8")
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+                return subprocess.CompletedProcess(argv, 0, "installed\n", "")
+
+            with provision_disposable_validation_environment(
+                repo,
+                run=runner,
+                progress=events.append,
+            ) as child_env:
+                self.assertIsNotNone(created_environment)
+                assert created_environment is not None
+                executable_dir = created_environment / (
+                    "Scripts" if os.name == "nt" else "bin"
+                )
+                self.assertTrue(created_environment.is_dir())
+                self.assertEqual(child_env["VIRTUAL_ENV"], str(created_environment))
+                self.assertEqual(child_env["PYTHONNOUSERSITE"], "1")
+                self.assertEqual(
+                    child_env["PATH"].split(os.pathsep)[0],
+                    str(executable_dir),
+                )
+                self.assertNotIn("VIRTUAL_ENV", os.environ)
+
+            assert created_environment is not None
+            self.assertFalse(created_environment.exists())
+            self.assertEqual(calls[0][:3], [sys.executable, "-m", "venv"])
+            self.assertEqual(calls[1][1:4], ["-m", "pip", "install"])
+            self.assertIn("pytest>=8,<10", calls[1])
+            self.assertIn("Pillow>=10", calls[1])
+            self.assertEqual(
+                [event["phase"] for event in events],
+                [
+                    "validation-environment-start",
+                    "validation-environment-ready",
+                    "validation-environment-cleanup",
+                ],
+            )
+            after = {
+                path.relative_to(repo): path.read_bytes()
+                for path in repo.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(after, before)
+
+    def test_python_dependency_failure_stops_before_queue_and_cleans_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            (repo / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = 'fixture'\n"
+                "version = '1'\n"
+                "dependencies = ['missing-package==1']\n"
+                "\n"
+                "[tool.pytest.ini_options]\n",
+                encoding="utf-8",
+            )
+            events: list[dict] = []
+            created_environment: Path | None = None
+
+            def runner(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                nonlocal created_environment
+                del cwd, timeout
+                if argv[:3] == [sys.executable, "-m", "venv"]:
+                    created_environment = Path(argv[3])
+                    executable_dir = created_environment / (
+                        "Scripts" if os.name == "nt" else "bin"
+                    )
+                    executable_dir.mkdir(parents=True)
+                    python_name = "python.exe" if os.name == "nt" else "python"
+                    (executable_dir / python_name).write_text("fixture", encoding="utf-8")
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+                return subprocess.CompletedProcess(
+                    argv,
+                    1,
+                    "",
+                    "No matching distribution found for missing-package==1",
+                )
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "dependency installation failed with exit code 1",
+            ) as caught:
+                with provision_disposable_validation_environment(
+                    repo,
+                    run=runner,
+                    progress=events.append,
+                ):
+                    self.fail("the queue must not start without declared dependencies")
+
+            assert created_environment is not None
+            self.assertFalse(created_environment.exists())
+            self.assertIn("missing-package==1", str(caught.exception))
+            self.assertEqual(
+                [event["phase"] for event in events],
+                [
+                    "validation-environment-start",
+                    "validation-environment-cleanup",
+                ],
+            )
+
+    def test_static_test_and_dev_optional_dependencies_are_installed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            (repo / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = 'fixture'\n"
+                "version = '1'\n"
+                "dependencies = ['runtime-package==1']\n"
+                "\n"
+                "[project.optional-dependencies]\n"
+                "test = ['test-package==2']\n"
+                "dev = ['dev-package==3']\n"
+                "docs = ['docs-package==4']\n"
+                "\n"
+                "[tool.pytest.ini_options]\n",
+                encoding="utf-8",
+            )
+            calls: list[list[str]] = []
+
+            def runner(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                del cwd, timeout
+                calls.append(list(argv))
+                if argv[:3] == [sys.executable, "-m", "venv"]:
+                    environment = Path(argv[3])
+                    executable_dir = environment / (
+                        "Scripts" if os.name == "nt" else "bin"
+                    )
+                    executable_dir.mkdir(parents=True)
+                    python_name = "python.exe" if os.name == "nt" else "python"
+                    (executable_dir / python_name).write_text("fixture", encoding="utf-8")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+
+            with provision_disposable_validation_environment(repo, run=runner):
+                pass
+
+            install = calls[1]
+            self.assertIn("runtime-package==1", install)
+            self.assertIn("test-package==2", install)
+            self.assertIn("dev-package==3", install)
+            self.assertNotIn("docs-package==4", install)
+
+    def test_malformed_python_dependency_manifest_stops_before_execution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            (repo / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = 'fixture'\n"
+                "version = '1'\n"
+                "dependencies = 'Pillow>=10'\n"
+                "\n"
+                "[tool.pytest.ini_options]\n",
+                encoding="utf-8",
+            )
+            calls: list[list[str]] = []
+
+            def runner(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                del cwd, timeout
+                calls.append(list(argv))
+                return subprocess.CompletedProcess(argv, 0, "", "")
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "project.dependencies must be a bounded string list",
+            ):
+                with provision_disposable_validation_environment(repo, run=runner):
+                    self.fail("the queue must not start from a malformed manifest")
+
+            self.assertEqual(calls, [])
+
     def test_owned_postgres_is_ephemeral_scoped_and_always_removed(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _postgres_repo(Path(temp))
