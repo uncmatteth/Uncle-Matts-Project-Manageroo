@@ -65,6 +65,8 @@ def _render_event(event: dict[str, Any]) -> str:
     phase = event.get("phase")
     command_phases = {
         "preflight": "PROCESS PREFLIGHT",
+        "fresh": "FRESH INIT",
+        "fresh-discard": "FRESH OWNED CLEANUP",
         "init": "INIT",
         "status": "STATUS",
         "lock-cleanup": "LOCK CLEANUP",
@@ -76,6 +78,9 @@ def _render_event(event: dict[str, Any]) -> str:
         "show": "SHOW",
         "revalidate": "REVALIDATE",
         "revalidate-escalated": "REVALIDATE ESCALATED",
+        "revalidate-host": "REVALIDATE TRUSTED HOST",
+        "commit": "COMMIT",
+        "push": "PUSH",
         "report": "REPORT",
     }
     if phase in command_phases:
@@ -138,7 +143,20 @@ def main(
     parser.add_argument("--push", choices=("none", "each", "final"), default="each")
     parser.add_argument("--publish-clawpatch-state", action="store_true")
     parser.add_argument("--trusted-host-codex-sandbox-bypass", action="store_true")
-    parser.add_argument("--fresh", action="store_true")
+    start_mode = parser.add_mutually_exclusive_group()
+    start_mode.add_argument(
+        "--fresh",
+        dest="fresh",
+        action="store_true",
+        default=True,
+        help="start a fresh ClawPatch map/review queue (the default)",
+    )
+    start_mode.add_argument(
+        "--resume-stopped",
+        dest="fresh",
+        action="store_false",
+        help="resume one exactly checkpoint-owned stopped attempt before continuing its queue",
+    )
     parser.add_argument(
         "--timeout-minutes",
         type=int,
@@ -216,7 +234,7 @@ def main(
         print(f"\nSTOPPED: {exc}", flush=True)
         return 2
     except KeyboardInterrupt:
-        print("\nINTERRUPTED: stopped safely; use --fresh to start a new run.", flush=True)
+        print("\nINTERRUPTED: stopped safely; run the command again for a fresh start.", flush=True)
         return 130
     finally:
         stopped.set()

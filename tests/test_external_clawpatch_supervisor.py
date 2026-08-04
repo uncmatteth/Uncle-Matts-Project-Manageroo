@@ -41,6 +41,22 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             "\n[?/?] INIT (attempt 1/1)\n$ clawpatch init --json",
         )
 
+    def test_trusted_host_revalidation_phase_is_visible(self):
+        self.assertEqual(
+            _render_event(
+                {
+                    "phase": "revalidate-host",
+                    "current": 4,
+                    "total": 119,
+                    "command": "clawpatch revalidate --finding fnd_one --json",
+                    "attempt": 1,
+                    "max_attempts": 1,
+                }
+            ),
+            "\n[4/119] REVALIDATE TRUSTED HOST (attempt 1/1)\n"
+            "$ clawpatch revalidate --finding fnd_one --json",
+        )
+
     def test_package_installs_external_supervisor_command(self):
         project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
         self.assertEqual(
@@ -140,7 +156,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
         self.assertEqual(calls[0][1]["integration_mode"], "external")
-        self.assertFalse(calls[0][1]["fresh"])
+        self.assertTrue(calls[0][1]["fresh"])
 
     def test_terminal_command_renders_stopped_state_without_retrying(self):
         def fake_sweep(_repo: Path, **kwargs):
@@ -183,6 +199,24 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(calls[0][1]["fresh"])
         self.assertEqual(calls[0][1]["child_timeout_seconds"], 900)
+
+    def test_resume_stopped_disables_only_the_default_fresh_start(self):
+        calls = []
+
+        def fake_sweep(repo: Path, **kwargs):
+            calls.append((repo, kwargs))
+            return {"ok": True, "finding_count": 1, "open_findings": 0, "git_head": "abc123"}
+
+        with redirect_stdout(StringIO()):
+            code = main(
+                ["--repo", ".", "--resume-stopped"],
+                run_sweep=fake_sweep,
+                heartbeat_seconds=0,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertFalse(calls[0][1]["fresh"])
+        self.assertEqual(calls[0][1]["integration_mode"], "external")
 
 
 if __name__ == "__main__":

@@ -101,13 +101,14 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
-Clawpatch release commits use the current applied patch-attempt record as the
-only source-path allowlist. Manageroo stages only those source paths after full
-project validation and revalidation. An `open` revalidation creates an
-exact-path continuation commit, then Clawpatch's own `next` selects that same
-open finding for another `show` and `fix` cycle; only exact `fixed` completes the
-finding. It never builds a finding queue from reports or mixes `.clawpatch/**`
-state into a source commit. The Manageroo project command requires configured Manageroo
+Clawpatch release commits use exact source paths owned by the current finding.
+Manageroo stages only those source paths. A validation-failed-after-apply result
+or `open` revalidation creates or amends one recognizable local-only temporary
+iteration commit, then the same finding's `fix` runs again from the clean
+combined tree. Only exact `fixed` completes the finding and converts that work
+into one normal commit directly above the finding's original HEAD. It never
+builds a finding queue from reports or mixes `.clawpatch/**` state into a source
+commit. The Manageroo project command requires configured Manageroo
 gates and runs them against the unchanged repository baseline. The separately
 installed external supervisor is portable to any Git repository: it runs those
 gates when present, otherwise leaves validation to Clawpatch's applied `fix`
@@ -120,23 +121,30 @@ the mandatory whole-project gate. The cross-platform controller reviews all pend
 features, obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
-Manageroo never issues a triage command. Each current transition receives one
-Clawpatch-owned `fix`. An `open` revalidation is a documented same-finding
-continuation, not a blind command retry: Manageroo commits only that applied
-attempt's exact paths and calls `next`, `show`, and `fix` again with no arbitrary
-cap. Any failed or unsupported transition stops with the exact changed source
-paths visible and checkpointed; Manageroo does not stash, triage, skip, remap,
-hand-repair, or advance to a different finding.
+Manageroo never issues a triage command. There is no arbitrary fix-attempt cap,
+but another attempt is permitted only when ClawPatch produced a genuinely new
+source-tree state. No source changes, a repeated state, a cycle to the original
+tree, temporary-history mismatch, or an external failure stops with combined
+source changes visible at the original HEAD. Manageroo does not stash, triage,
+skip, remap, hand-repair, push temporary work, or advance to another finding.
 Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
-it cannot silently modify the repair. A durable per-finding progress record binds
+the external supervisor then permits one child-scoped trusted-host pass if the
+writable sandbox still blocks required local sockets or locks. No revalidation
+pass can silently modify the repair. A durable per-finding progress record binds
 the repository, branch, HEAD, finding, phase, and exact owned source paths.
+Final closure also uses ClawPatch's own status-filtered queue transition for
+pre-existing uncertainty: `next --status uncertain`, `show`, then guarded
+exact-finding revalidation. `fixed` closes without a source commit, `open`
+re-enters the normal same-finding repair loop, and a second `uncertain` stops as
+an external validation blocker.
 Ordinary relaunch resumes a stopped applied attempt only when the durable
 checkpoint's branch, finding, and exact dirty path set agree, and exactly one
 applied Clawpatch patch-attempt record matches current HEAD. It resumes at gates
 and revalidation without invoking `fix` again; an `open` outcome creates the
-same continuation commit and reenters `next`. Any mismatch or ambiguity refuses
-continuation and preserves the checkpoint and edits. The Manageroo project command's
+same local-only temporary iteration and continues the same finding without a
+push. Any mismatch or ambiguity refuses continuation and preserves the
+checkpoint and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
 The stopped checkpoint also records an exact source-content fingerprint. When an
 operator rebuilds `.clawpatch`, ordinary relaunch recognizes the newer empty run
@@ -159,20 +167,22 @@ committed, the external supervisor clears the stale checkpoint only after Git
 proves that one descendant commit's complete non-ClawPatch path set exactly
 equals the checkpoint-owned paths. A new external repository is initialized
 automatically, making bare `clawpatch-supervise` the normal universal interface.
-The portable external supervisor instead defines explicit `--fresh` as a full
-source-and-ClawPatch-state reset so it can start clean in any Git repository
-without a prior Manageroo checkpoint.
+Every bare external invocation starts fresh. It first proves and recovers any
+temporary iteration commit, then discards only the exact checkpoint-owned dirty
+paths before rebuilding ClawPatch run/discovery state. Unrelated dirty source
+blocks unchanged.
 One explicit timeout controls both the child-process watchdog
 and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
 Operator interruption also terminates and reaps that complete child group before
 the supervisor exits.
-Every failed command stops immediately and is not retried.
+Every failed non-fix command stops immediately. Only ClawPatch's source-
+progressing same-finding continuation may invoke `fix` again.
 An explicit fresh run through the Manageroo project command may discard dirty
 source only when durable progress binds the interrupted `fix` to the current
 repository, branch, and compatible HEAD, and the dirty-path set exactly matches
 the checkpoint's recorded owned paths. The separately installed external
-supervisor treats `--fresh` as explicit authorization to discard every current
-source change and old `.clawpatch` state before reinitialization.
+supervisor uses the same exact-ownership boundary and never treats `--fresh` as
+permission to discard unrelated source.
 
 ## Parallel mapping and review, sequential implementation
 
