@@ -5,6 +5,10 @@ Verification was performed on Windows against branch head
 
 No live ClawPatch queue was started.
 
+The later, user-authorized Bob's Turtle Tank live follow-up is documented in
+[`08-bobsturtletank-live-followup.md`](08-bobsturtletank-live-followup.md).
+That report is separate from this original no-live-queue installer proof.
+
 ## Results
 
 - `py -3 -m unittest discover -s tests -v` exited 1 after 785 tests in
