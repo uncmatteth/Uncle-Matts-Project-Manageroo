@@ -13,16 +13,28 @@ from .branding import PUBLIC_COMMAND
 from .errors import SafetyError
 
 
-_SECRET_NAME_PATTERN = (
+_SECRET_PAIR_NAME_PATTERN = (
     r"(?:api[_-]?key|private[_-]?key|signing[_-]?key|token|password|passwd|passphrase|"
-    r"secret|credentials?|authorization)"
+    r"secret|credentials?)"
 )
+_SECRET_NAME_PATTERN = rf"(?:{_SECRET_PAIR_NAME_PATTERN}|authorization)"
 _SECRET_KEY_RE = re.compile(
     rf"(?:^|[_-]){_SECRET_NAME_PATTERN}(?:$|[_-])",
     re.IGNORECASE,
 )
 _CAMEL_CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _BEARER_RE = re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+")
+_AUTHORIZATION_SCHEME_RE = re.compile(
+    rf'''(?ix)
+    (?P<prefix>["']?(?:[a-z0-9_-]*[_-])?authorization(?:[_-][a-z0-9_-]*)?["']?\s*[:=]\s*)
+    (?:
+        (?P<quoted>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')
+        |
+        (?P<scheme>[^\s,;}}"']+)
+        (?:(?P<separator>[ \t]+)(?P<credentials>[^\s,;}}]+(?:[ \t]+[^\s,;}}]+)*))?
+    )
+    '''
+)
 _PEM_PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN (?P<kind>(?:[A-Z0-9]+ )*PRIVATE KEY)-----.*?"
     r"-----END (?P=kind)-----",
@@ -30,7 +42,7 @@ _PEM_PRIVATE_KEY_RE = re.compile(
 )
 _SECRET_PAIR_RE = re.compile(
     rf'''(?ix)
-    (?P<prefix>["']?(?:[a-z0-9_-]*[_-])?{_SECRET_NAME_PATTERN}(?:[_-][a-z0-9_-]*)?["']?\s*[:=]\s*)
+    (?P<prefix>["']?(?:[a-z0-9_-]*[_-])?{_SECRET_PAIR_NAME_PATTERN}(?:[_-][a-z0-9_-]*)?["']?\s*[:=]\s*)
     (?P<value>
         "(?:\\.|[^"\\])*"
         |
@@ -49,6 +61,15 @@ _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
 def _redact_scalar_text(text: str) -> str:
     redacted = _PEM_PRIVATE_KEY_RE.sub("<REDACTED>", text)
+    redacted = _AUTHORIZATION_SCHEME_RE.sub(
+        lambda match: (
+            f"{match.group('prefix')}{match.group('scheme')}"
+            f"{match.group('separator')}<REDACTED>"
+            if match.group("credentials") is not None
+            else f"{match.group('prefix')}<REDACTED>"
+        ),
+        redacted,
+    )
     redacted = _BEARER_RE.sub("Bearer <REDACTED>", redacted)
     return _SECRET_PAIR_RE.sub(lambda match: f"{match.group('prefix')}<REDACTED>", redacted)
 
