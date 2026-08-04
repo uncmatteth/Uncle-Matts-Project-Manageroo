@@ -113,6 +113,12 @@ def _render_event(event: dict[str, Any]) -> str:
             f"\n{_counter(event)} OPEN - CONTINUING SAME FINDING\n"
             f"commit: {commit}"
         )
+    if phase == "resume":
+        return (
+            f"\n{_counter(event)} RESUME INTERRUPTED PLANNED ATTEMPT\n"
+            f"finding: {event.get('finding_id', '')}\n"
+            "source changes: none; returning through ClawPatch next"
+        )
     detail = event.get("detail") or event.get("command") or phase or "working"
     return f"{_counter(event)} {str(detail).upper()}"
 

@@ -11,6 +11,21 @@ from manageroo.errors import SafetyError
 
 
 class ExternalClawpatchSupervisorTests(unittest.TestCase):
+    def test_resume_phase_explains_source_clean_planned_attempt(self):
+        self.assertEqual(
+            _render_event(
+                {
+                    "phase": "resume",
+                    "current": 1,
+                    "total": "?",
+                    "finding_id": "fnd_one",
+                }
+            ),
+            "\n[1/?] RESUME INTERRUPTED PLANNED ATTEMPT\n"
+            "finding: fnd_one\n"
+            "source changes: none; returning through ClawPatch next",
+        )
+
     def test_init_phase_displays_the_exact_command(self):
         self.assertEqual(
             _render_event(

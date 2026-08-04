@@ -138,6 +138,10 @@ and revalidation without invoking `fix` again; an `open` outcome creates the
 same continuation commit and reenters `next`. Any mismatch or ambiguity refuses
 continuation and preserves the checkpoint and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
+If interruption leaves a source-clean `planned` attempt, ordinary relaunch
+requires the same open finding, branch, current HEAD, empty changed-file record,
+and no active process. It preserves ClawPatch state and reenters only through
+`next`; that command must return the same finding before `show` and `fix` run.
 When the worktree is source-clean because the stopped attempt was already
 committed, the external supervisor clears the stale checkpoint only after Git
 proves that one descendant commit's complete non-ClawPatch path set exactly

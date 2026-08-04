@@ -1055,6 +1055,57 @@ def _checkpoint_completed_commit(
     return ""
 
 
+def _checkpoint_unapplied_attempt(
+    repo: Path,
+    progress_record: dict[str, Any],
+    *,
+    env: dict[str, str],
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any] | None:
+    if (
+        progress_record.get("phase") != "stopped"
+        or progress_record.get("owned_paths") != []
+        or _source_paths(repo)
+    ):
+        return None
+    finding_id = str(progress_record["finding_id"])
+    current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    if progress_record.get("head_before") != current_head:
+        return None
+    inspected = _show_finding(
+        repo,
+        finding_id,
+        env=env,
+        required_status="open",
+        progress=progress,
+        current=1,
+        total="?",
+    )
+    planned_attempts = []
+    for attempt in inspected["patchAttempts"]:
+        if not isinstance(attempt, dict) or attempt.get("status") != "planned":
+            continue
+        git_record = attempt.get("git")
+        finding_ids = attempt.get("findingIds")
+        if (
+            isinstance(finding_ids, list)
+            and finding_id in finding_ids
+            and attempt.get("filesChanged") == []
+            and isinstance(git_record, dict)
+            and git_record.get("baseSha") == current_head
+            and isinstance(attempt.get("patchAttemptId"), str)
+            and attempt["patchAttemptId"]
+        ):
+            planned_attempts.append(str(attempt["patchAttemptId"]))
+    if not planned_attempts:
+        return None
+    return {
+        "finding_id": finding_id,
+        "patch_attempts": planned_attempts,
+        "inspection": inspected,
+    }
+
+
 def _clear_release_progress(repo: Path, *, state_root: Path | None = None) -> None:
     _release_progress_path(repo, state_root=state_root).unlink(missing_ok=True)
 
@@ -1703,6 +1754,8 @@ def release_sweep(
     selected_branch = current_branch
     pushed = False
     resumed_checkpoint = False
+    expected_unapplied_finding: str | None = None
+    resumed_checkpoint_kind = "stopped applied attempt"
     if durable_progress is not None:
         if durable_progress["branch"] != current_branch:
             raise SafetyError(
@@ -1757,58 +1810,90 @@ def release_sweep(
             raise SafetyError(
                 "Only a stopped Clawpatch checkpoint can resume an existing applied attempt."
             )
-        try:
-            resumed, pushed = _resume_stopped_attempt(
+        if durable_progress["owned_paths"] == []:
+            unapplied = _checkpoint_unapplied_attempt(
                 root,
                 durable_progress,
                 env=env,
-                push_mode=push_mode,
-                branch=current_branch,
-                pushed=pushed,
                 progress=progress,
-                require_project_gates=require_project_gates,
             )
-        except BaseException as exc:
-            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-                raise
-            raise SafetyError(
-                "Clawpatch could not safely resume the stopped applied attempt; the checkpoint "
-                f"and exact source changes remain in place.\n{exc}"
-            ) from exc
-        _clear_release_progress(root, state_root=state_root)
-        resumed_checkpoint = True
-        resumed_outcome = resumed.get("revalidation", {}).get("outcome")
-        if resumed_outcome == "open":
-            report["continuations"].append(resumed)
-            resumed_phase = "continuing"
-            resumed_detail = "stopped attempt revalidated open; continuing same finding"
-        elif resumed_outcome == "fixed":
-            report["results"].append(resumed)
-            resumed_phase = "fixed"
-            resumed_detail = "stopped attempt revalidated fixed; continuing queue"
+            if unapplied is None:
+                raise SafetyError(
+                    "Stopped Clawpatch progress has no source changes and no matching planned "
+                    "attempt at the current HEAD."
+                )
+            expected_unapplied_finding = str(unapplied["finding_id"])
+            report["interrupted_unapplied_attempt"] = {
+                "finding_id": expected_unapplied_finding,
+                "patch_attempts": list(unapplied["patch_attempts"]),
+            }
+            _clear_release_progress(root, state_root=state_root)
+            durable_progress = None
+            resumed_checkpoint = True
+            resumed_checkpoint_kind = "stopped planned attempt"
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "resume",
+                        "current": 1,
+                        "total": "?",
+                        "finding_id": expected_unapplied_finding,
+                        "detail": "source-clean planned attempt interrupted; resuming same finding",
+                    }
+                )
         else:
-            raise SafetyError(
-                "Resumed Clawpatch attempt returned an unsupported outcome after validation."
-            )
-        if progress is not None:
-            progress(
-                {
-                    "phase": resumed_phase,
-                    "current": 1,
-                    "total": "?",
-                    "finding_id": resumed["finding_id"],
-                    "commit": resumed.get("commit", ""),
-                    "detail": resumed_detail,
-                    "resumed": True,
-                }
-            )
-        durable_progress = None
-        preexisting_source = _source_paths(root)
-        if preexisting_source:
-            raise SafetyError(
-                "Resumed Clawpatch attempt did not leave a source-clean continuation point: "
-                + ", ".join(preexisting_source)
-            )
+            try:
+                resumed, pushed = _resume_stopped_attempt(
+                    root,
+                    durable_progress,
+                    env=env,
+                    push_mode=push_mode,
+                    branch=current_branch,
+                    pushed=pushed,
+                    progress=progress,
+                    require_project_gates=require_project_gates,
+                )
+            except BaseException as exc:
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    raise
+                raise SafetyError(
+                    "Clawpatch could not safely resume the stopped applied attempt; the checkpoint "
+                    f"and exact source changes remain in place.\n{exc}"
+                ) from exc
+            _clear_release_progress(root, state_root=state_root)
+            resumed_checkpoint = True
+            resumed_outcome = resumed.get("revalidation", {}).get("outcome")
+            if resumed_outcome == "open":
+                report["continuations"].append(resumed)
+                resumed_phase = "continuing"
+                resumed_detail = "stopped attempt revalidated open; continuing same finding"
+            elif resumed_outcome == "fixed":
+                report["results"].append(resumed)
+                resumed_phase = "fixed"
+                resumed_detail = "stopped attempt revalidated fixed; continuing queue"
+            else:
+                raise SafetyError(
+                    "Resumed Clawpatch attempt returned an unsupported outcome after validation."
+                )
+            if progress is not None:
+                progress(
+                    {
+                        "phase": resumed_phase,
+                        "current": 1,
+                        "total": "?",
+                        "finding_id": resumed["finding_id"],
+                        "commit": resumed.get("commit", ""),
+                        "detail": resumed_detail,
+                        "resumed": True,
+                    }
+                )
+            durable_progress = None
+            preexisting_source = _source_paths(root)
+            if preexisting_source:
+                raise SafetyError(
+                    "Resumed Clawpatch attempt did not leave a source-clean continuation point: "
+                    + ", ".join(preexisting_source)
+                )
     if (
         integration_mode == "external"
         and not fresh
@@ -1888,7 +1973,7 @@ def release_sweep(
         review = {
             "resumed": True,
             "review": {"reviewed": 0, "findings": 0},
-            "completion": {"skipped": "resumed stopped applied attempt"},
+            "completion": {"skipped": f"resumed {resumed_checkpoint_kind}"},
         }
     else:
         mapped = _json_clawpatch(
@@ -1926,6 +2011,13 @@ def release_sweep(
             current=displayed_finding,
             total=total_findings,
         )
+        if expected_unapplied_finding is not None:
+            if finding_id != expected_unapplied_finding:
+                raise SafetyError(
+                    "Clawpatch did not return the interrupted source-clean finding; expected "
+                    f"{expected_unapplied_finding!r}, received {finding_id!r}."
+                )
+            expected_unapplied_finding = None
         if finding_id is None:
             break
         try:

@@ -214,6 +214,13 @@ attempt. It does not invoke `fix`, remap, or review before returning to `next`.
 Any missing, stale, or ambiguous proof stops with the checkpoint and edits
 unchanged.
 
+An interrupted provider can leave a ClawPatch patch attempt in `planned` state
+before any source edit exists. For that source-clean case, the supervisor
+requires the checkpoint branch and HEAD, same open finding, empty attempt path
+set, and planned attempt base SHA to agree. It preserves `.clawpatch` state,
+clears only its external checkpoint, and requires ClawPatch `next` to return the
+same finding before continuing through `show` and `fix`.
+
 If the worktree is source-clean and the checkpoint predates current HEAD, the
 external supervisor inspects descendant commits. It clears the checkpoint only
 when one commit's exact non-ClawPatch path set equals the checkpoint-owned path

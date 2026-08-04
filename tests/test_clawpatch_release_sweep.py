@@ -1067,6 +1067,140 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertIsNone(_load_release_progress(repo))
 
     @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._execute_fix")
+    @patch("manageroo.clawpatch_release._next_finding")
+    @patch("manageroo.clawpatch_release._review_all_features")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._resume_stopped_attempt")
+    @patch("manageroo.clawpatch_release._show_finding")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_relaunch_reenters_same_finding_after_empty_planned_attempt(
+        self,
+        _version,
+        _processes,
+        show_finding,
+        resume_stopped,
+        json_clawpatch,
+        review_all,
+        next_finding,
+        execute_fix,
+        final_closure,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            clawpatch_state = repo / ".clawpatch"
+            clawpatch_state.mkdir()
+            (clawpatch_state / "project.json").write_text("{}\n", encoding="utf-8")
+            _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=[],
+            )
+            planned = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_interrupted",
+                        "status": "planned",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": [],
+                        "git": {"baseSha": head},
+                    }
+                ],
+            }
+            show_finding.side_effect = [planned, planned]
+            json_clawpatch.return_value = {
+                "activeLocks": 0,
+                "lockFiles": 0,
+                "openFindings": 1,
+            }
+            queue = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "next": "clawpatch show --finding fnd_one",
+            }
+            next_finding.side_effect = [("fnd_one", queue), (None, {"finding": None})]
+            execute_fix.return_value = (
+                {
+                    "finding_id": "fnd_one",
+                    "revalidation": {"finding": "fnd_one", "outcome": "fixed"},
+                    "commit": "fixed789",
+                },
+                False,
+            )
+            final_closure.return_value = {"pushed": False}
+
+            report = release_sweep(repo, apply=True, branch="current")
+
+        self.assertEqual(report["finding_count"], 1)
+        self.assertEqual(execute_fix.call_count, 1)
+        self.assertEqual(next_finding.call_count, 2)
+        resume_stopped.assert_not_called()
+        review_all.assert_not_called()
+        self.assertIsNone(_load_release_progress(repo))
+
+    @patch("manageroo.clawpatch_release._show_finding")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_empty_checkpoint_without_matching_planned_attempt_stays_stopped(
+        self,
+        _version,
+        _processes,
+        show_finding,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            (repo / ".clawpatch").mkdir()
+            (repo / ".clawpatch" / "project.json").write_text("{}\n", encoding="utf-8")
+            _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=[],
+            )
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_other_head",
+                        "status": "planned",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": [],
+                        "git": {"baseSha": "not-current-head"},
+                    }
+                ],
+            }
+
+            with self.assertRaisesRegex(SafetyError, "no matching planned attempt"):
+                release_sweep(repo, apply=True, branch="current")
+            checkpoint = _load_release_progress(repo)
+
+        self.assertIsNotNone(checkpoint)
+        self.assertEqual(checkpoint["head_before"], head)
+
+
+    @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._next_finding")
     @patch("manageroo.clawpatch_release._review_all_features")
     @patch("manageroo.clawpatch_release._json_clawpatch")
