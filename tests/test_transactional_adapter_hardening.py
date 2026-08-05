@@ -1,4 +1,5 @@
 import multiprocessing
+import os
 import shutil
 import subprocess
 import tempfile
@@ -169,6 +170,70 @@ def git_metadata(repo: Path) -> dict[str, tuple[int, bytes]]:
 
 
 class TransactionalAdapterHardeningTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, "getuid"), "POSIX ownership is required")
+    def test_repository_lock_rejects_untrusted_directory_owner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = make_repo(Path(temp))
+            unexpected_uid = os.getuid() + 1
+            lock_root = Path(temp) / f"manageroo-transaction-locks-{unexpected_uid}"
+            lock_root.mkdir(mode=0o700)
+            adapter = TransactionalAdapter(FailingWorker(), CommandRunner())
+
+            with mock.patch(
+                "manageroo.adapters.transactional.tempfile.gettempdir",
+                return_value=temp,
+            ), mock.patch(
+                "manageroo.adapters.transactional.os.getuid",
+                return_value=unexpected_uid,
+            ):
+                with self.assertRaisesRegex(SafetyError, "unexpected owner"):
+                    with adapter._repository_transaction_lock(repo):
+                        self.fail("unsafe lock directory was accepted")
+
+    @unittest.skipUnless(hasattr(os, "getuid"), "POSIX permissions are required")
+    def test_repository_lock_rejects_group_or_world_writable_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = make_repo(Path(temp))
+            lock_root = Path(temp) / f"manageroo-transaction-locks-{os.getuid()}"
+            lock_root.mkdir(mode=0o700)
+            lock_root.chmod(0o777)
+            adapter = TransactionalAdapter(FailingWorker(), CommandRunner())
+
+            with mock.patch(
+                "manageroo.adapters.transactional.tempfile.gettempdir",
+                return_value=temp,
+            ):
+                with self.assertRaisesRegex(SafetyError, "unsafe permissions"):
+                    with adapter._repository_transaction_lock(repo):
+                        self.fail("unsafe lock directory was accepted")
+
+    @unittest.skipUnless(hasattr(os, "getuid"), "descriptor-relative open is POSIX-only")
+    def test_repository_lock_file_is_opened_relative_to_trusted_directory(self):
+        class ReplacingLockRootAdapter(TransactionalAdapter):
+            trusted_root: Path | None = None
+
+            def _open_repository_lock_directory(self, lock_root: Path) -> int | None:
+                descriptor = super()._open_repository_lock_directory(lock_root)
+                self.trusted_root = lock_root.with_name(lock_root.name + "-trusted")
+                lock_root.rename(self.trusted_root)
+                lock_root.mkdir(mode=0o700)
+                return descriptor
+
+        with tempfile.TemporaryDirectory() as temp:
+            repo = make_repo(Path(temp))
+            adapter = ReplacingLockRootAdapter(FailingWorker(), CommandRunner())
+
+            with mock.patch(
+                "manageroo.adapters.transactional.tempfile.gettempdir",
+                return_value=temp,
+            ):
+                lock_path = adapter._repository_lock_path(repo)
+                with adapter._repository_transaction_lock(repo):
+                    self.assertIsNotNone(adapter.trusted_root)
+                    assert adapter.trusted_root is not None
+                    self.assertTrue((adapter.trusted_root / lock_path.name).is_file())
+                    self.assertFalse(lock_path.exists())
+
     def test_controller_truth_restoration_does_not_follow_symlinked_parent(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
