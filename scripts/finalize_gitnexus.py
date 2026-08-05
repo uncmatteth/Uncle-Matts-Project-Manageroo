@@ -11,7 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from manageroo.config_lock import config_mutation_lock  # noqa: E402
 from manageroo.install_status import summarize_external_tools  # noqa: E402
+from manageroo.util import atomic_write_json  # noqa: E402
 
 
 def _gitnexus_record(lock: dict) -> dict | None:
@@ -21,17 +23,7 @@ def _gitnexus_record(lock: dict) -> dict | None:
     return None
 
 
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)
-
-
-def finalize(prefix: Path) -> dict:
-    lock_path = prefix.expanduser().resolve() / "install-lock.json"
-    if not lock_path.is_file():
-        return {"ok": True, "skipped": True, "reason": "install-lock.json is not present yet"}
-
+def _finalize_locked(lock_path: Path) -> dict:
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     record = _gitnexus_record(lock)
     if not record:
@@ -52,7 +44,7 @@ def finalize(prefix: Path) -> dict:
             "error": "GitNexus was recorded as installed but no executable is visible on PATH.",
         }
         lock["stack_summary"] = summarize_external_tools(lock.get("external_tools", []))
-        _write_json_atomic(lock_path, lock)
+        atomic_write_json(lock_path, lock)
         return {"ok": False, "error": record["setup_result"]["error"]}
 
     result = subprocess.run(
@@ -80,8 +72,19 @@ def finalize(prefix: Path) -> dict:
         else "GitNexus installed, but setup did not complete successfully."
     )
     lock["stack_summary"] = summarize_external_tools(lock.get("external_tools", []))
-    _write_json_atomic(lock_path, lock)
+    atomic_write_json(lock_path, lock)
     return {"ok": configured, "configured": configured, "exit_code": result.returncode, "output": output}
+
+
+def finalize(prefix: Path) -> dict:
+    lock_path = prefix.expanduser().resolve() / "install-lock.json"
+    if not lock_path.is_file():
+        return {"ok": True, "skipped": True, "reason": "install-lock.json is not present yet"}
+
+    with config_mutation_lock(lock_path, timeout_seconds=630.0):
+        if not lock_path.is_file():
+            return {"ok": True, "skipped": True, "reason": "install-lock.json is not present yet"}
+        return _finalize_locked(lock_path)
 
 
 def main() -> int:

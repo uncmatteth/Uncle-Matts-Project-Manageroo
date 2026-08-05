@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import json
 import multiprocessing
 import subprocess
 import tempfile
@@ -22,6 +23,13 @@ VERIFY_SPEC = importlib.util.spec_from_file_location(
 assert VERIFY_SPEC and VERIFY_SPEC.loader
 verify_distribution = importlib.util.module_from_spec(VERIFY_SPEC)
 VERIFY_SPEC.loader.exec_module(verify_distribution)
+FINALIZE_SPEC = importlib.util.spec_from_file_location(
+    "finalize_gitnexus",
+    ROOT / "scripts" / "finalize_gitnexus.py",
+)
+assert FINALIZE_SPEC and FINALIZE_SPEC.loader
+finalize_gitnexus = importlib.util.module_from_spec(FINALIZE_SPEC)
+FINALIZE_SPEC.loader.exec_module(finalize_gitnexus)
 
 
 def _fixture(codes: list[int]) -> str:
@@ -61,7 +69,95 @@ def _publish_release_fixture(root_value, marker, installer_published, release_fi
         package_release._publish_release(candidate_output, candidate_source, root / "drop")
 
 
+def _finalize_gitnexus_fixture(prefix_value, marker, setup_started, release_setup, results) -> None:
+    prefix = Path(prefix_value)
+
+    def setup(argv, **_kwargs):
+        setup_started.set()
+        if marker == "first" and not release_setup.wait(timeout=5):
+            raise TimeoutError("test did not release GitNexus setup")
+        return subprocess.CompletedProcess(argv, 0, stdout=f"{marker} setup complete\n")
+
+    with (
+        patch.object(finalize_gitnexus.shutil, "which", return_value="/fake/gitnexus"),
+        patch.object(finalize_gitnexus.subprocess, "run", side_effect=setup),
+    ):
+        try:
+            results.put({"marker": marker, "result": finalize_gitnexus.finalize(prefix)})
+        except Exception as exc:
+            results.put({"marker": marker, "error": f"{type(exc).__name__}: {exc}"})
+
+
 class PackageReleaseTests(unittest.TestCase):
+    def test_concurrent_gitnexus_finalizers_serialize_lock_update(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            prefix.mkdir()
+            lock_path = prefix / "install-lock.json"
+            lock_path.write_text(
+                json.dumps(
+                    {
+                        "operator_note": "preserve this unrelated field",
+                        "external_tools": [
+                            {
+                                "name": "gitnexus",
+                                "installed": True,
+                                "configured": False,
+                                "path": "/fake/gitnexus",
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            context = multiprocessing.get_context("spawn")
+            first_setup_started = context.Event()
+            second_setup_started = context.Event()
+            release_setup = context.Event()
+            results = context.Queue()
+            first = context.Process(
+                target=_finalize_gitnexus_fixture,
+                args=(prefix, "first", first_setup_started, release_setup, results),
+            )
+            second = context.Process(
+                target=_finalize_gitnexus_fixture,
+                args=(prefix, "second", second_setup_started, release_setup, results),
+            )
+
+            try:
+                first.start()
+                self.assertTrue(first_setup_started.wait(timeout=5))
+                second.start()
+                self.assertFalse(second_setup_started.wait(timeout=0.3))
+                release_setup.set()
+                first.join(timeout=5)
+                second.join(timeout=5)
+                self.assertEqual(first.exitcode, 0)
+                self.assertEqual(second.exitcode, 0)
+                outcomes = {
+                    item["marker"]: item
+                    for item in (results.get(timeout=5), results.get(timeout=5))
+                }
+            finally:
+                release_setup.set()
+                for process in (first, second):
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
+
+            self.assertNotIn("error", outcomes["first"])
+            self.assertNotIn("error", outcomes["second"])
+            self.assertTrue(outcomes["first"]["result"]["ok"])
+            self.assertTrue(outcomes["second"]["result"]["ok"])
+            self.assertTrue(outcomes["second"]["result"]["skipped"])
+            self.assertFalse(second_setup_started.is_set())
+            final_lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            self.assertEqual(final_lock["operator_note"], "preserve this unrelated field")
+            self.assertTrue(final_lock["external_tools"][0]["configured"])
+
     def test_release_names_derive_from_project_version(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
         version = str(project["version"])
