@@ -85,7 +85,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Worktree mutation after the final cleanliness snapshot changes the bytes an operator ships | READY handoff names a SHA-256-bound tar archive generated from the locked exact commit instead of authorizing the mutable worktree | Preventive |
 | Windows Git reference transaction receives CRLF-corrupted commands | Write the `update-ref --stdin` transaction as exact binary UTF-8 with LF separators | Preventive |
 | Windows contender cannot inspect owner metadata while another process holds a byte-range lock | Rewrite the persistent lock payload in place without truncating the locked file | Preventive |
-| Windows cannot execute an npm or other `.cmd` shim directly with `shell=False` | Resolve the shim and invoke it through an explicit `COMSPEC /d /s /c` argv | Preventive |
+| Windows cannot execute an npm or other `.cmd` shim directly with `shell=False` | Resolve the shim and invoke it through an explicit `COMSPEC /d /s /c` argv; reject arguments containing cmd.exe metacharacters before launch | Preventive |
 | Windows installer selects an incompatible or mismatched Node/npm pair | Probe all known Node candidates, choose one supported Node version, and prefer npm adjacent to that executable | Preventive |
 | A later Windows shell resolves an older Node than the installer verified | Persist the selected Node directory in the generated launcher, fail if its executable disappears, and put it before ambient Node installations | Preventive |
 | Windows gate output crashes decoding or secondary redaction | Force UTF-8 launcher I/O, decode child output as UTF-8 with replacement, and sanitize absent or byte streams | Preventive and diagnostic-preserving |

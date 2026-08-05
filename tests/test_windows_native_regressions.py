@@ -11,6 +11,7 @@ from unittest.mock import patch
 from manageroo.artifacts import ArtifactStore
 from manageroo.branding import status_line
 from manageroo.config import config_template
+from manageroo.errors import SafetyError
 from manageroo.release_ready_policy import _hold_release_head
 from manageroo.runner import _platform_argv
 
@@ -163,6 +164,55 @@ class WindowsNativeRegressionTests(unittest.TestCase):
 
         self.assertEqual(argv[:4], [r"C:\Windows\System32\cmd.exe", "/d", "/s", "/c"])
         self.assertEqual(argv[4], '"C:\\Program Files\\nodejs\\codex.cmd" --version')
+
+    def test_windows_command_runner_rejects_cmd_metacharacters_in_shim_arguments(self):
+        hostile_arguments = (
+            "value&whoami",
+            "value|whoami",
+            "value<input",
+            "value>output",
+            "%PATH%",
+            "value^escape",
+            "value!expand",
+            "(whoami)",
+            'value"quoted',
+            "value\rwhoami",
+            "value\nwhoami",
+        )
+        with (
+            patch("manageroo.runner.os.name", "nt"),
+            patch(
+                "manageroo.runner.shutil.which",
+                return_value=r"C:\Program Files\nodejs\codex.cmd",
+            ),
+        ):
+            for argument in hostile_arguments:
+                with self.subTest(argument=argument), self.assertRaises(SafetyError):
+                    _platform_argv(
+                        ["codex", argument],
+                        {
+                            "PATH": r"C:\Program Files\nodejs",
+                            "COMSPEC": r"C:\Windows\System32\cmd.exe",
+                        },
+                    )
+
+    def test_windows_command_runner_keeps_safe_spaces_in_shim_arguments(self):
+        with (
+            patch("manageroo.runner.os.name", "nt"),
+            patch(
+                "manageroo.runner.shutil.which",
+                return_value=r"C:\Program Files\nodejs\codex.cmd",
+            ),
+        ):
+            argv = _platform_argv(
+                ["codex", "value with spaces"],
+                {
+                    "PATH": r"C:\Program Files\nodejs",
+                    "COMSPEC": r"C:\Windows\System32\cmd.exe",
+                },
+            )
+
+        self.assertEqual(argv[4], '"C:\\Program Files\\nodejs\\codex.cmd" "value with spaces"')
 
 
 if __name__ == "__main__":

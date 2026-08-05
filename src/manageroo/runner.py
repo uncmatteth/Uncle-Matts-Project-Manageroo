@@ -12,6 +12,9 @@ from .errors import SafetyError
 from .util import atomic_write_json, redact_argv, redact_text, utc_now
 
 
+_CMD_ARGUMENT_METACHARACTERS = frozenset('&|<>()^%!"\r\n')
+
+
 @dataclass(frozen=True)
 class CommandResult:
     argv: list[str]
@@ -111,6 +114,10 @@ def _platform_argv(argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
     if discovered:
         resolved[0] = discovered
     if resolved[0].casefold().endswith((".cmd", ".bat")):
+        if any(_CMD_ARGUMENT_METACHARACTERS.intersection(argument) for argument in resolved[1:]):
+            raise SafetyError(
+                "Windows batch command arguments cannot contain cmd.exe metacharacters."
+            )
         command_line = subprocess.list2cmdline(resolved)
         return [env.get("COMSPEC") or "cmd.exe", "/d", "/s", "/c", command_line]
     return resolved
