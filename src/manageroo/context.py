@@ -11,7 +11,14 @@ from typing import Iterable
 from .errors import ContextBudgetError, SafetyError
 from .evidence import EvidenceItem, rank_evidence
 from .file_inspection import content_kind_for_path, summary_for_context
-from .util import atomic_write_json, atomic_write_text, safe_repo_relative, sha256_file, sha256_text
+from .util import (
+    atomic_write_json,
+    atomic_write_text,
+    safe_repo_relative,
+    sha256_bytes,
+    sha256_file,
+    sha256_text,
+)
 
 
 @dataclass(frozen=True)
@@ -110,15 +117,20 @@ class ContextCompiler:
         mode = request.mode or "full"
         if mode not in {"full", "summary"}:
             raise ContextBudgetError(f"Invalid context mode for {relative}: {mode}")
+        source_bytes = path.read_bytes()
+        source_hash = sha256_bytes(source_bytes)
         if mode == "summary" or content_kind_for_path(path) == "media":
-            summary, line_count = summary_for_context(path, relative)
-            return summary, 1, max(1, line_count), sha256_file(path), "summary"
-        text = path.read_text(encoding="utf-8", errors="replace")
+            with tempfile.TemporaryDirectory(prefix=".manageroo-context-") as snapshot_dir:
+                snapshot = Path(snapshot_dir) / f"source{path.suffix}"
+                snapshot.write_bytes(source_bytes)
+                summary, line_count = summary_for_context(snapshot, relative)
+            return summary, 1, max(1, line_count), source_hash, "summary"
+        text = source_bytes.decode("utf-8", errors="replace")
         lines = text.splitlines()
         if not lines:
             if request.start_line not in (None, 1) or request.end_line not in (None, 0, 1):
                 raise ContextBudgetError(f"Invalid line range for empty file {relative}")
-            return "", 1, 0, sha256_file(path), "full"
+            return "", 1, 0, source_hash, "full"
         start = request.start_line or 1
         end = request.end_line or len(lines)
         if start < 1 or end < start or end > len(lines):
@@ -126,7 +138,7 @@ class ContextCompiler:
         excerpt = "\n".join(lines[start - 1 : end])
         if text.endswith("\n") and end == len(lines):
             excerpt += "\n"
-        return excerpt, start, end, sha256_file(path), "full"
+        return excerpt, start, end, source_hash, "full"
 
     @staticmethod
     def _metadata_evidence(metadata: dict | None) -> list[EvidenceItem]:

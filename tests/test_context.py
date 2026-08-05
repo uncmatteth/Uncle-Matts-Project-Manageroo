@@ -2,6 +2,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from manageroo.context import ContextCompiler, ContextRequest
 from manageroo.errors import ContextBudgetError, SafetyError
@@ -20,15 +21,58 @@ class ContextTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def compiler(self, max_tokens=1000):
+    def compiler(self, max_tokens=1000, max_single_file_tokens=100):
         return ContextCompiler(
             self.repo,
             self.root / "packets",
             max_input_tokens=max_tokens,
             reserve_output_tokens=20,
             chars_per_token=1.0,
-            max_single_file_tokens=100,
+            max_single_file_tokens=max_single_file_tokens,
         )
+
+    def compile_during_source_replacement(self, packet_name, *, mode):
+        source = self.repo / "a.txt"
+        version_a = b"version-a\n"
+        version_b = b"version-b\n"
+        source.write_bytes(version_a)
+        original_read_text = Path.read_text
+        original_read_bytes = Path.read_bytes
+
+        def read_text_then_replace(path, *args, **kwargs):
+            text = original_read_text(path, *args, **kwargs)
+            if path == source:
+                source.write_bytes(version_b)
+            return text
+
+        def read_bytes_then_replace(path):
+            data = original_read_bytes(path)
+            if path == source:
+                source.write_bytes(version_b)
+            return data
+
+        with (
+            mock.patch.object(Path, "read_text", read_text_then_replace),
+            mock.patch.object(Path, "read_bytes", read_bytes_then_replace),
+        ):
+            packet = self.compiler(max_tokens=4000, max_single_file_tokens=1000).compile(
+                packet_name,
+                instructions="x",
+                requests=[ContextRequest("a.txt", "required", required=True, mode=mode)],
+            )
+        return packet, version_a
+
+    def assert_packet_attests_snapshot(self, packet, expected_bytes):
+        prompt = (packet / "prompt.md").read_text(encoding="utf-8")
+        manifest = read_json(packet / "manifest.json")
+        self.assertIn("version-a", prompt)
+        self.assertNotIn("version-b", prompt)
+        self.assertEqual(
+            manifest["entries"][0]["source_sha256"],
+            hashlib.sha256(expected_bytes).hexdigest(),
+        )
+        with self.assertRaises(SafetyError):
+            self.compiler().validate_freshness(manifest)
 
     def test_manifest_contains_exact_source_hash_and_lines(self):
         source = self.repo / "a.txt"
@@ -42,6 +86,12 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(manifest["entries"][0]["start_line"], 2)
         self.assertEqual(manifest["entries"][0]["end_line"], 3)
         self.assertEqual(manifest["entries"][0]["source_sha256"], expected_sha256)
+
+    def test_full_context_hash_matches_bytes_read_before_concurrent_replacement(self):
+        packet, expected_bytes = self.compile_during_source_replacement(
+            "concurrent-full", mode="full"
+        )
+        self.assert_packet_attests_snapshot(packet, expected_bytes)
 
     def test_instructions_alone_cannot_overflow(self):
         with self.assertRaises(ContextBudgetError):
@@ -79,6 +129,12 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(manifest["entries"][0]["mode"], "summary")
         self.assertIn("Generated file summary", prompt)
         self.assertNotIn("x" * 1000, prompt)
+
+    def test_summary_context_hash_matches_bytes_read_before_concurrent_replacement(self):
+        packet, expected_bytes = self.compile_during_source_replacement(
+            "concurrent-summary", mode="summary"
+        )
+        self.assert_packet_attests_snapshot(packet, expected_bytes)
 
     def test_stale_packet_is_rejected_for_same_size_content_change(self):
         source = self.repo / "a.txt"
