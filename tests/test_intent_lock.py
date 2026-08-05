@@ -345,6 +345,24 @@ class IntentLockTests(unittest.TestCase):
             report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: The release gate and smoke tests have not run.", "Status: Production-ready."]))
             self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); self.assertTrue(report["confidence_claims_blocking"]); self.assertFalse(report["missing"])
 
+    def test_audit_ignores_negated_or_quoted_confidence_terms_in_summary(self):
+        summaries = (
+            "Intent: Ship the release.\nStatus: not production-ready.",
+            "Intent: Ship the release.\nThe docs say 'production-ready' is prohibited.",
+            'Intent: Ship the release.\nDo not describe this as "production-ready".',
+        )
+        for summary in summaries:
+            with self.subTest(summary=summary), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.")
+
+                report = audit_compaction_text(repo, summary)
+
+                self.assertTrue(report["ok"], report)
+                self.assertEqual(report["status"], "passed")
+                self.assertFalse(report["confidence_claims_blocking"])
+                self.assertFalse(report["warnings"])
+
     def test_audit_rejects_negated_or_quoted_confidence_claims_as_proof(self):
         cases = (
             "We cannot claim production-ready because the release gate has not run.",

@@ -12,6 +12,11 @@ from typing import Any
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
+from .intent_audit_policy import (
+    _NEGATION_IN_CLAUSE,
+    _NONAFFIRMATIVE_CLAIM_STATE,
+    _inside_quoted_span,
+)
 from .project import git_root
 from .util import atomic_write_json, atomic_write_text, sha256_bytes, sha256_file, sha256_text, utc_now
 
@@ -238,9 +243,35 @@ def _required_phrases(lock: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _confidence_warnings(summary_text: str) -> list[dict[str, str]]:
+    def is_affirmative(match: re.Match[str]) -> bool:
+        start, end = match.span()
+        clause_start = max(summary_text.rfind(delimiter, 0, start) for delimiter in ".!?;:\n") + 1
+        following_boundaries = [
+            boundary
+            for delimiter in ".!?;:\n"
+            if (boundary := summary_text.find(delimiter, end)) >= 0
+        ]
+        clause_end = min(following_boundaries) if following_boundaries else len(summary_text)
+        clause = summary_text[clause_start:clause_end]
+        relative_start = start - clause_start
+        relative_end = end - clause_start
+        if _inside_quoted_span(clause, relative_start, relative_end):
+            return False
+        prefix = summary_text[clause_start:start]
+        suffix = summary_text[end:clause_end]
+        suffix_state = re.sub(
+            r"^\s*(?:(?:is|was|remains?)\s+)?", "", suffix, flags=re.IGNORECASE
+        ).lstrip(" ,-–—")
+        return not (
+            _NEGATION_IN_CLAUSE.search(prefix)
+            or _NEGATION_IN_CLAUSE.match(suffix_state)
+            or _NONAFFIRMATIVE_CLAIM_STATE.search(suffix)
+        )
+
     return [
         {"code": "confidence_claim", "text": match.group(0), "detail": "Avoid absolute quality or completion claims unless current evidence is listed."}
         for match in _CONFIDENCE_PATTERN.finditer(summary_text)
+        if is_affirmative(match)
     ]
 
 
