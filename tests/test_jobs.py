@@ -154,7 +154,7 @@ class JobStoreTests(unittest.TestCase):
             self.assertEqual(reloaded.output_artifact, "agent/001-product-analyst.json")
             self.assertEqual(len(JobStore(run_root).attempts_for(job.id)), 2)
 
-    def test_completed_job_rejects_artifact_that_conflicts_with_attempt_result(self):
+    def test_completed_job_rejection_returns_job_to_pending_and_allows_retry(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)
             store = JobStore(run_root)
@@ -185,7 +185,33 @@ class JobStoreTests(unittest.TestCase):
                     artifact_path=artifact,
                 )
 
-            self.assertEqual(store.load_job(job.id).status, JobStatus.RUNNING.value)
+            rejected = store.load_job(job.id)
+            self.assertEqual(rejected.status, JobStatus.PENDING.value)
+            self.assertEqual(rejected.failure_type, "SafetyError")
+            self.assertIn("does not match its result", rejected.failure)
+
+            retry = store.begin_attempt(job.id)
+            retry_output = run_root / "agent-output" / job.id / "002.json"
+            atomic_write_json(retry_output, {"ok": True})
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_attempt(
+                job.id,
+                retry.attempt_id,
+                output_path=retry_output,
+                data={"ok": True},
+                command=["mock"],
+            )
+            completed = store.complete_job(
+                job.id,
+                output_artifact="agent/001-product-analyst.json",
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+
+            self.assertEqual(retry.attempt_id, "002")
+            self.assertEqual(completed.status, JobStatus.COMPLETE.value)
+            self.assertEqual(completed.failure_type, "")
+            self.assertEqual(completed.failure, "")
 
     def test_delayed_attempt_failure_cannot_downgrade_completed_state(self):
         with tempfile.TemporaryDirectory() as temp:

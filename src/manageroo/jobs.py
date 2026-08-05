@@ -389,37 +389,59 @@ class JobStore:
         data: dict[str, Any],
         artifact_path: Path | None = None,
     ) -> Job:
-        relative, expected = self._artifact_path(output_artifact)
-        if artifact_path is None:
-            raise SafetyError(f"Completed job requires a written artifact: {job_id}")
-        try:
-            actual = artifact_path.expanduser().resolve(strict=True)
-        except OSError as exc:
-            raise SafetyError(f"Completed job requires a written artifact: {job_id}") from exc
-        if actual != expected or actual.is_symlink() or not actual.is_file():
-            raise SafetyError(
-                f"Completed job artifact path does not match its run-owned artifact reference: {relative}"
-            )
         result_hash = sha256_json(data)
-        try:
-            artifact_data = read_json(actual)
-        except (OSError, UnicodeError, ValueError) as exc:
-            raise SafetyError(f"Completed job artifact is not valid JSON: {relative}") from exc
-        if sha256_json(artifact_data) != result_hash:
-            raise SafetyError(f"Completed job artifact does not match its result: {relative}")
         with config_mutation_lock(self._job_path(job_id)):
             job = self.load_job(job_id)
             attempts = self.attempts_for(job_id)
-            if job.status == JobStatus.RUNNING.value:
-                if (
-                    not attempts
-                    or any(attempt.status == AttemptStatus.RUNNING.value for attempt in attempts)
-                    or attempts[-1].status != AttemptStatus.COMPLETE.value
-                    or attempts[-1].result_sha256 != result_hash
-                ):
-                    raise SafetyError(f"Job does not have a completed active attempt: {job_id}")
-            elif job.status != JobStatus.PENDING.value or attempts:
-                raise SafetyError(f"Job cannot be completed from state {job.status}: {job_id}")
+            recoverable = (
+                job.status == JobStatus.RUNNING.value
+                and bool(attempts)
+                and not any(
+                    attempt.status == AttemptStatus.RUNNING.value for attempt in attempts
+                )
+                and attempts[-1].status == AttemptStatus.COMPLETE.value
+            )
+            try:
+                relative, expected = self._artifact_path(output_artifact)
+                if artifact_path is None:
+                    raise SafetyError(f"Completed job requires a written artifact: {job_id}")
+                try:
+                    actual = artifact_path.expanduser().resolve(strict=True)
+                except OSError as exc:
+                    raise SafetyError(
+                        f"Completed job requires a written artifact: {job_id}"
+                    ) from exc
+                if actual != expected or actual.is_symlink() or not actual.is_file():
+                    raise SafetyError(
+                        "Completed job artifact path does not match its run-owned "
+                        f"artifact reference: {relative}"
+                    )
+                try:
+                    artifact_data = read_json(actual)
+                except (OSError, UnicodeError, ValueError) as exc:
+                    raise SafetyError(
+                        f"Completed job artifact is not valid JSON: {relative}"
+                    ) from exc
+                if sha256_json(artifact_data) != result_hash:
+                    raise SafetyError(
+                        f"Completed job artifact does not match its result: {relative}"
+                    )
+                if job.status == JobStatus.RUNNING.value:
+                    if not recoverable or attempts[-1].result_sha256 != result_hash:
+                        raise SafetyError(
+                            f"Job does not have a completed active attempt: {job_id}"
+                        )
+                elif job.status != JobStatus.PENDING.value or attempts:
+                    raise SafetyError(
+                        f"Job cannot be completed from state {job.status}: {job_id}"
+                    )
+            except SafetyError as exc:
+                if recoverable:
+                    job.status = JobStatus.PENDING.value
+                    job.failure_type = type(exc).__name__
+                    job.failure = str(exc)
+                    self.save_job(job)
+                raise
             job.status = JobStatus.COMPLETE.value
             job.output_artifact = relative
             job.output_artifact_sha256 = sha256_file(actual)
