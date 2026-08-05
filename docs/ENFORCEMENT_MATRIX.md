@@ -66,6 +66,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Concurrent adapters cannot exceed the durable worker-call budget | Interprocess ledger lock around reload, limit check, increment, and atomic write | Preventive |
 | Concurrent decision submissions can diverge product and resolution artifacts | Run-scoped interprocess transaction lock plus a product-model digest in the resolution record | Preventive and detective |
 | Concurrent skill installers cannot overlap or overwrite a linked lock target | Permanent cross-platform advisory lock on a validated private regular file; existing contents are not rewritten | Preventive |
+| A skill support file changes after import approval while `SKILL.md` stays unchanged | Bind every scan candidate to a race-checked full-tree digest covering relative paths, file modes, and content; require the same digest before staging | Preventive |
 | Concurrent release packagers cannot publish a mixed archive pair or mismatched drop | Cross-platform advisory lock held across archive-pair publication and drop-folder refresh | Preventive |
 | Concurrent GitNexus finalizers collide on one temporary file or discard a completed setup update | Cross-platform advisory lock held across finalizer read, setup, and atomic unique-temporary-file replacement | Preventive |
 | Release file-list or staging paths escape their repository-owned roots | Reject non-normalized, absolute, dot, parent, symlink-resolved, and out-of-root paths before selection, copy, or archive creation | Preventive |

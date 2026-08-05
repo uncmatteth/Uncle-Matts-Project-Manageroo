@@ -1,27 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
-
-
-def _tree_digest(root: Path) -> str:
-    digest = hashlib.sha256()
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError(f"Skill tree must be a real directory: {root}")
-    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
-        if path.is_symlink():
-            raise ValueError(f"Skill tree contains unsupported symlink: {path}")
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root).as_posix()
-        digest.update(relative.encode("utf-8", errors="surrogateescape"))
-        digest.update(b"\0")
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
-        digest.update(b"\0")
-    return digest.hexdigest()
 
 
 def install_skill_pack_policy(module: Any) -> None:
@@ -36,8 +16,8 @@ def install_skill_pack_policy(module: Any) -> None:
         source_dir = path.parent
         target_dir = target_root / str(item.get("name") or "")
         try:
-            source_digest = _tree_digest(source_dir)
-            target_digest = _tree_digest(target_dir)
+            source_digest = str(item["tree_sha256"])
+            target_digest = module._validated_source_tree_sha256(target_dir)
         except ValueError as exc:
             item["status"] = "blocked"
             item["reason"] = str(exc)

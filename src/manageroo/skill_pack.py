@@ -185,6 +185,28 @@ def _read_validated_source_file(source_file: _ValidatedSourceFile) -> bytes:
             os.close(source_fd)
 
 
+def _validated_source_tree_sha256(
+    source_dir: Path,
+    source_files: list[_ValidatedSourceFile] | None = None,
+) -> str:
+    files = source_files if source_files is not None else _validate_source_tree(source_dir)
+    digest = hashlib.sha256(b"manageroo-skill-tree-v1\0")
+    for source_file in files:
+        relative = source_file.path.relative_to(source_dir).as_posix().encode(
+            "utf-8",
+            errors="surrogateescape",
+        )
+        content = _read_validated_source_file(source_file)
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        digest.update(stat.S_IMODE(source_file.mode).to_bytes(4, "big"))
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    if _validate_source_tree(source_dir) != files:
+        raise ValueError(f"Skill source changed during scan: {source_dir}")
+    return digest.hexdigest()
+
+
 def _copy_validated_source_tree(
     source_dir: Path,
     source_files: list[_ValidatedSourceFile],
@@ -228,9 +250,14 @@ def _transactional_replace_skill(
     *,
     expected_name: str | None = None,
     expected_skill_sha256: str | None = None,
+    expected_tree_sha256: str | None = None,
 ) -> str:
     """Stage a complete skill and swap it atomically at directory granularity."""
     source_files = _validate_source_tree(source_dir)
+    if expected_tree_sha256 is not None:
+        tree_digest = _validated_source_tree_sha256(source_dir, source_files)
+        if tree_digest != expected_tree_sha256:
+            raise ValueError(f"Skill source changed after scan: {source_dir}")
     if expected_name is not None or expected_skill_sha256 is not None:
         skill_path = source_dir / "SKILL.md"
         source_skill = next((item for item in source_files if item.path == skill_path), None)
@@ -289,6 +316,7 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
     skill_dir = target_root / name
     existing = skill_dir / "SKILL.md"
     digest = sha256_file(path)
+    tree_digest = _validated_source_tree_sha256(path.parent)
     if not _VALID_SKILL_NAME.fullmatch(name):
         status = "invalid"
         reason = "skill name must use letters, digits, and hyphens"
@@ -315,6 +343,7 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
         "path": str(path),
         "relative_path": str(path.relative_to(source_root)),
         "sha256": digest,
+        "tree_sha256": tree_digest,
         "target": str(existing),
         "status": status,
         "reason": reason,
@@ -479,6 +508,7 @@ def import_skill_folder(source: Path, *, skills_dir: Path | None = None, apply: 
             target_root,
             expected_name=item["name"],
             expected_skill_sha256=item["sha256"],
+            expected_tree_sha256=item["tree_sha256"],
         )
         if backup:
             backups.append(backup)

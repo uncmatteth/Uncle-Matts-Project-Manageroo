@@ -154,6 +154,43 @@ class SkillPackTransactionTests(unittest.TestCase):
             self.assertEqual(list(skills.glob(".demo-skill.manageroo-stage-*")), [])
             self.assertEqual(list(skills.glob("demo-skill.manageroo-backup-*")), [])
 
+    def test_support_file_change_after_scan_preserves_active_destination(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source_root = root / "source"
+            source_skill = source_root / "demo-skill"
+            source_skill.mkdir(parents=True)
+            (source_skill / "SKILL.md").write_text(
+                "---\nname: demo-skill\n---\nreviewed instructions\n",
+                encoding="utf-8",
+            )
+            helper_file = source_skill / "helper.py"
+            helper_file.write_text("print('reviewed')\n", encoding="utf-8")
+
+            skills = root / "skills"
+            target = skills / "demo-skill"
+            target.mkdir(parents=True)
+            (target / "SKILL.md").write_text("old skill\n", encoding="utf-8")
+            (target / "keep.txt").write_text("keep me\n", encoding="utf-8")
+            before = snapshot(target)
+
+            import manageroo.skill_pack as skill_pack
+
+            original_scan = skill_pack.scan_skill_folder
+
+            def mutate_after_scan(*args, **kwargs):
+                report = original_scan(*args, **kwargs)
+                helper_file.write_text("print('unreviewed')\n", encoding="utf-8")
+                return report
+
+            with patch.object(skill_pack, "scan_skill_folder", side_effect=mutate_after_scan):
+                with self.assertRaisesRegex(ValueError, "Skill source changed after scan"):
+                    import_skill_folder(source_root, skills_dir=skills, apply=True)
+
+            self.assertEqual(snapshot(target), before)
+            self.assertEqual(list(skills.glob(".demo-skill.manageroo-stage-*")), [])
+            self.assertEqual(list(skills.glob("demo-skill.manageroo-backup-*")), [])
+
     def test_cleanup_failure_cannot_skip_restoration_after_swap_failure(self):
         with tempfile.TemporaryDirectory() as temp:
             import manageroo.skill_pack as skill_pack
