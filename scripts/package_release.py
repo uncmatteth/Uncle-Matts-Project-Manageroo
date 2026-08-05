@@ -27,7 +27,6 @@ INSTALLER_ZIP = f"{ARTIFACT_BASENAME}.zip"
 SOURCE_ZIP = f"{ARTIFACT_BASENAME}-source.zip"
 OUTPUT = ROOT.parent / INSTALLER_ZIP
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
-RELEASE_LOCK_TARGET = ROOT / ".manageroo" / "release-publication"
 EXCLUDED_PARTS = {
     ".git", ".manageroo", ".venv", ".clawpatch", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", "__pycache__", "dist", "build",
@@ -402,11 +401,18 @@ def _rollback_archive_pair(
     return rollback_errors
 
 
+def _release_lock_target() -> Path:
+    """Use one publication lock for every checkout sharing the output archive."""
+    output_parent = OUTPUT.parent.resolve()
+    return output_parent / ".manageroo-release-locks" / OUTPUT.name
+
+
 def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: Path) -> None:
-    RELEASE_LOCK_TARGET.parent.mkdir(mode=0o700, exist_ok=True)
-    if RELEASE_LOCK_TARGET.parent.is_symlink() or not RELEASE_LOCK_TARGET.parent.is_dir():
-        raise RuntimeError(f"Release lock directory is unsafe: {RELEASE_LOCK_TARGET.parent}")
-    with config_mutation_lock(RELEASE_LOCK_TARGET, timeout_seconds=600.0):
+    release_lock_target = _release_lock_target()
+    release_lock_target.parent.mkdir(mode=0o700, exist_ok=True)
+    if release_lock_target.parent.is_symlink() or not release_lock_target.parent.is_dir():
+        raise RuntimeError(f"Release lock directory is unsafe: {release_lock_target.parent}")
+    with config_mutation_lock(release_lock_target, timeout_seconds=600.0):
         _publish_archive_pair(
             candidate_output,
             candidate_source,

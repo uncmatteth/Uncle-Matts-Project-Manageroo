@@ -36,12 +36,16 @@ def _fixture(codes: list[int]) -> str:
     return "".join(chr(code) for code in codes)
 
 
-def _publish_release_fixture(root_value, marker, installer_published, release_first) -> None:
+def _publish_release_fixture(
+    root_value, checkout_name, marker, installer_published, release_first
+) -> None:
     root = Path(root_value)
+    checkout = root / checkout_name
+    checkout.mkdir()
     output = root / "release.zip"
     source_output = root / "release-source.zip"
-    candidate_output = root / f"candidate-{marker}.zip"
-    candidate_source = root / f"candidate-{marker}-source.zip"
+    candidate_output = checkout / f"candidate-{marker}.zip"
+    candidate_source = checkout / f"candidate-{marker}-source.zip"
     candidate_output.write_bytes(f"{marker}-installer".encode())
     candidate_source.write_bytes(f"{marker}-source".encode())
     original_replace = package_release.os.replace
@@ -60,9 +64,9 @@ def _publish_release_fixture(root_value, marker, installer_published, release_fi
         }
 
     with (
+        patch.object(package_release, "ROOT", checkout),
         patch.object(package_release, "OUTPUT", output),
         patch.object(package_release, "SOURCE_OUTPUT", source_output),
-        patch.object(package_release, "RELEASE_LOCK_TARGET", root / "state" / "release-publication"),
         patch.object(package_release, "_drop_copies", side_effect=drop_copies),
         patch.object(package_release.os, "replace", side_effect=pause_after_installer_publish),
     ):
@@ -537,11 +541,6 @@ class PackageReleaseTests(unittest.TestCase):
             with (
                 patch.object(package_release, "OUTPUT", output),
                 patch.object(package_release, "SOURCE_OUTPUT", source_output),
-                patch.object(
-                    package_release,
-                    "RELEASE_LOCK_TARGET",
-                    root / "state" / "release-publication",
-                ),
                 patch.object(package_release, "_drop_copies", side_effect=drop_copies),
                 patch.object(
                     package_release.shutil,
@@ -647,7 +646,7 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertEqual(candidate_output.read_bytes(), b"new-end-user")
             self.assertEqual(candidate_source.read_bytes(), b"new-source")
 
-    def test_concurrent_publishers_cannot_interleave_archive_pair_and_drop_refresh(self):
+    def test_sibling_checkout_publishers_share_destination_lock(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             context = multiprocessing.get_context("spawn")
@@ -656,11 +655,11 @@ class PackageReleaseTests(unittest.TestCase):
             release_first = context.Event()
             first = context.Process(
                 target=_publish_release_fixture,
-                args=(root, "a", first_published, release_first),
+                args=(root, "checkout-a", "a", first_published, release_first),
             )
             second = context.Process(
                 target=_publish_release_fixture,
-                args=(root, "b", second_published, release_first),
+                args=(root, "checkout-b", "b", second_published, release_first),
             )
 
             try:

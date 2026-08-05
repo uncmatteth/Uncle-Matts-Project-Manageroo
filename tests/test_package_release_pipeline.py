@@ -91,7 +91,9 @@ class PackageReleasePipelineTests(unittest.TestCase):
             path.write_bytes(b"candidate")
 
         with tempfile.TemporaryDirectory() as temp, patch.object(
-            package_release, "RELEASE_LOCK_TARGET", Path(temp) / "release-publication"
+            package_release,
+            "_release_lock_target",
+            return_value=Path(temp) / "release-publication",
         ), patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
             package_release, "generate_manifest", side_effect=lambda: events.append("manifest")
         ), patch.object(package_release, "included_files", return_value=[]), patch.object(
