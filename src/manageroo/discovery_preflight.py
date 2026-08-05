@@ -76,6 +76,9 @@ ALWAYS_REVIEW = [
 
 TEXT_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".toml", ".yaml", ".yml", ".md", ".txt", ".sql"}
 SKIP_PARTS = {".git", ".manageroo", "node_modules", ".venv", "dist", "build"}
+_OPEN_SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
+_STAT_SUPPORTS_DIR_FD = os.stat in os.supports_dir_fd
+_LISTDIR_SUPPORTS_FD = os.listdir in os.supports_fd
 
 
 def _signal_present(corpus: str, term: str) -> bool:
@@ -84,9 +87,67 @@ def _signal_present(corpus: str, term: str) -> bool:
     return re.search(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", corpus) is not None
 
 
+def _descriptor_scan_supported() -> bool:
+    return (
+        _OPEN_SUPPORTS_DIR_FD
+        and _STAT_SUPPORTS_DIR_FD
+        and _LISTDIR_SUPPORTS_FD
+        and all(hasattr(os, flag) for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK"))
+    )
+
+
+def _open_directory(path: str | Path, *, directory_fd: int | None = None) -> int | None:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK
+    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor: int | None = None
+    try:
+        if directory_fd is None:
+            descriptor = os.open(path, flags)
+        else:
+            descriptor = os.open(path, flags, dir_fd=directory_fd)
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            os.close(descriptor)
+            return None
+        return descriptor
+    except OSError:
+        if descriptor is not None:
+            os.close(descriptor)
+        return None
+
+
+def _read_regular_text(name: str, directory_fd: int, limit: int) -> str | None:
+    """Read a regular file relative to one pinned directory descriptor."""
+    flags = os.O_RDONLY
+    for flag in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW", "O_NONBLOCK"):
+        flags |= getattr(os, flag, 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(name, flags, dir_fd=directory_fd)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            return None
+        current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if not stat.S_ISREG(current.st_mode) or (
+            current.st_dev,
+            current.st_ino,
+        ) != (opened.st_dev, opened.st_ino):
+            return None
+        handle = os.fdopen(descriptor, "r", encoding="utf-8", errors="ignore")
+        descriptor = None
+        with handle:
+            return handle.read(limit)
+    except OSError:
+        return None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
 def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) -> str:
     """Collect a bounded repository text corpus without opening special files."""
     repo = repo.resolve()
+    if not _descriptor_scan_supported():
+        return ""
     chunks: list[str] = []
     consumed = 0
     scanned = 0
@@ -94,43 +155,69 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
         "pyproject.toml", "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
         "requirements.txt", "Dockerfile", "docker-compose.yml", "vercel.json", ".env.example", "README.md", "ARCHITECTURE.md",
     }
+    root_descriptor = _open_directory(repo)
+    if root_descriptor is None:
+        return ""
+    open_descriptors = {root_descriptor}
+    pending: tuple[int, Path] | None = (root_descriptor, Path())
+    stack: list[tuple[int, Path, list[str], int]] = []
+    try:
+        while pending is not None or stack:
+            if pending is not None:
+                directory_fd, relative_directory = pending
+                pending = None
+                try:
+                    names = os.listdir(directory_fd)
+                except OSError:
+                    names = []
+                directories: list[str] = []
+                files: list[str] = []
+                for name in names:
+                    try:
+                        entry = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if stat.S_ISDIR(entry.st_mode):
+                        if name not in SKIP_PARTS:
+                            directories.append(name)
+                    elif not stat.S_ISLNK(entry.st_mode):
+                        files.append(name)
 
-    for current, dirs, files in os.walk(repo, topdown=True, followlinks=False):
-        dirs[:] = sorted(
-            directory
-            for directory in dirs
-            if directory not in SKIP_PARTS and not (Path(current) / directory).is_symlink()
-        )
-        current_path = Path(current)
-        ordered_files = sorted(files, key=lambda name: (name not in preferred, name))
-        for name in ordered_files:
-            if scanned >= max_files or consumed >= max_chars:
-                return "\n".join(chunks).lower()
-            path = current_path / name
-            if path.is_symlink():
+                ordered_files = sorted(files, key=lambda name: (name not in preferred, name))
+                for name in ordered_files:
+                    if scanned >= max_files or consumed >= max_chars:
+                        return "\n".join(chunks).lower()
+                    if Path(name).suffix.lower() not in TEXT_SUFFIXES and name not in preferred:
+                        continue
+                    remaining = max_chars - consumed
+                    text = _read_regular_text(name, directory_fd, min(20_000, remaining))
+                    if text is None:
+                        continue
+                    scanned += 1
+                    consumed += len(text)
+                    chunks.append((relative_directory / name).as_posix())
+                    chunks.append(text)
+                    if consumed >= max_chars:
+                        return "\n".join(chunks).lower()
+                stack.append((directory_fd, relative_directory, sorted(directories), 0))
                 continue
-            if path.suffix.lower() not in TEXT_SUFFIXES and name not in preferred:
+
+            directory_fd, relative_directory, directories, index = stack[-1]
+            if index >= len(directories):
+                stack.pop()
+                os.close(directory_fd)
+                open_descriptors.remove(directory_fd)
                 continue
-            try:
-                metadata = path.stat(follow_symlinks=False)
-            except OSError:
-                continue
-            if not stat.S_ISREG(metadata.st_mode):
-                continue
-            try:
-                relative = path.resolve(strict=False).relative_to(repo)
-                remaining = max_chars - consumed
-                with path.open("r", encoding="utf-8", errors="ignore") as handle:
-                    text = handle.read(min(20_000, remaining))
-            except OSError:
-                continue
-            scanned += 1
-            consumed += len(text)
-            chunks.append(relative.as_posix())
-            chunks.append(text)
-            if consumed >= max_chars:
-                return "\n".join(chunks).lower()
-    return "\n".join(chunks).lower()
+            name = directories[index]
+            stack[-1] = (directory_fd, relative_directory, directories, index + 1)
+            child_descriptor = _open_directory(name, directory_fd=directory_fd)
+            if child_descriptor is not None:
+                open_descriptors.add(child_descriptor)
+                pending = (child_descriptor, relative_directory / name)
+        return "\n".join(chunks).lower()
+    finally:
+        for descriptor in open_descriptors:
+            os.close(descriptor)
 
 
 def build_discovery_preflight(repo: Path, brief: str, capacity: dict[str, Any]) -> dict[str, Any]:

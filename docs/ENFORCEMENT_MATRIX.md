@@ -13,6 +13,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Agent cannot persist Git config, hooks, or other Git-directory metadata | In-memory Git-directory checkpoint, comparison, and verified restoration | Detective, blocks acceptance and restores metadata |
 | Agent cannot invent executable gates | Gate IDs reference controller config | Preventive |
 | Dangerous shell interpolation | argv-only subprocess execution; no `shell=True` | Preventive in controller |
+| Discovery preflight follows a replaced file or ancestor path outside the repository, or blocks on a special file | Traverse through pinned directory descriptors, open children relative to those descriptors with no-follow and nonblocking flags, require regular-file descriptors, and fail closed where those primitives are unavailable | Preventive |
 | Chiptune cleanup deletes a caller-selected directory | Private non-init playback state plus an internally owned temporary-directory handle | Preventive |
 | Timed-out release-sweep child leaves Clawpatch or its provider editing the project | Dedicated process group terminated as a unit with bounded cleanup; timed-out non-fix commands are not restarted | Preventive and recoverable |
 | A healthy large ClawPatch review exceeds one absolute child watchdog before all features finish | Use ClawPatch dry-run to read pending features and job count, run one `review --limit <jobs>` worker wave per child, and require an exact pending-count decrease after every wave | Preventive, progress-bounded continuation |
