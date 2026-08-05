@@ -2417,24 +2417,80 @@ def _resume_stopped_attempt(
             f"Stopped Clawpatch finding {finding_id} has unsupported status {finding_status!r}."
         )
     current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
+    temporary_commit = str(checkpoint.get("temporary_commit", ""))
     candidates = []
-    for attempt in inspected["patchAttempts"]:
-        if not isinstance(attempt, dict) or attempt.get("status") != "applied":
-            continue
-        git_record = attempt.get("git")
+    if temporary_commit:
+        if current_head != checkpoint.get("head_before"):
+            raise SafetyError(
+                "Stopped Clawpatch iteration chain is not based on its recorded starting HEAD."
+            )
+        recorded_fingerprint = str(checkpoint.get("owned_source_fingerprint", ""))
         if (
-            finding_id in attempt.get("findingIds", [])
-            and sorted(attempt.get("filesChanged", [])) == owned_paths
-            and isinstance(git_record, dict)
-            and git_record.get("baseSha") == current_head
+            not recorded_fingerprint
+            or _owned_source_fingerprint(repo, owned_paths) != recorded_fingerprint
         ):
-            candidates.append(attempt)
-    if len(candidates) != 1:
-        raise SafetyError(
-            "Stopped Clawpatch progress requires exactly one applied patch attempt bound "
-            "to the current HEAD and owned source paths."
+            raise SafetyError(
+                "Stopped Clawpatch iteration chain no longer matches its exact source fingerprint."
+            )
+        iteration_paths = _verify_iteration_commit(
+            repo,
+            finding_id=finding_id,
+            original_head=current_head,
+            temporary_commit=temporary_commit,
+            require_current=False,
         )
-    patch = candidates[0]
+        if iteration_paths != owned_paths:
+            raise SafetyError(
+                "Stopped Clawpatch iteration commit does not contain its exact owned paths."
+            )
+        valid_bases = {current_head, temporary_commit}
+        for attempt in inspected["patchAttempts"]:
+            if not isinstance(attempt, dict) or attempt.get("status") not in {
+                "applied",
+                "failed",
+            }:
+                continue
+            patch_attempt_id = attempt.get("patchAttemptId")
+            finding_ids = attempt.get("findingIds")
+            files_changed = attempt.get("filesChanged")
+            git_record = attempt.get("git")
+            if (
+                isinstance(patch_attempt_id, str)
+                and patch_attempt_id.strip()
+                and isinstance(finding_ids, list)
+                and finding_id in finding_ids
+                and isinstance(files_changed, list)
+                and all(isinstance(path, str) and path for path in files_changed)
+                and set(files_changed).issubset(owned_paths)
+                and isinstance(git_record, dict)
+                and git_record.get("baseSha") in valid_bases
+            ):
+                _validate_attempt_paths_syntax(list(files_changed))
+                candidates.append(attempt)
+        if not candidates:
+            raise SafetyError(
+                "Stopped Clawpatch iteration chain has no matching applied or validation-failed "
+                "patch attempt at its recorded Git boundary."
+            )
+        patch = candidates[-1]
+    else:
+        for attempt in inspected["patchAttempts"]:
+            if not isinstance(attempt, dict) or attempt.get("status") != "applied":
+                continue
+            git_record = attempt.get("git")
+            if (
+                finding_id in attempt.get("findingIds", [])
+                and sorted(attempt.get("filesChanged", [])) == owned_paths
+                and isinstance(git_record, dict)
+                and git_record.get("baseSha") == current_head
+            ):
+                candidates.append(attempt)
+        if len(candidates) != 1:
+            raise SafetyError(
+                "Stopped Clawpatch progress requires exactly one applied patch attempt bound "
+                "to the current HEAD and owned source paths."
+            )
+        patch = candidates[0]
     _validate_attempt_paths(repo, owned_paths)
     gate_runs = _run_project_gates(
         repo,

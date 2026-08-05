@@ -485,7 +485,7 @@ The implemented ClawPatch 0.7.2 state machine is:
 | An iteration changes nothing, repeats a seen tree, or cycles to the original tree | Unwind the temporary commit to visible source edits at the original HEAD, checkpoint exact ownership, and stop without advancing |
 | Provider/timeout/missing-finding errors, gates fail, or revalidation remains `uncertain` or `false-positive` | Stop with combined source edits in place and the queue unchanged |
 | A selected finding is missing or state is contradictory | Stop; do not remap, review, skip, or triage automatically |
-| A stopped checkpoint matches the branch, finding, and current dirty paths, and one applied patch attempt matches current HEAD | Resume that existing attempt at project gates and revalidation; do not rerun `fix` |
+| A stopped checkpoint matches the branch, finding, current dirty paths, exact source fingerprint, and recognizable temporary iteration commit | Accept the latest matching applied or validation-failed attempt at the original/temporary Git boundary, resume the combined repair at project gates, and continue the same finding without discarding partial work |
 | An older supervisor stopped after exact `fixed` because an overlapping repair produced no new source | Require a source-clean tree, unchanged checkpoint HEAD, the same finding still `fixed`, and an applied zero-file attempt at that HEAD; clear only the checkpoint and continue at `next` without a commit or push |
 | An interrupted `planned` attempt has no source changes, belongs to the same open finding, and matches current HEAD | Preserve ClawPatch state, clear only the external checkpoint, require `next` to return that same finding, then continue through `show` and `fix` |
 | A stopped checkpoint's exact owned source paths already appear as one exact descendant source commit and the worktree is source-clean | Clear that completed stale checkpoint automatically and continue normally |
@@ -508,12 +508,15 @@ or proof that HEAD and source remained unchanged because no additional repair wa
 Clawpatch state metadata is never mixed into a source commit.
 
 After a stopped process is relaunched, Manageroo resumes only when the durable
-checkpoint's branch, finding, and exact dirty path set agree, and one applied
-Clawpatch patch-attempt record matches current HEAD. It runs gates and revalidation
-for that already-applied attempt. A `fixed` result creates the final exact-path
-commit; an `open` result becomes a local-only iteration commit and continues the
-same finding without pushing partial work. Any ambiguity leaves the checkpoint
-and edits untouched.
+checkpoint's branch, finding, exact dirty path set, source fingerprint, original
+HEAD, and recognizable temporary iteration commit agree. A partial-progress chain
+may contain several `failed` patch-attempt records because ClawPatch uses that
+status when validation fails after applying useful source changes. Manageroo
+selects the latest matching attempt at the recorded original/temporary Git
+boundary and resumes the combined repair at project gates. A `fixed` result
+creates the final exact-path commit; an `open` result becomes a local-only
+iteration commit and continues the same finding without pushing partial work.
+Any ambiguity leaves the checkpoint and edits untouched.
 For compatibility with a checkpoint written by an older supervisor after an
 overlapping finding was already fixed, a zero-path checkpoint is retired only
 when the worktree is source-clean, HEAD is unchanged, the same finding is

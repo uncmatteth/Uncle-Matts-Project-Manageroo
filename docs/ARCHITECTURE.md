@@ -200,13 +200,16 @@ findings. There is no arbitrary generation cap; a repeated non-clean source
 tree is deterministic nonconvergence and stops. Only the clean terminal
 generation can authorize `COMPLETE`, final state cleanup or publication, and
 the fixed-point proof that records every reviewed generation.
-Ordinary relaunch resumes a stopped applied attempt only when the durable
-checkpoint's branch, finding, and exact dirty path set agree, and exactly one
-applied Clawpatch patch-attempt record matches current HEAD. It resumes at gates
-and revalidation without invoking `fix` again; an `open` outcome creates the
-same local-only temporary iteration and continues the same finding without a
-push. Any mismatch or ambiguity refuses continuation and preserves the
-checkpoint and edits. The Manageroo project command's
+Ordinary relaunch resumes a stopped repair only when the durable checkpoint's
+branch, finding, original HEAD, exact dirty path set, exact source fingerprint,
+and recognizable temporary iteration commit agree. A combined partial-progress
+chain may contain multiple `failed` patch-attempt records because ClawPatch uses
+that status when validation fails after applying source changes. Manageroo accepts
+the latest matching applied or validation-failed record at the checkpoint's
+original/temporary Git boundary and resumes at gates. An `open` outcome creates
+the same local-only temporary iteration and continues the same finding without a
+push. Any mismatch or ambiguity refuses continuation and preserves the checkpoint
+and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
 An older stopped checkpoint may own zero paths because exact revalidation
 already returned `fixed` for an overlapping repair. Ordinary relaunch retires
