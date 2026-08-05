@@ -404,6 +404,71 @@ class PackageReleaseTests(unittest.TestCase):
             after = {path.name: path.read_bytes() for path in drop.iterdir() if path.is_file()}
             self.assertEqual(after, before)
 
+    def test_publish_release_drop_failure_restores_previous_archives_and_drop(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "release.zip"
+            source_output = root / "release-source.zip"
+            candidate_output = root / "candidate-release.zip"
+            candidate_source = root / "candidate-source.zip"
+            drop = root / "drop"
+            output.write_bytes(b"old-end-user")
+            source_output.write_bytes(b"old-source")
+            candidate_output.write_bytes(b"new-end-user")
+            candidate_source.write_bytes(b"new-source")
+            drop.mkdir()
+            (drop / "operator-note.txt").write_text("keep me", encoding="utf-8")
+            (drop / package_release.INSTALLER_ZIP).write_bytes(b"old-end-user")
+            (drop / package_release.SOURCE_ZIP).write_bytes(b"old-source")
+            drop_before = {
+                path.name: path.read_bytes()
+                for path in drop.iterdir()
+                if path.is_file()
+            }
+            original_copy2 = package_release.shutil.copy2
+
+            def fail_during_drop_stage(source, destination, *args, **kwargs):
+                if Path(source) == output:
+                    raise OSError("simulated drop staging failure")
+                return original_copy2(source, destination, *args, **kwargs)
+
+            def drop_copies(end_user_archive, source_archive):
+                return {
+                    package_release.INSTALLER_ZIP: end_user_archive,
+                    package_release.SOURCE_ZIP: source_archive,
+                }
+
+            with (
+                patch.object(package_release, "OUTPUT", output),
+                patch.object(package_release, "SOURCE_OUTPUT", source_output),
+                patch.object(
+                    package_release,
+                    "RELEASE_LOCK_TARGET",
+                    root / "state" / "release-publication",
+                ),
+                patch.object(package_release, "_drop_copies", side_effect=drop_copies),
+                patch.object(
+                    package_release.shutil,
+                    "copy2",
+                    side_effect=fail_during_drop_stage,
+                ),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated drop staging failure"):
+                    package_release._publish_release(candidate_output, candidate_source, drop)
+
+            self.assertEqual(output.read_bytes(), b"old-end-user")
+            self.assertEqual(source_output.read_bytes(), b"old-source")
+            self.assertEqual(candidate_output.read_bytes(), b"new-end-user")
+            self.assertEqual(candidate_source.read_bytes(), b"new-source")
+            self.assertEqual(
+                {
+                    path.name: path.read_bytes()
+                    for path in drop.iterdir()
+                    if path.is_file()
+                },
+                drop_before,
+            )
+
     def test_drop_refresh_preserves_interrupted_transaction_backup(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

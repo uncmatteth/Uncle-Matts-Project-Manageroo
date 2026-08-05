@@ -266,7 +266,12 @@ def _assert_drop_has_no_operator_symlinks(drop_dir: Path) -> None:
             )
 
 
-def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: Path) -> None:
+def refresh_drop_folder(
+    drop_dir: Path,
+    end_user_archive: Path,
+    source_archive: Path,
+    retain_backup: bool = False,
+) -> None:
     copies = _drop_copies(end_user_archive, source_archive)
     for source in copies.values():
         if not source.is_file() or source.is_symlink():
@@ -281,9 +286,10 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
             f"Interrupted release-drop transaction found at {backup}; "
             "refusing to overwrite recovery data."
         )
+    drop_had_old = drop_dir.is_dir()
     stage = Path(tempfile.mkdtemp(prefix=f".{drop_dir.name}.stage-", dir=str(parent)))
     try:
-        if drop_dir.is_dir():
+        if drop_had_old:
             for existing in drop_dir.iterdir():
                 if existing.name == "SHA256SUMS.txt":
                     continue
@@ -305,7 +311,7 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
         if drop_dir.exists():
             drop_dir.rename(backup)
         stage.rename(drop_dir)
-        if backup.exists():
+        if backup.exists() and not retain_backup:
             shutil.rmtree(backup)
     except Exception:
         if not drop_dir.exists() and backup.exists():
@@ -316,7 +322,11 @@ def refresh_drop_folder(drop_dir: Path, end_user_archive: Path, source_archive: 
             shutil.rmtree(stage, ignore_errors=True)
 
 
-def _publish_archive_pair(candidate_output: Path, candidate_source: Path) -> None:
+def _publish_archive_pair(
+    candidate_output: Path,
+    candidate_source: Path,
+    retain_backups: bool = False,
+) -> None:
     """Publish both public archives as one recoverable transaction."""
     output_backup = OUTPUT.with_name(OUTPUT.name + ".manageroo-previous")
     source_backup = SOURCE_OUTPUT.with_name(SOURCE_OUTPUT.name + ".manageroo-previous")
@@ -366,9 +376,30 @@ def _publish_archive_pair(candidate_output: Path, candidate_source: Path) -> Non
             ) from exc
         raise
     else:
-        for backup in (output_backup, source_backup):
+        if not retain_backups:
+            for backup in (output_backup, source_backup):
+                if backup.exists():
+                    backup.unlink()
+
+
+def _rollback_archive_pair(
+    candidate_output: Path,
+    candidate_source: Path,
+) -> list[str]:
+    rollback_errors: list[str] = []
+    for published, candidate in (
+        (OUTPUT, candidate_output),
+        (SOURCE_OUTPUT, candidate_source),
+    ):
+        backup = published.with_name(published.name + ".manageroo-previous")
+        try:
+            if published.exists():
+                os.replace(published, candidate)
             if backup.exists():
-                backup.unlink()
+                backup.rename(published)
+        except OSError as exc:
+            rollback_errors.append(f"{published}: {exc}")
+    return rollback_errors
 
 
 def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: Path) -> None:
@@ -376,8 +407,31 @@ def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: P
     if RELEASE_LOCK_TARGET.parent.is_symlink() or not RELEASE_LOCK_TARGET.parent.is_dir():
         raise RuntimeError(f"Release lock directory is unsafe: {RELEASE_LOCK_TARGET.parent}")
     with config_mutation_lock(RELEASE_LOCK_TARGET, timeout_seconds=600.0):
-        _publish_archive_pair(candidate_output, candidate_source)
-        refresh_drop_folder(drop_dir, OUTPUT, SOURCE_OUTPUT)
+        _publish_archive_pair(
+            candidate_output,
+            candidate_source,
+            True,
+        )
+        try:
+            refresh_drop_folder(drop_dir, OUTPUT, SOURCE_OUTPUT, True)
+        except Exception as exc:
+            rollback_errors = _rollback_archive_pair(
+                candidate_output,
+                candidate_source,
+            )
+            if rollback_errors:
+                raise RuntimeError(
+                    f"Release drop publication failed: {exc}; "
+                    f"archive rollback also failed: {'; '.join(rollback_errors)}"
+                ) from exc
+            raise
+        for published in (OUTPUT, SOURCE_OUTPUT):
+            backup = published.with_name(published.name + ".manageroo-previous")
+            if backup.exists():
+                backup.unlink()
+        drop_backup = drop_dir.with_name(drop_dir.name + ".manageroo-previous")
+        if drop_backup.exists():
+            shutil.rmtree(drop_backup)
 
 
 def main() -> int:
