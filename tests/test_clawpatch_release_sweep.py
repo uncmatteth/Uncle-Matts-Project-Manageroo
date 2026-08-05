@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
 import subprocess
 import tempfile
 import unittest
@@ -45,6 +47,28 @@ from manageroo.clawpatch_release import (
 )
 from manageroo.entrypoint import _clawpatch_main
 from manageroo.errors import SafetyError
+
+
+def _hold_clawpatch_release_lock(repo: str, acquired, release) -> None:
+    lock_path = Path(repo) / ".git" / "manageroo-clawpatch-release.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"\0")
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        acquired.set()
+        if not release.wait(timeout=5):
+            raise TimeoutError("test did not release Clawpatch sweep lock")
+    finally:
+        os.close(descriptor)
 
 
 class ClawpatchReleaseSweepTests(unittest.TestCase):
@@ -644,14 +668,15 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release.os.getpid", return_value=101)
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/lsof")
     @patch("manageroo.clawpatch_release._run")
-    def test_unix_process_inventory_ignores_self_and_other_repositories(
+    def test_unix_process_inventory_matches_root_and_subdirectory_not_other_repositories(
         self, run, _which, _getpid, _is_dir
     ):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
+            subdir = repo / "subdir"
             other = root / "other"
-            repo.mkdir()
+            subdir.mkdir(parents=True)
             other.mkdir()
 
             def inspect(argv, **_kwargs):
@@ -660,17 +685,29 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                         argv,
                         f"101 python3 -m manageroo.clawpatch_external --repo {repo}\n"
                         f"202 clawpatch-supervise --repo {other}\n"
-                        "303 clawpatch map\n",
+                        "303 clawpatch map\n"
+                        "404 clawpatch fix --finding fnd_one\n",
                     )
+                if argv[0] == "git":
+                    cwd = Path(_kwargs["cwd"])
+                    git_root = other if cwd == other else repo
+                    return self.completed(argv, f"{git_root}\n")
                 pid = argv[argv.index("-p") + 1]
-                cwd = other if pid == "202" else repo
+                cwd = other if pid == "202" else subdir if pid == "303" else repo
                 return self.completed(argv, f"p{pid}\nfcwd\nn{cwd}\n")
 
             run.side_effect = inspect
 
             self.assertEqual(
                 _active_clawpatch_processes(repo),
-                [{"pid": 303, "cwd": str(repo), "command": "clawpatch map"}],
+                [
+                    {"pid": 303, "cwd": str(subdir), "command": "clawpatch map"},
+                    {
+                        "pid": 404,
+                        "cwd": str(repo),
+                        "command": "clawpatch fix --finding fnd_one",
+                    },
+                ],
             )
 
     def test_pushable_branch_must_match_the_live_origin_sha_before_any_fix(self):
@@ -2434,6 +2471,41 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             self.init_repo(repo)
             with self.assertRaisesRegex(SafetyError, "already active"):
                 release_sweep(repo, apply=True, branch="current")
+
+    def test_apply_refuses_contending_release_sweep_owner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            context = multiprocessing.get_context("spawn")
+            acquired = context.Event()
+            release = context.Event()
+            owner = context.Process(
+                target=_hold_clawpatch_release_lock,
+                args=(str(repo), acquired, release),
+            )
+            try:
+                owner.start()
+                self.assertTrue(acquired.wait(timeout=5))
+                with (
+                    patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2"),
+                    patch(
+                        "manageroo.clawpatch_release._active_clawpatch_processes",
+                        return_value=[],
+                    ),
+                    patch(
+                        "manageroo.clawpatch_release._json_clawpatch",
+                        side_effect=SafetyError("repository sweep lock was ignored"),
+                    ),
+                    self.assertRaisesRegex(SafetyError, "already active"),
+                ):
+                    release_sweep(repo, apply=True, branch="current")
+            finally:
+                release.set()
+                owner.join(timeout=5)
+                if owner.is_alive():
+                    owner.terminate()
+                    owner.join(timeout=1)
+                self.assertEqual(owner.exitcode, 0)
 
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
     def test_dry_run_does_not_run_clawpatch(self, _version):

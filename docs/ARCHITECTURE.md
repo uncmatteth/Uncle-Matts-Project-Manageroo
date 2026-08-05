@@ -133,6 +133,10 @@ reports the pending count and current job count. Manageroo runs one
 features by exactly the child's reviewed count. There is no arbitrary wave cap;
 zero pending completes review, no progress stops, and the 900-second process-tree
 watchdog remains enforced per child instead of spanning the whole repository.
+Before any applying sweep, Manageroo resolves recognized ClawPatch process working
+directories to their Git worktree roots and rejects same-worktree processes. A
+nonblocking advisory lock in that worktree's Git metadata remains held across the
+complete sweep, including every fixed-point review generation.
 On Windows, argv-only child execution resolves native command shims and invokes
 `.cmd` or `.bat` launchers through `COMSPEC /d /s /c` while retaining
 `shell=False`. The native installer records the exact supported Node directory it

@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .branding import PROJECT_DIR
 from .config import load_config
@@ -321,6 +324,13 @@ def _is_clawpatch_argv(argv: list[str]) -> bool:
     return _command_name(script) in commands
 
 
+def _process_repository_root(cwd: Path) -> Path | None:
+    result = _run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, timeout=30)
+    if result.returncode or not result.stdout.strip():
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
 def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
     root = repo.resolve()
     found: list[dict[str, Any]] = []
@@ -341,7 +351,7 @@ def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
                 cwd = (entry / "cwd").resolve()
             except (FileNotFoundError, PermissionError, OSError):
                 continue
-            if cwd == root:
+            if _process_repository_root(cwd) == root:
                 found.append({"pid": int(entry.name), "cwd": str(cwd), "command": cmdline.strip()})
         return found
     if os.name == "nt":
@@ -367,7 +377,7 @@ def _active_clawpatch_processes(repo: Path) -> list[dict[str, Any]]:
         if not _is_clawpatch_argv(argv):
             continue
         cwd = _unix_process_cwd(pid, root)
-        if cwd == root:
+        if cwd is not None and _process_repository_root(cwd) == root:
             found.append({"pid": pid, "cwd": str(cwd), "command": command})
     return found
 
@@ -431,6 +441,83 @@ def _require_no_process(repo: Path) -> None:
     active = _active_clawpatch_processes(repo)
     if active:
         raise SafetyError(f"A Clawpatch process is already active for this repository: {active}")
+
+
+@contextmanager
+def _release_sweep_lock(repo: Path) -> Iterator[None]:
+    raw_path = _git_text(
+        repo,
+        ["git", "rev-parse", "--git-path", "manageroo-clawpatch-release.lock"],
+    )
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        candidate = repo / candidate
+    lock_path = candidate.parent.resolve() / candidate.name
+    flags = os.O_CREAT | os.O_RDWR
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise SafetyError(
+            f"Could not open the Clawpatch release sweep lock: {lock_path}: {exc}"
+        ) from exc
+    acquired = False
+    try:
+        lock_state = os.fstat(descriptor)
+        path_state = lock_path.lstat()
+        reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        file_attributes = getattr(path_state, "st_file_attributes", 0)
+        if (
+            stat.S_ISLNK(path_state.st_mode)
+            or (reparse_point and file_attributes & reparse_point)
+            or not stat.S_ISREG(lock_state.st_mode)
+            or lock_state.st_nlink != 1
+            or (path_state.st_dev, path_state.st_ino) != (lock_state.st_dev, lock_state.st_ino)
+        ):
+            raise SafetyError(
+                f"Clawpatch release sweep lock is not a private regular file: {lock_path}"
+            )
+        if lock_state.st_size == 0:
+            os.write(descriptor, b"\0")
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EAGAIN}:
+                raise SafetyError(
+                    f"A Clawpatch release sweep is already active for this repository: {repo}"
+                ) from exc
+            raise SafetyError(
+                f"Could not acquire the Clawpatch release sweep lock: {lock_path}: {exc}"
+            ) from exc
+        yield
+    finally:
+        try:
+            if acquired:
+                if os.name == "nt":
+                    import msvcrt
+
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+        except OSError as exc:
+            raise SafetyError(
+                f"Could not release the Clawpatch release sweep lock: {lock_path}: {exc}"
+            ) from exc
+        finally:
+            os.close(descriptor)
 
 
 def require_external_clawpatch_preflight(repo: Path) -> None:
@@ -3167,6 +3254,52 @@ def release_sweep(
     progress: Callable[[dict[str, Any]], None] | None = None,
     integration_mode: str = "manageroo",
     child_env_overrides: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Automate Clawpatch's documented one-finding workflow without automatic triage."""
+    root = _git_root(repo)
+    if not apply:
+        return _release_sweep_locked(
+            root,
+            apply=False,
+            branch=branch,
+            push_mode=push_mode,
+            publish_clawpatch_state=publish_clawpatch_state,
+            trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass,
+            fresh=fresh,
+            child_timeout_seconds=child_timeout_seconds,
+            progress=progress,
+            integration_mode=integration_mode,
+            child_env_overrides=child_env_overrides,
+        )
+    with _release_sweep_lock(root):
+        return _release_sweep_locked(
+            root,
+            apply=True,
+            branch=branch,
+            push_mode=push_mode,
+            publish_clawpatch_state=publish_clawpatch_state,
+            trusted_host_codex_sandbox_bypass=trusted_host_codex_sandbox_bypass,
+            fresh=fresh,
+            child_timeout_seconds=child_timeout_seconds,
+            progress=progress,
+            integration_mode=integration_mode,
+            child_env_overrides=child_env_overrides,
+        )
+
+
+def _release_sweep_locked(
+    repo: Path,
+    *,
+    apply: bool = False,
+    branch: str = "auto",
+    push_mode: str = "none",
+    publish_clawpatch_state: bool = False,
+    trusted_host_codex_sandbox_bypass: bool = False,
+    fresh: bool = False,
+    child_timeout_seconds: int = CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+    integration_mode: str = "manageroo",
+    child_env_overrides: dict[str, str] | None = None,
     _fixed_point_generation: int = 1,
     _fixed_point_seen_trees: tuple[str, ...] = (),
     _prior_results: tuple[dict[str, Any], ...] = (),
@@ -3175,7 +3308,6 @@ def release_sweep(
     _prior_review_generations: tuple[dict[str, Any], ...] = (),
     _already_pushed: bool = False,
 ) -> dict[str, Any]:
-    """Automate Clawpatch's documented one-finding workflow without automatic triage."""
     root = _git_root(repo)
     if integration_mode not in {"manageroo", "external"}:
         raise SafetyError("integration_mode must be one of: manageroo, external.")
@@ -3862,7 +3994,7 @@ def release_sweep(
             progress=progress,
             state_root=state_root,
         )
-        return release_sweep(
+        return _release_sweep_locked(
             root,
             apply=True,
             branch="current",
