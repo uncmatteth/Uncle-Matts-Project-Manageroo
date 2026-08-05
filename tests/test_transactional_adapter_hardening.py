@@ -359,6 +359,59 @@ class TransactionalAdapterHardeningTests(unittest.TestCase):
                 with self.assertRaisesRegex(SafetyError, "byte limit"):
                     adapter._snapshot_git_metadata(repo)
 
+    def test_git_metadata_restore_write_failure_preserves_live_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = make_repo(Path(temp))
+            adapter = TransactionalAdapter(FailingWorker(), CommandRunner())
+            snapshot = adapter._snapshot_git_metadata(repo)
+            config = repo / ".git" / "config"
+            config.write_bytes(config.read_bytes() + b"\n# worker mutation\n")
+            live_before = git_metadata(repo)
+
+            with mock.patch(
+                "manageroo.adapters.transactional.os.fsync",
+                side_effect=OSError("injected staged write failure"),
+            ):
+                with self.assertRaisesRegex(SafetyError, "injected staged write failure"):
+                    adapter._restore_git_metadata(snapshot)
+
+            self.assertEqual(git_metadata(repo), live_before)
+            self.assertEqual(git(repo, "status", "--porcelain", "--ignored"), "")
+            self.assertEqual(list(repo.glob(".git.manageroo-*")), [])
+
+    def test_git_metadata_restore_swap_failure_recovers_live_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = make_repo(Path(temp))
+            adapter = TransactionalAdapter(FailingWorker(), CommandRunner())
+            snapshot = adapter._snapshot_git_metadata(repo)
+            config = repo / ".git" / "config"
+            config.write_bytes(config.read_bytes() + b"\n# worker mutation\n")
+            live_before = git_metadata(repo)
+            replace = os.replace
+            calls = 0
+
+            def fail_staged_install(source, destination):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    backups = list(repo.glob(".git.manageroo-backup-*"))
+                    self.assertEqual(len(backups), 1)
+                    self.assertTrue(backups[0].is_dir())
+                    self.assertFalse((repo / ".git").exists())
+                    raise OSError("injected swap failure")
+                return replace(source, destination)
+
+            with mock.patch(
+                "manageroo.adapters.transactional.os.replace",
+                side_effect=fail_staged_install,
+            ):
+                with self.assertRaisesRegex(SafetyError, "injected swap failure"):
+                    adapter._restore_git_metadata(snapshot)
+
+            self.assertEqual(git_metadata(repo), live_before)
+            self.assertEqual(git(repo, "status", "--porcelain", "--ignored"), "")
+            self.assertEqual(list(repo.glob(".git.manageroo-*")), [])
+
     def test_read_only_committed_mutation_is_rejected_and_head_restored(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = make_repo(Path(temp))

@@ -377,6 +377,113 @@ class TransactionalAdapter(AgentAdapter):
         os.chmod(path, stat.S_IRWXU)
         function(path)
 
+    def _remove_git_metadata_path(self, path: Path) -> None:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path, onerror=self._make_removable)
+        elif path.exists() or path.is_symlink():
+            path.unlink()
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        if os.name == "nt":
+            return
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_DIRECTORY", 0)
+        descriptor = os.open(path, flags)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _reserve_git_metadata_sibling(git_dir: Path, purpose: str) -> Path:
+        path = Path(
+            tempfile.mkdtemp(
+                prefix=f"{git_dir.name}.manageroo-{purpose}-",
+                dir=git_dir.parent,
+            )
+        )
+        path.rmdir()
+        return path
+
+    def _materialize_git_metadata(
+        self,
+        git_dir: Path,
+        expected: dict[str, tuple[str, int, bytes]],
+    ) -> Path:
+        staged = Path(
+            tempfile.mkdtemp(
+                prefix=f"{git_dir.name}.manageroo-restore-",
+                dir=git_dir.parent,
+            )
+        )
+        try:
+            directories = [
+                (relative, entry)
+                for relative, entry in expected.items()
+                if relative != "." and entry[0] == "directory"
+            ]
+            for relative, _entry in sorted(
+                directories, key=lambda item: item[0].count("/")
+            ):
+                (staged / relative).mkdir(mode=0o700)
+            for relative, (kind, mode, content) in expected.items():
+                if kind != "file":
+                    continue
+                path = staged / relative
+                with path.open("wb") as handle:
+                    handle.write(content)
+                    handle.flush()
+                    path.chmod(mode)
+                    os.fsync(handle.fileno())
+            for relative, (_kind, mode, _content) in sorted(
+                directories, key=lambda item: item[0].count("/"), reverse=True
+            ):
+                (staged / relative).chmod(mode)
+            staged.chmod(expected["."][1])
+            for relative, _entry in sorted(
+                directories, key=lambda item: item[0].count("/"), reverse=True
+            ):
+                self._fsync_directory(staged / relative)
+            self._fsync_directory(staged)
+            if self._git_metadata_state(staged) != expected:
+                raise SafetyError(
+                    "Worker changed protected Git metadata and its staged restoration "
+                    "could not be verified."
+                )
+            self._fsync_directory(git_dir.parent)
+            return staged
+        except BaseException:
+            self._remove_git_metadata_path(staged)
+            raise
+
+    def _recover_git_metadata_backup(
+        self,
+        git_dir: Path,
+        backup: Path,
+    ) -> None:
+        displaced: Path | None = None
+        try:
+            if git_dir.exists() or git_dir.is_symlink():
+                displaced = self._reserve_git_metadata_sibling(git_dir, "failed-restore")
+                os.replace(git_dir, displaced)
+                self._fsync_directory(git_dir.parent)
+            os.replace(backup, git_dir)
+            self._fsync_directory(git_dir.parent)
+        except OSError:
+            if displaced is not None and not git_dir.exists() and not git_dir.is_symlink():
+                try:
+                    os.replace(displaced, git_dir)
+                    self._fsync_directory(git_dir.parent)
+                except OSError:
+                    pass
+            raise
+        if displaced is not None:
+            try:
+                self._remove_git_metadata_path(displaced)
+                self._fsync_directory(git_dir.parent)
+            except OSError:
+                pass
+
     def _restore_git_metadata(
         self, snapshot: tuple[Path, dict[str, tuple[str, int, bytes]]]
     ) -> bool:
@@ -393,37 +500,43 @@ class TransactionalAdapter(AgentAdapter):
             if current.get(path) != expected.get(path)
         }
         protected_metadata_changed = bool(changed_paths - {"index"})
+        staged: Path | None = None
+        backup: Path | None = None
         try:
-            if git_dir.is_dir() and not git_dir.is_symlink():
-                shutil.rmtree(git_dir, onerror=self._make_removable)
-            elif git_dir.exists() or git_dir.is_symlink():
-                git_dir.unlink()
-
-            git_dir.mkdir(parents=True, mode=0o700)
-            directories = [
-                (relative, entry)
-                for relative, entry in expected.items()
-                if relative != "." and entry[0] == "directory"
-            ]
-            for relative, _entry in sorted(directories, key=lambda item: item[0].count("/")):
-                (git_dir / relative).mkdir(mode=0o700)
-            for relative, (kind, mode, content) in expected.items():
-                if kind != "file":
-                    continue
-                path = git_dir / relative
-                path.write_bytes(content)
-                path.chmod(mode)
-            for relative, (_kind, mode, _content) in sorted(
-                directories, key=lambda item: item[0].count("/"), reverse=True
-            ):
-                (git_dir / relative).chmod(mode)
-            git_dir.chmod(expected["."][1])
-        except OSError as exc:
+            staged = self._materialize_git_metadata(git_dir, expected)
+            if git_dir.exists() or git_dir.is_symlink():
+                backup = self._reserve_git_metadata_sibling(git_dir, "backup")
+                os.replace(git_dir, backup)
+                self._fsync_directory(git_dir.parent)
+            os.replace(staged, git_dir)
+            staged = None
+            self._fsync_directory(git_dir.parent)
+            if self._git_metadata_state(git_dir) != expected:
+                raise SafetyError(
+                    "Worker changed protected Git metadata and restoration could not be verified."
+                )
+            if backup is not None:
+                verified_backup = backup
+                backup = None
+                self._remove_git_metadata_path(verified_backup)
+                self._fsync_directory(git_dir.parent)
+        except (OSError, SafetyError) as exc:
+            recovery_error: OSError | None = None
+            if backup is not None and (backup.exists() or backup.is_symlink()):
+                try:
+                    self._recover_git_metadata_backup(git_dir, backup)
+                    backup = None
+                except OSError as recovery_exc:
+                    recovery_error = recovery_exc
+            detail = f": {exc}"
+            if recovery_error is not None:
+                detail += f"; durable backup retained at {backup}: {recovery_error}"
             raise SafetyError(
-                f"Worker changed protected Git metadata and it could not be restored: {git_dir}: {exc}"
+                f"Worker changed protected Git metadata and it could not be restored: {git_dir}{detail}"
             ) from exc
-        if self._git_metadata_state(git_dir) != expected:
-            raise SafetyError("Worker changed protected Git metadata and restoration could not be verified.")
+        finally:
+            if staged is not None and (staged.exists() or staged.is_symlink()):
+                self._remove_git_metadata_path(staged)
         return protected_metadata_changed
 
     def _clean_ignored(self, cwd: Path) -> None:
