@@ -69,9 +69,10 @@ class ExternalRepairResumeTests(unittest.TestCase):
 
             resumed = _existing_checkpoint(fixture, "autoreview", baseline=baseline)
             self.assertIsNotNone(resumed)
-            commit, paths = resumed
+            commit, paths, ignored_state = resumed
             self.assertEqual(commit, checkpoint)
             self.assertEqual(paths, ["new.txt", "tracked.txt"])
+            self.assertEqual(ignored_state, {})
 
     def test_missing_checkpoint_returns_none(self):
         with tempfile.TemporaryDirectory() as temp:

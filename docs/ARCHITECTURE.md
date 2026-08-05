@@ -295,10 +295,12 @@ The surrounding stack provides first-class capabilities without taking control a
 
 Successful external repair reports are reusable only for the same run, command configuration,
 approved paths, and inputs. Continuation verifies the recorded checkpoint chain and Git diffs,
-then restores the exact clean final checkpoint only from a clean workspace; incomplete legacy
-reports and dirty or ignored resume state fail closed without restoration. Failed-lane rollback
-preserves ignored paths that predated the lane and cleans only unmanaged paths created by that
-lane, after the baseline reset succeeds.
+then restores the exact clean final checkpoint only from a clean workspace. Ignored paths that
+predated the lane are fingerprinted in checkpoint state, preserved across controller commits, and
+must remain unchanged and disjoint from checkpoint-tracked paths during restoration; incomplete
+legacy reports and dirty or unapproved ignored resume state fail closed without restoration.
+Failed-lane rollback preserves ignored paths that predated the lane and cleans only unmanaged paths
+created by that lane, after the baseline reset succeeds.
 Before the final report exists, successful lane manifests form the same command-ordered chain, so
 an interrupted run restores its latest validated checkpoint without repeating completed lanes.
 

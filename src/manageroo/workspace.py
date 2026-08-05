@@ -189,8 +189,9 @@ class WorkspaceMirror:
         changed.update(item for item in untracked.stdout.split("\0") if item)
         return sorted(changed)
 
-    def checkpoint(self, message: str) -> str:
-        self._discard_ignored_state()
+    def checkpoint(self, message: str, *, preserve_ignored: bool = False) -> str:
+        if not preserve_ignored:
+            self._discard_ignored_state()
         self._git(["add", "-A"])
         status = self._git(["status", "--porcelain"])
         if status.stdout.strip():

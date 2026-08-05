@@ -132,6 +132,67 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
             )
 
+    def test_persisted_success_with_preexisting_ignored_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            calls = {"count": 0}
+            holder = {}
+
+            def command(**_kwargs):
+                calls["count"] += 1
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("repaired\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "preexisting.cache\n", encoding="utf-8"
+            )
+            preexisting = fake.workspace / "preexisting.cache"
+            preexisting.write_text("operator data\n", encoding="utf-8")
+
+            result = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                gate_results=[],
+            )
+            baseline = result["records"][0]["baseline"]
+            checkpoint = result["records"][0]["checkpoint"]
+            report_path = run_root / "artifacts" / "review" / "external-review-repair.json"
+
+            git(fake.workspace, "reset", "--hard", baseline)
+            fake._artifact_json = lambda relative: (
+                read_json(report_path) if relative == "review/external-review-repair.json" else None
+            )
+            preexisting.write_text("operator mutation\n", encoding="utf-8")
+            with self.assertRaisesRegex(SafetyError, "ignored workspace data changed"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+            self.assertEqual(fake.mirror.head(), baseline)
+
+            preexisting.write_text("operator data\n", encoding="utf-8")
+            resumed = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                gate_results=[],
+            )
+
+            self.assertEqual(calls["count"], 1)
+            self.assertEqual(resumed["records"][0]["checkpoint"], checkpoint)
+            self.assertEqual(fake.mirror.head(), checkpoint)
+            self.assertEqual(preexisting.read_text(encoding="utf-8"), "operator data\n")
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
     def test_interrupted_final_report_write_resumes_checkpoint(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -424,11 +485,11 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             baseline = fake.mirror.head()
             checkpoint = fake.mirror.checkpoint
 
-            def racing_checkpoint(message):
+            def racing_checkpoint(message, **kwargs):
                 (fake.workspace / "forbidden.txt").write_text(
                     "concurrent mutation\n", encoding="utf-8"
                 )
-                return checkpoint(message)
+                return checkpoint(message, **kwargs)
 
             with patch.object(fake.mirror, "checkpoint", side_effect=racing_checkpoint):
                 with self.assertRaisesRegex(SafetyError, "rollback was verified"):
@@ -476,11 +537,11 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             baseline = fake.mirror.head()
             checkpoint = fake.mirror.checkpoint
 
-            def racing_checkpoint(message):
+            def racing_checkpoint(message, **kwargs):
                 (fake.workspace / "tracked.txt").write_text(
                     "concurrent mutation\n", encoding="utf-8"
                 )
-                return checkpoint(message)
+                return checkpoint(message, **kwargs)
 
             with patch.object(fake.mirror, "checkpoint", side_effect=racing_checkpoint):
                 with self.assertRaisesRegex(

@@ -149,16 +149,99 @@ def _ignored_state(
     return {path: _ignored_entry_state(orchestrator, path) for path in sorted(paths)}
 
 
-def _restore_checkpoint(orchestrator: Any, *, name: str, checkpoint: str) -> None:
+def _ignored_state_payload(
+    state: dict[str, tuple[str, int, int, int, int, str]],
+) -> dict[str, list[str | int]]:
+    return {path: list(entry) for path, entry in sorted(state.items())}
+
+
+def _persisted_ignored_state(
+    payload: dict[str, Any], *, name: str
+) -> dict[str, tuple[str, int, int, int, int, str]]:
+    raw_state = payload.get("ignored_state", {})
+    if not isinstance(raw_state, dict):
+        raise SafetyError(f"Command-owned {name} checkpoint ignored state is invalid.")
+    state: dict[str, tuple[str, int, int, int, int, str]] = {}
+    for raw_path, raw_entry in raw_state.items():
+        path = safe_repo_relative(str(raw_path))
+        if not isinstance(raw_entry, list) or len(raw_entry) != 6:
+            raise SafetyError(f"Command-owned {name} checkpoint ignored state is invalid.")
+        kind, mode, device, inode, size, digest = raw_entry
+        if (
+            not isinstance(kind, str)
+            or kind not in {"file", "symlink", "other"}
+            or any(type(value) is not int for value in (mode, device, inode, size))
+            or not isinstance(digest, str)
+        ):
+            raise SafetyError(f"Command-owned {name} checkpoint ignored state is invalid.")
+        state[path] = (kind, mode, device, inode, size, digest)
+    return state
+
+
+def _verify_ignored_state(
+    orchestrator: Any,
+    *,
+    name: str,
+    expected: dict[str, tuple[str, int, int, int, int, str]],
+) -> None:
+    paths = _untracked_paths(orchestrator, ignored=True)
+    if paths != set(expected) or _ignored_state(orchestrator, paths) != expected:
+        raise SafetyError(f"Command-owned {name} checkpoint ignored workspace data changed.")
+
+
+def _checkpoint_ignored_collisions(
+    orchestrator: Any, checkpoint: str, ignored_paths: set[str]
+) -> set[str]:
+    if not ignored_paths:
+        return set()
+    assert orchestrator.workspace is not None
+    result = orchestrator.runner.run(
+        [
+            "git",
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            checkpoint,
+            "--",
+            *(f":(literal){path}" for path in sorted(ignored_paths)),
+        ],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if not result.passed:
+        raise SafetyError("Could not inspect external repair checkpoint path collisions.")
+    return {safe_repo_relative(item) for item in result.stdout.split("\0") if item}
+
+
+def _restore_checkpoint(
+    orchestrator: Any,
+    *,
+    name: str,
+    checkpoint: str,
+    preserved_ignored_state: dict[str, tuple[str, int, int, int, int, str]],
+) -> None:
     assert orchestrator.workspace is not None
     status = orchestrator.runner.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=orchestrator.workspace,
         timeout_seconds=60,
     )
-    if not status.passed or status.stdout.strip() or _untracked_paths(orchestrator, ignored=True):
+    if not status.passed or status.stdout.strip():
         raise SafetyError(
             f"Command-owned {name} checkpoint restoration requires a clean workspace."
+        )
+    _verify_ignored_state(
+        orchestrator,
+        name=name,
+        expected=preserved_ignored_state,
+    )
+    collisions = _checkpoint_ignored_collisions(
+        orchestrator, checkpoint, set(preserved_ignored_state)
+    )
+    if collisions:
+        raise SafetyError(
+            f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
         )
     reset = orchestrator.runner.run(
         ["git", "reset", "--hard", checkpoint],
@@ -177,11 +260,21 @@ def _restore_checkpoint(orchestrator: Any, *, name: str, checkpoint: str) -> Non
         cwd=orchestrator.workspace,
         timeout_seconds=60,
     )
+    ignored_state_matches = True
+    try:
+        _verify_ignored_state(
+            orchestrator,
+            name=name,
+            expected=preserved_ignored_state,
+        )
+    except SafetyError:
+        ignored_state_matches = False
     if (
         not head.passed
         or head.stdout.strip() != checkpoint
         or not status.passed
         or status.stdout.strip()
+        or not ignored_state_matches
     ):
         raise SafetyError(f"Command-owned {name} checkpoint could not be restored exactly.")
 
@@ -191,7 +284,7 @@ def _existing_checkpoint(
     name: str,
     *,
     baseline: str,
-) -> tuple[str, list[str]] | None:
+) -> tuple[str, list[str], dict[str, tuple[str, int, int, int, int, str]]] | None:
     """Resume only a checkpoint persisted for this exact durable run and baseline."""
 
     assert orchestrator.workspace is not None
@@ -233,7 +326,12 @@ def _existing_checkpoint(
     recorded_paths = sorted({safe_repo_relative(str(item)) for item in payload.get("changed_paths", []) or []})
     if recorded_paths != changed_paths:
         raise SafetyError(f"Command-owned {name} checkpoint manifest does not match its Git diff.")
-    return checkpoint, changed_paths
+    ignored_state = _persisted_ignored_state(payload, name=name)
+    if _checkpoint_ignored_collisions(orchestrator, checkpoint, set(ignored_state)):
+        raise SafetyError(
+            f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
+        )
+    return checkpoint, changed_paths, ignored_state
 
 
 def _existing_checkpoint_chain(
@@ -281,14 +379,17 @@ def _existing_checkpoint_chain(
         resumed = _existing_checkpoint(orchestrator, name, baseline=baseline)
         if resumed is None:
             raise SafetyError(f"Command-owned {name} checkpoint manifest is stale.")
-        checkpoint, changed_paths = resumed
+        checkpoint, changed_paths, ignored_state = resumed
         policy.validate_paths(changed_paths)
+        if chain and ignored_state != chain[0]["ignored_state"]:
+            raise SafetyError("Command-owned external repair checkpoint ignored state changed.")
         chain.append(
             {
                 "name": name,
                 "baseline": baseline,
                 "checkpoint": checkpoint,
                 "changed_paths": changed_paths,
+                "ignored_state": ignored_state,
             }
         )
         expected_baseline = checkpoint
@@ -306,6 +407,7 @@ def _existing_checkpoint_chain(
         orchestrator,
         name="interrupted external review/repair",
         checkpoint=chain[-1]["checkpoint"],
+        preserved_ignored_state=chain[-1]["ignored_state"],
     )
     return chain
 
@@ -457,6 +559,9 @@ def _validate_persisted_report(
         raise SafetyError("Persisted external review/repair allowed paths have changed.")
     if str(resume.get("input_fingerprint") or "") != input_fingerprint:
         raise SafetyError("Persisted external review/repair inputs have changed.")
+    preserved_ignored_state = _persisted_ignored_state(
+        resume, name="persisted external review/repair"
+    )
 
     records = existing.get("records")
     if not isinstance(records, list) or len(records) != len(commands):
@@ -479,15 +584,17 @@ def _validate_persisted_report(
             {safe_repo_relative(str(item)) for item in record.get("changed_paths", []) or []}
         )
         policy.validate_paths(changed_paths)
-        if not changed_paths:
-            if record.get("checkpoint"):
-                raise SafetyError("Persisted external review/repair empty lane has a checkpoint.")
-            continue
         resumed = _existing_checkpoint(orchestrator, str(name), baseline=baseline)
         if resumed is None:
             raise SafetyError(f"Command-owned {name} checkpoint manifest is missing or stale.")
-        checkpoint, actual_paths = resumed
-        if str(record.get("checkpoint") or "") != checkpoint or changed_paths != actual_paths:
+        checkpoint, actual_paths, ignored_state = resumed
+        if ignored_state != preserved_ignored_state:
+            raise SafetyError(f"Command-owned {name} checkpoint ignored state has changed.")
+        if changed_paths:
+            checkpoint_matches = str(record.get("checkpoint") or "") == checkpoint
+        else:
+            checkpoint_matches = not record.get("checkpoint") and checkpoint == baseline
+        if not checkpoint_matches or changed_paths != actual_paths:
             raise SafetyError(f"Command-owned {name} persisted report does not match its checkpoint.")
         expected_checkpoint = checkpoint
 
@@ -497,6 +604,7 @@ def _validate_persisted_report(
         orchestrator,
         name="persisted external review/repair",
         checkpoint=final_checkpoint,
+        preserved_ignored_state=preserved_ignored_state,
     )
     return existing
 
@@ -575,6 +683,7 @@ def run_external_review_repair_lanes(
     records: list[dict] = []
     failed: list[str] = []
     rollback_verified = True
+    approved_ignored_state: dict[str, tuple[str, int, int, int, int, str]] | None = None
     checkpoint_chain = _existing_checkpoint_chain(
         self,
         commands,
@@ -584,6 +693,7 @@ def run_external_review_repair_lanes(
     for lane_index, (name, argv_template) in enumerate(commands):
         if lane_index < len(checkpoint_chain):
             resumed = checkpoint_chain[lane_index]
+            approved_ignored_state = resumed["ignored_state"]
             changed_paths = resumed["changed_paths"]
             ScopePolicy(tuple(allowed_paths)).validate_paths(changed_paths)
             record = {
@@ -603,6 +713,12 @@ def run_external_review_repair_lanes(
 
         baseline = self.mirror.head()
         preserved_ignored_state = _require_clean_lane_start(self, name)
+        if (
+            approved_ignored_state is not None
+            and preserved_ignored_state != approved_ignored_state
+        ):
+            raise SafetyError("Command-owned external repair checkpoint ignored state changed.")
+        approved_ignored_state = preserved_ignored_state
         before_command = baseline
         try:
             record = self._run_optional_external_command(
@@ -646,12 +762,25 @@ def run_external_review_repair_lanes(
                 record["policy_error"] = policy_error
 
             if record.get("ok"):
+                _verify_ignored_state(
+                    self,
+                    name=name,
+                    expected=preserved_ignored_state,
+                )
                 checkpoint = before_command
                 checkpoint_paths: list[str] = []
                 if changed_paths:
                     approved_tree = _staged_workspace_tree(self)
+                    if _checkpoint_ignored_collisions(
+                        self, approved_tree, set(preserved_ignored_state)
+                    ):
+                        raise SafetyError(
+                            f"Command-owned {name} checkpoint collides with preserved ignored "
+                            "workspace data."
+                        )
                     checkpoint = self.mirror.checkpoint(
-                        _checkpoint_message(name, str(self.run_id), before_command)
+                        _checkpoint_message(name, str(self.run_id), before_command),
+                        preserve_ignored=True,
                     )
                     if _checkpoint_tree(self, checkpoint) != approved_tree:
                         raise SafetyError(
@@ -665,6 +794,11 @@ def run_external_review_repair_lanes(
                         )
                     record["checkpoint"] = checkpoint
                     record["changed_paths"] = checkpoint_paths
+                _verify_ignored_state(
+                    self,
+                    name=name,
+                    expected=preserved_ignored_state,
+                )
                 atomic_write_json(
                     _checkpoint_manifest_path(self, name),
                     {
@@ -675,6 +809,7 @@ def run_external_review_repair_lanes(
                         "baseline": before_command,
                         "checkpoint": checkpoint,
                         "changed_paths": checkpoint_paths,
+                        "ignored_state": _ignored_state_payload(preserved_ignored_state),
                     },
                 )
         except Exception as exc:
@@ -731,6 +866,7 @@ def run_external_review_repair_lanes(
             "input_fingerprint": input_fingerprint,
             "initial_baseline": str(records[0].get("baseline") or ""),
             "final_checkpoint": self.mirror.head(),
+            "ignored_state": _ignored_state_payload(approved_ignored_state or {}),
         },
         "summary": {
             "enabled": [name for name, _ in commands],
