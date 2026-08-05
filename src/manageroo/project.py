@@ -33,10 +33,11 @@ silently broadening the current task.
 Read `.manageroo/PROJECT-MEMORY.md` before broad product work. Preserve the
 `What Must Not Break` section unless the operator explicitly changes it.
 
-Read `.manageroo/intent/INTENT-LOCK.md` before relying on a compacted chat,
-handoff, or old summary. If a summary drops a must-not rule, rejected idea,
-latest correction, proof requirement, or scope boundary, stop and run
-`manageroo compact audit --summary SUMMARY.md`.
+Run `manageroo intent show --json` before relying on a compacted chat, handoff,
+or old summary, and use its validated `lock` as the current intent. Do not read
+the generated `INTENT-LOCK.md` directly. If a summary drops a must-not rule,
+rejected idea, latest correction, proof requirement, or scope boundary, stop
+and run `manageroo compact audit --summary SUMMARY.md`.
 
 Use relevant installed skills when their triggers match, but do not treat host-owned
 skills as Manageroo-owned dependencies. Manageroo's portable core remains bounded.
@@ -54,8 +55,9 @@ For broad work, agents and AI IDEs should read these in order:
 
 1. `.manageroo/PROJECT-MEMORY.md` for durable project identity, shipped facts,
    must-not-break rules, proof, and operator notes.
-2. `.manageroo/intent/INTENT-LOCK.md` for the current ask, must-not rules,
-   rejected ideas, latest corrections, proof, and scope boundaries.
+2. `manageroo intent show --json` for the validated current ask, must-not rules,
+   rejected ideas, latest corrections, proof, and scope boundaries. Do not read
+   the generated `INTENT-LOCK.md` directly.
 3. `.manageroo/PRODUCT-BRIEF.md` for the current requested build or repair.
 4. `AGENTS.md` for repo operating rules.
 5. This `CONTEXT.md` file when the repo has extra background, product language,

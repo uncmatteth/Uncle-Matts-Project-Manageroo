@@ -57,7 +57,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change, including through an in-root symlink alias | Symlink-free artifact paths plus artifact hash ledger | Preventive and detective, blocks next phase |
 | Failed or interrupted artifact replacement desynchronizes content and ledger metadata | Write-ahead staging with prior-artifact and prior-ledger recovery under the transaction lock | Preventive and recoverable |
-| Compaction cannot drop must-not rules or audit a malformed, non-UTF-8, or structurally invalid intent lock | Intent lock plus compaction audit, with decoding and schema validation | Detective, blocks continuation |
+| Compaction cannot drop must-not rules or consume a malformed, non-UTF-8, structurally invalid, or mixed-generation intent lock pair | Canonical JSON intent lock plus compaction audit, with decoding, schema validation, and a Markdown generation marker; validated reads regenerate mismatched Markdown from the stable JSON snapshot under the mutation lock, and agent instructions prohibit direct reads of the generated Markdown | Preventive and recoverable |
 | Concurrent intent replacement cannot pair one payload with another generation's hash | Hash and parse one immutable JSON byte snapshot; writers hold the mutation lock through capture result construction | Preventive |
 | Worker memory cannot become run truth | Durable job store, packet manifests, artifact hashes | Preventive in controller |
 | Failed worker attempt is not treated as completion | Worker-attempt records plus retry/failed-job status | Preventive in controller |

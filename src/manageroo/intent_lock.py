@@ -23,6 +23,9 @@ from .util import atomic_write_json, atomic_write_text, sha256_bytes, sha256_fil
 INTENT_DIR = "intent"
 INTENT_LOCK_NAME = "INTENT-LOCK.json"
 INTENT_LOCK_MARKDOWN_NAME = "INTENT-LOCK.md"
+_MARKDOWN_GENERATION_PATTERN = re.compile(
+    r"\A<!-- manageroo-intent-lock-json-sha256: ([0-9a-f]{64}) -->\n"
+)
 _LOCK_STRING_FIELDS = ("created_at", "repo", "source", "want")
 _LOCK_LIST_FIELDS = (
     "outcomes", "must_not", "proof", "corrections", "rejected", "scopes", "questions",
@@ -99,8 +102,9 @@ def _bullets(values: list[str], fallback: str = "None recorded.") -> list[str]:
     return [f"- {value}" for value in values]
 
 
-def _lock_markdown(lock: dict[str, Any]) -> str:
+def _lock_markdown(lock: dict[str, Any], *, lock_hash: str) -> str:
     lines = [
+        f"<!-- manageroo-intent-lock-json-sha256: {lock_hash} -->",
         "# Intent Lock", "", "This file is the repo-local truth surface for long-running AI work.",
         "Chat compaction, handoffs, and agent summaries must preserve these items.", "",
         "## Current Intent", "", lock.get("want") or "None recorded.", "",
@@ -145,7 +149,10 @@ def _publish_lock_pair(path: Path, lock: dict[str, Any]) -> Path:
     publication_started = False
     try:
         atomic_write_json(staged[path], lock)
-        atomic_write_text(staged[markdown_path], _lock_markdown(lock))
+        atomic_write_text(
+            staged[markdown_path],
+            _lock_markdown(lock, lock_hash=sha256_file(staged[path])),
+        )
         for visible in staged:
             if visible.exists():
                 backup = transaction / f"{visible.name}.previous"
@@ -182,12 +189,48 @@ def _read_lock_snapshot(path: Path) -> tuple[Any, str]:
     return json.loads(snapshot.decode("utf-8")), sha256_bytes(snapshot)
 
 
+def _read_lock_pair_snapshot(path: Path) -> tuple[Any, str, str | None]:
+    lock, lock_hash = _read_lock_snapshot(path)
+    markdown_path = path.with_name(INTENT_LOCK_MARKDOWN_NAME)
+    try:
+        markdown = markdown_path.read_bytes().decode("utf-8")
+    except FileNotFoundError:
+        return lock, lock_hash, "paired INTENT-LOCK.md is missing"
+    except UnicodeDecodeError:
+        return lock, lock_hash, "paired INTENT-LOCK.md must contain UTF-8 encoded text"
+    match = _MARKDOWN_GENERATION_PATTERN.match(markdown)
+    if match is None:
+        return lock, lock_hash, "paired INTENT-LOCK.md has no JSON generation marker"
+    markdown_generation = match.group(1)
+    if markdown_generation != lock_hash:
+        return (
+            lock,
+            lock_hash,
+            "JSON and Markdown generation markers do not match",
+        )
+    return lock, lock_hash, None
+
+
 def _invalid_intent_lock(repo: Path, path: Path, detail: str) -> dict[str, Any]:
     return {
         "ok": False,
         "repo": str(repo),
         "path": str(path),
         "error": f"INTENT-LOCK.json is invalid: {detail}",
+        "next_command": render_next_command(
+            "intent", "capture", repo, "--want", "...", "--must-not", "...",
+            "--proof", "...", "--force",
+        ),
+    }
+
+
+def _invalid_intent_lock_pair(repo: Path, path: Path, detail: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "repo": str(repo),
+        "path": str(path),
+        "markdown_path": str(path.with_name(INTENT_LOCK_MARKDOWN_NAME)),
+        "error": f"Intent lock pair is inconsistent: {detail}",
         "next_command": render_next_command(
             "intent", "capture", repo, "--want", "...", "--must-not", "...",
             "--proof", "...", "--force",
@@ -241,7 +284,7 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"ok": False, "repo": str(repo), "path": str(path), "error": "No intent lock exists yet.", "next_command": render_next_command("intent", "capture", repo, "--want", "...", "--must-not", "...", "--proof", "...")}
     try:
-        lock, lock_hash = _read_lock_snapshot(path)
+        lock, lock_hash, pair_problem = _read_lock_pair_snapshot(path)
     except json.JSONDecodeError as exc:
         return _invalid_intent_lock(
             repo,
@@ -255,6 +298,34 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
     problem = _validate_intent_lock_payload(lock)
     if problem:
         return _invalid_intent_lock(repo, path, problem)
+    if pair_problem:
+        with config_mutation_lock(path):
+            try:
+                lock, lock_hash, pair_problem = _read_lock_pair_snapshot(path)
+            except json.JSONDecodeError as exc:
+                return _invalid_intent_lock(
+                    repo,
+                    path,
+                    f"malformed JSON at line {exc.lineno} column {exc.colno}: {exc.msg}",
+                )
+            except UnicodeDecodeError:
+                return _invalid_intent_lock(repo, path, "file must contain UTF-8 encoded JSON")
+        if not isinstance(lock, dict):
+            return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
+        problem = _validate_intent_lock_payload(lock)
+        if problem:
+            return _invalid_intent_lock(repo, path, problem)
+        if pair_problem:
+            try:
+                atomic_write_text(
+                    path.with_name(INTENT_LOCK_MARKDOWN_NAME),
+                    _lock_markdown(lock, lock_hash=lock_hash),
+                )
+                lock, lock_hash, pair_problem = _read_lock_pair_snapshot(path)
+            except OSError as exc:
+                pair_problem = f"paired INTENT-LOCK.md could not be regenerated: {exc}"
+        if pair_problem:
+            return _invalid_intent_lock_pair(repo, path, pair_problem)
     return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(intent_lock_markdown_path(repo)), "lock_hash": lock_hash, "lock": lock}
 
 

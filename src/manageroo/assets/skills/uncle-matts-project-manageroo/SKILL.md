@@ -20,7 +20,7 @@ The local `manageroo` command owns the run. This skill tells an AI agent how to 
 9. Report possible future features as ideas; do not silently build them.
 10. Every factual review finding must cite current file evidence.
 11. Read `.manageroo/PROJECT-MEMORY.md` before broad product work and preserve `What Must Not Break`.
-12. Read `.manageroo/intent/INTENT-LOCK.md` before trusting compacted chat, handoffs, or old summaries.
+12. Run `manageroo intent show --json` before trusting compacted chat, handoffs, or old summaries; use its validated `lock`, not the generated `INTENT-LOCK.md` directly.
 13. Do not apply learning cards without explicit operator approval.
 
 ## Context rule

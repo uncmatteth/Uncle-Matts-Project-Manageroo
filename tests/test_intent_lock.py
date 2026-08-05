@@ -3,6 +3,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -267,6 +268,75 @@ class IntentLockTests(unittest.TestCase):
 
             self.assertEqual(lock.read_bytes(), original_json)
             self.assertEqual(markdown.read_bytes(), original_markdown)
+
+    def test_interrupted_publication_regenerates_markdown_on_restart(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Original intent.")
+            lock = intent_lock_path(repo)
+            markdown = lock.with_suffix(".md")
+            original_markdown = markdown.read_bytes()
+            script = """
+import os
+import sys
+from pathlib import Path
+
+import manageroo.intent_lock as intent_lock
+
+repo = Path(sys.argv[1])
+lock = intent_lock.intent_lock_path(repo)
+real_replace = os.replace
+
+def crash_after_json_publication(source, destination):
+    result = real_replace(source, destination)
+    if Path(destination) == lock and Path(source).parent.name.startswith(".intent-lock-"):
+        os._exit(91)
+    return result
+
+intent_lock.os.replace = crash_after_json_publication
+intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
+"""
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = os.pathsep.join(
+                filter(None, (str(ROOT / "src"), environment.get("PYTHONPATH", "")))
+            )
+
+            interrupted = subprocess.run(
+                [sys.executable, "-c", script, str(repo)],
+                env=environment,
+                check=False,
+            )
+
+            self.assertEqual(interrupted.returncode, 91)
+            self.assertEqual(
+                json.loads(lock.read_text(encoding="utf-8"))["want"],
+                "Replacement intent.",
+            )
+            self.assertEqual(markdown.read_bytes(), original_markdown)
+            report = read_intent_lock(repo)
+            self.assertTrue(report["ok"], report)
+            self.assertEqual(report["lock"]["want"], "Replacement intent.")
+            repaired_markdown = markdown.read_text(encoding="utf-8")
+            self.assertIn("Replacement intent.", repaired_markdown)
+            self.assertTrue(
+                repaired_markdown.startswith(
+                    f"<!-- manageroo-intent-lock-json-sha256: {report['lock_hash']} -->\n"
+                )
+            )
+
+    def test_agent_surfaces_use_the_validating_intent_reader(self):
+        surfaces = (
+            ROOT / "src/manageroo/project.py",
+            ROOT / "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md",
+        )
+        for path in surfaces:
+            with self.subTest(path=path):
+                text = path.read_text(encoding="utf-8")
+                self.assertIn("manageroo intent show --json", text)
+                self.assertIn(
+                    "generated `INTENT-LOCK.md` directly",
+                    " ".join(text.split()),
+                )
 
     def test_audit_blocks_when_compaction_drops_must_not_rules(self):
         with tempfile.TemporaryDirectory() as temp:
