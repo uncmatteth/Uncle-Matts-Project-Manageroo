@@ -7,12 +7,12 @@ Windows and native macOS. It does not authorize a live project queue.
 
 - Repository: `https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git`
 - Branch: `fix/clawpatch-partial-progress-loop`
-- Supervisor source pin: `c038fdee0a34d8b77f11e90465eec41e88d9fb8a`
+- Supervisor source pin: `6233d19e88b637c7cdf062e0b2aebb758038bf03`
 - ClawPatch: `0.7.2`
 - Codex CLI: `0.144.4`
 - Child watchdog and provider timeout: `900` seconds
-- Windows installer SHA-256: `e2bed805da93538eb7a1202720087bf8e9371595660ed24c0640a11b00dc9b44`
-- macOS installer SHA-256: `4746212d917ddc1d58fbba2df75bd82cdd8431f6c14d403d95709600c4ce9c20`
+- Windows installer SHA-256: `88aaa3c2d3c9bea2f49f866c9fbb0fef61b1c6123867b47e0ef7f956bb2ad76e`
+- macOS installer SHA-256: `7163c357a76a81b10139a9086c6d1fadbc6f856231fa1212d34ee57e4c547794`
 
 The handoff commit that adds these installer and instruction files is allowed to
 be newer than the supervisor source pin. The supervisor implementation installed
@@ -125,14 +125,14 @@ Confirm the branch is clean and tracks
 ### Verify the Windows installer
 
 ```powershell
-$ExpectedInstallerHash = "e2bed805da93538eb7a1202720087bf8e9371595660ed24c0640a11b00dc9b44"
+$ExpectedInstallerHash = "88aaa3c2d3c9bea2f49f866c9fbb0fef61b1c6123867b47e0ef7f956bb2ad76e"
 $ActualInstallerHash = (Get-FileHash -Algorithm SHA256 .\Install-ClawPatch-Supervisor-Windows.ps1).Hash.ToLowerInvariant()
 if ($ActualInstallerHash -ne $ExpectedInstallerHash) {
     throw "Windows installer hash mismatch: $ActualInstallerHash"
 }
 
 $InstallerText = Get-Content -Raw .\Install-ClawPatch-Supervisor-Windows.ps1
-if ($InstallerText -notmatch "c038fdee0a34d8b77f11e90465eec41e88d9fb8a") {
+if ($InstallerText -notmatch "6233d19e88b637c7cdf062e0b2aebb758038bf03") {
     throw "Windows installer does not pin the repaired supervisor commit."
 }
 ```
@@ -234,10 +234,10 @@ Confirm the branch is clean and tracks
 
 ```bash
 set -euo pipefail
-expected_installer_hash="4746212d917ddc1d58fbba2df75bd82cdd8431f6c14d403d95709600c4ce9c20"
+expected_installer_hash="7163c357a76a81b10139a9086c6d1fadbc6f856231fa1212d34ee57e4c547794"
 actual_installer_hash="$(shasum -a 256 Install-ClawPatch-Supervisor-macOS.sh | awk '{print $1}')"
 test "${actual_installer_hash}" = "${expected_installer_hash}"
-grep -F "c038fdee0a34d8b77f11e90465eec41e88d9fb8a" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
+grep -F "6233d19e88b637c7cdf062e0b2aebb758038bf03" Install-ClawPatch-Supervisor-macOS.sh >/dev/null
 ```
 
 ### Run the native macOS source proof
