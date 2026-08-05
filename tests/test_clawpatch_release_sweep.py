@@ -603,6 +603,21 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         )
         self.assertEqual(child["BTT_ALLOW_DATABASE_RESET"], "true")
 
+    def test_release_environment_rejects_validation_service_policy_overrides(self):
+        for name in (
+            "CLAWPATCH_CODEX_SANDBOX",
+            "CLAWPATCH_CODEX_TIMEOUT_MS",
+            "MANAGEROO_CLAWPATCH_ALLOW_BYPASS_FALLBACK",
+            "MANAGEROO_CLAWPATCH_CHILD_TIMEOUT_SECONDS",
+            "clawpatch_codex_sandbox",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(SafetyError, "policy-owned"):
+                    _release_clawpatch_env(
+                        trusted_host_codex_sandbox_bypass=False,
+                        child_env_overrides={name: "bypass"},
+                    )
+
     def test_process_matcher_ignores_clawpatch_mentions_inside_gbrain_context(self):
         gbrain = [
             "bun",

@@ -43,6 +43,14 @@ LIFECYCLE = (
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_CLAWPATCH_POLICY_ENV_NAMES = frozenset(
+    {
+        "CLAWPATCH_CODEX_SANDBOX",
+        "CLAWPATCH_CODEX_TIMEOUT_MS",
+        "MANAGEROO_CLAWPATCH_ALLOW_BYPASS_FALLBACK",
+        "MANAGEROO_CLAWPATCH_CHILD_TIMEOUT_SECONDS",
+    }
+)
 _SUPERVISOR_UPGRADE_PATHS = frozenset(
     {
         "BUILD-VALIDATION.json",
@@ -104,6 +112,10 @@ def _release_clawpatch_env(
     for name, value in (child_env_overrides or {}).items():
         if not _ENV_NAME.fullmatch(name) or "\x00" in value:
             raise SafetyError("Manageroo received an invalid validation-service environment value.")
+        if name.upper() in _CLAWPATCH_POLICY_ENV_NAMES:
+            raise SafetyError(
+                f"Validation services cannot override Manageroo policy-owned environment variable {name}."
+            )
         child_env[name] = value
     return child_env
 
