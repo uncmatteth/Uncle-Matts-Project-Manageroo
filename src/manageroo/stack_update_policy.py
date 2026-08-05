@@ -32,6 +32,8 @@ def _destination_lock(destination: Path, *, timeout: float = 30.0) -> Iterator[N
         lock_state = os.fstat(fd)
         if not stat.S_ISREG(lock_state.st_mode):
             raise OSError(f"AUTOREVIEW update lock is not a regular file: {lock}")
+        if lock_state.st_nlink != 1:
+            raise OSError(f"AUTOREVIEW update lock has multiple hard links: {lock}")
         if lock_state.st_size == 0:
             os.ftruncate(fd, 1)
 

@@ -784,6 +784,26 @@ class StackUpdateTests(unittest.TestCase):
             self.assertTrue(lock.is_file())
             self.assertEqual(lock.read_text(encoding="utf-8"), f"pid={os.getpid()}\n")
 
+    def test_autoreview_lock_rejects_hard_link_without_overwriting_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "autoreview"
+            lock = destination.with_name(f".{destination.name}.manageroo-update.lock")
+            victim = Path(temp) / "victim.txt"
+            sentinel = b"do not overwrite\n"
+            victim.write_bytes(sentinel)
+            try:
+                os.link(victim, lock)
+            except OSError as exc:
+                self.skipTest(f"hard links are unavailable: {exc}")
+
+            from manageroo.stack_update_policy import _destination_lock
+
+            with self.assertRaises(OSError):
+                with _destination_lock(destination):
+                    pass
+
+            self.assertEqual(victim.read_bytes(), sentinel)
+
     def test_plain_output_makes_apply_boundary_explicit(self):
         text = format_stack_update(stack_update_plan())
         self.assertIn("No changes were made", text)
