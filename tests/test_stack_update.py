@@ -669,6 +669,61 @@ class StackUpdateTests(unittest.TestCase):
             self.assertEqual((destination / "SKILL.md").read_text(encoding="utf-8"), original_skill)
             self.assertEqual((moved / "SKILL.md").read_text(encoding="utf-8"), original_skill)
 
+    def test_autoreview_substitution_after_final_check_is_restored_and_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            destination = home / ".codex" / "skills" / "autoreview"
+            destination.mkdir(parents=True)
+            original_skill = "---\nname: autoreview\n---\nold\n"
+            (destination / "SKILL.md").write_text(original_skill, encoding="utf-8")
+            source = home / "source"
+            source.mkdir()
+            (source / "SKILL.md").write_text("new\n", encoding="utf-8")
+
+            with patch("manageroo.stack_update.Path.home", return_value=home), patch(
+                "manageroo.stack_update.shutil.which", return_value=None
+            ):
+                installation = stack_update_plan(["autoreview"])["tools"][0][
+                    "installation_records"
+                ][0]
+
+            displaced = destination.with_name("autoreview-original")
+            import manageroo.stack_update as stack_update_module
+
+            original_check = stack_update_module._autoreview_installation_error
+            check_count = 0
+
+            def substitute_after_final_check(record, checked_destination):
+                nonlocal check_count
+                result = original_check(record, checked_destination)
+                check_count += 1
+                if check_count == 3 and result is None:
+                    destination.rename(displaced)
+                    destination.mkdir()
+                    (destination / "KEEP.txt").write_text(
+                        "concurrent replacement\n", encoding="utf-8"
+                    )
+                return result
+
+            with patch(
+                "manageroo.stack_update._autoreview_installation_error",
+                side_effect=substitute_after_final_check,
+            ):
+                result = _replace_autoreview(source, destination, installation)
+
+            self.assertFalse(result["ok"], result)
+            self.assertIn("identity does not match", result["error"])
+            self.assertEqual(
+                (destination / "KEEP.txt").read_text(encoding="utf-8"),
+                "concurrent replacement\n",
+            )
+            self.assertEqual(
+                (displaced / "SKILL.md").read_text(encoding="utf-8"), original_skill
+            )
+            self.assertEqual(
+                list((home / ".codex").glob(".autoreview.manageroo-rollback-*")), []
+            )
+
     def test_autoreview_alias_targeting_another_skill_is_rejected_without_changes(self):
         if os.name == "nt":
             self.skipTest("symlink setup is platform-dependent on Windows")

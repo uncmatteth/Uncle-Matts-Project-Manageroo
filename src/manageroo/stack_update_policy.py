@@ -294,7 +294,9 @@ def install_stack_update_policy(module: Any) -> None:
                     }
                 if destination.exists():
                     rollback_root, previous = module._temporary_rollback_path(destination)
-                    destination.rename(previous)
+                    module._move_verified_autoreview_destination(
+                        destination, previous, installation
+                    )
                 try:
                     stage.rename(destination)
                 except Exception as swap_exc:

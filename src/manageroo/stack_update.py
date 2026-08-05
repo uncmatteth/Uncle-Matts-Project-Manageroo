@@ -521,6 +521,57 @@ def _temporary_rollback_path(destination: Path) -> tuple[Path, Path]:
     return rollback_root, rollback_root / destination.name
 
 
+def _moved_autoreview_installation_error(
+    moved: Path,
+    installation: dict[str, Any] | None,
+) -> str | None:
+    """Verify that rollback storage contains the target validated by the plan."""
+    if installation is None:
+        return None
+    try:
+        moved_state = moved.lstat()
+    except OSError as exc:
+        return f"moved AUTOREVIEW target can no longer be verified: {exc}"
+    if not stat.S_ISDIR(moved_state.st_mode) or (
+        moved_state.st_dev,
+        moved_state.st_ino,
+    ) != (
+        installation["target_device"],
+        installation["target_inode"],
+    ):
+        return "moved AUTOREVIEW target identity does not match the plan"
+    return None
+
+
+def _move_verified_autoreview_destination(
+    destination: Path,
+    previous: Path,
+    installation: dict[str, Any] | None,
+) -> None:
+    destination.rename(previous)
+    identity_error = _moved_autoreview_installation_error(previous, installation)
+    if not identity_error:
+        return
+
+    restore_error: OSError | None = None
+    try:
+        destination.lstat()
+    except FileNotFoundError:
+        try:
+            previous.rename(destination)
+        except OSError as exc:
+            restore_error = exc
+    except OSError as exc:
+        restore_error = exc
+    if restore_error:
+        raise OSError(
+            f"Unsafe AUTOREVIEW destination rejected: {identity_error}; "
+            f"substituted entry could not be restored: {restore_error}; "
+            f"recovery data remains at {previous.parent}"
+        ) from restore_error
+    raise OSError(f"Unsafe AUTOREVIEW destination rejected: {identity_error}")
+
+
 def _replace_autoreview(
     source: Path,
     destination: Path,
@@ -563,7 +614,7 @@ def _replace_autoreview(
             raise OSError(f"Unsafe AUTOREVIEW destination rejected: {identity_error}")
         if destination.exists():
             rollback_root, previous = _temporary_rollback_path(destination)
-            destination.rename(previous)
+            _move_verified_autoreview_destination(destination, previous, installation)
         stage.rename(destination)
         if rollback_root is not None:
             try:

@@ -284,7 +284,9 @@ The surrounding stack provides first-class capabilities without taking control a
 - **GBrain**: external durable knowledge retrieval and capture when a task explicitly needs external memory or a knowledge base.
 - **AUTOREVIEW**: command-owned external review lane. Stack updates retain the
   discovered candidate, approved root, resolved target, and filesystem identities;
-  any destination change before replacement fails closed without updating it.
+  any destination change before replacement fails closed without updating it. The
+  entry moved into rollback storage must still have the planned device and inode
+  before the staged installation can replace it or rollback storage can be removed.
 - **Clawpatch**: command-owned review and repair lane. Its own command owns its findings and repairs.
 - **Obsidian**: human-readable Markdown knowledge lane. Automatic updates use one
   ownership contract for Winget, Homebrew, Flatpak, and Snap and fail closed when
