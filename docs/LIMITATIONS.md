@@ -24,7 +24,63 @@
 22. High-risk migrations, billing, authentication, authorization, destructive data operations, and regulated workflows should still require human approval before production deployment.
 23. `run --continue <run-id>` continues Manageroo's saved worker job queue from disk. It replays the controller from saved artifacts and job records; it is not a terminal keepalive feature and does not promise that a killed OS process kept running.
 24. Stateless worker orchestration reduces dependence on chat memory and compaction. It does not make probabilistic model output deterministic; it records packets, attempts, artifacts, checks, failures, and controller checkpoints so bad attempts can be thrown away.
-25. Clawpatch 0.7.2 does not provide a native multi-finding batch fixer or a documented continuation transition after a failed `fix`. Manageroo supplies a one-at-a-time release-sweep controller that runs configured gates against the unchanged baseline when they exist, reviews pending features, takes the current open finding from `next --json`, records `show`, and invokes Clawpatch's own `fix` once. The Manageroo project command requires those gates; the portable external command accepts a plain Git repository and does not invent test commands when they are absent, leaving repair validation to ClawPatch's applied fix result and exact-finding revalidation. One explicit 15-minute default timeout controls the complete process-group watchdog and provider; operator interruption terminates and reaps that group. Every command failure stops without retry. A read-only `uncertain` revalidation alone gets one same-repair workspace-write revalidation guarded by an exact source fingerprint. All other non-`fixed` outcomes stop with edits visible. The checkpoint records exact paths created by the owned fix and ordinary relaunch refuses continuation. Both Manageroo-project and portable external-supervisor `--fresh` discard source only for an exact valid checkpoint ownership match; otherwise dirty paths block unchanged. External checkpoint and proof files live beside the Manageroo-owned external-runner installation instead of in the target worktree or Git metadata. A validated legacy version-2 checkpoint is migrated from `.manageroo/cache` before external cleanup. Manageroo does not install an OS relaunch daemon. Native Windows, macOS, and Linux correctness must be backed by current native test results rather than inferred from shared source.
+25. Clawpatch 0.7.2 does not provide a native multi-finding batch fixer. Manageroo supplies a sequential command-owned supervisor: fresh initialization, map, complete review, current `next`/`show`, and one finding at a time. ClawPatch alone chooses and edits repairs. When `fix` reports validation failed after applying a change, the supervisor treats the changed source as potential partial progress: it stages only exact safe source paths in one recognizable local-only temporary commit, records repository/branch/finding/original HEAD/temporary commit/owned paths/source-tree states, and invokes `fix` again for the same finding from the clean combined tree. Additional partial states amend the same local commit. There is no arbitrary attempt cap, but a new attempt requires a genuinely new source tree; no changes, a repeated state, a cycle to the original tree, history mismatch, timeout, provider failure, missing finding, or unsupported validation stops. A handled stop restores the original HEAD with the combined partial source visible and checkpointed; it never stashes, triages, skips, advances, hand-repairs, or pushes temporary commits. After exact `fixed` revalidation, all combined changed source becomes exactly one normal commit above the finding start, configured validation is rerun when present, and only then may push verification occur. If an overlapping prior finding already supplied the repair, exact `fixed` with unchanged HEAD and no source changes completes without an empty commit or redundant push. A zero-path checkpoint written by an older supervisor at that stop is retired only when current HEAD, a clean source tree, the same finding's fixed status, and an applied zero-file attempt all agree; recovery does not rerun fix, commit, or push. Final closure selects pre-existing uncertain findings through ClawPatch's `next --status uncertain`, retries exact revalidation with guarded workspace-write and one external child-scoped trusted-host pass, accepts fixed without inventing a commit, and returns open to the normal repair loop. A finding still uncertain after that bounded sequence remains a real blocker. Every normal external `clawpatch-supervise` invocation starts fresh, but it recovers and discards interrupted source only when durable ownership exactly proves the temporary commit and complete dirty path set. Unrelated dirty work blocks unchanged. Old run/discovery state is rebuilt while committed ClawPatch configuration is preserved. An exhausted nonempty queue is not completion: Manageroo rebuilds generated state and repeats map plus complete review at the resulting HEAD until a fresh generation finds zero findings. There is no arbitrary review-generation cap, but a repeated non-clean source tree stops as nonconvergent. Only that clean terminal generation may remove generated state, restore the committed `.clawpatch` tree exactly, or publish separately authorized state. The zero-finding result proves what the fresh ClawPatch 0.7.2 review reported for that exact HEAD; it is not a mathematical proof that no defect exists outside ClawPatch's analysis. External checkpoint and proof files remain outside the target checkout. One shared 15-minute process-tree watchdog/provider timeout remains enforced. Manageroo does not install an OS relaunch daemon. Native Windows, macOS, and Linux correctness still requires current native test evidence rather than inference.
+
+A stopped combined chain can legitimately contain several ClawPatch `failed`
+attempt records because ClawPatch uses that status when validation fails after
+applying useful source changes. Resume accepts the latest matching applied or
+validation-failed record only when the external checkpoint's exact source
+fingerprint, recognizable temporary iteration commit, original HEAD, and complete
+owned paths all agree. It does not treat a failed console status alone as proof.
+For fresh-start recovery, a clean current branch that descends from the recorded
+original HEAD without containing the recorded temporary iteration commit proves
+that commit is dangling. The supervisor may retire only that obsolete external
+checkpoint; current Git and files remain untouched. Dirty work or ambiguous
+ancestry still blocks.
+
+The installed external supervisor makes one final child-scoped trusted-host
+revalidation if read-only and workspace-write validation both remain uncertain.
+The source fingerprint guard remains active, and a finding still uncertain after
+that bounded sequence is a real blocker.
+Its automatic service support is intentionally limited to one disposable
+PostgreSQL convention: bounded test/spec source must explicitly use
+`TEST_DATABASE_URL` and an `*_ALLOW_DATABASE_RESET` guard, exactly one root
+Compose file must identify one official versioned PostgreSQL image, and Docker
+must be available. The service is a separate tmpfs-backed loopback container;
+Manageroo does not start arbitrary Compose services, provision other databases,
+infer test commands, reuse project volumes, or connect to an existing database.
+Repositories outside that exact contract must provide their validation service
+explicitly.
+Its automatic Python dependency support is intentionally limited to a regular
+root `pyproject.toml` that configures pytest and contains bounded static PEP 621
+requirement strings. It installs pytest, runtime dependencies, and only the
+`test`, `tests`, `dev`, or `development` optional groups into a temporary external
+virtual environment scoped to ClawPatch children. It does not install the project,
+write an in-repository environment, infer requirements files, or guess Poetry,
+Pipenv, uv, Conda, system packages, private credentials, or undeclared test tools.
+An unavailable package index, incompatible requirement, malformed manifest, or
+unsupported dependency convention remains a pre-queue blocker with captured pip
+output.
+Configured baseline gates must be both green and source-clean. If a successful
+gate changes tracked or unignored project files, the supervisor stops before
+map/review and leaves those paths visible. Manageroo does not guess that a file
+such as a framework-generated type declaration is safe to restore.
+On Windows, the installer pins the supported Node directory it actually
+verified and enables UTF-8 Python I/O in the launcher. Controller child readers
+use UTF-8 replacement decoding and tolerate absent output during sanitization;
+this preserves diagnostics but cannot reconstruct a malformed byte exactly.
+Large complete reviews are split into one ClawPatch worker-wave per child using
+the job count returned by review dry-run. Each wave must reduce the pending
+feature count by its exact reported review count. This avoids making repository
+size share one watchdog, but a single feature/provider call that exceeds the
+configured 900-second child limit still stops as an external timeout.
+The release verifier's 900-second unit-suite allowance prevents its own earlier
+five-minute Windows cutoff; it does not prove a hung test is healthy. Native
+symlink tests run when the host grants symlink creation and skip only when the
+operating system actually denies that capability.
+
+For a source-clean zero-path checkpoint whose finding disappeared after a manual ClawPatch rebuild, the supervisor may clear only the obsolete external checkpoint after proving a newer same-branch generation and checkpoint-to-generation-to-current Git ancestry. It does not remove or rewrite source or newer ClawPatch state in that transition.
+
 26. The configured worker-call budget is durably persisted for normal runs and survives `run --continue`. It currently counts one logical Manageroo worker job, not each provider fallback subprocess separately. Elapsed-runtime budgeting is enforced for the current process and clamps worker timeouts to remaining time, but elapsed runtime is not accumulated across a stopped process and later continuation.
 27. Old incomplete runs created before outcome-specific proof bindings may block under the stricter completion policy instead of being grandfathered into `COMPLETE`. Restarting such work under the current proof contract is safer than silently preserving weaker evidence semantics.
 28. The package is a source implementation. It is not installed in any product repository until the included installer and project initialization are run there.

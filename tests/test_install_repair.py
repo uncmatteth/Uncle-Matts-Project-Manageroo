@@ -28,6 +28,13 @@ def _snapshot(root: Path) -> dict[str, tuple]:
 
 
 def _launcher_text() -> str:
+    if os.name == "nt":
+        return (
+            f"@rem {LAUNCHER_MARKER}\n"
+            '@set "PYTHONPATH=C:\\manageroo\\app"\n'
+            '@set "MANAGEROO_PREFIX=C:\\manageroo"\n'
+            '@"C:\\Python312\\python.exe" -m manageroo %*\n'
+        )
     return (
         "#!/bin/sh\n"
         f"# {LAUNCHER_MARKER}\n"
@@ -35,6 +42,10 @@ def _launcher_text() -> str:
         "export MANAGEROO_PREFIX=/tmp/manageroo\n"
         'exec python3 -m manageroo "$@"\n'
     )
+
+
+def _launcher_path(bin_dir: Path) -> Path:
+    return bin_dir / ("manageroo.cmd" if os.name == "nt" else "manageroo")
 
 
 class InstallRepairTests(unittest.TestCase):
@@ -58,7 +69,7 @@ class InstallRepairTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
             bin_dir = Path(temp) / "bin"
-            launcher = bin_dir / "manageroo"
+            launcher = _launcher_path(bin_dir)
             prefix.mkdir()
             (prefix / "install-lock.json").write_text(
                 json.dumps({"launcher": str(launcher)}) + "\n",
@@ -80,7 +91,7 @@ class InstallRepairTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
             bin_dir = Path(temp) / "bin"
-            launcher = bin_dir / "manageroo"
+            launcher = _launcher_path(bin_dir)
             prefix.mkdir()
             bin_dir.mkdir()
             launcher.write_text(_launcher_text(), encoding="utf-8")
@@ -101,7 +112,7 @@ class InstallRepairTests(unittest.TestCase):
             prefix = root / "prefix"
             bin_dir = root / "bin"
             skills = root / "skills"
-            launcher = bin_dir / "manageroo"
+            launcher = _launcher_path(bin_dir)
             prefix.mkdir()
             bin_dir.mkdir()
             skills.mkdir()
@@ -135,7 +146,7 @@ class InstallRepairTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
             custom_bin = Path(temp) / "custom-bin"
-            launcher = custom_bin / "manageroo"
+            launcher = _launcher_path(custom_bin)
             prefix.mkdir()
             custom_bin.mkdir()
             launcher.write_text(_launcher_text(), encoding="utf-8")

@@ -312,7 +312,10 @@ def _is_manageroo_owned(
     skill_name: str,
     ownership: dict[str, Any],
     current_digest: str,
+    bundled_digest: str | None = None,
 ) -> bool:
+    if bundled_digest is not None and current_digest == bundled_digest:
+        return True
     record = ownership.get("skills", {}).get(str(skill_dir.resolve()), {})
     if isinstance(record, dict) and record.get("tree_sha256") == current_digest:
         return True
@@ -598,6 +601,7 @@ def _install_bundled_skill(
             skill_name,
             ownership,
             current_digest,
+            source_digest,
         )
         if not manageroo_owned:
             ownership_skills.pop(ownership_key, None)
@@ -652,13 +656,20 @@ def _install_skill_pack_transactionally(
         ownership_written = False
         ownership_written_bytes: bytes | None = None
         try:
-            for _, skill_name, _ in items:
+            for _, skill_name, asset in items:
                 skill_dir = unresolved_root / skill_name
                 if not skill_dir.exists():
                     absent.add(skill_name)
                     continue
                 current_digest = _skill_tree_sha256(skill_dir)
-                if _is_manageroo_owned(skill_dir, skill_name, ownership, current_digest):
+                bundled_digest = _skill_tree_sha256(asset_path(asset).parent)
+                if _is_manageroo_owned(
+                    skill_dir,
+                    skill_name,
+                    ownership,
+                    current_digest,
+                    bundled_digest,
+                ):
                     shutil.copytree(skill_dir, snapshots / skill_name, symlinks=False)
                     snapshotted.add(skill_name)
 

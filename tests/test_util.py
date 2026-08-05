@@ -5,6 +5,10 @@ from manageroo.util import redact_argv, redact_text
 
 
 class RedactTextTests(unittest.TestCase):
+    def test_missing_and_byte_output_are_safe_to_sanitize(self):
+        self.assertEqual(redact_text(None), "")
+        self.assertEqual(redact_text(b"before\x8fafter"), "before\ufffdafter")
+
     def test_nested_json_strings_use_the_full_redaction_pipeline(self):
         payload = {
             "message": "request failed: Bearer abc123",

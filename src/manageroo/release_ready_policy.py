@@ -57,6 +57,12 @@ def _build_release_artifact(repo: Path, release_head: str) -> dict[str, str]:
     }
 
 
+def _pipe_text(value: bytes | str) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
 @contextmanager
 def _hold_release_head(release_ready_module: Any, repo: Path) -> Iterator[str]:
     """Prevent Git from moving the candidate HEAD while release evidence is finalized."""
@@ -74,8 +80,8 @@ def _hold_release_head(release_ready_module: Any, repo: Path) -> Iterator[str]:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
+            text=False,
+            bufsize=0,
         )
     except OSError as exc:
         raise SafetyError(f"Could not start the release HEAD transaction: {exc}") from exc
@@ -85,13 +91,18 @@ def _hold_release_head(release_ready_module: Any, repo: Path) -> Iterator[str]:
         raise SafetyError("Could not open the release HEAD transaction pipes.")
 
     try:
-        transaction.stdin.write(f"start\nupdate {ref} {head} {head}\nprepare\n")
+        transaction.stdin.write(
+            f"start\nupdate {ref} {head} {head}\nprepare\n".encode("utf-8")
+        )
         transaction.stdin.flush()
-        responses = [transaction.stdout.readline().strip(), transaction.stdout.readline().strip()]
+        responses = [
+            _pipe_text(transaction.stdout.readline()).strip(),
+            _pipe_text(transaction.stdout.readline()).strip(),
+        ]
         if responses != ["start: ok", "prepare: ok"]:
             transaction.stdin.close()
             transaction.wait(timeout=5)
-            detail = transaction.stderr.read().strip() or "; ".join(responses)
+            detail = _pipe_text(transaction.stderr.read()).strip() or "; ".join(responses)
             raise SafetyError(f"Could not lock the release candidate HEAD: {detail}")
         yield head
     finally:
@@ -99,9 +110,9 @@ def _hold_release_head(release_ready_module: Any, repo: Path) -> Iterator[str]:
         response = ""
         if transaction.poll() is None:
             try:
-                transaction.stdin.write("abort\n")
+                transaction.stdin.write(b"abort\n")
                 transaction.stdin.flush()
-                response = transaction.stdout.readline().strip()
+                response = _pipe_text(transaction.stdout.readline()).strip()
                 transaction.stdin.close()
                 transaction.wait(timeout=5)
             except (BrokenPipeError, OSError, subprocess.TimeoutExpired) as exc:
@@ -113,7 +124,7 @@ def _hold_release_head(release_ready_module: Any, repo: Path) -> Iterator[str]:
             if cleanup_error is None and (
                 response != "abort: ok" or transaction.returncode != 0
             ):
-                detail = transaction.stderr.read().strip() or response
+                detail = _pipe_text(transaction.stderr.read()).strip() or response
                 cleanup_error = SafetyError(
                     f"Could not release the release candidate HEAD transaction: {detail}"
                 )

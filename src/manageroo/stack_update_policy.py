@@ -50,8 +50,10 @@ def _destination_lock(destination: Path, *, timeout: float = 30.0) -> Iterator[N
                     ) from exc
                 time.sleep(0.05)
 
-        os.ftruncate(fd, 0)
-        os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
+        owner_payload = f"pid={os.getpid()}\n".encode("utf-8")
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, owner_payload)
+        os.ftruncate(fd, len(owner_payload))
         os.fsync(fd)
         yield
     finally:
@@ -106,7 +108,8 @@ def _owned_by_manager(
         if root is None:
             return False
         try:
-            tool.absolute().relative_to(root.resolve(strict=False))
+            canonical_tool_location = tool.absolute().parent.resolve(strict=False) / tool.name
+            canonical_tool_location.relative_to(root.resolve(strict=False))
         except ValueError:
             return False
         if tool.is_symlink():

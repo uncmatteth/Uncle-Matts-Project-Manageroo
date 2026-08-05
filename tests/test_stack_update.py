@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.support import symlink_or_skip
+
 from manageroo.stack_update import (
     AUTOREVIEW_COMMIT,
     CLAWPATCH_PACKAGE,
@@ -267,8 +269,16 @@ class StackUpdateTests(unittest.TestCase):
             (package_root / "clawpatch" / "dist" / "cli.js").write_text("", encoding="utf-8")
             gitnexus = npm_bin / "gitnexus"
             clawpatch = npm_bin / "clawpatch"
-            gitnexus.symlink_to(package_root / "gitnexus" / "dist" / "cli.js")
-            clawpatch.symlink_to(package_root / "clawpatch" / "dist" / "cli.js")
+            symlink_or_skip(
+                self,
+                package_root / "gitnexus" / "dist" / "cli.js",
+                gitnexus,
+            )
+            symlink_or_skip(
+                self,
+                package_root / "clawpatch" / "dist" / "cli.js",
+                clawpatch,
+            )
 
             def which(name: str):
                 return {
@@ -403,7 +413,7 @@ class StackUpdateTests(unittest.TestCase):
                     skill.mkdir(parents=True)
                     (skill / "SKILL.md").write_text("new\n", encoding="utf-8")
                     (skill / "AGENTS.md").write_text("rules\n", encoding="utf-8")
-                    (skill / "CLAUDE.md").symlink_to("AGENTS.md")
+                    symlink_or_skip(self, "AGENTS.md", skill / "CLAUDE.md")
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
                 if "rev-parse" in argv:
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": AUTOREVIEW_COMMIT + "\n"}

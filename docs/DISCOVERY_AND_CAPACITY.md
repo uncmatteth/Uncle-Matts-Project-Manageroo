@@ -86,6 +86,12 @@ The core requirements remain the software requirements documented by the install
 
 The profile helps the product analyst avoid accidentally designing the **target project** around one developer machine. For example, a local-model application, CUDA pipeline, game build, or video workflow may have real hardware requirements. Those requirements belong to that target project or selected local tool—not to Manageroo itself.
 
+The first product-analysis attempt locks its capacity profile and
+unknown-unknowns preflight into the run artifacts. `run --continue` reuses those
+exact artifacts when reconstructing the durable worker job. It does not reprobe
+volatile values such as free disk space and then reject its own saved job as a
+changed specification. A new run receives a new current profile.
+
 In plain English:
 
 ```text

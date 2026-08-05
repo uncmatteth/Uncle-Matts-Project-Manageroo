@@ -101,6 +101,41 @@ class DiscoveryPolicyTests(unittest.TestCase):
                 instance.artifacts.writes,
             )
 
+    def test_continuation_reuses_locked_capacity_and_preflight_in_worker_spec(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            instance = self._module(root, configured_parallel=4).Orchestrator()
+            instance.continuing = True
+            discovery = instance.artifacts.root / "discovery"
+            discovery.mkdir(parents=True)
+            atomic_write_json(
+                discovery / "system-capacity.json",
+                {"disk": {"free_gib": 170.5}, "saved_capacity": True},
+            )
+            atomic_write_json(
+                discovery / "unknown-unknowns-preflight.json",
+                {"saved_preflight": True},
+            )
+
+            with patch(
+                "manageroo.discovery_policy.host_capacity",
+                return_value={"disk": {"free_gib": 171.5}},
+            ) as host_probe, patch(
+                "manageroo.discovery_policy.build_discovery_preflight",
+                return_value={"saved_preflight": False},
+            ) as preflight_builder:
+                instance._call(
+                    role="product-analyst",
+                    instructions="Product brief:\nBuild a login page",
+                )
+
+            packet = instance.calls[0]["instructions"]
+            self.assertIn('"free_gib": 170.5', packet)
+            self.assertIn('"saved_preflight": true', packet)
+            self.assertNotIn('"free_gib": 171.5', packet)
+            host_probe.assert_not_called()
+            preflight_builder.assert_not_called()
+
     def test_fully_resolved_rejects_malformed_product_decisions(self):
         malformed_decision_sets = [
             ["malformed"],

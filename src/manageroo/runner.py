@@ -103,12 +103,16 @@ def _platform_argv(argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
     if os.name != "nt":
         return resolved
     program = resolved[0]
-    program_path = Path(program)
-    if program_path.is_absolute() or "/" in program or "\\" in program:
-        return resolved
-    discovered = shutil.which(program, path=env.get("PATH"))
+    discovered = (
+        program
+        if os.path.isabs(program) or "/" in program or "\\" in program
+        else shutil.which(program, path=env.get("PATH"))
+    )
     if discovered:
         resolved[0] = discovered
+    if resolved[0].casefold().endswith((".cmd", ".bat")):
+        command_line = subprocess.list2cmdline(resolved)
+        return [env.get("COMSPEC") or "cmd.exe", "/d", "/s", "/c", command_line]
     return resolved
 
 
@@ -160,6 +164,8 @@ class CommandRunner:
                     env=process_env,
                     input=input_text,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=timeout_seconds,
@@ -223,6 +229,8 @@ class CommandRunner:
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
             "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
             "shell": False,
         }
         if os.name == "nt":

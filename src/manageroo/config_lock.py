@@ -194,8 +194,10 @@ def config_mutation_lock(
             lock_path,
             directory_descriptor=directory_descriptor,
         )
-        os.ftruncate(descriptor, 0)
-        os.write(descriptor, f"pid={os.getpid()}\n".encode("utf-8"))
+        owner_payload = f"pid={os.getpid()}\n".encode("utf-8")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.write(descriptor, owner_payload)
+        os.ftruncate(descriptor, len(owner_payload))
         os.fsync(descriptor)
         yield
     finally:

@@ -127,7 +127,11 @@ def _redact_json_value(value: Any) -> Any:
     return value
 
 
-def redact_text(text: str) -> str:
+def redact_text(text: str | bytes | None) -> str:
+    if text is None:
+        return ""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", errors="replace")
     stripped = text.strip()
     if stripped:
         try:

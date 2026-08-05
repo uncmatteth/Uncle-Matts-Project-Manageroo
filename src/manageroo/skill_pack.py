@@ -89,7 +89,7 @@ def _source_file_matches(source_file: _ValidatedSourceFile, status: os.stat_resu
         stat.S_ISREG(status.st_mode)
         and status.st_dev == source_file.device
         and status.st_ino == source_file.inode
-        and status.st_mode == source_file.mode
+        and (os.name == "nt" or status.st_mode == source_file.mode)
         and status.st_size == source_file.size
         and status.st_mtime_ns == source_file.mtime_ns
         and status.st_ctime_ns == source_file.ctime_ns
@@ -200,15 +200,19 @@ def _copy_validated_source_tree(
 
 
 def _validate_destination_tree(target_dir: Path, target_root: Path) -> None:
+    resolved_root = target_root.resolve(strict=False)
     try:
-        target_dir.resolve(strict=False).relative_to(target_root)
+        target_dir.resolve(strict=False).relative_to(resolved_root)
     except ValueError as exc:
         raise ValueError(f"Skill target escapes approved skills root: {target_dir}") from exc
     current = target_dir
-    while current != target_root:
+    while current.resolve(strict=False) != resolved_root:
         if current.is_symlink():
             raise ValueError(f"Refusing to import through symlinked skill destination: {current}")
-        current = current.parent
+        parent = current.parent
+        if parent == current:
+            raise ValueError(f"Skill target escapes approved skills root: {target_dir}")
+        current = parent
     if target_dir.exists() and not target_dir.is_dir():
         raise ValueError(f"Refusing to import over non-directory skill path: {target_dir}")
     if target_dir.exists():

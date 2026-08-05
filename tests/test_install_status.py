@@ -152,8 +152,9 @@ class InstallStatusTests(unittest.TestCase):
     def test_live_probe_overrides_stale_cached_installed_status(self):
         with tempfile.TemporaryDirectory() as temp:
             lock = Path(temp) / "install-lock.json"
+            launcher_name = "manageroo.cmd" if os.name == "nt" else "manageroo"
             lock.write_text(json.dumps({
-                "launcher": "/tmp/bin/manageroo",
+                "launcher": str(Path(temp).resolve() / "bin" / launcher_name),
                 "external_tools": [{"name": "codex", "installed": True, "configured": True}],
                 "stack_summary": {"items": [{"name": "codex", "installed": True, "configured": True, "skipped": False, "needs_action": False, "next_commands": []}]},
             }), encoding="utf-8")
@@ -183,7 +184,7 @@ class InstallStatusTests(unittest.TestCase):
 
     def test_uninstall_plan_does_not_delete(self):
         with tempfile.TemporaryDirectory() as temp:
-            prefix = Path(temp) / "prefix"
+            prefix = Path(temp).resolve() / "prefix"
             prefix.mkdir()
             _write_owned_lock(prefix, {"external_tools": []})
             plan = uninstall_plan(prefix=prefix, bin_dir=Path(temp) / "bin")
@@ -193,7 +194,7 @@ class InstallStatusTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "fixture uses the POSIX legacy launcher")
     def test_uninstall_plan_accepts_fully_verified_legacy_install_lock(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             prefix = root / "prefix"
             launcher = root / "bin" / "manageroo"
             prefix.mkdir()
@@ -250,7 +251,7 @@ class InstallStatusTests(unittest.TestCase):
 
     def test_uninstall_plan_includes_only_lock_proven_manageroo_owned_trufflehog(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             prefix = root / "prefix"
             bin_dir = root / "bin"
             prefix.mkdir()

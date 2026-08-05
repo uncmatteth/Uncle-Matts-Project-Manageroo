@@ -39,7 +39,7 @@ class HostSkillBoundaryTests(unittest.TestCase):
             report = inspect_host_skills([root])
 
             self.assertIn("security-and-hardening", report["host_owned_or_external"])
-            self.assertEqual(report["locations"]["security-and-hardening"], [str(skill_file)])
+            self.assertEqual(report["locations"]["security-and-hardening"], [str(skill_file.resolve())])
 
     def test_surveyed_capabilities_are_grouped_for_operator_visibility(self):
         with tempfile.TemporaryDirectory() as temp:

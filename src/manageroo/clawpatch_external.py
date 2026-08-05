@@ -3,11 +3,17 @@ from __future__ import annotations
 import argparse
 import threading
 import time
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Callable
 
-from .clawpatch_release import CLAWPATCH_CHILD_WATCHDOG_SECONDS, release_sweep
+from .clawpatch_release import (
+    CLAWPATCH_CHILD_WATCHDOG_SECONDS,
+    release_sweep,
+    require_external_clawpatch_preflight,
+)
 from .errors import SafetyError
+from .validation_services import provision_disposable_validation_environment
 
 
 def _counter(event: dict[str, Any]) -> str:
@@ -65,9 +71,14 @@ def _render_event(event: dict[str, Any]) -> str:
     phase = event.get("phase")
     command_phases = {
         "preflight": "PROCESS PREFLIGHT",
+        "fresh": "FRESH INIT",
+        "fresh-discard": "FRESH OWNED CLEANUP",
+        "init": "INIT",
         "status": "STATUS",
         "lock-cleanup": "LOCK CLEANUP",
         "baseline-validation": "BASELINE VALIDATION",
+        "validation-environment-start": "VALIDATION ENVIRONMENT START",
+        "validation-service-start": "VALIDATION SERVICE START",
         "map": "MAP",
         "review": "REVIEW",
         "review-verification": "REVIEW VERIFICATION",
@@ -75,7 +86,11 @@ def _render_event(event: dict[str, Any]) -> str:
         "show": "SHOW",
         "revalidate": "REVALIDATE",
         "revalidate-escalated": "REVALIDATE ESCALATED",
+        "revalidate-host": "REVALIDATE TRUSTED HOST",
+        "commit": "COMMIT",
+        "push": "PUSH",
         "report": "REPORT",
+        "state-cleanup": "CLAWPATCH STATE CLEANUP",
     }
     if phase in command_phases:
         attempt = event.get("attempt")
@@ -87,6 +102,14 @@ def _render_event(event: dict[str, Any]) -> str:
         )
     if phase == "finding":
         return _render_inspection(event)
+    if phase == "validation-service-ready":
+        return f"\n{_counter(event)} VALIDATION SERVICE READY\n$ {event.get('detail', '')}"
+    if phase == "validation-service-cleanup":
+        return f"\n{_counter(event)} VALIDATION SERVICE CLEANUP\n$ {event.get('detail', '')}"
+    if phase == "validation-environment-ready":
+        return f"\n{_counter(event)} VALIDATION ENVIRONMENT READY\n$ {event.get('detail', '')}"
+    if phase == "validation-environment-cleanup":
+        return f"\n{_counter(event)} VALIDATION ENVIRONMENT CLEANUP\n$ {event.get('detail', '')}"
     if phase == "fix":
         attempt = int(event.get("attempt", 1))
         maximum = event.get("max_attempts")
@@ -106,6 +129,24 @@ def _render_event(event: dict[str, Any]) -> str:
     if phase == "fixed":
         commit = event.get("commit") or "no source commit required"
         return f"\n{_counter(event)} FIXED\ncommit: {commit}"
+    if phase == "continuing":
+        commit = event.get("commit") or "no source commit required"
+        return (
+            f"\n{_counter(event)} OPEN - CONTINUING SAME FINDING\n"
+            f"commit: {commit}"
+        )
+    if phase == "fixed-point-rescan":
+        generation = event.get("attempt", "?")
+        return (
+            f"\n{_counter(event)} FRESH FIXED-POINT REVIEW (generation {generation})\n"
+            f"$ {event.get('command', '')}"
+        )
+    if phase == "resume":
+        return (
+            f"\n{_counter(event)} RESUME INTERRUPTED PLANNED ATTEMPT\n"
+            f"finding: {event.get('finding_id', '')}\n"
+            "source changes: none; returning through ClawPatch next"
+        )
     detail = event.get("detail") or event.get("command") or phase or "working"
     return f"{_counter(event)} {str(detail).upper()}"
 
@@ -114,6 +155,10 @@ def main(
     argv: list[str] | None = None,
     *,
     run_sweep: Callable[..., dict[str, Any]] = release_sweep,
+    provision_validation_environment: Callable[..., AbstractContextManager[dict[str, str]]] = (
+        provision_disposable_validation_environment
+    ),
+    ensure_repository_idle: Callable[[Path], None] = require_external_clawpatch_preflight,
     heartbeat_seconds: float = 30,
 ) -> int:
     parser = argparse.ArgumentParser(
@@ -125,7 +170,20 @@ def main(
     parser.add_argument("--push", choices=("none", "each", "final"), default="each")
     parser.add_argument("--publish-clawpatch-state", action="store_true")
     parser.add_argument("--trusted-host-codex-sandbox-bypass", action="store_true")
-    parser.add_argument("--fresh", action="store_true")
+    start_mode = parser.add_mutually_exclusive_group()
+    start_mode.add_argument(
+        "--fresh",
+        dest="fresh",
+        action="store_true",
+        default=True,
+        help="start a fresh ClawPatch map/review queue (the default)",
+    )
+    start_mode.add_argument(
+        "--resume-stopped",
+        dest="fresh",
+        action="store_false",
+        help="resume one exactly checkpoint-owned stopped attempt before continuing its queue",
+    )
     parser.add_argument(
         "--timeout-minutes",
         type=int,
@@ -153,6 +211,10 @@ def main(
             state.update(event)
             state["changed"] = time.monotonic()
         print(_render_event(event), flush=True)
+
+    def display_after_external_preflight(event: dict[str, Any]) -> None:
+        if event.get("phase") != "preflight":
+            display(event)
 
     def heartbeat() -> None:
         while not stopped.wait(heartbeat_seconds):
@@ -187,23 +249,37 @@ def main(
         flush=True,
     )
     try:
-        report = run_sweep(
-            Path(args.repo),
-            apply=True,
-            branch=args.branch,
-            push_mode=args.push,
-            publish_clawpatch_state=args.publish_clawpatch_state,
-            trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
-            fresh=args.fresh,
-            child_timeout_seconds=watchdog_seconds,
-            progress=display,
-            integration_mode="external",
+        repo = Path(args.repo)
+        display(
+            {
+                "phase": "preflight",
+                "current": "?",
+                "total": "?",
+                "command": "clawpatch --version",
+                "attempt": 1,
+                "max_attempts": 1,
+            }
         )
+        ensure_repository_idle(repo)
+        with provision_validation_environment(repo, progress=display) as child_env_overrides:
+            report = run_sweep(
+                repo,
+                apply=True,
+                branch=args.branch,
+                push_mode=args.push,
+                publish_clawpatch_state=args.publish_clawpatch_state,
+                trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
+                fresh=args.fresh,
+                child_timeout_seconds=watchdog_seconds,
+                progress=display_after_external_preflight,
+                integration_mode="external",
+                child_env_overrides=child_env_overrides,
+            )
     except SafetyError as exc:
         print(f"\nSTOPPED: {exc}", flush=True)
         return 2
     except KeyboardInterrupt:
-        print("\nINTERRUPTED: stopped safely; use --fresh to start a new run.", flush=True)
+        print("\nINTERRUPTED: stopped safely; run the command again for a fresh start.", flush=True)
         return 130
     finally:
         stopped.set()
@@ -214,6 +290,7 @@ def main(
         "\nCOMPLETE: "
         f"fixed={report.get('finding_count', 0)} "
         f"open={report.get('open_findings', '?')} "
+        f"fresh_review_generations={len(report.get('review_generations', []))} "
         f"head={report.get('git_head', '')}",
         flush=True,
     )

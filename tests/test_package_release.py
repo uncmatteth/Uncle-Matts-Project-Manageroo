@@ -313,6 +313,7 @@ class PackageReleaseTests(unittest.TestCase):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
+            expected = (root / "README.md").read_bytes()
             tracked = set(files)
             captured = {}
             real_write_archive = package_release.write_archive
@@ -354,7 +355,6 @@ class PackageReleaseTests(unittest.TestCase):
             ):
                 self.assertEqual(package_release.main(), 0)
 
-            expected = files["README.md"].encode()
             expected_hash = hashlib.sha256(expected).hexdigest()
             self.assertEqual(captured["installer_readme"], expected)
             self.assertEqual(captured["source_readme"], expected)

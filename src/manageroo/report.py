@@ -105,8 +105,10 @@ def build_report(data: dict[str, Any]) -> str:
     lines.extend(["", "## Next inspection commands", ""])
     run_root = evidence.get("run_root")
     if run_root:
-        lines.append(f"- `{shlex.join(['ls', str(run_root)])}`")
-        lines.append(f"- `{shlex.join(['cat', str(Path(str(run_root)) / 'delivery' / 'final-result.json')])}`")
+        run_root_text = str(run_root).rstrip("/\\")
+        result_path = run_root_text + "/delivery/final-result.json"
+        lines.append(f"- `{shlex.join(['ls', run_root_text])}`")
+        lines.append(f"- `{shlex.join(['cat', result_path])}`")
     else:
         lines.append("- No run root recorded.")
     lines.append("")

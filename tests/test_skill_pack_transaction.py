@@ -17,6 +17,7 @@ def snapshot(root: Path) -> dict[str, bytes]:
 
 class SkillPackTransactionTests(unittest.TestCase):
     def _replacement_fixture(self, root: Path):
+        root = root.resolve()
         source = root / "source" / "demo-skill"
         source.mkdir(parents=True)
         (source / "SKILL.md").write_text("new skill\n", encoding="utf-8")
@@ -29,7 +30,7 @@ class SkillPackTransactionTests(unittest.TestCase):
 
     def test_failed_multifile_import_preserves_active_destination_tree(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             source_root = root / "source"
             source_skill = source_root / "demo-skill"
             source_skill.mkdir(parents=True)
@@ -70,7 +71,7 @@ class SkillPackTransactionTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(os, "O_NOFOLLOW"), "requires no-follow file opening")
     def test_source_symlink_swap_after_validation_preserves_active_destination(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            root = Path(temp).resolve()
             source_root = root / "source"
             source_skill = source_root / "demo-skill"
             source_skill.mkdir(parents=True)
@@ -145,7 +146,7 @@ class SkillPackTransactionTests(unittest.TestCase):
                 return report
 
             with patch.object(skill_pack, "scan_skill_folder", side_effect=mutate_after_scan):
-                with self.assertRaisesRegex(ValueError, "Skill source changed after scan"):
+                with self.assertRaisesRegex(ValueError, "Skill source changed (after scan|during import)"):
                     import_skill_folder(source_root, skills_dir=skills, apply=True)
 
             self.assertEqual(snapshot(target), before)

@@ -252,6 +252,15 @@ authentication failure, malformed or contradictory state, unsafe paths, and
 Git failures still stop immediately. Applied runs create a dedicated branch
 when starting from `main` or `master`; pushing still requires `--push each` or
 `--push final`.
+
+The separately installed `clawpatch-supervise` command also detects the narrow
+disposable PostgreSQL test contract documented in `EXTERNAL_INTEGRATIONS.md`.
+When present, it visibly creates an owned tmpfs-backed test database before the
+queue, scopes its URL and reset permission to ClawPatch children, and removes it
+after completion or stop. It never uses the repository's persistent Compose
+volume or an existing database. If Docker is required but unavailable, or an
+existing container cannot be proven to belong to this repository and service,
+the queue does not start.
 Require its zero-open, zero-uncertain, final-HEAD proof in the release gate with
 `--require-clawpatch` or `require_clawpatch_release_sweep = true` in project
 config.

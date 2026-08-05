@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.support import symlink_or_skip
+
 from manageroo.token_modes import (
     CORE_HELPER_SKILLS,
     _copy_skill_tree,
@@ -154,7 +156,7 @@ class TokenModeTests(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
 
-            root = Path(temp) / "skills"
+            root = Path(temp).resolve() / "skills"
             self.assertEqual(Path(installed["caveman"]), root / "caveman" / "SKILL.md")
             self.assertEqual(
                 Path(installed["curse"]),
@@ -241,7 +243,7 @@ class TokenModeTests(unittest.TestCase):
             backups = list(target.parent.glob("SKILL.md.manageroo-backup-*"))
             self.assertEqual(backups, [])
             self.assertEqual(target.read_text(encoding="utf-8"), "custom local caveman skill\n")
-            self.assertEqual(installed["caveman"], str(target))
+            self.assertEqual(installed["caveman"], str(target.resolve()))
 
     def test_existing_user_helper_skill_is_reused_without_backup_or_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -253,7 +255,7 @@ class TokenModeTests(unittest.TestCase):
             backups = list(target.parent.glob("SKILL.md.manageroo-backup-*"))
             self.assertEqual(backups, [])
             self.assertEqual(target.read_text(encoding="utf-8"), "custom prompt skill\n")
-            self.assertEqual(installed["pimp-my-prompt"], str(target))
+            self.assertEqual(installed["pimp-my-prompt"], str(target.resolve()))
 
     def test_existing_skill_in_another_agent_root_is_reused_without_duplicate(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -270,7 +272,7 @@ class TokenModeTests(unittest.TestCase):
                 ownership_path=base / "ownership.json",
             )
 
-            self.assertEqual(installed["diagnose"], str(existing))
+            self.assertEqual(installed["diagnose"], str(existing.resolve()))
             self.assertFalse((target_root / "diagnose").exists())
 
     def test_user_edit_to_manageroo_installed_skill_is_preserved_on_reinstall(self):
@@ -423,7 +425,7 @@ class TokenModeTests(unittest.TestCase):
                 ownership_path=base / "ownership.json",
             )
 
-            self.assertEqual(Path(installed["diagnose"]), target_root / "diagnose" / "SKILL.md")
+            self.assertEqual(Path(installed["diagnose"]), (target_root / "diagnose" / "SKILL.md").resolve())
             self.assertFalse((target_root / "diagnose").is_symlink())
 
     def test_skill_tree_digest_includes_directory_structure_and_counts(self):
@@ -477,7 +479,7 @@ class TokenModeTests(unittest.TestCase):
             outside.write_text("do not overwrite\n", encoding="utf-8")
             target = skills / "pimp-my-prompt" / "SKILL.md"
             target.parent.mkdir(parents=True)
-            os.symlink(outside, target)
+            symlink_or_skip(self, outside, target)
             with self.assertRaises(ValueError):
                 install_core_helper_skills(skills)
             self.assertEqual(outside.read_text(encoding="utf-8"), "do not overwrite\n")
@@ -491,7 +493,12 @@ class TokenModeTests(unittest.TestCase):
             outside.mkdir()
             marker = outside / "SKILL.md"
             marker.write_text("do not overwrite\n", encoding="utf-8")
-            os.symlink(outside, skills / "pimp-my-prompt")
+            symlink_or_skip(
+                self,
+                outside,
+                skills / "pimp-my-prompt",
+                target_is_directory=True,
+            )
             with self.assertRaises(ValueError):
                 install_core_helper_skills(skills)
             self.assertEqual(marker.read_text(encoding="utf-8"), "do not overwrite\n")
@@ -503,7 +510,7 @@ class TokenModeTests(unittest.TestCase):
             outside = base / "outside"
             outside.mkdir()
             linked = base / "skills"
-            os.symlink(outside, linked)
+            symlink_or_skip(self, outside, linked, target_is_directory=True)
             with self.assertRaises(ValueError):
                 install_core_helper_skills(linked)
             self.assertEqual(list(outside.iterdir()), [])
