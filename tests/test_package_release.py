@@ -3,7 +3,9 @@ import importlib.util
 import json
 import multiprocessing
 import subprocess
+import sys
 import tempfile
+import time
 import tomllib
 import unittest
 import zipfile
@@ -23,6 +25,13 @@ VERIFY_SPEC = importlib.util.spec_from_file_location(
 assert VERIFY_SPEC and VERIFY_SPEC.loader
 verify_distribution = importlib.util.module_from_spec(VERIFY_SPEC)
 VERIFY_SPEC.loader.exec_module(verify_distribution)
+RELEASE_VERIFY_SPEC = importlib.util.spec_from_file_location(
+    "verify_release",
+    ROOT / "scripts" / "verify_release.py",
+)
+assert RELEASE_VERIFY_SPEC and RELEASE_VERIFY_SPEC.loader
+verify_release = importlib.util.module_from_spec(RELEASE_VERIFY_SPEC)
+RELEASE_VERIFY_SPEC.loader.exec_module(verify_release)
 FINALIZE_SPEC = importlib.util.spec_from_file_location(
     "finalize_gitnexus",
     ROOT / "scripts" / "finalize_gitnexus.py",
@@ -93,6 +102,34 @@ def _finalize_gitnexus_fixture(prefix_value, marker, setup_started, release_setu
 
 
 class PackageReleaseTests(unittest.TestCase):
+    def test_release_verifier_timeout_stops_descendant_process_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            marker = Path(temp) / "descendant-writes.txt"
+            descendant = (
+                "import time; from pathlib import Path; "
+                f"marker = Path({str(marker)!r}); "
+                "[(marker.write_text(marker.read_text(encoding='utf-8') + 'x' "
+                "if marker.exists() else 'x', encoding='utf-8'), time.sleep(0.05)) "
+                "for _ in range(80)]"
+            )
+            parent = (
+                "import subprocess, sys, time; "
+                f"subprocess.Popen([sys.executable, '-c', {descendant!r}]); "
+                "time.sleep(10)"
+            )
+            started = time.monotonic()
+            with patch.object(verify_release, "PROCESS_TREE_GRACE_SECONDS", 0.1):
+                result = verify_release.run([sys.executable, "-c", parent], timeout=0.8)
+            elapsed = time.monotonic() - started
+
+            self.assertEqual(result["exit_code"], 124)
+            self.assertIn("TIMEOUT", result["output"])
+            self.assertLess(elapsed, 2)
+            self.assertTrue(marker.is_file())
+            marker_size = marker.stat().st_size
+            time.sleep(0.3)
+            self.assertEqual(marker.stat().st_size, marker_size)
+
     def test_concurrent_gitnexus_finalizers_serialize_lock_update(self):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
