@@ -1495,8 +1495,59 @@ def _fresh_checkpoint_owned_paths(
     changed = set(source_changes)
     if not changed or changed != owned_paths:
         return []
-    _validate_attempt_paths_syntax(sorted(changed))
-    return sorted(changed)
+    exact_paths = sorted(changed)
+    _validate_attempt_paths_syntax(exact_paths)
+    if not _checkpoint_proves_exact_source(repo, checkpoint, exact_paths):
+        raise SafetyError(
+            "A fresh Clawpatch run cannot prove exact checkpoint-owned source content; "
+            "preserving ambiguous changes for operator review: " + ", ".join(exact_paths)
+        )
+    return exact_paths
+
+
+def _checkpoint_proves_exact_source(
+    repo: Path,
+    checkpoint: dict[str, Any],
+    paths: list[str],
+) -> bool:
+    exact_paths = sorted(set(paths))
+    if (
+        not exact_paths
+        or exact_paths != sorted(checkpoint.get("owned_paths", []))
+        or _source_paths(repo) != exact_paths
+    ):
+        return False
+    recorded_fingerprint = str(checkpoint.get("owned_source_fingerprint", ""))
+    if recorded_fingerprint:
+        return _owned_source_fingerprint(repo, exact_paths) == recorded_fingerprint
+    temporary_commit = str(checkpoint.get("temporary_commit", ""))
+    return bool(temporary_commit) and _temporary_commit_matches_owned_source(
+        repo,
+        original_head=str(checkpoint["head_before"]),
+        temporary_commit=temporary_commit,
+        paths=exact_paths,
+    )
+
+
+def _temporary_commit_matches_owned_source(
+    repo: Path,
+    *,
+    original_head: str,
+    temporary_commit: str,
+    paths: list[str],
+) -> bool:
+    """Compare dirty source with a recognized iteration commit without changing Git state."""
+    with tempfile.TemporaryDirectory(prefix="manageroo-clawpatch-index-") as temp:
+        index_path = Path(temp) / "index"
+        env = dict(os.environ)
+        env["GIT_INDEX_FILE"] = str(index_path)
+        _must_run(["git", "read-tree", original_head], cwd=repo, timeout=120, env=env)
+        _must_run(["git", "add", "-A", "--", *paths], cwd=repo, timeout=120, env=env)
+        actual_tree = _must_run(
+            ["git", "write-tree"], cwd=repo, timeout=120, env=env
+        ).strip()
+    expected_tree = _git_text(repo, ["git", "rev-parse", f"{temporary_commit}^{{tree}}"])
+    return actual_tree == expected_tree
 
 
 def _recover_checkpoint_temporary_commit(
@@ -3208,6 +3259,16 @@ def release_sweep(
             durable_progress = None
         if durable_progress is not None and durable_progress["head_before"] != head_before:
             if _checkpoint_can_follow_supervisor_upgrade(root, durable_progress):
+                if preexisting_source and not _checkpoint_proves_exact_source(
+                    root,
+                    durable_progress,
+                    preexisting_source,
+                ):
+                    raise SafetyError(
+                        "Interrupted Clawpatch release progress cannot prove exact "
+                        "checkpoint-owned source content; preserving ambiguous changes for "
+                        "operator review: " + ", ".join(preexisting_source)
+                    )
                 durable_progress = _write_release_progress(
                     root,
                     finding_id=str(durable_progress["finding_id"]),
@@ -3223,6 +3284,16 @@ def release_sweep(
                         raise SafetyError(
                             "Interrupted Clawpatch release progress no longer owns the exact "
                             "current source paths."
+                        )
+                    if not _checkpoint_proves_exact_source(
+                        root,
+                        durable_progress,
+                        preexisting_source,
+                    ):
+                        raise SafetyError(
+                            "Interrupted Clawpatch release progress cannot prove exact "
+                            "checkpoint-owned source content; preserving ambiguous changes for "
+                            "operator review: " + ", ".join(preexisting_source)
                         )
                     durable_progress = _write_release_progress(
                         root,

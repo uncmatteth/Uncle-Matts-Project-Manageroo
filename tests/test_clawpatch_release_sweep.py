@@ -221,7 +221,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
-    def test_external_fresh_migrates_legacy_checkpoint_before_exact_cleanup(
+    def test_external_fresh_migrates_fingerprinted_checkpoint_from_legacy_state_location(
         self,
         _version,
         _processes,
@@ -245,6 +245,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             head = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=repo, text=True
             ).strip()
+            source.write_text("interrupted ClawPatch repair\n", encoding="utf-8")
             _write_release_progress(
                 repo,
                 finding_id="fnd_one",
@@ -253,7 +254,6 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 phase="stopped",
                 owned_paths=["app.py"],
             )
-            source.write_text("interrupted ClawPatch repair\n", encoding="utf-8")
             manageroo_state = root / "manageroo-owned-state"
             json_clawpatch.side_effect = [
                 {"created": True},
@@ -353,6 +353,47 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             self.assertEqual(source.read_bytes(), source_before)
             self.assertTrue(stale.exists())
 
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    def test_fresh_refuses_legacy_checkpoint_without_exact_source_provenance(
+        self, json_clawpatch, _processes
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch="main",
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            checkpoint["version"] = 3
+            checkpoint.pop("owned_source_fingerprint")
+            progress_path = repo / ".manageroo/cache/clawpatch-release-progress.json"
+            progress_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+            source.write_text("manual operator edit\n", encoding="utf-8")
+            source_before = source.read_bytes()
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "cannot prove exact checkpoint-owned source content",
+            ):
+                _prepare_fresh_release(repo, env={"PATH": "test"})
+
+            self.assertEqual(source.read_bytes(), source_before)
+            self.assertTrue(progress_path.is_file())
+            json_clawpatch.assert_not_called()
+
     @patch("manageroo.clawpatch_release.shutil.which", return_value="/usr/bin/clawpatch")
     @patch("manageroo.clawpatch_release._must_run")
     def test_clawpatch_release_sweep_requires_072_or_newer(self, must_run, _which):
@@ -448,6 +489,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             head = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=repo, text=True
             ).strip()
+            source.write_text("interrupted Clawpatch repair\n", encoding="utf-8")
             _write_release_progress(
                 repo,
                 finding_id=finding_id,
@@ -456,7 +498,6 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 phase="stopped",
                 owned_paths=["app.py"],
             )
-            source.write_text("interrupted Clawpatch repair\n", encoding="utf-8")
 
             def initialize(*_args, **_kwargs):
                 state.mkdir()
@@ -786,6 +827,126 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             subprocess.run(["git", "add", str(source.relative_to(repo))], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-q", "-m", "finding source changed"], cwd=repo, check=True)
             self.assertFalse(_checkpoint_can_follow_supervisor_upgrade(repo, progress))
+
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_head_advance_does_not_bless_ambiguous_legacy_checkpoint(
+        self,
+        _version,
+        _processes,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            old_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            finding_path = repo / ".clawpatch" / "findings" / "fnd_one.json"
+            finding_path.parent.mkdir(parents=True)
+            finding_path.write_text(
+                json.dumps(
+                    {
+                        "findingId": "fnd_one",
+                        "evidence": [{"path": "app.py"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            source.write_text("interrupted repair\n", encoding="utf-8")
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=old_head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            checkpoint["version"] = 3
+            checkpoint.pop("owned_source_fingerprint")
+            progress_path = repo / ".manageroo/cache/clawpatch-release-progress.json"
+            progress_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+            source.write_text("manual operator edit\n", encoding="utf-8")
+            source_before = source.read_bytes()
+            (repo / "README.md").write_text("controller upgrade\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "controller upgrade"], cwd=repo, check=True)
+            legacy = _load_release_progress(repo)
+            self.assertTrue(_checkpoint_can_follow_supervisor_upgrade(repo, legacy))
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "cannot prove exact checkpoint-owned source content",
+            ):
+                release_sweep(repo, apply=True, branch="current")
+
+            preserved = _load_release_progress(repo)
+            self.assertEqual(source.read_bytes(), source_before)
+            self.assertEqual(preserved["head_before"], old_head)
+            self.assertEqual(preserved["owned_source_fingerprint"], "")
+
+    @patch("manageroo.clawpatch_release._resume_stopped_attempt")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_non_supervisor_head_advance_does_not_bless_ambiguous_legacy_checkpoint(
+        self,
+        _version,
+        _processes,
+        resume_stopped_attempt,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            old_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("interrupted repair\n", encoding="utf-8")
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=old_head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            checkpoint["version"] = 3
+            checkpoint.pop("owned_source_fingerprint")
+            progress_path = repo / ".manageroo/cache/clawpatch-release-progress.json"
+            progress_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+            source.write_text("manual operator edit\n", encoding="utf-8")
+            source_before = source.read_bytes()
+            (repo / "user.txt").write_text("later committed work\n", encoding="utf-8")
+            subprocess.run(["git", "add", "user.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "later user work"], cwd=repo, check=True)
+            legacy = _load_release_progress(repo)
+            self.assertFalse(_checkpoint_can_follow_supervisor_upgrade(repo, legacy))
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "cannot prove exact checkpoint-owned source content",
+            ):
+                release_sweep(repo, apply=True, branch="current")
+
+            preserved = _load_release_progress(repo)
+            self.assertEqual(source.read_bytes(), source_before)
+            self.assertEqual(preserved["head_before"], old_head)
+            self.assertEqual(preserved["owned_source_fingerprint"], "")
+            resume_stopped_attempt.assert_not_called()
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_complete_review_uses_bounded_worker_waves_until_zero_pending(
@@ -1331,14 +1492,6 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             head = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=repo, text=True
             ).strip()
-            _write_release_progress(
-                repo,
-                finding_id="fnd_one",
-                branch=branch,
-                head_before=head,
-                phase="stopped",
-                owned_paths=["app.py"],
-            )
             source.write_text("first partial Clawpatch repair\n", encoding="utf-8")
             subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
             subprocess.run(
@@ -1350,6 +1503,14 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 ["git", "rev-parse", "HEAD"], cwd=repo, text=True
             ).strip()
             source.write_text("second partial Clawpatch repair\n", encoding="utf-8")
+            _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
             inspection = {
                 "finding": {"id": "fnd_one", "status": "uncertain"},
                 "validation": [],
