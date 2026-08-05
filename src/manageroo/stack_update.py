@@ -28,6 +28,7 @@ AUTOREVIEW_REFERENCE = (
 CLAWPATCH_PACKAGE = "clawpatch@0.7.2"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
+OBSIDIAN_PACKAGE_MANAGERS = frozenset({"brew", "flatpak", "snap", "winget"})
 STACK_TOOL_NAMES = ("gbrain", "gitnexus", "trufflehog", "autoreview", "clawpatch", "obsidian")
 
 
@@ -307,40 +308,80 @@ def _pinned_package_commands(
     return []
 
 
+def _snap_owned_obsidian_path(obsidian: str | None) -> bool:
+    if not obsidian:
+        return False
+    normalized = str(obsidian).replace("\\", "/").lower()
+    if normalized.startswith("/snap/"):
+        return True
+    try:
+        resolved = Path(obsidian).expanduser().resolve(strict=True)
+    except OSError:
+        return False
+    return str(resolved).replace("\\", "/").lower().startswith("/snap/")
+
+
+def _obsidian_owned_by_manager(obsidian: str | None, manager: str) -> bool:
+    if not obsidian or manager not in OBSIDIAN_PACKAGE_MANAGERS:
+        return False
+    if manager == "snap" and _snap_owned_obsidian_path(obsidian):
+        return True
+    try:
+        Path(obsidian).expanduser().resolve(strict=True)
+    except OSError:
+        return False
+    executable = shutil.which(manager)
+    if not executable:
+        return False
+    probes = {
+        "brew": [executable, "list", "--cask", "obsidian"],
+        "flatpak": [executable, "info", "--user", "md.obsidian.Obsidian"],
+        "snap": [executable, "list", "obsidian"],
+        "winget": [
+            executable,
+            "list",
+            "--id",
+            "Obsidian.Obsidian",
+            "-e",
+            "--source",
+            "winget",
+        ],
+    }
+    return bool(_run(probes[manager], timeout=30).get("ok"))
+
+
 def _obsidian_update_commands(obsidian: str | None) -> tuple[list[list[str]], str]:
     if not obsidian:
         return [], "Obsidian was not detected."
     system = platform.system().lower()
     if system == "windows" and shutil.which("winget"):
-        return [[
-            shutil.which("winget") or "winget",
-            "upgrade",
-            "--id",
-            "Obsidian.Obsidian",
-            "-e",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-        ]], "Detected Windows installation; using the Obsidian Winget package id."
+        if _obsidian_owned_by_manager(obsidian, "winget"):
+            return [[
+                shutil.which("winget") or "winget",
+                "upgrade",
+                "--id",
+                "Obsidian.Obsidian",
+                "-e",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ]], "Winget owns the detected Obsidian installation."
+        return [], "Could not prove that Winget owns the detected Obsidian installation."
     if system == "darwin" and shutil.which("brew"):
-        probe = _run([shutil.which("brew") or "brew", "list", "--cask", "obsidian"], timeout=30)
-        if probe.get("ok"):
+        if _obsidian_owned_by_manager(obsidian, "brew"):
             return [[shutil.which("brew") or "brew", "upgrade", "--cask", "obsidian"]], "Homebrew owns the detected Obsidian installation."
         return [], "Could not prove that Homebrew owns the detected Obsidian installation."
     if system == "linux":
         flatpak = shutil.which("flatpak")
         snap = shutil.which("snap")
-        normalized = str(obsidian).replace("\\", "/").lower()
         # The resolved executable path is strong ownership evidence for a Snap install.
-        if snap and (normalized.startswith("/snap/") or "/snap/bin/" in normalized):
-            return [[snap, "refresh", "obsidian"]], "Detected Snap-owned Obsidian installation."
-        if flatpak:
-            probe = _run([flatpak, "info", "--user", "md.obsidian.Obsidian"], timeout=30)
-            if probe.get("ok"):
-                return [[flatpak, "update", "--user", "-y", "md.obsidian.Obsidian"]], "Flatpak owns the detected Obsidian installation."
-        if snap:
-            probe = _run([snap, "list", "obsidian"], timeout=30)
-            if probe.get("ok"):
-                return [[snap, "refresh", "obsidian"]], "Snap owns the detected Obsidian installation."
+        if snap and _snap_owned_obsidian_path(obsidian):
+            return [[snap, "refresh", "obsidian"]], (
+                "Detected Snap-owned Obsidian installation."
+            )
+        if flatpak and _obsidian_owned_by_manager(obsidian, "flatpak"):
+            return [[flatpak, "update", "--user", "-y", "md.obsidian.Obsidian"]], "Flatpak owns the detected Obsidian installation."
+        if snap and _obsidian_owned_by_manager(obsidian, "snap"):
+            return [[snap, "refresh", "obsidian"]], "Snap owns the detected Obsidian installation."
         return [], "Could not safely identify which Linux package manager owns the detected Obsidian installation."
     return [], "No supported automatic update lane was identified for the detected Obsidian installation."
 

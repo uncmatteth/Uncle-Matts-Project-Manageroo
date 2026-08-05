@@ -280,7 +280,9 @@ The surrounding stack provides first-class capabilities without taking control a
   discovered candidate, approved root, resolved target, and filesystem identities;
   any destination change before replacement fails closed without updating it.
 - **Clawpatch**: command-owned review and repair lane. Its own command owns its findings and repairs.
-- **Obsidian**: human-readable Markdown knowledge lane.
+- **Obsidian**: human-readable Markdown knowledge lane. Automatic updates use one
+  ownership contract for Winget, Homebrew, Flatpak, and Snap and fail closed when
+  the detected manager cannot prove ownership of the active installation.
 - **Document/prose command lane**: optional evidence over a run-owned manifest for long prose, PDFs, transcripts, articles, and exact-text workflows.
 
 Successful external repair reports are reusable only for the same run, command configuration,

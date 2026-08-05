@@ -98,6 +98,8 @@ def _owned_by_manager(
 ) -> bool:
     if not tool_path:
         return False
+    if manager in module.OBSIDIAN_PACKAGE_MANAGERS:
+        return module._obsidian_owned_by_manager(tool_path, manager)
     tool = Path(tool_path).expanduser()
     try:
         resolved_tool = tool.resolve(strict=True)
@@ -130,23 +132,6 @@ def _owned_by_manager(
             )
             return bool(probe.get("ok"))
         return True
-    if manager == "brew":
-        executable = shutil.which("brew")
-        if not executable:
-            return False
-        probe = module._run([executable, "list", "--cask", "obsidian"], timeout=30)
-        return bool(probe.get("ok"))
-    if manager == "flatpak":
-        executable = shutil.which("flatpak")
-        if not executable:
-            return False
-        probe = module._run(
-            [executable, "info", "--user", "md.obsidian.Obsidian"],
-            timeout=30,
-        )
-        return bool(probe.get("ok"))
-    if manager == "snap":
-        return str(tool).replace("\\", "/").startswith("/snap/bin/")
     return False
 
 
@@ -327,8 +312,8 @@ def install_stack_update_policy(module: Any) -> None:
                         + f" Automatic update skipped because {manager} ownership of the active executable could not be proven."
                     ).strip()
             elif name == "obsidian" and commands:
-                manager = Path(str(commands[0][0])).name.lower()
-                if manager in {"brew", "flatpak", "snap"} and not _owned_by_manager(
+                manager = Path(str(commands[0][0])).stem.lower()
+                if manager in module.OBSIDIAN_PACKAGE_MANAGERS and not _owned_by_manager(
                     module, active_path, manager
                 ):
                     tool["commands"] = []
@@ -336,7 +321,7 @@ def install_stack_update_policy(module: Any) -> None:
                         f"Automatic update skipped because {manager} ownership of the active "
                         "Obsidian executable could not be proven."
                     )
-                elif manager not in {"brew", "flatpak", "snap"}:
+                elif manager not in module.OBSIDIAN_PACKAGE_MANAGERS:
                     tool["commands"] = []
                     tool["note"] = (
                         "Automatic Obsidian update skipped because ownership of the active executable "

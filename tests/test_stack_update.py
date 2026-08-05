@@ -167,6 +167,92 @@ class StackUpdateTests(unittest.TestCase):
             [["/usr/bin/flatpak", "update", "--user", "-y", "md.obsidian.Obsidian"]],
         )
 
+    def test_winget_owned_obsidian_update_survives_policy_hardening(self):
+        with tempfile.TemporaryDirectory() as temp:
+            obsidian = Path(temp) / "obsidian.exe"
+            obsidian.write_text("", encoding="utf-8")
+
+            def which(name: str):
+                return {
+                    "winget": "C:/Windows/winget.exe",
+                    "obsidian": str(obsidian),
+                }.get(name)
+
+            probe = [
+                "C:/Windows/winget.exe",
+                "list",
+                "--id",
+                "Obsidian.Obsidian",
+                "-e",
+                "--source",
+                "winget",
+            ]
+
+            def run(argv, **_kwargs):
+                owned = argv == probe
+                return {
+                    "ok": owned,
+                    "exit_code": 0 if owned else 1,
+                    "argv": argv,
+                    "output": "",
+                }
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update.platform.system", return_value="Windows"
+            ), patch("manageroo.stack_update._run", side_effect=run):
+                plan = stack_update_plan(["obsidian"])
+
+        self.assertEqual(
+            plan["tools"][0]["commands"],
+            [[
+                "C:/Windows/winget.exe",
+                "upgrade",
+                "--id",
+                "Obsidian.Obsidian",
+                "-e",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ]],
+        )
+
+    def test_unowned_winget_obsidian_update_is_not_planned(self):
+        with tempfile.TemporaryDirectory() as temp:
+            obsidian = Path(temp) / "obsidian.exe"
+            obsidian.write_text("", encoding="utf-8")
+
+            def which(name: str):
+                return {
+                    "winget": "C:/Windows/winget.exe",
+                    "obsidian": str(obsidian),
+                }.get(name)
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update.platform.system", return_value="Windows"
+            ), patch(
+                "manageroo.stack_update._run",
+                return_value={"ok": False, "exit_code": 1, "output": "not installed"},
+            ):
+                plan = stack_update_plan(["obsidian"])
+
+        self.assertEqual(plan["tools"][0]["commands"], [])
+        self.assertIn("Winget", plan["tools"][0]["note"])
+
+    def test_snap_owned_obsidian_outside_snap_bin_survives_policy_hardening(self):
+        obsidian = "/snap/obsidian/current/usr/bin/obsidian"
+
+        def which(name: str):
+            return {"snap": "/usr/bin/snap", "obsidian": obsidian}.get(name)
+
+        with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+            "manageroo.stack_update.platform.system", return_value="Linux"
+        ):
+            plan = stack_update_plan(["obsidian"])
+
+        self.assertEqual(
+            plan["tools"][0]["commands"],
+            [["/usr/bin/snap", "refresh", "obsidian"]],
+        )
+
     def test_absent_gitnexus_is_not_treated_as_an_installed_tool(self):
         with patch("manageroo.stack_update.shutil.which", return_value=None):
             plan = stack_update_plan()
