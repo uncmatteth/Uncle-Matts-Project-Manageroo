@@ -13,6 +13,7 @@ from .trufflehog import (
     TRUFFLEHOG_VERSION,
     install_trufflehog_binary,
 )
+from .util import redact_text
 
 
 GBRAIN_REFERENCE = "https://github.com/garrytan/gbrain"
@@ -39,21 +40,39 @@ def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 900) -> dic
             cwd=str(cwd or Path.home()),
             text=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             shell=False,
             timeout=timeout,
         )
+        stdout = (result.stdout or "")[-8000:]
         return {
             "ok": result.returncode == 0,
             "exit_code": result.returncode,
             "argv": argv,
-            "output": (result.stdout or "")[-8000:],
+            "output": stdout,
+            "stdout": stdout,
+            "stderr": redact_text((result.stderr or "")[-8000:]),
         }
     except subprocess.TimeoutExpired as exc:
-        output = exc.stdout if isinstance(exc.stdout, str) else ""
-        return {"ok": False, "exit_code": 124, "argv": argv, "output": output[-8000:]}
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        return {
+            "ok": False,
+            "exit_code": 124,
+            "argv": argv,
+            "output": stdout[-8000:],
+            "stdout": stdout[-8000:],
+            "stderr": redact_text(stderr[-8000:]),
+        }
     except OSError as exc:
-        return {"ok": False, "exit_code": 127, "argv": argv, "output": str(exc)}
+        return {
+            "ok": False,
+            "exit_code": 127,
+            "argv": argv,
+            "output": "",
+            "stdout": "",
+            "stderr": redact_text(str(exc)),
+        }
 
 
 def _tool(
@@ -629,7 +648,8 @@ def _update_autoreview(installations: Iterable[dict[str, Any]]) -> dict[str, Any
         if not checkout_result["ok"]:
             return {"name": "autoreview", **checkout_result}
         resolved = _run([git, "rev-parse", "HEAD"], cwd=checkout)
-        if not resolved["ok"] or resolved.get("output", "").strip().lower() != AUTOREVIEW_COMMIT.lower():
+        resolved_stdout = resolved.get("stdout", resolved.get("output", ""))
+        if not resolved["ok"] or resolved_stdout.strip().lower() != AUTOREVIEW_COMMIT.lower():
             return {
                 "ok": False,
                 "name": "autoreview",

@@ -32,21 +32,39 @@ def run_probe(argv: list[str], timeout_seconds: int = 30) -> dict:
             argv,
             text=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             shell=False,
             timeout=timeout_seconds,
         )
+        stdout = completed.stdout or ""
         return {
             "ok": completed.returncode == 0,
             "exit_code": completed.returncode,
             "argv": argv,
-            "output": completed.stdout,
+            "output": stdout,
+            "stdout": stdout,
+            "stderr": completed.stderr or "",
         }
     except subprocess.TimeoutExpired as exc:
-        output = exc.stdout if isinstance(exc.stdout, str) else ""
-        return {"ok": False, "exit_code": 124, "argv": argv, "output": output + "\nTIMEOUT"}
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        return {
+            "ok": False,
+            "exit_code": 124,
+            "argv": argv,
+            "output": stdout,
+            "stdout": stdout,
+            "stderr": stderr + "\nTIMEOUT",
+        }
     except OSError as exc:
-        return {"ok": False, "exit_code": 127, "argv": argv, "output": str(exc)}
+        return {
+            "ok": False,
+            "exit_code": 127,
+            "argv": argv,
+            "output": "",
+            "stdout": "",
+            "stderr": str(exc),
+        }
 
 
 def _safe_probe_record(probe: dict | None) -> dict | None:
@@ -58,7 +76,11 @@ def _safe_probe_record(probe: dict | None) -> dict | None:
         "argv": [redact_text(str(item)) for item in probe.get("argv", [])],
     }
     if not probe.get("ok"):
-        record["output"] = redact_text(str(probe.get("output", "")))[:2000]
+        record["output"] = redact_text(
+            str(probe.get("stdout", probe.get("output", "")))
+        )[:2000]
+    if probe.get("stderr"):
+        record["stderr"] = redact_text(str(probe.get("stderr")))[:2000]
     return record
 
 
@@ -92,11 +114,26 @@ def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
     config_probe = runner([path, "config", "show"], 30)
     sync_probe = runner([path, "status", "--json", "--section", "sync"], 60)
     doctor_probe = runner([path, "doctor", "--json"], 60)
-    config = summarize_gbrain_config(config_probe.get("output", "")) if config_probe.get("ok") else {}
+    config = (
+        summarize_gbrain_config(config_probe.get("stdout", config_probe.get("output", "")))
+        if config_probe.get("ok")
+        else {}
+    )
     sync = (
-        summarize_sync_status(sync_probe.get("output", ""))
+        summarize_sync_status(sync_probe.get("stdout", sync_probe.get("output", "")))
         if sync_probe.get("ok")
-        else {"ok": False, "parsed": False, "healthy": False, "error": redact_text(str(sync_probe.get("output") or "gbrain status failed"))}
+        else {
+            "ok": False,
+            "parsed": False,
+            "healthy": False,
+            "error": redact_text(
+                str(
+                    sync_probe.get("stderr")
+                    or sync_probe.get("stdout", sync_probe.get("output"))
+                    or "gbrain status failed"
+                )
+            ),
+        }
     )
     next_commands: list[str] = []
     if not config:

@@ -54,6 +54,8 @@ manageroo stack-update --apply
 ```
 
 The command is intentionally explicit and fail-visible. It does not silently install missing third-party products merely because an update command was requested.
+Stack maintenance probes parse configuration, JSON, and package-manager paths from stdout only;
+separately captured stderr is retained as redacted diagnostic output.
 
 ## GitNexus
 

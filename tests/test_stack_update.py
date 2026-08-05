@@ -1,6 +1,7 @@
 import multiprocessing
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from manageroo.stack_update import (
     AUTOREVIEW_COMMIT,
     CLAWPATCH_PACKAGE,
     GITNEXUS_PACKAGE,
+    _run,
     _replace_autoreview,
     _update_autoreview,
     apply_stack_updates,
@@ -117,6 +119,59 @@ class StackUpdateTests(unittest.TestCase):
         self.assertIn(["/usr/bin/pnpm", "add", "-g", CLAWPATCH_PACKAGE], tools["clawpatch"]["commands"])
         self.assertNotIn("@latest", repr(plan))
         self.assertEqual(tools["trufflehog"]["pinned_version"], TRUFFLEHOG_VERSION)
+
+    def test_run_separates_success_stderr_from_stdout(self):
+        result = _run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; print('/valid/prefix'); print('warning', file=sys.stderr)",
+            ]
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["stdout"].strip(), "/valid/prefix")
+        self.assertEqual(result["output"], result["stdout"])
+        self.assertEqual(result["stderr"].strip(), "warning")
+
+    def test_plan_parses_package_manager_stdout_when_stderr_warns(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "npm-prefix"
+            npm_bin = prefix / "bin"
+            npm_bin.mkdir(parents=True)
+            gitnexus = npm_bin / "gitnexus"
+            gitnexus.write_text("", encoding="utf-8")
+
+            def which(name: str):
+                return {
+                    "npm": "/usr/bin/npm",
+                    "gitnexus": str(gitnexus),
+                }.get(name)
+
+            def run(argv, **_kwargs):
+                if argv[1:] == ["prefix", "-g"]:
+                    stdout = str(prefix) + "\n"
+                    return {
+                        "ok": True,
+                        "exit_code": 0,
+                        "argv": argv,
+                        "output": stdout + "warning: migrated config\n",
+                        "stdout": stdout,
+                        "stderr": "warning: migrated config\n",
+                    }
+                if argv[1:4] == ["list", "-g", "--depth=0"]:
+                    return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
+                return {"ok": False, "exit_code": 1, "argv": argv, "output": ""}
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update._run", side_effect=run
+            ):
+                plan = stack_update_plan(["gitnexus"])
+
+        self.assertEqual(
+            plan["tools"][0]["commands"],
+            [["/usr/bin/npm", "install", "-g", GITNEXUS_PACKAGE]],
+        )
 
     def test_homebrew_owned_obsidian_update_survives_policy_hardening(self):
         with tempfile.TemporaryDirectory() as temp:

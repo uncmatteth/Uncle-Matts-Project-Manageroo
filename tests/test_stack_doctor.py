@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -8,7 +9,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manageroo.cli import main
-from manageroo.stack_doctor import _safe_probe_record, format_stack_doctor, stack_doctor
+from manageroo.stack_doctor import (
+    _safe_probe_record,
+    format_stack_doctor,
+    run_probe,
+    stack_doctor,
+)
 from manageroo.stack_update import (
     AUTOREVIEW_COMMIT,
     CLAWPATCH_PACKAGE,
@@ -24,14 +30,24 @@ class StackDoctorTests(unittest.TestCase):
             ("gbrain", "config", "show"): {
                 "ok": True,
                 "exit_code": 0,
-                "output": "engine: postgres\nembedding_model: ollama:nomic-embed-text\nschema_pack: gbrain-base-v2\n",
+                "output": "warning: config migrated\n",
+                "stdout": "engine: postgres\nembedding_model: ollama:nomic-embed-text\nschema_pack: gbrain-base-v2\n",
+                "stderr": "warning: config migrated\n",
             },
             ("gbrain", "status", "--json", "--section", "sync"): {
                 "ok": True,
                 "exit_code": 0,
-                "output": json.dumps({"sync": {"sources": []}}),
+                "output": "warning: status cache old\n",
+                "stdout": json.dumps({"sync": {"sources": []}}),
+                "stderr": "warning: status cache old\n",
             },
-            ("gbrain", "doctor", "--json"): {"ok": True, "exit_code": 0, "output": "{}"},
+            ("gbrain", "doctor", "--json"): {
+                "ok": True,
+                "exit_code": 0,
+                "output": "{}",
+                "stdout": "{}",
+                "stderr": "",
+            },
         }
 
         def which(name: str) -> str | None:
@@ -51,7 +67,22 @@ class StackDoctorTests(unittest.TestCase):
         self.assertIn("ollama:nomic-embed-text", gbrain["detail"])
         self.assertIn("gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder", gbrain["next_commands"])
         self.assertEqual(gbrain["pinned_commit"], GBRAIN_COMMIT)
+        self.assertEqual(gbrain["probes"]["sync"]["stderr"], "warning: status cache old\n")
         self.assertFalse(report["ready"])
+
+    def test_run_probe_separates_success_stderr_from_stdout(self):
+        probe = run_probe(
+            [
+                sys.executable,
+                "-c",
+                "import sys; print('{\"ok\": true}'); print('warning', file=sys.stderr)",
+            ]
+        )
+
+        self.assertTrue(probe["ok"])
+        self.assertEqual(json.loads(probe["stdout"]), {"ok": True})
+        self.assertEqual(probe["output"], probe["stdout"])
+        self.assertEqual(probe["stderr"].strip(), "warning")
 
     def test_missing_tool_guidance_uses_release_pins_and_current_gitnexus_source(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -72,10 +103,11 @@ class StackDoctorTests(unittest.TestCase):
                 "exit_code": 1,
                 "argv": ["tool", "--token=abc123", "api_key=supersecret"],
                 "output": "password=hunter2 Bearer deadbeef api_key=abc123",
+                "stderr": "client_secret=stderrsecret",
             }
         )
         rendered = json.dumps(record)
-        for secret in ("hunter2", "deadbeef", "abc123", "supersecret"):
+        for secret in ("hunter2", "deadbeef", "abc123", "supersecret", "stderrsecret"):
             self.assertNotIn(secret, rendered)
         self.assertIn("<REDACTED>", rendered)
 

@@ -12,12 +12,17 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config_lock import _try_lock_file, _unlock_file
+from .util import redact_text
 
 
 def _decode_timeout_output(value: Any) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value if isinstance(value, str) else ""
+
+
+def _probe_stdout(probe: dict[str, Any]) -> str:
+    return str(probe.get("stdout", probe.get("output", "")) or "")
 
 
 @contextmanager
@@ -73,12 +78,12 @@ def _manager_bin(module: Any, manager: str) -> Path | None:
     if manager == "npm":
         probe = module._run([executable, "prefix", "-g"], timeout=30)
         if probe.get("ok"):
-            prefix = Path(str(probe.get("output") or "").strip()).expanduser()
+            prefix = Path(_probe_stdout(probe).strip()).expanduser()
             return prefix if os.name == "nt" else prefix / "bin"
     if manager == "pnpm":
         probe = module._run([executable, "bin", "-g"], timeout=30)
         if probe.get("ok"):
-            return Path(str(probe.get("output") or "").strip()).expanduser()
+            return Path(_probe_stdout(probe).strip()).expanduser()
     return None
 
 
@@ -89,7 +94,7 @@ def _manager_package_root(module: Any, manager: str) -> Path | None:
     probe = module._run([executable, "root", "-g"], timeout=30)
     if not probe.get("ok"):
         return None
-    return Path(str(probe.get("output") or "").strip()).expanduser()
+    return Path(_probe_stdout(probe).strip()).expanduser()
 
 
 def _owned_by_manager(
@@ -150,21 +155,39 @@ def install_stack_update_policy(module: Any) -> None:
                 cwd=str(cwd or Path.home()),
                 text=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 shell=False,
                 timeout=timeout,
             )
+            stdout = (result.stdout or "")[-8000:]
             return {
                 "ok": result.returncode == 0,
                 "exit_code": result.returncode,
                 "argv": argv,
-                "output": (result.stdout or "")[-8000:],
+                "output": stdout,
+                "stdout": stdout,
+                "stderr": redact_text((result.stderr or "")[-8000:]),
             }
         except subprocess.TimeoutExpired as exc:
-            output = _decode_timeout_output(exc.stdout if exc.stdout is not None else exc.output)
-            return {"ok": False, "exit_code": 124, "argv": argv, "output": output[-8000:]}
+            stdout = _decode_timeout_output(exc.stdout if exc.stdout is not None else exc.output)
+            stderr = _decode_timeout_output(exc.stderr)
+            return {
+                "ok": False,
+                "exit_code": 124,
+                "argv": argv,
+                "output": stdout[-8000:],
+                "stdout": stdout[-8000:],
+                "stderr": redact_text(stderr[-8000:]),
+            }
         except OSError as exc:
-            return {"ok": False, "exit_code": 127, "argv": argv, "output": str(exc)}
+            return {
+                "ok": False,
+                "exit_code": 127,
+                "argv": argv,
+                "output": "",
+                "stdout": "",
+                "stderr": redact_text(str(exc)),
+            }
 
     def hardened_replace(
         source: Path,
