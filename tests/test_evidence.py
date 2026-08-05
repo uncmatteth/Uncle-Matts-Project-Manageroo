@@ -3,7 +3,9 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from manageroo import evidence_hardening
 from manageroo.context import ContextCompiler, ContextRequest
 from manageroo.evidence import (
     MAX_EVIDENCE_INPUT_BYTES,
@@ -222,6 +224,49 @@ class EvidenceTests(unittest.TestCase):
                 [],
             )
 
+    def test_project_memory_parent_swap_cannot_redirect_descriptor_read(self):
+        if not evidence_hardening._descriptor_traversal_supported():
+            self.skipTest("descriptor-relative traversal unavailable")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            project_dir = repo / ".manageroo"
+            moved_dir = repo / "original-manageroo"
+            outside_dir = root / "outside"
+            project_dir.mkdir(parents=True)
+            outside_dir.mkdir()
+            (project_dir / "PROJECT-MEMORY.md").write_text(
+                "trusted project memory\n",
+                encoding="utf-8",
+            )
+            (outside_dir / "PROJECT-MEMORY.md").write_text(
+                "secret outside migration\n",
+                encoding="utf-8",
+            )
+            original_reader = evidence_hardening._verified_bounded_text
+            swapped = False
+
+            def swap_then_read(*args, **kwargs):
+                nonlocal swapped
+                if not swapped:
+                    project_dir.rename(moved_dir)
+                    project_dir.symlink_to(outside_dir, target_is_directory=True)
+                    swapped = True
+                return original_reader(*args, **kwargs)
+
+            try:
+                with patch.object(
+                    evidence_hardening,
+                    "_verified_bounded_text",
+                    side_effect=swap_then_read,
+                ):
+                    items = ProjectMemoryEvidenceProvider(repo).retrieve("outside migration")
+            except OSError as exc:
+                self.skipTest(f"directory symlink unavailable: {exc}")
+
+            self.assertTrue(swapped)
+            self.assertEqual(items, [])
+
     def test_project_memory_never_scans_beyond_bounded_input_prefix(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -256,6 +301,46 @@ class EvidenceTests(unittest.TestCase):
                 RunArtifactEvidenceProvider(run_root).retrieve("artifact evidence"),
                 [],
             )
+
+    def test_run_artifact_root_swap_cannot_redirect_descriptor_walk(self):
+        if not evidence_hardening._descriptor_traversal_supported():
+            self.skipTest("descriptor-relative traversal unavailable")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_root = root / "run"
+            artifact_root = run_root / "artifacts"
+            moved_root = run_root / "original-artifacts"
+            outside_root = root / "outside"
+            artifact_root.mkdir(parents=True)
+            outside_root.mkdir()
+            (artifact_root / "inside.txt").write_text("trusted artifact\n", encoding="utf-8")
+            (outside_root / "leak.txt").write_text(
+                "secret outside artifact evidence\n",
+                encoding="utf-8",
+            )
+            original_names = evidence_hardening._descriptor_names
+            swapped = False
+
+            def swap_then_list(directory_fd):
+                nonlocal swapped
+                if not swapped:
+                    artifact_root.rename(moved_root)
+                    artifact_root.symlink_to(outside_root, target_is_directory=True)
+                    swapped = True
+                return original_names(directory_fd)
+
+            try:
+                with patch.object(
+                    evidence_hardening,
+                    "_descriptor_names",
+                    side_effect=swap_then_list,
+                ):
+                    items = RunArtifactEvidenceProvider(run_root).retrieve("outside evidence")
+            except OSError as exc:
+                self.skipTest(f"directory symlink unavailable: {exc}")
+
+            self.assertTrue(swapped)
+            self.assertEqual(items, [])
 
     def test_context_compiler_includes_ranked_evidence_with_provenance(self):
         with tempfile.TemporaryDirectory() as temp:

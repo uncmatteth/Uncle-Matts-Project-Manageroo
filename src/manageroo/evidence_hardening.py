@@ -7,34 +7,89 @@ from pathlib import Path
 from typing import Any
 
 
-def _verified_bounded_text(path: Path, root: Path, *, max_bytes: int) -> tuple[str, float] | None:
-    """Open one verified regular inode without following a final symlink.
+def _descriptor_traversal_supported() -> bool:
+    return (
+        hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
+        and os.listdir in os.supports_fd
+    )
 
-    On Linux, /proc/self/fd binds containment to the actual opened inode. Other platforms
-    use a post-open realpath plus device/inode comparison as a conservative fallback.
-    """
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+
+def _open_directory_fd(path: str | Path, *, dir_fd: int | None = None) -> int | None:
+    if not _descriptor_traversal_supported():
+        return None
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
     try:
-        fd = os.open(path, flags)
+        return os.open(path, flags, dir_fd=dir_fd)
+    except OSError:
+        return None
+
+
+def _descriptor_names(directory_fd: int) -> list[str]:
+    return sorted(os.listdir(directory_fd))
+
+
+def _walk_descriptor(
+    directory_fd: int,
+    relative: Path = Path(),
+):
+    try:
+        names = _descriptor_names(directory_fd)
+    except OSError:
+        return
+    for name in names:
+        try:
+            entry = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError:
+            continue
+        child_relative = relative / name
+        if stat.S_ISDIR(entry.st_mode):
+            child_fd = _open_directory_fd(name, dir_fd=directory_fd)
+            if child_fd is None:
+                continue
+            try:
+                yield from _walk_descriptor(child_fd, child_relative)
+            finally:
+                os.close(child_fd)
+        elif stat.S_ISREG(entry.st_mode):
+            yield directory_fd, name, child_relative
+
+
+def _verified_bounded_text(
+    directory_fd: int,
+    name: str,
+    *,
+    max_bytes: int,
+) -> tuple[str, float] | None:
+    """Open one verified regular inode relative to an already anchored directory.
+
+    Every directory component is retained by descriptor, so renaming or replacing its
+    pathname cannot redirect this open outside the trusted tree.
+    """
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    try:
+        fd = os.open(name, flags, dir_fd=directory_fd)
     except OSError:
         return None
     try:
         opened = os.fstat(fd)
         if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
             return None
-        proc_fd = Path(f"/proc/self/fd/{fd}")
         try:
-            actual = proc_fd.resolve(strict=True) if proc_fd.exists() else path.resolve(strict=True)
-            actual.relative_to(root.resolve())
-        except (OSError, ValueError):
-            return None
-        try:
-            current = os.stat(path, follow_symlinks=False)
+            current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
         except OSError:
             return None
-        if stat.S_ISLNK(current.st_mode) or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+        if stat.S_ISLNK(current.st_mode) or (
+            current.st_dev,
+            current.st_ino,
+        ) != (opened.st_dev, opened.st_ino):
             return None
         chunks: list[bytes] = []
         remaining = max_bytes + 1
@@ -75,11 +130,23 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
         if int(limit) <= 0:
             return []
         lexical = self.repo / evidence_module.PROJECT_DIR / "PROJECT-MEMORY.md"
-        record = _verified_bounded_text(
-            lexical,
-            self.repo,
-            max_bytes=evidence_module.MAX_EVIDENCE_INPUT_BYTES,
-        )
+        repo_fd = _open_directory_fd(self.repo)
+        if repo_fd is None:
+            return []
+        try:
+            project_fd = _open_directory_fd(evidence_module.PROJECT_DIR, dir_fd=repo_fd)
+            if project_fd is None:
+                return []
+            try:
+                record = _verified_bounded_text(
+                    project_fd,
+                    "PROJECT-MEMORY.md",
+                    max_bytes=evidence_module.MAX_EVIDENCE_INPUT_BYTES,
+                )
+            finally:
+                os.close(project_fd)
+        finally:
+            os.close(repo_fd)
         if record is None:
             return []
         content, mtime = record
@@ -112,58 +179,62 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
         limit = int(limit)
         if limit <= 0:
             return []
-        if not self.artifact_root.is_dir() or self.artifact_root.is_symlink():
+        run_fd = _open_directory_fd(self.run_root)
+        if run_fd is None:
             return []
         try:
-            root = self.artifact_root.resolve(strict=True)
-            root.relative_to(self.run_root)
-        except (OSError, ValueError):
-            return []
-        terms = evidence_module._query_terms(query)
-        candidates: list[tuple[int, float, Path, str]] = []
-        eligible_seen = 0
-        eligible_cap = max(limit * 20, 100)
-        for current, dirs, files in os.walk(root, topdown=True, followlinks=False):
-            dirs[:] = sorted(name for name in dirs if not (Path(current) / name).is_symlink())
-            for name in sorted(files):
-                if eligible_seen >= eligible_cap:
-                    break
-                lexical = Path(current) / name
-                if lexical.suffix.lower() not in evidence_module.EVIDENCE_SUFFIXES:
-                    continue
-                if evidence_module._is_derived_run_artifact(self.run_root, lexical):
-                    continue
-                eligible_seen += 1
-                record = _verified_bounded_text(
-                    lexical,
-                    root,
-                    max_bytes=evidence_module.MAX_EVIDENCE_INPUT_BYTES,
-                )
-                if record is None:
-                    continue
-                text, mtime = record
-                if not text.strip():
-                    continue
-                lowered = (lexical.as_posix() + "\n" + text).lower()
-                relevance = sum(lowered.count(term) for term in terms)
-                if terms and relevance == 0:
-                    continue
-                candidates.append((relevance, mtime, lexical, text))
-            if eligible_seen >= eligible_cap:
-                break
+            artifact_fd = _open_directory_fd("artifacts", dir_fd=run_fd)
+            if artifact_fd is None:
+                return []
+            try:
+                terms = evidence_module._query_terms(query)
+                candidates: list[tuple[int, float, Path, str]] = []
+                eligible_seen = 0
+                eligible_cap = max(limit * 20, 100)
+                walker = _walk_descriptor(artifact_fd)
+                try:
+                    for directory_fd, name, relative in walker:
+                        if eligible_seen >= eligible_cap:
+                            break
+                        lexical = Path("artifacts") / relative
+                        if lexical.suffix.lower() not in evidence_module.EVIDENCE_SUFFIXES:
+                            continue
+                        if evidence_module._is_derived_run_artifact(
+                            self.run_root,
+                            self.run_root / lexical,
+                        ):
+                            continue
+                        eligible_seen += 1
+                        record = _verified_bounded_text(
+                            directory_fd,
+                            name,
+                            max_bytes=evidence_module.MAX_EVIDENCE_INPUT_BYTES,
+                        )
+                        if record is None:
+                            continue
+                        text, mtime = record
+                        if not text.strip():
+                            continue
+                        lowered = (lexical.as_posix() + "\n" + text).lower()
+                        relevance = sum(lowered.count(term) for term in terms)
+                        if terms and relevance == 0:
+                            continue
+                        candidates.append((relevance, mtime, lexical, text))
+                finally:
+                    walker.close()
+            finally:
+                os.close(artifact_fd)
+        finally:
+            os.close(run_fd)
         candidates.sort(key=lambda row: (row[0], row[1], row[2].as_posix()), reverse=True)
         items = []
         for relevance, mtime, path, text in candidates[:limit]:
-            try:
-                location = str(path.relative_to(self.run_root))
-            except ValueError:
-                continue
             try:
                 items.append(
                     evidence_module.EvidenceItem(
                         content=text[: evidence_module.MAX_EVIDENCE_CONTENT_CHARS],
                         source=self.name,
-                        location=location,
+                        location=path.as_posix(),
                         authority="manageroo_run",
                         confidence=0.98,
                         freshness=0.95,
