@@ -2514,21 +2514,44 @@ def _resume_stopped_attempt(
             )
         patch = candidates[-1]
     else:
+        planned_candidates = []
         for attempt in inspected["patchAttempts"]:
-            if not isinstance(attempt, dict) or attempt.get("status") != "applied":
+            if not isinstance(attempt, dict):
                 continue
             git_record = attempt.get("git")
-            if (
-                finding_id in attempt.get("findingIds", [])
+            applied_matches = (
+                attempt.get("status") == "applied"
+                and finding_id in attempt.get("findingIds", [])
                 and sorted(attempt.get("filesChanged", [])) == owned_paths
                 and isinstance(git_record, dict)
                 and git_record.get("baseSha") == current_head
-            ):
+            )
+            planned_matches = (
+                attempt.get("status") == "planned"
+                and finding_id in attempt.get("findingIds", [])
+                and attempt.get("filesChanged") == []
+                and isinstance(git_record, dict)
+                and git_record.get("baseSha") == current_head
+            )
+            if applied_matches:
                 candidates.append(attempt)
+            elif planned_matches:
+                planned_candidates.append(attempt)
+        if planned_candidates:
+            recorded_fingerprint = str(checkpoint.get("owned_source_fingerprint", ""))
+            if (
+                not recorded_fingerprint
+                or _owned_source_fingerprint(repo, owned_paths) != recorded_fingerprint
+            ):
+                raise SafetyError(
+                    "Stopped planned Clawpatch attempt no longer matches its exact source fingerprint."
+                )
+            candidates.extend(planned_candidates)
         if len(candidates) != 1:
             raise SafetyError(
-                "Stopped Clawpatch progress requires exactly one applied patch attempt bound "
-                "to the current HEAD and owned source paths."
+                "Stopped Clawpatch progress requires exactly one applied patch attempt or "
+                "fingerprinted interrupted planned attempt bound to the current HEAD and owned "
+                "source paths."
             )
         patch = candidates[0]
     _validate_attempt_paths(repo, owned_paths)

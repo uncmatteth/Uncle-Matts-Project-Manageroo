@@ -32,6 +32,10 @@ applying useful source changes. Resume accepts the latest matching applied or
 validation-failed record only when the external checkpoint's exact source
 fingerprint, recognizable temporary iteration commit, original HEAD, and complete
 owned paths all agree. It does not treat a failed console status alone as proof.
+A `planned` patch record does not claim source ownership. It can resume dirty
+source only when the stopped external checkpoint independently records the exact
+current path set and matching source fingerprint at the same finding and HEAD;
+otherwise the source and checkpoint are preserved and continuation is refused.
 For fresh-start recovery, a clean current branch that descends from the recorded
 original HEAD without containing the recorded temporary iteration commit proves
 that commit is dangling. The supervisor may retire only that obsolete external

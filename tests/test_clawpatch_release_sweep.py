@@ -1117,6 +1117,125 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         push_and_verify.assert_not_called()
 
     @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_planned_attempt_accepts_only_exact_checkpoint_owned_source(
+        self,
+        show_finding,
+        _gates,
+        push_and_verify,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("interrupted Clawpatch repair\n", encoding="utf-8")
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_interrupted",
+                        "status": "planned",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": [],
+                        "git": {"baseSha": head},
+                    }
+                ],
+            }
+
+            record, pushed = _resume_stopped_attempt(
+                repo,
+                checkpoint,
+                env={},
+                push_mode="each",
+                branch=branch,
+                pushed=False,
+                require_project_gates=False,
+            )
+
+        self.assertTrue(record["resumed"])
+        self.assertEqual(record["patch_attempt"], "pat_interrupted")
+        self.assertEqual(record["revalidation"]["outcome"], "open")
+        self.assertEqual(record["commit"], "")
+        self.assertFalse(pushed)
+        push_and_verify.assert_not_called()
+
+    @patch("manageroo.clawpatch_release._run_project_gates")
+    @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_planned_attempt_rejects_changed_checkpoint_source(
+        self,
+        show_finding,
+        run_project_gates,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("checkpoint-owned repair\n", encoding="utf-8")
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            source.write_text("operator edit after checkpoint\n", encoding="utf-8")
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_interrupted",
+                        "status": "planned",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": [],
+                        "git": {"baseSha": head},
+                    }
+                ],
+            }
+
+            with self.assertRaisesRegex(SafetyError, "source fingerprint"):
+                _resume_stopped_attempt(
+                    repo,
+                    checkpoint,
+                    env={},
+                    push_mode="each",
+                    branch=branch,
+                    pushed=False,
+                    require_project_gates=False,
+                )
+
+        run_project_gates.assert_not_called()
+
+    @patch("manageroo.clawpatch_release._push_and_verify")
     @patch("manageroo.clawpatch_release._revalidate")
     @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
     @patch("manageroo.clawpatch_release._show_finding")

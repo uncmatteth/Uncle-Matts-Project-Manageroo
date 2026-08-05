@@ -232,6 +232,13 @@ If interruption leaves a source-clean `planned` attempt, ordinary relaunch
 requires the same open finding, branch, current HEAD, empty changed-file record,
 and no active process. It preserves ClawPatch state and reenters only through
 `next`; that command must return the same finding before `show` and `fix` run.
+If the interrupted child left source changes before ClawPatch advanced that
+record beyond `planned`, relaunch accepts them only when a stopped checkpoint
+already owns the complete current path set and its exact source fingerprint still
+matches. The planned attempt must name the same finding and starting HEAD and
+must still record no claimed files. Manageroo then runs configured gates and
+returns an open result to the same-finding continuation loop; it does not infer
+ownership from a planned record alone.
 When the worktree is source-clean because the stopped attempt was already
 committed, the external supervisor clears the stale checkpoint only after Git
 proves that one descendant commit's complete non-ClawPatch path set exactly
