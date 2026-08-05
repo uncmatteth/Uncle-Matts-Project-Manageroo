@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 # Exact versions from the verified supervisor source.
-$ManagerooCommit = "d9d30315bfe3b4e1f87161ac33b198678cc11a1e"
+$ManagerooCommit = "217925738e172c970778ab898870caa67f91a23d"
 $ManagerooSource = "git+https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git@$ManagerooCommit"
 $CodexPackage = "@openai/codex@0.144.4"
 $ClawPatchPackage = "clawpatch@0.7.2"
