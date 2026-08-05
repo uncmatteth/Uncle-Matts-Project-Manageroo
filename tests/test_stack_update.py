@@ -859,6 +859,24 @@ class StackUpdateTests(unittest.TestCase):
 
             self.assertEqual(victim.read_bytes(), sentinel)
 
+    def test_autoreview_lock_rejects_symlink_without_o_nofollow(self):
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "autoreview"
+            lock = destination.with_name(f".{destination.name}.manageroo-update.lock")
+            victim = Path(temp) / "victim.txt"
+            sentinel = b"do not overwrite\n"
+            victim.write_bytes(sentinel)
+            symlink_or_skip(self, victim, lock)
+
+            import manageroo.stack_update_policy as policy
+
+            with patch.object(policy.os, "O_NOFOLLOW", 0, create=True):
+                with self.assertRaises(OSError):
+                    with policy._destination_lock(destination):
+                        pass
+
+            self.assertEqual(victim.read_bytes(), sentinel)
+
     def test_plain_output_makes_apply_boundary_explicit(self):
         text = format_stack_update(stack_update_plan())
         self.assertIn("No changes were made", text)

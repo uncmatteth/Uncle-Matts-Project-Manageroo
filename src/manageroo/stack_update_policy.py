@@ -25,20 +25,63 @@ def _probe_stdout(probe: dict[str, Any]) -> str:
     return str(probe.get("stdout", probe.get("output", "")) or "")
 
 
+def _is_reparse_point(state: os.stat_result) -> bool:
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(state, "st_file_attributes", 0) & reparse_point)
+
+
+def _validate_destination_lock(
+    fd: int,
+    lock: Path,
+    *,
+    expected_state: os.stat_result | None = None,
+) -> os.stat_result:
+    lock_state = os.fstat(fd)
+    try:
+        path_state = lock.lstat()
+    except OSError as exc:
+        raise OSError(f"Could not validate AUTOREVIEW update lock: {lock}: {exc}") from exc
+    if (
+        stat.S_ISLNK(path_state.st_mode)
+        or _is_reparse_point(path_state)
+        or not stat.S_ISREG(lock_state.st_mode)
+        or not stat.S_ISREG(path_state.st_mode)
+        or lock_state.st_nlink != 1
+        or path_state.st_nlink != 1
+        or (lock_state.st_dev, lock_state.st_ino)
+        != (path_state.st_dev, path_state.st_ino)
+        or (
+            expected_state is not None
+            and (expected_state.st_dev, expected_state.st_ino)
+            != (path_state.st_dev, path_state.st_ino)
+        )
+    ):
+        raise OSError(f"AUTOREVIEW update lock is not a private regular file: {lock}")
+    return path_state
+
+
 @contextmanager
 def _destination_lock(destination: Path, *, timeout: float = 30.0) -> Iterator[None]:
     lock = destination.with_name(f".{destination.name}.manageroo-update.lock")
-    flags = os.O_CREAT | os.O_RDWR
+    flags = os.O_RDWR
     flags |= getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(lock, flags, 0o600)
+    expected_state: os.stat_result | None = None
+    try:
+        fd = os.open(lock, flags | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        expected_state = lock.lstat()
+        if (
+            stat.S_ISLNK(expected_state.st_mode)
+            or _is_reparse_point(expected_state)
+            or not stat.S_ISREG(expected_state.st_mode)
+            or expected_state.st_nlink != 1
+        ):
+            raise OSError(f"AUTOREVIEW update lock is not a private regular file: {lock}")
+        fd = os.open(lock, flags, 0o600)
     acquired = False
     try:
-        lock_state = os.fstat(fd)
-        if not stat.S_ISREG(lock_state.st_mode):
-            raise OSError(f"AUTOREVIEW update lock is not a regular file: {lock}")
-        if lock_state.st_nlink != 1:
-            raise OSError(f"AUTOREVIEW update lock has multiple hard links: {lock}")
+        lock_state = _validate_destination_lock(fd, lock, expected_state=expected_state)
         if lock_state.st_size == 0:
             os.ftruncate(fd, 1)
 
@@ -57,6 +100,7 @@ def _destination_lock(destination: Path, *, timeout: float = 30.0) -> Iterator[N
                     ) from exc
                 time.sleep(0.05)
 
+        _validate_destination_lock(fd, lock, expected_state=lock_state)
         owner_payload = f"pid={os.getpid()}\n".encode("utf-8")
         os.lseek(fd, 0, os.SEEK_SET)
         os.write(fd, owner_payload)
