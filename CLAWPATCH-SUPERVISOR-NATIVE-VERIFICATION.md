@@ -6,7 +6,7 @@ Windows and native macOS. It does not authorize a live project queue.
 ## Fixed source contract
 
 - Repository: `https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git`
-- Branch: `fix/clawpatch-partial-progress-loop`
+- Branch: `fix/native-windows-verification-a543`
 - Supervisor source pin: `6233d19e88b637c7cdf062e0b2aebb758038bf03`
 - ClawPatch: `0.7.2`
 - Codex CLI: `0.144.4`
@@ -104,7 +104,7 @@ Use native Windows PowerShell.
 ### Pull the verification package
 
 ```powershell
-$Branch = "fix/clawpatch-partial-progress-loop"
+$Branch = "fix/native-windows-verification-a543"
 $RepoUrl = "https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git"
 $Checkout = Join-Path $env:TEMP "manageroo-clawpatch-windows-proof"
 
@@ -120,7 +120,7 @@ git rev-parse HEAD
 ```
 
 Confirm the branch is clean and tracks
-`origin/fix/clawpatch-partial-progress-loop`.
+`origin/fix/native-windows-verification-a543`.
 
 ### Verify the Windows installer
 
@@ -216,7 +216,7 @@ Use native Terminal on macOS.
 
 ```bash
 set -euo pipefail
-branch="fix/clawpatch-partial-progress-loop"
+branch="fix/native-windows-verification-a543"
 repo_url="https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git"
 checkout="$(mktemp -d "${TMPDIR:-/tmp}/manageroo-clawpatch-macos-proof.XXXXXX")/repo"
 
@@ -228,7 +228,7 @@ git rev-parse HEAD
 ```
 
 Confirm the branch is clean and tracks
-`origin/fix/clawpatch-partial-progress-loop`.
+`origin/fix/native-windows-verification-a543`.
 
 ### Verify the macOS installer
 
