@@ -376,8 +376,13 @@ class IntentLockTests(unittest.TestCase):
     def test_audit_ignores_negated_or_quoted_confidence_terms_in_summary(self):
         summaries = (
             "Intent: Ship the release.\nStatus: not production-ready.",
+            "Intent: Ship the release.\nThe release is not, in fact, production-ready.",
+            "Intent: Ship the release.\nThe release is not — in fact — production-ready.",
+            "Intent: Ship the release.\nThe release isn't remotely production-ready.",
             "Intent: Ship the release.\nThe docs say 'production-ready' is prohibited.",
             'Intent: Ship the release.\nDo not describe this as "production-ready".',
+            "Intent: Ship the release.\nDo not describe the build as production-ready.",
+            "Intent: Ship the release.\nWe cannot claim production-ready.",
         )
         for summary in summaries:
             with self.subTest(summary=summary), tempfile.TemporaryDirectory() as temp:
@@ -390,6 +395,55 @@ class IntentLockTests(unittest.TestCase):
                 self.assertEqual(report["status"], "passed")
                 self.assertFalse(report["confidence_claims_blocking"])
                 self.assertFalse(report["warnings"])
+
+    def test_audit_blocks_affirmative_claim_after_separate_negated_clause(self):
+        summaries = (
+            "Checks did not run, but the release is production-ready.",
+            "Checks did not run, the release is production-ready.",
+            "Although checks did not run, the release is production-ready.",
+            "Checks did not run, release is production-ready.",
+            "Checks did not run, the current desktop release candidate is production-ready.",
+            "Checks did not run, production-ready.",
+            "Checks did not run, I call the release production-ready.",
+            "Checks did not run, we consider the release production-ready.",
+            "Checks did not run and the release is production-ready.",
+            "Checks did not run and reviewers declared the release production-ready.",
+            "Checks did not run while the release is production-ready.",
+            "Checks did not run while reviewers say the release is production-ready.",
+            "Checks did not run whereas the release is production-ready.",
+            "Checks did not run — the release is production-ready.",
+            "The release was not tested and is production-ready.",
+            "Checks did not run because the release is production-ready.",
+            "Tests did not run since the release is production-ready.",
+            "Tests did not run when reviewers declared the release production-ready.",
+            "Tests did not run before reviewers declared the release production-ready.",
+            "Without running tests reviewers declared the release production-ready.",
+            "Tests did not run so reviewers called the release production-ready.",
+            "Do not claim checks passed, but the release is production-ready.",
+            "Do not claim checks passed yet reviewers declare the release production-ready.",
+            "Do not say tests ran nonetheless reviewers call it production-ready.",
+            "We should not say checks passed nevertheless the release is production-ready.",
+            "Checks didn't run, but the release is production-ready.",
+            "Tests weren't run, yet reviewers call the release production-ready.",
+            "We couldn't verify artifacts although the build is production-ready.",
+        )
+        for summary in summaries:
+            with self.subTest(summary=summary), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.")
+
+                report = audit_compaction_text(
+                    repo,
+                    f"Intent: Ship the release.\n{summary}",
+                )
+
+                self.assertFalse(report["ok"], report)
+                self.assertEqual(report["status"], "blocked")
+                self.assertTrue(report["confidence_claims_blocking"])
+                self.assertEqual(
+                    [warning["text"] for warning in report["warnings"]],
+                    ["production-ready"],
+                )
 
     def test_audit_rejects_negated_or_quoted_confidence_claims_as_proof(self):
         cases = (

@@ -40,14 +40,27 @@ _SCOPED_AWAY_EVIDENCE = re.compile(r"\b(?:irrelevant|unrelated)\b", re.IGNORECAS
 _QUOTE_PAIRS = (("\"", "\""), ("'", "'"), ("`", "`"), ("“", "”"), ("‘", "’"))
 
 
+def _find_quote_delimiter(text: str, delimiter: str, start: int, *, opening: bool) -> int:
+    while True:
+        index = text.find(delimiter, start)
+        if index < 0 or delimiter != "'":
+            return index
+        adjacent = index - 1 if opening else index + 1
+        if adjacent < 0 or adjacent >= len(text) or not text[adjacent].isalnum():
+            return index
+        start = index + 1
+
+
 def _inside_quoted_span(text: str, start: int, end: int) -> bool:
     for opening, closing in _QUOTE_PAIRS:
         cursor = 0
         while True:
-            left = text.find(opening, cursor)
+            left = _find_quote_delimiter(text, opening, cursor, opening=True)
             if left < 0:
                 break
-            right = text.find(closing, left + len(opening))
+            right = _find_quote_delimiter(
+                text, closing, left + len(opening), opening=False
+            )
             if right < 0:
                 if left < start:
                     return True

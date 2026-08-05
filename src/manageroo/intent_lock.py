@@ -35,6 +35,26 @@ _CONFIDENCE_PATTERN = re.compile(
     r"\b(?:best|smartest|perfect|guaranteed\s+(?:complete|ready|finished)|100%\s*(?:done|complete|ready|finished)|fully\s+(?:complete|finished|verified|production[- ]ready)|production[- ]ready)\b",
     re.IGNORECASE,
 )
+_NEGATED_CONFIDENCE_PREFIX = re.compile(
+    r"""
+    (?:
+        \b(?:(?:is|are|was|were|remains?)\s+(?:not|never)|[a-z]+n't|not)
+        (?:\s|[,–—])*
+        (?:(?:actually|at\s+all|currently|even|in\s+fact|really|remotely|truly|yet)
+            (?:\s|[,–—])*)*
+      |
+        \b(?:cannot|can't|do\s+not|don't|must\s+not|mustn't|never|should\s+not|shouldn't)
+        \s+(?:ever\s+)?
+        (?:call|characterize|claim|consider|describe|label|present|portray|refer\s+to|say|state)
+        \s*
+        (?:(?:this|that|it)\s+|(?:(?:this|that|the|our)\s+)?
+            (?:build|release|result|status)\s+)?
+        (?:(?:is|was|remains?)\s+)?
+        (?:as\s+)?
+    )$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 def intent_root(repo: Path) -> Path:
@@ -272,7 +292,7 @@ def _confidence_warnings(summary_text: str) -> list[dict[str, str]]:
             r"^\s*(?:(?:is|was|remains?)\s+)?", "", suffix, flags=re.IGNORECASE
         ).lstrip(" ,-–—")
         return not (
-            _NEGATION_IN_CLAUSE.search(prefix)
+            _NEGATED_CONFIDENCE_PREFIX.search(prefix)
             or _NEGATION_IN_CLAUSE.match(suffix_state)
             or _NONAFFIRMATIVE_CLAIM_STATE.search(suffix)
         )

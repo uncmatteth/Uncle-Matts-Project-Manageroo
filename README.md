@@ -192,7 +192,7 @@ Manageroo reconciles completion against:
 
 A passing unit test does not automatically prove a browser flow. A worker saying something was deployed does not prove deployment. A model claiming something is secure does not make it secure.
 
-Claims that require observable evidence remain unproven until matching affirmative evidence exists and records a successful outcome; quoted, negated, or failed-outcome claim text does not count as proof. The compaction audit warns only for affirmative confidence terms, not quoted or negated mentions.
+Claims that require observable evidence remain unproven until matching affirmative evidence exists and records a successful outcome; quoted, negated, or failed-outcome claim text does not count as proof. The compaction audit warns only for affirmative confidence terms, not quoted or negated mentions. Negation is scoped to the local claim clause, so a preceding contrastive clause cannot hide an affirmative confidence claim.
 
 # How to actually use Manageroo
 
