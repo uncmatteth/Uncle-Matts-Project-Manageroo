@@ -88,6 +88,49 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "failed")
         self.assertEqual(rows[1]["status"], "passed")
 
+    def test_conflicting_duplicate_bound_gate_results_never_pass(self):
+        rows = build_acceptance_evidence(
+            product={"acceptance_outcomes": ["Configured verification gates pass."]},
+            gate_results=[
+                {"gate": {"id": "smoke"}, "result": {"exit_code": 0}},
+                {"gate": {"id": "smoke"}, "result": {"exit_code": 1}},
+            ],
+            demonstration={
+                "gates": [],
+                "product_evidence": [
+                    {
+                        "outcome": "Configured verification gates pass.",
+                        "gate_ids": ["smoke"],
+                    }
+                ],
+            },
+            review={"status": "approved", "findings": []},
+        )
+        self.assertEqual(rows[0]["status"], "failed")
+        self.assertIn("duplicate", rows[0]["reason"])
+
+    def test_cross_lane_failure_cannot_be_masked_by_regular_pass(self):
+        rows = build_acceptance_evidence(
+            product={"acceptance_outcomes": ["Configured verification gates pass."]},
+            gate_results=[
+                {"gate": {"id": "smoke"}, "result": {"exit_code": 0}},
+            ],
+            demonstration={
+                "gates": [
+                    {"gate": {"id": "smoke"}, "result": {"exit_code": 1}},
+                ],
+                "product_evidence": [
+                    {
+                        "outcome": "Configured verification gates pass.",
+                        "gate_ids": ["smoke"],
+                    }
+                ],
+            },
+            review={"status": "approved", "findings": []},
+        )
+        self.assertEqual(rows[0]["status"], "failed")
+        self.assertIn("conflicting", rows[0]["reason"])
+
     def test_user_journey_requires_bound_demonstration_gate(self):
         outcome = "User can complete the browser checkout journey."
         rows = build_acceptance_evidence(

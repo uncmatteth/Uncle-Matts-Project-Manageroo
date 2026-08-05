@@ -39,23 +39,32 @@ def _normalized(value: object) -> str:
     return " ".join(str(value or "").split()).casefold()
 
 
-def _passed_gate_ids(gates: list[dict]) -> set[str]:
+def _gate_result_ids(gates: list[dict]) -> tuple[set[str], set[str], set[str]]:
+    observed: set[str] = set()
     passed: set[str] = set()
+    duplicates: set[str] = set()
     for item in gates:
         if not isinstance(item, dict):
             continue
         gate = item.get("gate", {})
         result = item.get("result", {})
+        if not isinstance(gate, dict):
+            continue
+        gate_id = str(gate.get("id") or "").strip()
+        if not gate_id:
+            continue
+        if gate_id in observed:
+            duplicates.add(gate_id)
+            passed.discard(gate_id)
+            continue
+        observed.add(gate_id)
         if (
-            isinstance(gate, dict)
-            and isinstance(result, dict)
+            isinstance(result, dict)
             and type(result.get("exit_code")) is int
             and result["exit_code"] == 0
         ):
-            gate_id = str(gate.get("id") or "").strip()
-            if gate_id:
-                passed.add(gate_id)
-    return passed
+            passed.add(gate_id)
+    return observed, passed, duplicates
 
 
 def _term_present(text: str, term: str) -> bool:
@@ -94,9 +103,18 @@ def build_acceptance_evidence(
 ) -> list[dict]:
     """Prove each requested outcome independently instead of sharing generic green checks."""
 
-    passed_gates = _passed_gate_ids(gate_results)
-    demo_gates = _passed_gate_ids(list(demonstration.get("gates", []) or []))
-    all_passed = passed_gates | demo_gates
+    gate_ids, passed_gates, duplicate_gates = _gate_result_ids(gate_results)
+    demo_gate_ids, demo_gates, duplicate_demo_gates = _gate_result_ids(
+        list(demonstration.get("gates", []) or [])
+    )
+    duplicate_gate_ids = duplicate_gates | duplicate_demo_gates
+    cross_lane_conflicts = {
+        gate_id
+        for gate_id in gate_ids & demo_gate_ids
+        if (gate_id in passed_gates) != (gate_id in demo_gates)
+    }
+    invalid_gate_ids = duplicate_gate_ids | cross_lane_conflicts
+    all_passed = (passed_gates | demo_gates) - invalid_gate_ids
     review_approved = review.get("status") == "approved"
     bindings = _bindings(demonstration)
     rows: list[dict] = []
@@ -120,6 +138,23 @@ def build_acceptance_evidence(
             continue
 
         required_gate_ids = set(matches[0]["gate_ids"])
+        invalid_bound_gates = sorted(required_gate_ids & invalid_gate_ids)
+        if invalid_bound_gates:
+            rows.append(
+                {
+                    "description": description,
+                    "status": "failed",
+                    "evidence": [
+                        f"gate:{gate_id}" for gate_id in sorted(required_gate_ids & all_passed)
+                    ],
+                    "reason": (
+                        "Bound proof gates have duplicate or conflicting lane results: "
+                        + ", ".join(invalid_bound_gates)
+                    ),
+                }
+            )
+            continue
+
         missing = sorted(required_gate_ids - all_passed)
         if missing:
             rows.append(
