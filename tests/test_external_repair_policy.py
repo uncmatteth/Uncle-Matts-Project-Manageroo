@@ -173,6 +173,24 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             checkpoint = read_json(manifest_path)["checkpoint"]
             self.assertEqual(fake.mirror.head(), checkpoint)
 
+            (fake.workspace / "tracked.txt").write_text(
+                "operator mutation\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(SafetyError, "requires a clean workspace"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+            self.assertEqual(calls["count"], 1)
+            self.assertEqual(fake.mirror.head(), checkpoint)
+            self.assertEqual(
+                (fake.workspace / "tracked.txt").read_text(encoding="utf-8"),
+                "operator mutation\n",
+            )
+
+            git(fake.workspace, "reset", "--hard", checkpoint)
             resumed = run_external_review_repair_lanes(
                 fake,
                 brief="repair",
@@ -217,6 +235,77 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             self.assertEqual(
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
             )
+
+    def test_command_exception_preserves_preexisting_ignored_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
+                (workspace / "created.cache").write_text("lane residue\n", encoding="utf-8")
+                (workspace / "untracked.txt").write_text("lane residue\n", encoding="utf-8")
+                raise RuntimeError("command crashed")
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "preexisting.cache\ncreated.cache\n", encoding="utf-8"
+            )
+            preexisting = fake.workspace / "preexisting.cache"
+            preexisting.write_text("operator data\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(SafetyError, "rollback was verified"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+
+            self.assertEqual(preexisting.read_text(encoding="utf-8"), "operator data\n")
+            self.assertFalse((fake.workspace / "created.cache").exists())
+            self.assertFalse((fake.workspace / "untracked.txt").exists())
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
+    def test_failed_reset_does_not_run_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
+                (workspace / "untracked.txt").write_text("operator data\n", encoding="utf-8")
+                raise RuntimeError("command crashed")
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            real_run = fake.runner.run
+            calls = []
+
+            def fail_reset(argv, **kwargs):
+                calls.append(list(argv))
+                if list(argv[:3]) == ["git", "reset", "--hard"]:
+                    return SimpleNamespace(passed=False, stdout="", stderr="reset failed")
+                return real_run(argv, **kwargs)
+
+            with patch.object(fake.runner, "run", side_effect=fail_reset):
+                with self.assertRaisesRegex(SafetyError, "Workspace state is uncertain"):
+                    run_external_review_repair_lanes(
+                        fake,
+                        brief="repair",
+                        plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                        gate_results=[],
+                    )
+
+            self.assertTrue((fake.workspace / "untracked.txt").is_file())
+            self.assertFalse(any(argv[:3] == ["git", "clean", "-fdx"] for argv in calls))
 
     def test_checkpoint_path_inspection_failure_restores_exact_clean_baseline(self):
         with tempfile.TemporaryDirectory() as temp:

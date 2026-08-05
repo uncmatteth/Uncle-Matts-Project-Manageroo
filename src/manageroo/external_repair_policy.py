@@ -63,18 +63,40 @@ def _checkpoint_tree(orchestrator: Any, checkpoint: str) -> str:
     return result.stdout.strip()
 
 
+def _untracked_paths(orchestrator: Any, *, ignored: bool) -> set[str]:
+    assert orchestrator.workspace is not None
+    argv = ["git", "ls-files", "--others", "-z", "--exclude-standard"]
+    if ignored:
+        argv.append("--ignored")
+    result = orchestrator.runner.run(
+        [*argv, "--"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if not result.passed:
+        kind = "ignored" if ignored else "untracked"
+        raise SafetyError(f"Could not inspect {kind} external repair workspace paths.")
+    return {safe_repo_relative(item) for item in result.stdout.split("\0") if item}
+
+
 def _restore_checkpoint(orchestrator: Any, *, name: str, checkpoint: str) -> None:
     assert orchestrator.workspace is not None
+    status = orchestrator.runner.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if not status.passed or status.stdout.strip() or _untracked_paths(orchestrator, ignored=True):
+        raise SafetyError(
+            f"Command-owned {name} checkpoint restoration requires a clean workspace."
+        )
     reset = orchestrator.runner.run(
         ["git", "reset", "--hard", checkpoint],
         cwd=orchestrator.workspace,
         timeout_seconds=120,
     )
-    clean = orchestrator.runner.run(
-        ["git", "clean", "-fdx"],
-        cwd=orchestrator.workspace,
-        timeout_seconds=120,
-    )
+    if not reset.passed:
+        raise SafetyError(f"Command-owned {name} checkpoint could not be restored exactly.")
     head = orchestrator.runner.run(
         ["git", "rev-parse", "HEAD"],
         cwd=orchestrator.workspace,
@@ -86,9 +108,7 @@ def _restore_checkpoint(orchestrator: Any, *, name: str, checkpoint: str) -> Non
         timeout_seconds=60,
     )
     if (
-        not reset.passed
-        or not clean.passed
-        or not head.passed
+        not head.passed
         or head.stdout.strip() != checkpoint
         or not status.passed
         or status.stdout.strip()
@@ -220,7 +240,7 @@ def _existing_checkpoint_chain(
     return chain
 
 
-def _require_clean_lane_start(orchestrator: Any, name: str) -> None:
+def _require_clean_lane_start(orchestrator: Any, name: str) -> set[str]:
     assert orchestrator.workspace is not None
     status = orchestrator.runner.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
@@ -233,9 +253,16 @@ def _require_clean_lane_start(orchestrator: Any, name: str) -> None:
         raise SafetyError(
             f"Command-owned {name} repair lane requires a clean controller workspace before execution."
         )
+    return _untracked_paths(orchestrator, ignored=True)
 
 
-def _rollback_lane(orchestrator: Any, *, name: str, baseline: str) -> None:
+def _rollback_lane(
+    orchestrator: Any,
+    *,
+    name: str,
+    baseline: str,
+    preserved_ignored_paths: set[str],
+) -> None:
     """Restore the exact clean pre-command checkpoint and verify rollback before continuation."""
 
     assert orchestrator.workspace is not None
@@ -244,11 +271,28 @@ def _rollback_lane(orchestrator: Any, *, name: str, baseline: str) -> None:
         cwd=orchestrator.workspace,
         timeout_seconds=120,
     )
-    clean = orchestrator.runner.run(
-        ["git", "clean", "-fdx"],
-        cwd=orchestrator.workspace,
-        timeout_seconds=120,
+    if not reset.passed:
+        raise SafetyError(
+            f"Command-owned {name} repair lane failed and rollback could not be verified."
+        )
+    unmanaged_paths = _untracked_paths(orchestrator, ignored=False) | _untracked_paths(
+        orchestrator, ignored=True
     )
+    if not preserved_ignored_paths.issubset(unmanaged_paths):
+        raise SafetyError(
+            f"Command-owned {name} repair lane changed pre-existing ignored workspace data."
+        )
+    created_paths = sorted(unmanaged_paths - preserved_ignored_paths)
+    if created_paths:
+        clean = orchestrator.runner.run(
+            ["git", "clean", "-fdx", "--", *(f":(literal){path}" for path in created_paths)],
+            cwd=orchestrator.workspace,
+            timeout_seconds=120,
+        )
+        if not clean.passed:
+            raise SafetyError(
+                f"Command-owned {name} repair lane failed and rollback could not be verified."
+            )
     head = orchestrator.runner.run(
         ["git", "rev-parse", "HEAD"],
         cwd=orchestrator.workspace,
@@ -259,13 +303,15 @@ def _rollback_lane(orchestrator: Any, *, name: str, baseline: str) -> None:
         cwd=orchestrator.workspace,
         timeout_seconds=60,
     )
+    remaining_unmanaged = _untracked_paths(orchestrator, ignored=False) | _untracked_paths(
+        orchestrator, ignored=True
+    )
     if (
-        not reset.passed
-        or not clean.passed
-        or not head.passed
+        not head.passed
         or head.stdout.strip() != baseline
         or not status.passed
         or status.stdout.strip()
+        or remaining_unmanaged != preserved_ignored_paths
     ):
         raise SafetyError(
             f"Command-owned {name} repair lane failed and rollback could not be verified."
@@ -477,7 +523,7 @@ def run_external_review_repair_lanes(
             continue
 
         baseline = self.mirror.head()
-        _require_clean_lane_start(self, name)
+        preserved_ignored_paths = _require_clean_lane_start(self, name)
         before_command = baseline
         try:
             record = self._run_optional_external_command(
@@ -554,7 +600,12 @@ def run_external_review_repair_lanes(
                 )
         except Exception as exc:
             try:
-                _rollback_lane(self, name=name, baseline=before_command)
+                _rollback_lane(
+                    self,
+                    name=name,
+                    baseline=before_command,
+                    preserved_ignored_paths=preserved_ignored_paths,
+                )
             except SafetyError as rollback_exc:
                 raise SafetyError(
                     f"Command-owned {name} repair lane command or post-command processing failed "
@@ -567,7 +618,12 @@ def run_external_review_repair_lanes(
 
         if not record.get("ok"):
             try:
-                _rollback_lane(self, name=name, baseline=before_command)
+                _rollback_lane(
+                    self,
+                    name=name,
+                    baseline=before_command,
+                    preserved_ignored_paths=preserved_ignored_paths,
+                )
                 record["rollback_verified"] = True
                 record["changed_paths_after_rollback"] = []
             except SafetyError as exc:
