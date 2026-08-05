@@ -36,6 +36,7 @@ _BENIGN_NEGATIVE_OUTCOME = re.compile(
     r"\b(?:no|zero)\s+(?:errors?|failures?)\b|\bwithout\s+(?:errors?|failures?)\b",
     re.IGNORECASE,
 )
+_SCOPED_AWAY_EVIDENCE = re.compile(r"\b(?:irrelevant|unrelated)\b", re.IGNORECASE)
 _QUOTE_PAIRS = (("\"", "\""), ("'", "'"), ("`", "`"), ("“", "”"), ("‘", "’"))
 
 
@@ -83,6 +84,7 @@ def _affirmatively_supports_claim(evidence: str, claim: str) -> bool:
             _AFTER_CLAIM_SUPPORT.search(support)
             and _SUCCESS_OUTCOME.search(support)
             and not _NEGATION_IN_CLAUSE.search(support_without_benign_negation)
+            and not _SCOPED_AWAY_EVIDENCE.search(support)
         )
         linked_prefix_support = bool(
             _BEFORE_CLAIM_LINK.search(clause_prefix)
@@ -90,6 +92,7 @@ def _affirmatively_supports_claim(evidence: str, claim: str) -> bool:
             and not _NEGATION_IN_CLAUSE.search(
                 _BENIGN_NEGATIVE_OUTCOME.sub("", clause_prefix)
             )
+            and not _SCOPED_AWAY_EVIDENCE.search(clause_prefix)
         )
         previous_clause_support = False
         if _AFFIRMATIVE_CLAIM_PREFIX.fullmatch(clause_prefix):
@@ -103,6 +106,7 @@ def _affirmatively_supports_claim(evidence: str, claim: str) -> bool:
                     and not _NEGATION_IN_CLAUSE.search(
                         _BENIGN_NEGATIVE_OUTCOME.sub("", previous_clause)
                     )
+                    and not _SCOPED_AWAY_EVIDENCE.search(previous_clause)
                 )
         if (
             not quoted

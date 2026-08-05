@@ -451,6 +451,25 @@ class IntentLockTests(unittest.TestCase):
                 self.assertTrue(report["ok"], report)
                 self.assertFalse(report["confidence_claims_blocking"])
 
+    def test_audit_rejects_unrelated_success_as_completion_proof(self):
+        proofs = (
+            "Production-ready because an unrelated unit test passed.",
+            "An unrelated unit test passed, therefore production-ready.",
+            "An unrelated unit test passed. The build is production-ready.",
+        )
+        for proof in proofs:
+            with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+                report = audit_compaction_text(
+                    repo,
+                    f"Intent: Ship the release.\nProof: {proof}",
+                )
+
+                self.assertFalse(report["ok"], report)
+                self.assertTrue(report["confidence_claims_blocking"])
+
     def test_audit_rejects_conflicting_outcome_after_confidence_claim(self):
         proofs = (
             "All checks passed. Production-ready although deployment failed.",
