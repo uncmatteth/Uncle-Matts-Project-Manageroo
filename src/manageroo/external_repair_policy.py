@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from typing import Any
 
 from .errors import SafetyError, ValidationError
@@ -77,6 +79,74 @@ def _untracked_paths(orchestrator: Any, *, ignored: bool) -> set[str]:
         kind = "ignored" if ignored else "untracked"
         raise SafetyError(f"Could not inspect {kind} external repair workspace paths.")
     return {safe_repo_relative(item) for item in result.stdout.split("\0") if item}
+
+
+def _ignored_entry_state(orchestrator: Any, path: str) -> tuple[str, int, int, int, int, str]:
+    """Fingerprint an ignored entry's type, identity, mode, and content without following links."""
+
+    assert orchestrator.workspace is not None
+    entry = orchestrator.workspace / path
+    try:
+        before = entry.lstat()
+        if stat.S_ISLNK(before.st_mode):
+            target = os.readlink(entry)
+            after = entry.lstat()
+            if (before.st_dev, before.st_ino, before.st_mtime_ns) != (
+                after.st_dev,
+                after.st_ino,
+                after.st_mtime_ns,
+            ):
+                raise SafetyError(f"Ignored workspace entry changed while inspecting {path}.")
+            digest = hashlib.sha256(os.fsencode(target)).hexdigest()
+            kind = "symlink"
+            inspected = after
+        elif stat.S_ISREG(before.st_mode):
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(entry, flags)
+            try:
+                inspected = os.fstat(descriptor)
+                if not stat.S_ISREG(inspected.st_mode) or (
+                    inspected.st_dev,
+                    inspected.st_ino,
+                ) != (before.st_dev, before.st_ino):
+                    raise SafetyError(f"Ignored workspace entry changed while inspecting {path}.")
+                content_hash = hashlib.sha256()
+                while chunk := os.read(descriptor, 1024 * 1024):
+                    content_hash.update(chunk)
+                after = os.fstat(descriptor)
+                if (
+                    inspected.st_size,
+                    inspected.st_mtime_ns,
+                    inspected.st_ctime_ns,
+                ) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                    raise SafetyError(f"Ignored workspace entry changed while inspecting {path}.")
+                inspected = after
+                digest = content_hash.hexdigest()
+                kind = "file"
+            finally:
+                os.close(descriptor)
+        else:
+            inspected = before
+            digest = ""
+            kind = "other"
+    except SafetyError:
+        raise
+    except OSError as exc:
+        raise SafetyError(f"Could not inspect ignored workspace entry {path}: {exc}") from exc
+    return (
+        kind,
+        stat.S_IMODE(inspected.st_mode),
+        inspected.st_dev,
+        inspected.st_ino,
+        inspected.st_size,
+        digest,
+    )
+
+
+def _ignored_state(
+    orchestrator: Any, paths: set[str]
+) -> dict[str, tuple[str, int, int, int, int, str]]:
+    return {path: _ignored_entry_state(orchestrator, path) for path in sorted(paths)}
 
 
 def _restore_checkpoint(orchestrator: Any, *, name: str, checkpoint: str) -> None:
@@ -240,7 +310,9 @@ def _existing_checkpoint_chain(
     return chain
 
 
-def _require_clean_lane_start(orchestrator: Any, name: str) -> set[str]:
+def _require_clean_lane_start(
+    orchestrator: Any, name: str
+) -> dict[str, tuple[str, int, int, int, int, str]]:
     assert orchestrator.workspace is not None
     status = orchestrator.runner.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
@@ -253,7 +325,8 @@ def _require_clean_lane_start(orchestrator: Any, name: str) -> set[str]:
         raise SafetyError(
             f"Command-owned {name} repair lane requires a clean controller workspace before execution."
         )
-    return _untracked_paths(orchestrator, ignored=True)
+    ignored_paths = _untracked_paths(orchestrator, ignored=True)
+    return _ignored_state(orchestrator, ignored_paths)
 
 
 def _rollback_lane(
@@ -261,7 +334,7 @@ def _rollback_lane(
     *,
     name: str,
     baseline: str,
-    preserved_ignored_paths: set[str],
+    preserved_ignored_state: dict[str, tuple[str, int, int, int, int, str]],
 ) -> None:
     """Restore the exact clean pre-command checkpoint and verify rollback before continuation."""
 
@@ -278,7 +351,12 @@ def _rollback_lane(
     unmanaged_paths = _untracked_paths(orchestrator, ignored=False) | _untracked_paths(
         orchestrator, ignored=True
     )
+    preserved_ignored_paths = set(preserved_ignored_state)
     if not preserved_ignored_paths.issubset(unmanaged_paths):
+        raise SafetyError(
+            f"Command-owned {name} repair lane changed pre-existing ignored workspace data."
+        )
+    if _ignored_state(orchestrator, preserved_ignored_paths) != preserved_ignored_state:
         raise SafetyError(
             f"Command-owned {name} repair lane changed pre-existing ignored workspace data."
         )
@@ -312,6 +390,7 @@ def _rollback_lane(
         or not status.passed
         or status.stdout.strip()
         or remaining_unmanaged != preserved_ignored_paths
+        or _ignored_state(orchestrator, preserved_ignored_paths) != preserved_ignored_state
     ):
         raise SafetyError(
             f"Command-owned {name} repair lane failed and rollback could not be verified."
@@ -523,7 +602,7 @@ def run_external_review_repair_lanes(
             continue
 
         baseline = self.mirror.head()
-        preserved_ignored_paths = _require_clean_lane_start(self, name)
+        preserved_ignored_state = _require_clean_lane_start(self, name)
         before_command = baseline
         try:
             record = self._run_optional_external_command(
@@ -604,7 +683,7 @@ def run_external_review_repair_lanes(
                     self,
                     name=name,
                     baseline=before_command,
-                    preserved_ignored_paths=preserved_ignored_paths,
+                    preserved_ignored_state=preserved_ignored_state,
                 )
             except SafetyError as rollback_exc:
                 raise SafetyError(
@@ -622,7 +701,7 @@ def run_external_review_repair_lanes(
                     self,
                     name=name,
                     baseline=before_command,
-                    preserved_ignored_paths=preserved_ignored_paths,
+                    preserved_ignored_state=preserved_ignored_state,
                 )
                 record["rollback_verified"] = True
                 record["changed_paths_after_rollback"] = []

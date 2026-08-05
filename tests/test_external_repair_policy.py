@@ -272,6 +272,72 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
             )
 
+    def test_command_exception_detects_mutated_preexisting_ignored_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "preexisting.cache").write_text(
+                    "corrupted operator data\n", encoding="utf-8"
+                )
+                raise RuntimeError("command crashed")
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "preexisting.cache\n", encoding="utf-8"
+            )
+            preexisting = fake.workspace / "preexisting.cache"
+            preexisting.write_text("operator data\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(SafetyError, "Workspace state is uncertain"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+
+            self.assertEqual(
+                preexisting.read_text(encoding="utf-8"), "corrupted operator data\n"
+            )
+
+    def test_command_exception_detects_mutated_preexisting_ignored_symlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                preexisting = holder["fake"].workspace / "preexisting.cache"
+                preexisting.unlink()
+                preexisting.symlink_to("corrupted-target")
+                raise RuntimeError("command crashed")
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "preexisting.cache\n", encoding="utf-8"
+            )
+            preexisting = fake.workspace / "preexisting.cache"
+            try:
+                preexisting.symlink_to("operator-target")
+            except OSError as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
+
+            with self.assertRaisesRegex(SafetyError, "Workspace state is uncertain"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+
+            self.assertEqual(preexisting.readlink(), Path("corrupted-target"))
+
     def test_failed_reset_does_not_run_cleanup(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
