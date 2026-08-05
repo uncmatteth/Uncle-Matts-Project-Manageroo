@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import secrets
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -31,6 +33,7 @@ class ArtifactStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.ledger_path = self.root / "artifact-ledger.json"
         self.lock_path = self.root / ".artifact-ledger.lock"
+        self.advisory_lock_path = self.root / ".artifact-ledger.advisory.lock"
         self.transaction_path = self.root / ".artifact-ledger.transaction"
         with self._transaction_lock():
             self._recover_pending_transaction()
@@ -116,6 +119,104 @@ class ArtifactStore:
         except OSError:
             return True
         return True
+
+    @staticmethod
+    def _try_advisory_lock(descriptor: int) -> None:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            return
+        import fcntl
+
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    @staticmethod
+    def _unlock_advisory_lock(descriptor: int) -> None:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            return
+        import fcntl
+
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+    def _validate_advisory_lock(self, descriptor: int) -> None:
+        descriptor_state = os.fstat(descriptor)
+        path_state = self.advisory_lock_path.lstat()
+        reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        getuid = getattr(os, "getuid", None)
+        if (
+            stat.S_ISLNK(path_state.st_mode)
+            or bool(getattr(path_state, "st_file_attributes", 0) & reparse_point)
+            or not stat.S_ISREG(descriptor_state.st_mode)
+            or not stat.S_ISREG(path_state.st_mode)
+            or descriptor_state.st_nlink != 1
+            or path_state.st_nlink != 1
+            or (getuid is not None and descriptor_state.st_uid != getuid())
+            or (os.name != "nt" and stat.S_IMODE(descriptor_state.st_mode) & 0o077 != 0)
+            or (descriptor_state.st_dev, descriptor_state.st_ino)
+            != (path_state.st_dev, path_state.st_ino)
+        ):
+            raise SafetyError(
+                f"Artifact-store advisory lock is unsafe: {self.advisory_lock_path}"
+            )
+
+    @contextmanager
+    def _advisory_transaction_lock(
+        self, *, timeout_seconds: float
+    ) -> Iterator[None]:
+        flags = os.O_CREAT | os.O_RDWR
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(self.advisory_lock_path, flags, 0o600)
+        except OSError as exc:
+            raise SafetyError(
+                f"Could not open artifact-store advisory lock: "
+                f"{self.advisory_lock_path}: {exc}"
+            ) from exc
+
+        acquired = False
+        try:
+            self._validate_advisory_lock(descriptor)
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                try:
+                    self._try_advisory_lock(descriptor)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                        raise SafetyError(
+                            f"Could not acquire artifact-store advisory lock: "
+                            f"{self.advisory_lock_path}: {exc}"
+                        ) from exc
+                    if time.monotonic() >= deadline:
+                        raise SafetyError(
+                            f"Timed out waiting for artifact-store transaction lock: "
+                            f"{self.advisory_lock_path}"
+                        ) from exc
+                    time.sleep(0.05)
+            self._validate_advisory_lock(descriptor)
+            yield
+        finally:
+            try:
+                if acquired:
+                    self._unlock_advisory_lock(descriptor)
+            except OSError as exc:
+                raise SafetyError(
+                    f"Could not release artifact-store advisory lock: "
+                    f"{self.advisory_lock_path}: {exc}"
+                ) from exc
+            finally:
+                os.close(descriptor)
 
     def _reclaim_abandoned_lock(self) -> bool:
         owner = self._lock_owner()
@@ -227,56 +328,60 @@ class ArtifactStore:
     @contextmanager
     def _transaction_lock(self, *, timeout_seconds: float = 30.0) -> Iterator[None]:
         """Cross-process lock with conservative abandoned-owner recovery."""
-        deadline = time.monotonic() + timeout_seconds
-        acquired = False
-        acquired_identity: tuple[int, int] | None = None
-        owner_token = secrets.token_hex(16)
         with self._lock:
-            while not acquired:
-                try:
-                    self.lock_path.mkdir()
-                    acquired = True
-                    lock_stat = self.lock_path.stat()
-                    acquired_identity = (lock_stat.st_dev, lock_stat.st_ino)
-                    (self.lock_path / "owner").write_text(
-                        f"pid={os.getpid()}\ntoken={owner_token}\ncreated_at={utc_now()}\n",
-                        encoding="utf-8",
-                    )
-                except FileExistsError:
-                    self._reclaim_abandoned_lock()
-                    if time.monotonic() >= deadline:
-                        raise SafetyError(
-                            f"Timed out waiting for artifact-store transaction lock: {self.lock_path}"
+            with self._advisory_transaction_lock(timeout_seconds=timeout_seconds):
+                deadline = time.monotonic() + timeout_seconds
+                acquired = False
+                acquired_identity: tuple[int, int] | None = None
+                owner_token = secrets.token_hex(16)
+                while not acquired:
+                    try:
+                        self.lock_path.mkdir()
+                        acquired = True
+                        lock_stat = self.lock_path.stat()
+                        acquired_identity = (lock_stat.st_dev, lock_stat.st_ino)
+                        (self.lock_path / "owner").write_text(
+                            f"pid={os.getpid()}\ntoken={owner_token}\ncreated_at={utc_now()}\n",
+                            encoding="utf-8",
                         )
-                    time.sleep(0.05)
-                except OSError as exc:
-                    if acquired and acquired_identity is not None:
-                        try:
-                            current_stat = self.lock_path.stat()
-                            current_identity = (current_stat.st_dev, current_stat.st_ino)
-                            current_owner = self._lock_owner()
-                            if current_identity == acquired_identity and current_owner in {
-                                None,
-                                (os.getpid(), owner_token),
-                            }:
-                                shutil.rmtree(self.lock_path, ignore_errors=True)
-                        except OSError:
-                            pass
-                    raise SafetyError(
-                        f"Could not acquire artifact-store transaction lock: {self.lock_path}: {exc}"
-                    ) from exc
-            try:
-                yield
-            finally:
+                    except FileExistsError:
+                        self._reclaim_abandoned_lock()
+                        if time.monotonic() >= deadline:
+                            raise SafetyError(
+                                "Timed out waiting for artifact-store transaction lock: "
+                                f"{self.lock_path}"
+                            )
+                        time.sleep(0.05)
+                    except OSError as exc:
+                        if acquired and acquired_identity is not None:
+                            try:
+                                current_stat = self.lock_path.stat()
+                                current_identity = (current_stat.st_dev, current_stat.st_ino)
+                                current_owner = self._lock_owner()
+                                if current_identity == acquired_identity and current_owner in {
+                                    None,
+                                    (os.getpid(), owner_token),
+                                }:
+                                    shutil.rmtree(self.lock_path, ignore_errors=True)
+                            except OSError:
+                                pass
+                        raise SafetyError(
+                            "Could not acquire artifact-store transaction lock: "
+                            f"{self.lock_path}: {exc}"
+                        ) from exc
                 try:
-                    if self._lock_owner() == (os.getpid(), owner_token):
-                        shutil.rmtree(self.lock_path)
-                except FileNotFoundError:
-                    pass
-                except OSError as exc:
-                    raise SafetyError(
-                        f"Could not release artifact-store transaction lock: {self.lock_path}: {exc}"
-                    ) from exc
+                    yield
+                finally:
+                    try:
+                        if self._lock_owner() == (os.getpid(), owner_token):
+                            shutil.rmtree(self.lock_path)
+                    except FileNotFoundError:
+                        pass
+                    except OSError as exc:
+                        raise SafetyError(
+                            "Could not release artifact-store transaction lock: "
+                            f"{self.lock_path}: {exc}"
+                        ) from exc
 
     def _ledger(self) -> dict:
         data = read_json(self.ledger_path)
@@ -296,6 +401,7 @@ class ArtifactStore:
             raise SafetyError(f"Artifact path is unsafe: {relative}")
         if normalized == self.ledger_path.name or candidate.parts[0] in {
             self.lock_path.name,
+            self.advisory_lock_path.name,
             self.transaction_path.name,
         }:
             raise SafetyError(f"Artifact path is reserved: {relative}")

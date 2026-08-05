@@ -37,6 +37,7 @@ class ArtifactStoreTests(unittest.TestCase):
                 (store.write_json, "artifact-ledger.json", {"artifacts": {}}),
                 (store.write_text, ".artifact-ledger.lock", "replacement\n"),
                 (store.write_text, ".artifact-ledger.lock/child", "temporary\n"),
+                (store.write_text, ".artifact-ledger.advisory.lock", "replacement\n"),
                 (store.write_text, ".artifact-ledger.transaction", "replacement\n"),
                 (store.write_text, ".artifact-ledger.transaction/child", "temporary\n"),
             )
