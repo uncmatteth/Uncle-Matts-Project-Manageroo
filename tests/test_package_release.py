@@ -703,13 +703,18 @@ class PackageReleaseTests(unittest.TestCase):
             drop.mkdir()
             end_user_archive.write_bytes(b"end-user")
             source_archive.write_bytes(b"source")
-            (drop / "Manageroo-old.zip").write_bytes(b"stale")
+            (drop / "Manageroo-v2025.1.2.zip").write_bytes(b"stale")
             old_prefix = _fixture([85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69])
-            (drop / f"{old_prefix}-old.zip").write_bytes(b"stale")
+            (drop / f"{old_prefix}-v2025.1.2-source.zip").write_bytes(b"stale")
+            (drop / "Manageroo-notes.txt").write_text("operator notes", encoding="utf-8")
             (drop / "operator-note.txt").write_text("keep me", encoding="utf-8")
             package_release.refresh_drop_folder(drop, end_user_archive, source_archive)
-            self.assertFalse((drop / "Manageroo-old.zip").exists())
-            self.assertFalse((drop / f"{old_prefix}-old.zip").exists())
+            self.assertFalse((drop / "Manageroo-v2025.1.2.zip").exists())
+            self.assertFalse((drop / f"{old_prefix}-v2025.1.2-source.zip").exists())
+            self.assertEqual(
+                (drop / "Manageroo-notes.txt").read_text(encoding="utf-8"),
+                "operator notes",
+            )
             self.assertEqual((drop / "operator-note.txt").read_text(encoding="utf-8"), "keep me")
 
 

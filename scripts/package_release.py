@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -36,11 +37,12 @@ SAFE_ENV_EXAMPLES = {".env.example", ".env.sample", ".env.template"}
 SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
 EXPLICIT_GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
-DROP_CLEANUP_PREFIXES = (
-    ARTIFACT_BASENAME,
+DROP_ARCHIVE_PREFIXES = (
+    "uncle-matts-project-manageroo-",
     "Manageroo-",
     "".join(chr(code) for code in [85, 77, 83, 77, 70, 66, 85, 82, 65, 83, 66, 79, 70, 69]) + "-",
 )
+DROP_ARCHIVE_SUFFIX = re.compile(r"v\d+(?:\.\d+)+(?:-source)?\.zip")
 END_USER_EXCLUDED = {
     "BUILD-VALIDATION.json", "GITHUB_DESCRIPTION.md", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md",
     "scripts/package_release.py", "tests/test_package_release.py",
@@ -265,6 +267,13 @@ def _assert_drop_has_no_operator_symlinks(drop_dir: Path) -> None:
             )
 
 
+def _is_versioned_release_archive(name: str) -> bool:
+    return any(
+        name.startswith(prefix) and DROP_ARCHIVE_SUFFIX.fullmatch(name[len(prefix):])
+        for prefix in DROP_ARCHIVE_PREFIXES
+    )
+
+
 def refresh_drop_folder(
     drop_dir: Path,
     end_user_archive: Path,
@@ -287,12 +296,14 @@ def refresh_drop_folder(
         )
     drop_had_old = drop_dir.is_dir()
     stage = Path(tempfile.mkdtemp(prefix=f".{drop_dir.name}.stage-", dir=str(parent)))
+    generated_names = {*copies, "SHA256SUMS.txt"}
     try:
         if drop_had_old:
             for existing in drop_dir.iterdir():
-                if existing.name == "SHA256SUMS.txt":
-                    continue
-                if existing.is_file() and existing.name.startswith(DROP_CLEANUP_PREFIXES):
+                if existing.is_file() and (
+                    existing.name in generated_names
+                    or _is_versioned_release_archive(existing.name)
+                ):
                     continue
                 destination = stage / existing.name
                 if existing.is_dir():
