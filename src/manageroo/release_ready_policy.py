@@ -181,6 +181,7 @@ def install_release_ready_policy(release_ready_module: Any) -> None:
             ("review.status", data["review"].get("status")),
             ("verified_source_tree_sha256", data.get("verified_source_tree_sha256")),
             ("final_patch_sha256", data.get("final_patch_sha256")),
+            ("verified_git_head", data.get("verified_git_head")),
         )
         for field, value in expected_strings:
             if not isinstance(value, str):

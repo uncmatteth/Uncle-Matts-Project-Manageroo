@@ -359,6 +359,12 @@ bytes. The repository's configured gate uses
 `verify_release.py --check-only` and an isolated bytecode cache; the normal
 operator invocation still refreshes `BUILD-VALIDATION.json`.
 
+A completed Manageroo run records the source repository HEAD captured before the
+run together with the reviewed patch and final source-tree digests. If HEAD or
+the patch changes before that proof is attached, the run is downgraded instead
+of publishing `COMPLETE`. `release-ready` requires the current HEAD to equal that
+run-bound commit in addition to matching both digests.
+
 ## Proactive learning, no silent self-mutation
 
 Every run can emit improvement cards under `artifacts/learning/improvement-cards.json` and copy pending cards into `.manageroo/cache/learning/pending/`.

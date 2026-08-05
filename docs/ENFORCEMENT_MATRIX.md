@@ -84,6 +84,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Required context cannot disappear | Budget compiler raises instead of truncating | Preventive |
 | Model cannot mark run complete | Controller state machine | Preventive |
 | Unverified patch cannot reach source | Apply only after COMPLETE path and source hash check | Preventive |
+| A completed-run proof is attached to a clean commit or replacement patch created after review | Capture source HEAD before the run, reconstruct the reviewed patch from the run-owned workspace, fail completion on any pre-proof mismatch, and require release readiness to match the recorded HEAD and digests | Preventive and detective |
 | Release verification gate mutates source used by later gates | Exact-HEAD disposable clone plus post-gate HEAD, tracked, untracked, and ignored mutation checks | Preventive |
 | Concurrent clean commit replaces the release candidate while final evidence is written | Git reference transaction held through handoff persistence plus a final HEAD, source-digest, and cleanliness snapshot | Preventive and detective |
 | Worktree mutation after the final cleanliness snapshot changes the bytes an operator ships | READY handoff names a SHA-256-bound tar archive generated from the locked exact commit instead of authorizing the mutable worktree | Preventive |

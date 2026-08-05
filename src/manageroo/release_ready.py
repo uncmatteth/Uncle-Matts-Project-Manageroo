@@ -215,6 +215,8 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
     applied = bool(data.get("applied_to_source"))
     expected_tree_digest = str(data.get("verified_source_tree_sha256") or "").strip()
     expected_patch_digest = str(data.get("final_patch_sha256") or "").strip()
+    expected_git_head = str(data.get("verified_git_head") or "").strip()
+    current_git_head = _git_output(repo, ["git", "rev-parse", "HEAD"])
     runner = CommandRunner()
     failures: list[str] = []
     if data.get("status") != "COMPLETE":
@@ -227,6 +229,12 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         failures.append("final patch is missing")
     if not applied:
         failures.append("final patch is not applied to source")
+    if not expected_git_head:
+        failures.append("run proof is not bound to an exact Git HEAD")
+    elif current_git_head != expected_git_head:
+        failures.append(
+            "current Git HEAD does not match the commit verified by the completed run"
+        )
     if not expected_tree_digest:
         failures.append("run proof is not bound to a verified source-tree digest")
     else:
@@ -251,8 +259,11 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         "applied_to_source": applied,
         "verified_source_tree_sha256": expected_tree_digest,
         "final_patch_sha256": expected_patch_digest,
+        "verified_git_head": expected_git_head,
         "detail": (
-            f"run {run_id}; report={report_path}; patch={patch_path}; review={review_status}; applied={applied}; tree={expected_tree_digest}"
+            f"run {run_id}; report={report_path}; patch={patch_path}; "
+            f"review={review_status}; applied={applied}; "
+            f"head={expected_git_head}; tree={expected_tree_digest}"
             if not failures
             else f"run {run_id} incomplete or stale: " + "; ".join(failures)
         ),
@@ -308,6 +319,7 @@ def _production_handoff_markdown(report: dict[str, Any]) -> str:
             f"- Final patch: `{run_proof.get('final_patch')}`",
             f"- Review status: `{run_proof.get('review_status')}`",
             f"- Applied to source: `{run_proof.get('applied_to_source')}`",
+            f"- Verified Git commit: `{run_proof.get('verified_git_head')}`",
             f"- Verified source tree: `{run_proof.get('verified_source_tree_sha256')}`",
             f"- Final patch SHA-256: `{run_proof.get('final_patch_sha256')}`",
         ])
@@ -430,8 +442,14 @@ def release_ready(
         items.append(_item("verification gates pass", False, "nothing to run", f"{PUBLIC_COMMAND} checks suggest"))
 
     integrity_failures: list[str] = []
-    if _git_output(repo, ["git", "rev-parse", "HEAD"]) != initial_head:
+    final_head = _git_output(repo, ["git", "rev-parse", "HEAD"])
+    if final_head != initial_head:
         integrity_failures.append("HEAD changed while release checks ran")
+    expected_git_head = str(run_proof.get("verified_git_head") or "").strip()
+    if not expected_git_head:
+        integrity_failures.append("completed run proof has no verified Git HEAD")
+    elif final_head != expected_git_head:
+        integrity_failures.append("current HEAD does not match completed-run proof")
     expected_tree_digest = str(run_proof.get("verified_source_tree_sha256") or "").strip()
     if not expected_tree_digest:
         integrity_failures.append("completed run proof has no verified source-tree digest")

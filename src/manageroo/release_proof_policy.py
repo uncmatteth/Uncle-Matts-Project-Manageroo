@@ -93,6 +93,37 @@ def source_tree_digest(repo: Path, runner: Any) -> str:
     return digest.hexdigest()
 
 
+def _git_head(repo: Path, runner: Any) -> str:
+    result = runner.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        timeout_seconds=120,
+    )
+    head = result.stdout.strip() if result.passed else ""
+    if not head:
+        raise RuntimeError(result.stderr or "Could not resolve Git HEAD for release proof")
+    return head
+
+
+def _reviewed_patch_digest(orchestrator: Any) -> str:
+    result = orchestrator.runner.run(
+        [
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "--binary",
+            orchestrator.mirror.baseline_commit,
+            "HEAD",
+            "--",
+        ],
+        cwd=orchestrator.workspace,
+        timeout_seconds=300,
+    )
+    if not result.passed:
+        raise RuntimeError(result.stderr or "Could not reconstruct the reviewed final patch")
+    return hashlib.sha256(result.stdout.encode("utf-8")).hexdigest()
+
+
 def install_release_proof_policy(orchestrator_module: Any) -> None:
     orchestrator_class = orchestrator_module.Orchestrator
     if getattr(orchestrator_class, "_manageroo_release_proof_policy_installed", False):
@@ -100,25 +131,67 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
     original_run = orchestrator_class.run
 
     def run_with_bound_proof(self: Any, *args: Any, **kwargs: Any):
+        run_git_head = _git_head(self.source_repo, self.runner)
+        final_result_path = self.run_root / "delivery" / "final-result.json"
+        preexisting_complete: dict[str, Any] | None = None
+        if final_result_path.is_file():
+            saved = read_json(final_result_path)
+            if (
+                isinstance(saved, dict)
+                and saved.get("status") == "COMPLETE"
+                and saved.get("applied_to_source") is True
+            ):
+                preexisting_complete = saved
         result = original_run(self, *args, **kwargs)
         if not isinstance(result, dict) or result.get("status") != "COMPLETE":
             return result
-        digest = source_tree_digest(self.source_repo, self.runner)
-        result["verified_source_tree_sha256"] = digest
-        evidence_paths = result.get("evidence_paths")
-        patch_value = evidence_paths.get("patch") if isinstance(evidence_paths, dict) else None
-        patch_path = Path(patch_value) if patch_value else self.run_root / "delivery" / "final.patch"
-        result["final_patch_sha256"] = sha256_file(patch_path) if patch_path.is_file() else ""
-        final_result_path = self.run_root / "delivery" / "final-result.json"
+
+        def block(message: str) -> None:
+            result.update(
+                {
+                    "status": "BLOCKED",
+                    "error_type": "SafetyError",
+                    "error": message,
+                }
+            )
+
+        if preexisting_complete is not None:
+            saved_head = str(preexisting_complete.get("verified_git_head") or "").strip()
+            if not saved_head:
+                block("Existing completed run has no run-bound Git HEAD proof.")
+            elif saved_head != run_git_head:
+                block("Existing completed run was verified at another Git HEAD.")
+            else:
+                return result
+        elif _git_head(self.source_repo, self.runner) != run_git_head:
+            block("Source repository HEAD changed before completed-run proof was bound.")
+        else:
+            evidence_paths = result.get("evidence_paths")
+            patch_value = evidence_paths.get("patch") if isinstance(evidence_paths, dict) else None
+            patch_path = (
+                Path(patch_value)
+                if patch_value
+                else self.run_root / "delivery" / "final.patch"
+            )
+            expected_patch_digest = _reviewed_patch_digest(self)
+            patch_digest_before = sha256_file(patch_path) if patch_path.is_file() else ""
+            digest = source_tree_digest(self.source_repo, self.runner)
+            patch_digest_after = sha256_file(patch_path) if patch_path.is_file() else ""
+            if (
+                patch_digest_before != expected_patch_digest
+                or patch_digest_after != expected_patch_digest
+            ):
+                block("Final patch changed before completed-run proof was bound.")
+            elif _git_head(self.source_repo, self.runner) != run_git_head:
+                block("Source repository HEAD changed while completed-run proof was bound.")
+            else:
+                result["verified_source_tree_sha256"] = digest
+                result["verified_git_head"] = run_git_head
+                result["final_patch_sha256"] = expected_patch_digest
         if final_result_path.is_file():
             persisted = read_json(final_result_path)
             if isinstance(persisted, dict):
-                persisted.update(
-                    {
-                        "verified_source_tree_sha256": result["verified_source_tree_sha256"],
-                        "final_patch_sha256": result["final_patch_sha256"],
-                    }
-                )
+                persisted.update(result)
                 atomic_write_json(final_result_path, persisted)
         return result
 

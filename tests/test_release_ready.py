@@ -10,7 +10,7 @@ from unittest.mock import patch
 import manageroo.release_ready as release_ready_module
 from manageroo.checks import add_check_gate
 from manageroo.project import initialize_project
-from manageroo.release_proof_policy import source_tree_digest
+from manageroo.release_proof_policy import install_release_proof_policy, source_tree_digest
 from manageroo.release_ready import format_release_ready, release_ready
 from manageroo.runner import CommandRunner
 from manageroo.util import atomic_write_json, read_json, sha256_file
@@ -68,11 +68,57 @@ class ReleaseReadyTests(unittest.TestCase):
                     "run_root": str(run_root),
                 },
                 "applied_to_source": True,
+                "verified_git_head": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=repo,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout.strip(),
                 "verified_source_tree_sha256": source_tree_digest(repo, CommandRunner()),
                 "final_patch_sha256": sha256_file(patch_path),
             },
         )
         return run_root
+
+    def test_completed_run_proof_rejects_commit_between_run_and_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = repo / ".manageroo" / "runs" / "proof-race"
+            delivery = run_root / "delivery"
+            delivery.mkdir(parents=True)
+            patch_path = delivery / "final.patch"
+            patch_path.write_text("", encoding="utf-8")
+
+            class FakeOrchestrator:
+                def __init__(self):
+                    self.source_repo = repo
+                    self.run_root = run_root
+                    self.runner = CommandRunner()
+
+                def run(self):
+                    (repo / "README.md").write_text("concurrent commit\n", encoding="utf-8")
+                    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+                    subprocess.run(
+                        ["git", "commit", "-q", "-m", "concurrent commit"],
+                        cwd=repo,
+                        check=True,
+                    )
+                    result = {
+                        "status": "COMPLETE",
+                        "evidence_paths": {"patch": str(patch_path)},
+                    }
+                    atomic_write_json(delivery / "final-result.json", result)
+                    return result
+
+            module = type("FakeModule", (), {"Orchestrator": FakeOrchestrator})
+            install_release_proof_policy(module)
+
+            result = module.Orchestrator().run()
+
+            self.assertEqual(result["status"], "BLOCKED")
+            self.assertIn("HEAD changed", result["error"])
+            self.assertEqual(read_json(delivery / "final-result.json")["status"], "BLOCKED")
 
     def _release_ready(self, repo: Path) -> dict:
         helper_patch, gbrain_patch = self._release_patches()
@@ -290,6 +336,7 @@ class ReleaseReadyTests(unittest.TestCase):
             ("null review", "review", None),
             ("non-string patch path", "evidence_paths.patch", ["final.patch"]),
             ("string applied state", "applied_to_source", "false"),
+            ("non-string verified head", "verified_git_head", ["HEAD"]),
         )
         for label, field, value in cases:
             with self.subTest(label=label), tempfile.TemporaryDirectory() as temp:

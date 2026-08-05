@@ -66,6 +66,13 @@ class ReleaseReadyMissingExecutableTests(unittest.TestCase):
                     "review": {"status": "approved", "findings": []},
                     "evidence_paths": {"patch": str(patch_path), "run_root": str(run_root)},
                     "applied_to_source": True,
+                    "verified_git_head": subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=repo,
+                        check=True,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                    ).stdout.strip(),
                     "verified_source_tree_sha256": source_tree_digest(repo, CommandRunner()),
                     "final_patch_sha256": sha256_file(patch_path),
                 },
