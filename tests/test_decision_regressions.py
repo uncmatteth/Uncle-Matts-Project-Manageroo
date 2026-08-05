@@ -11,7 +11,7 @@ from manageroo import entrypoint
 from manageroo.discovery_policy import apply_resolved_decisions
 from manageroo.entrypoint import _decisions_main, _validated_decisions
 from manageroo.errors import ValidationError
-from manageroo.util import atomic_write_json
+from manageroo.util import atomic_write_json, read_json
 
 
 class DecisionRegressionTests(unittest.TestCase):
@@ -174,6 +174,50 @@ class DecisionRegressionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValidationError, "duplicate answer id"):
                 apply_resolved_decisions(run_root)
             self.assertTrue(resolved.is_file())
+
+    def test_concurrent_answer_session_cannot_replace_saved_resolution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "concurrent-run"
+            planning = (
+                repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            )
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {
+                            "id": "deployment",
+                            "question": "Choose deployment",
+                            "options": ["Blue", "Green"],
+                        }
+                    ]
+                },
+            )
+            competing_codes: list[int] = []
+
+            def answer_after_competing_session(_: str) -> str:
+                with patch("builtins.input", return_value="1"):
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        competing_codes.append(
+                            _decisions_main(["answer", run_id, "--repo", str(repo)])
+                        )
+                return "2"
+
+            stderr = io.StringIO()
+            with patch("builtins.input", side_effect=answer_after_competing_session):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    stale_code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(competing_codes, [0])
+            self.assertEqual(stale_code, 2)
+            self.assertIn("another decision answer session", stderr.getvalue())
+            resolved = read_json(planning / "resolved-decisions.json")
+            self.assertEqual(
+                resolved["answers"], [{"id": "deployment", "chosen": "Blue"}]
+            )
+            self.assertRegex(resolved["blocking_decisions_sha256"], r"^[0-9a-f]{64}$")
 
 
 if __name__ == "__main__":

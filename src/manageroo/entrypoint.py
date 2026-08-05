@@ -12,13 +12,14 @@ from .clawpatch_release import format_release_sweep, release_sweep
 from .cli import main as cli_main
 from .cli import parser as cli_parser
 from .config import AGENT_PRESETS
+from .config_lock import config_mutation_lock
 from .discovery_policy import decisions_fully_resolved, render_blocking_questions
 from .errors import SafetyError
 from .host_skills import format_host_skills, inspect_host_skills
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
 from .stack_update import STACK_TOOL_NAMES, apply_stack_updates, format_stack_update, stack_update_plan
 from .system_capacity import format_capacity, host_capacity
-from .util import atomic_write_json, read_json, utc_now
+from .util import atomic_write_json, read_json, sha256_json, utc_now
 
 
 def _auto_live_agent() -> str | None:
@@ -299,6 +300,7 @@ def _decisions_main(argv: list[str]) -> int:
             print(text, end="")
         return 0
 
+    blocking_decisions_sha256 = sha256_json({"decisions": decisions})
     answers: list[dict[str, str]] = []
     for index, decision in enumerate(decisions, 1):
         question = str(decision.get("question") or f"Decision {index}")
@@ -328,14 +330,38 @@ def _decisions_main(argv: list[str]) -> int:
         answers.append({"id": str(decision.get("id") or ""), "chosen": chosen})
 
     resolved = run_root / "artifacts" / "planning" / "resolved-decisions.json"
-    atomic_write_json(
-        resolved,
-        {
-            "run_id": args.run_id,
-            "answered_at": utc_now(),
-            "answers": answers,
-        },
-    )
+    try:
+        with config_mutation_lock(resolved):
+            if resolved.exists():
+                print(
+                    "Decision answers were not saved because another decision answer "
+                    "session already saved a resolution for this run.",
+                    file=sys.stderr,
+                )
+                return 2
+            current_decisions = _blocking_decisions(run_root)
+            current_decisions, current_error = _validated_decisions(current_decisions)
+            current_sha256 = sha256_json({"decisions": current_decisions})
+            if current_error or current_sha256 != blocking_decisions_sha256:
+                print(
+                    "Decision answers were not saved because the blocking decisions "
+                    "changed while answers were being entered. Review the current "
+                    "decisions and answer again.",
+                    file=sys.stderr,
+                )
+                return 2
+            atomic_write_json(
+                resolved,
+                {
+                    "run_id": args.run_id,
+                    "answered_at": utc_now(),
+                    "blocking_decisions_sha256": blocking_decisions_sha256,
+                    "answers": answers,
+                },
+            )
+    except SafetyError as exc:
+        print(f"Cannot save decision answers: {exc}", file=sys.stderr)
+        return 2
     repo = Path(args.repo).expanduser().resolve()
     print(f"\nSaved {len(answers)} decision answer(s).")
     print("Next: " + shlex.join(["manageroo", "run", "--continue", args.run_id, "--repo", str(repo), "--apply"]))

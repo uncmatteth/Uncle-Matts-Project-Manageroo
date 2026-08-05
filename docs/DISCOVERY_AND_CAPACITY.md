@@ -50,6 +50,7 @@ manageroo decisions answer <run-id> --repo /path/to/repo
 
 Every question includes why the decision matters, the available options, and Manageroo's recommended option when a safe recommendation exists.
 Unreadable or structurally invalid decision artifacts fail with exit status 2; `show --json` returns a JSON error object instead of malformed decision data.
+If another answer session saves first, or the blocking questions change while answers are being entered, the stale session exits with status 2 without replacing the saved resolution.
 
 The selected answers are recorded as run evidence. Continue the same durable run afterward:
 
