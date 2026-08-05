@@ -327,6 +327,34 @@ class IntentLockTests(unittest.TestCase):
                         [{"category": "intent_lock", "text": error}],
                     )
 
+    def test_corrupt_intent_locks_are_blocked_configuration_reports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Build the release helper.")
+            path = intent_lock_path(repo)
+            corruptions = (
+                (b"{", "malformed JSON at line 1 column 2"),
+                (b"\xff", "file must contain UTF-8 encoded JSON"),
+            )
+
+            for content, detail in corruptions:
+                with self.subTest(detail=detail):
+                    path.write_bytes(content)
+
+                    lock_report = read_intent_lock(repo)
+                    audit_report = audit_compaction_text(repo, "Build the release helper.")
+
+                    self.assertFalse(lock_report["ok"])
+                    self.assertIn(detail, lock_report["error"])
+                    self.assertIn("--force", lock_report["next_command"])
+                    self.assertFalse(audit_report["ok"])
+                    self.assertEqual(audit_report["status"], "blocked")
+                    self.assertEqual(
+                        audit_report["missing"],
+                        [{"category": "intent_lock", "text": lock_report["error"]}],
+                    )
+                    self.assertEqual(audit_report["next_command"], lock_report["next_command"])
+
     def test_audit_passes_when_pinned_truth_survives(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Build the release helper.", outcomes=["Writes a release handoff"], must_not=["Do not deploy production"], proof=["release-ready reports READY"], corrections=["The command name is manageroo"])

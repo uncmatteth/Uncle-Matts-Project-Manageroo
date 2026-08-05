@@ -220,7 +220,16 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
     path = intent_lock_path(repo)
     if not path.exists():
         return {"ok": False, "repo": str(repo), "path": str(path), "error": "No intent lock exists yet.", "next_command": render_next_command("intent", "capture", repo, "--want", "...", "--must-not", "...", "--proof", "...")}
-    lock, lock_hash = _read_lock_snapshot(path)
+    try:
+        lock, lock_hash = _read_lock_snapshot(path)
+    except json.JSONDecodeError as exc:
+        return _invalid_intent_lock(
+            repo,
+            path,
+            f"malformed JSON at line {exc.lineno} column {exc.colno}: {exc.msg}",
+        )
+    except UnicodeDecodeError:
+        return _invalid_intent_lock(repo, path, "file must contain UTF-8 encoded JSON")
     if not isinstance(lock, dict):
         return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
     problem = _validate_intent_lock_payload(lock)
