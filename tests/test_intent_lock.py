@@ -443,6 +443,26 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
             report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: The release gate and smoke tests have not run.", "Status: Production-ready."]))
             self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); self.assertTrue(report["confidence_claims_blocking"]); self.assertFalse(report["missing"])
 
+    def test_audit_does_not_treat_word_apostrophes_as_quote_delimiters(self):
+        summaries = (
+            "Intent: Ship the release.\nStatus: It's production-ready.",
+            "Intent: Ship the release.\nManageroo's result is production-ready.",
+        )
+        for summary in summaries:
+            with self.subTest(summary=summary), tempfile.TemporaryDirectory() as temp:
+                repo = self._repo(Path(temp))
+                capture_intent_lock(repo, want="Ship the release.")
+
+                report = audit_compaction_text(repo, summary)
+
+                self.assertFalse(report["ok"], report)
+                self.assertEqual(report["status"], "blocked")
+                self.assertTrue(report["confidence_claims_blocking"])
+                self.assertEqual(
+                    [warning["text"] for warning in report["warnings"]],
+                    ["production-ready"],
+                )
+
     def test_audit_ignores_negated_or_quoted_confidence_terms_in_summary(self):
         summaries = (
             "Intent: Ship the release.\nStatus: not production-ready.",
