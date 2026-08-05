@@ -299,6 +299,11 @@ class ArtifactStore:
             self.transaction_path.name,
         }:
             raise SafetyError(f"Artifact path is reserved: {relative}")
+        current = self.root
+        for part in candidate.parts:
+            current /= part
+            if current.is_symlink():
+                raise SafetyError(f"Artifact path contains a symlink: {relative}")
         destination = (self.root / candidate).resolve()
         try:
             destination.relative_to(self.root)

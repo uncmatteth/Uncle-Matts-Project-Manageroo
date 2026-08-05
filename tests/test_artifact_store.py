@@ -4,11 +4,28 @@ import threading
 import unittest
 from pathlib import Path
 
+from tests.support import symlink_or_skip
+
 from manageroo.artifacts import ArtifactStore
 from manageroo.errors import SafetyError
 
 
 class ArtifactStoreTests(unittest.TestCase):
+    def test_locked_artifact_cannot_be_overwritten_through_symlink_alias(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "artifacts"
+            store = ArtifactStore(root)
+            locked_path = root / "locked.txt"
+            store.write_text("locked.txt", "original\n", lock=True)
+            ledger_before = (root / "artifact-ledger.json").read_bytes()
+            symlink_or_skip(self, "locked.txt", root / "alias.txt")
+
+            with self.assertRaisesRegex(SafetyError, "symlink"):
+                store.write_text("alias.txt", "replacement\n")
+
+            self.assertEqual(locked_path.read_bytes(), b"original\n")
+            self.assertEqual((root / "artifact-ledger.json").read_bytes(), ledger_before)
+
     def test_reserved_internal_paths_cannot_weaken_locked_artifacts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "artifacts"
