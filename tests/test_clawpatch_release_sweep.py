@@ -2410,7 +2410,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._json_clawpatch")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
-    def test_open_revalidation_commits_and_reenters_same_finding_without_a_cap(
+    def test_open_revalidation_commits_and_reenters_within_three_attempt_cap(
         self,
         _version,
         _processes,
@@ -2642,6 +2642,110 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(
             [event["attempt"] for event in progress_events if event["phase"] == "fix"],
             [1, 2],
+        )
+
+    @patch("manageroo.clawpatch_release._final_closure")
+    @patch("manageroo.clawpatch_release._execute_fix")
+    @patch("manageroo.clawpatch_release._show_finding")
+    @patch("manageroo.clawpatch_release._next_finding")
+    @patch("manageroo.clawpatch_release._review_all_features")
+    @patch("manageroo.clawpatch_release._json_clawpatch")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
+    def test_failed_fix_exhausts_three_attempts_without_advancing_the_queue(
+        self,
+        _version,
+        _processes,
+        json_clawpatch,
+        review_all,
+        next_finding,
+        show_finding,
+        execute_fix,
+        final_closure,
+    ):
+        progress_events = []
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            json_clawpatch.side_effect = [
+                {"activeLocks": 0, "lockFiles": 0},
+                {"features": 1},
+            ]
+            review_all.return_value = {
+                "review": {"reviewed": 1, "findings": 1},
+                "completion": {"dryRun": True, "wouldReview": 0},
+            }
+            next_finding.return_value = (
+                "fnd_one",
+                {
+                    "finding": {"id": "fnd_one", "status": "open"},
+                    "next": "clawpatch show --finding fnd_one",
+                },
+            )
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": ["python3 -m unittest"],
+                "patchAttempts": [],
+            }
+            calls = 0
+
+            def keep_failing(*_args, **_kwargs):
+                nonlocal calls
+                calls += 1
+                if calls > 3:
+                    raise AssertionError("a fourth ClawPatch fix attempt started")
+                source.write_text(f"repair attempt {calls}\n", encoding="utf-8")
+                raise _UnresolvedFinding(
+                    "validation failed after applying fix",
+                    finding_id="fnd_one",
+                    outcome="fix-validation-failed",
+                )
+
+            execute_fix.side_effect = keep_failing
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "fnd_one exhausted 3 ClawPatch fix attempts",
+            ) as raised:
+                release_sweep(
+                    repo,
+                    apply=True,
+                    branch="current",
+                    progress=progress_events.append,
+                )
+
+            checkpoint = _load_release_progress(repo)
+            failure = str(raised.exception)
+            current_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            stash_list = subprocess.check_output(
+                ["git", "stash", "list"], cwd=repo, text=True
+            )
+
+        self.assertEqual(execute_fix.call_count, 3)
+        self.assertEqual(next_finding.call_count, 1)
+        final_closure.assert_not_called()
+        self.assertEqual(current_head, checkpoint["head_before"])
+        self.assertEqual(checkpoint["phase"], "stopped")
+        self.assertEqual(checkpoint["finding_id"], "fnd_one")
+        self.assertEqual(checkpoint["owned_paths"], ["app.py"])
+        self.assertTrue(checkpoint["temporary_commit"])
+        self.assertEqual(stash_list, "")
+        self.assertIn("Last failure outcome: fix-validation-failed", failure)
+        self.assertIn(checkpoint["temporary_commit"], failure)
+        self.assertIn("--resume-stopped", failure)
+        self.assertEqual(
+            [event["attempt"] for event in progress_events if event["phase"] == "fix"],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            [event["max_attempts"] for event in progress_events if event["phase"] == "fix"],
+            [3, 3, 3],
         )
 
 

@@ -227,7 +227,8 @@ validation failed after applying a fix, Manageroo saves only the exact changed
 source paths in one local-only temporary iteration commit and runs the same
 finding again from that clean combined tree. Each further partial state amends
 that commit. Manageroo stops on no source changes, a repeated or original tree,
-history mismatch, or an external failure. It does not stash, triage, skip,
+history mismatch, an external failure, or three exhausted `fix` attempts. It
+does not stash, triage, skip,
 remap, advance, hand-repair, or push a temporary iteration. Revalidation
 that is `uncertain` because read-only execution is blocked gets one controlled
 workspace-write revalidation guarded by an exact source fingerprint. If the
@@ -302,8 +303,8 @@ the local temporary iteration commit and runs that finding's `fix` again. It
 does not push until exact `fixed` revalidation converts all combined work into
 one normal final commit directly above the finding's original HEAD. A fixed
 overlapping finding that leaves both HEAD and source unchanged needs no second
-commit or push. This has no
-arbitrary attempt cap and never substitutes a Manageroo-written repair.
+commit or push. The same-finding loop is capped at three `fix` attempts per
+unattended sweep and never substitutes a Manageroo-written repair.
 
 Tracked Clawpatch state is never mixed into a repair commit. To publish it after
 all final gates pass, use `--publish-clawpatch-state` with an explicit push mode;

@@ -135,10 +135,11 @@ and arguments intact while preventing a POSIX wrapper spelling such as
 The controller then obtains one current open finding from `next --json`, records `show`
 for auditability, and automatically chooses Clawpatch's finding-scoped `fix`.
 The human triage template printed by `show` is not treated as executable and
-Manageroo never issues a triage command. There is no arbitrary fix-attempt cap,
-but another attempt is permitted only when ClawPatch produced a genuinely new
-source-tree state. No source changes, a repeated state, a cycle to the original
-tree, temporary-history mismatch, or an external failure stops with combined
+Manageroo never issues a triage command. One finding receives at most three
+`fix` attempts in an unattended sweep, and another attempt is permitted only
+when ClawPatch produced a genuinely new source-tree state. Attempt exhaustion,
+no source changes, a repeated state, a cycle to the original tree,
+temporary-history mismatch, or an external failure stops with combined
 source changes visible at the original HEAD. Manageroo does not stash, triage,
 skip, remap, hand-repair, push temporary work, or advance to another finding.
 Read-only revalidation that cannot execute targeted tests gets one

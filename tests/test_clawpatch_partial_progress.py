@@ -245,6 +245,70 @@ class ClawpatchPartialProgressTests(unittest.TestCase):
                 ["commit", "push"],
             )
 
+    @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
+    @patch("manageroo.clawpatch_release._execute_fix")
+    def test_open_revalidation_is_also_capped_at_three_fix_attempts(
+        self,
+        execute_fix,
+        _processes,
+        push_and_verify,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            branch, original_head = self.init_repo(repo)
+            state_root = root / "state"
+            calls = 0
+
+            def open_side_effect(*_args, **_kwargs):
+                nonlocal calls
+                calls += 1
+                if calls > 3:
+                    raise AssertionError("a fourth ClawPatch fix attempt started")
+                (repo / "app.py").write_text(
+                    f"before\nopen attempt {calls}\n",
+                    encoding="utf-8",
+                )
+                return (
+                    {
+                        "finding_id": "fnd_one",
+                        "files_changed": ["app.py"],
+                        "revalidation": {"finding": "fnd_one", "outcome": "open"},
+                        "commit": "",
+                    },
+                    False,
+                )
+
+            execute_fix.side_effect = open_side_effect
+            with self.assertRaisesRegex(
+                _UnresolvedFinding,
+                "fnd_one exhausted 3 ClawPatch fix attempts",
+            ):
+                _process_finding_until_fixed(
+                    repo,
+                    "fnd_one",
+                    inspected={"finding": {"id": "fnd_one", "status": "open"}},
+                    env={},
+                    push_mode="each",
+                    branch=branch,
+                    pushed=False,
+                    state_root=state_root,
+                )
+
+            checkpoint = _load_release_progress(repo, state_root=state_root)
+            current_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+
+            self.assertEqual(calls, 3)
+            self.assertEqual(current_head, original_head)
+            self.assertEqual(checkpoint["phase"], "stopped")
+            self.assertEqual(checkpoint["owned_paths"], ["app.py"])
+            self.assertTrue(checkpoint["temporary_commit"])
+            push_and_verify.assert_not_called()
+
     @patch("manageroo.clawpatch_release._revalidate")
     @patch("manageroo.clawpatch_release._push_and_verify")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])

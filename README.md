@@ -488,9 +488,9 @@ The implemented ClawPatch 0.7.2 state machine is:
 After each validated fix, Manageroo requires the matching patch-attempt record,
 runs every configured project gate, revalidates the same finding, and stages
 only exact source paths. Partial iterations remain local and are amended into
-one temporary commit so ClawPatch always sees a clean combined tree. There is
-no arbitrary attempt cap: only a genuinely new Git tree permits another same-
-finding attempt. A finding is counted complete only after exact `fixed`
+one temporary commit so ClawPatch always sees a clean combined tree. One
+unattended sweep allows at most three same-finding `fix` attempts, and only a
+genuinely new Git tree permits the next attempt. A finding is counted complete only after exact `fixed`
 revalidation and either one final combined commit with required push verification,
 or proof that HEAD and source remained unchanged because no additional repair was needed.
 Clawpatch state metadata is never mixed into a source commit.
@@ -529,6 +529,12 @@ Release sweeps default every Clawpatch child command and the Codex worker to a
 shared 15-minute timeout. `clawpatch-supervise --timeout-minutes N` changes both
 limits together, so the terminal never advertises a different timeout from the
 one actually enforced.
+
+One unattended sweep permits at most three `clawpatch fix` attempts for the
+current finding. If all three fail, Manageroo restores the finding's original
+HEAD, leaves the combined ClawPatch-owned source visible, preserves the durable
+checkpoint, prints the exact `--resume-stopped` command, and stops without
+advancing, triaging, committing, or pushing the failed repair.
 
 Before each finding-scoped fix, Manageroo writes durable progress. The external
 `clawpatch-supervise` command stores it beside its Manageroo-owned installation; the

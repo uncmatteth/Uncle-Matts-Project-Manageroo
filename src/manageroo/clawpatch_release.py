@@ -24,6 +24,7 @@ from .util import atomic_write_json, utc_now
 
 MINIMUM_CLAWPATCH_VERSION = (0, 7, 2)
 CLAWPATCH_CHILD_WATCHDOG_SECONDS = 900
+CLAWPATCH_FIX_MAX_ATTEMPTS = 3
 RELEASE_PROGRESS_VERSION = 4
 LIFECYCLE = (
     "repository/process/Git preflight -> native validation-wrapper normalization -> "
@@ -35,7 +36,8 @@ LIFECYCLE = (
     "gates when present -> exact fixed revalidation "
     "(with bounded read-only, workspace-write, and external trusted-host validation transitions) -> "
     "one combined exact-path final commit/push when authorized -> an open revalidation amends the "
-    "local iteration and reenters the same finding without a cap; no-progress, unsupported, failed, "
+    "local iteration and reenters the same finding for at most three fix attempts; no-progress, "
+    "attempt exhaustion, unsupported, failed, "
     "uncertain, or false-positive transitions stop with source changes intact -> "
     "final open/uncertain closure -> rebuild generated ClawPatch state and repeat map plus complete "
     "review at the new HEAD after every nonempty generation -> COMPLETE only after a fresh full "
@@ -1967,6 +1969,48 @@ def _stop_finding_iteration(
     return owned_paths
 
 
+def _raise_fix_attempts_exhausted(
+    repo: Path,
+    *,
+    finding_id: str,
+    branch: str,
+    push_mode: str,
+    failure_outcome: str,
+    original_head: str,
+    temporary_commit: str,
+    seen_states: set[str],
+    state_root: Path,
+) -> None:
+    _stop_finding_iteration(
+        repo,
+        finding_id=finding_id,
+        branch=branch,
+        original_head=original_head,
+        temporary_commit=temporary_commit,
+        seen_states=seen_states,
+        state_root=state_root,
+    )
+    resume_command = shlex.join(
+        [
+            "clawpatch-supervise",
+            "--repo",
+            str(repo.resolve()),
+            "--branch",
+            branch,
+            "--push",
+            push_mode,
+            "--resume-stopped",
+        ]
+    )
+    raise _UnresolvedFinding(
+        f"{finding_id} exhausted {CLAWPATCH_FIX_MAX_ATTEMPTS} ClawPatch fix attempts. "
+        f"Last failure outcome: {failure_outcome}. Preserved temporary commit: "
+        f"{temporary_commit or 'none'}. Exact resume command: {resume_command}",
+        finding_id=finding_id,
+        outcome="fix-attempts-exhausted",
+    )
+
+
 def _process_finding_until_fixed(
     repo: Path,
     finding_id: str,
@@ -2033,6 +2077,7 @@ def _process_finding_until_fixed(
                     "total": total,
                     "finding_id": finding_id,
                     "attempt": attempt,
+                    "max_attempts": CLAWPATCH_FIX_MAX_ATTEMPTS,
                     "command": f"clawpatch fix --finding {finding_id}",
                 }
             )
@@ -2151,6 +2196,18 @@ def _process_finding_until_fixed(
             if converged_record is not None:
                 record = converged_record
             else:
+                if attempt >= CLAWPATCH_FIX_MAX_ATTEMPTS:
+                    _raise_fix_attempts_exhausted(
+                        repo,
+                        finding_id=finding_id,
+                        branch=branch,
+                        push_mode=push_mode,
+                        failure_outcome=exc.outcome or "fix-validation-failed",
+                        original_head=original_head,
+                        temporary_commit=temporary_commit,
+                        seen_states=seen_states,
+                        state_root=state_root,
+                    )
                 continuations += 1
                 if progress is not None:
                     progress(
@@ -2198,6 +2255,18 @@ def _process_finding_until_fixed(
                     state_root=state_root,
                 )
                 raise
+            if attempt >= CLAWPATCH_FIX_MAX_ATTEMPTS:
+                _raise_fix_attempts_exhausted(
+                    repo,
+                    finding_id=finding_id,
+                    branch=branch,
+                    push_mode=push_mode,
+                    failure_outcome="open",
+                    original_head=original_head,
+                    temporary_commit=temporary_commit,
+                    seen_states=seen_states,
+                    state_root=state_root,
+                )
             continuations += 1
             if progress is not None:
                 progress(
