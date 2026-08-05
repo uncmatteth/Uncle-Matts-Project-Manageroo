@@ -581,16 +581,16 @@ def install_gbrain(downloads: list[dict], lane: str = "local") -> dict:
 
 def install_gitnexus(downloads: list[dict]) -> dict:
     before = command_version("gitnexus")
-    npm = _ensure_node_npm()
-    if before == "not installed" and not npm:
-        return guidance(
-            "gitnexus",
-            "Node.js/npm is required before GitNexus can be installed.",
-            ["Install Node.js LTS", f"npm install -g {GITNEXUS_NPM_PACKAGE}", "gitnexus setup"],
-            GITNEXUS_REFERENCE,
-        )
     install_result = None
-    if before == "not installed" and npm:
+    if before == "not installed":
+        npm = _ensure_node_npm()
+        if not npm:
+            return guidance(
+                "gitnexus",
+                "Node.js/npm is required before GitNexus can be installed.",
+                ["Install Node.js LTS", f"npm install -g {GITNEXUS_NPM_PACKAGE}", "gitnexus setup"],
+                GITNEXUS_REFERENCE,
+            )
         install_result = optional_run(
             [npm, "install", "-g", GITNEXUS_NPM_PACKAGE],
             downloads,

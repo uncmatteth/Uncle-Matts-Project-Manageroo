@@ -239,6 +239,21 @@ class InstallScriptTests(unittest.TestCase):
             with self.subTest(package_manager=package_manager):
                 self.assertIn(f'shutil.which("{package_manager}")', source)
 
+    def test_existing_gitnexus_does_not_bootstrap_node_or_npm(self):
+        install = load_install_script()
+        with (
+            patch.object(install, "command_version", return_value="gitnexus 1.6.9"),
+            patch.object(install, "_ensure_node_npm") as ensure_node_npm,
+            patch.object(install, "optional_run") as install_command,
+            patch.object(install.shutil, "which", return_value="/tools/gitnexus"),
+        ):
+            result = install.install_gitnexus([])
+
+        ensure_node_npm.assert_not_called()
+        install_command.assert_not_called()
+        self.assertTrue(result["installed"])
+        self.assertEqual(result["path"], "/tools/gitnexus")
+
     def test_quick_start_explains_cross_platform_requirements_and_agent_detection(self):
         for relative in ("README.md", "GITHUB_DESCRIPTION.md"):
             with self.subTest(relative=relative):
