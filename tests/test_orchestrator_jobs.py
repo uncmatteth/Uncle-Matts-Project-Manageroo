@@ -182,6 +182,27 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertEqual(continued["run_id"], result["run_id"])
             self.assertEqual(continued["status"], "COMPLETE")
 
+    def test_continue_allocates_call_name_after_saved_numeric_jobs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            first = Orchestrator(repo, adapter=MockAdapter())
+            first.mirror.create()
+            first.job_store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Saved early-phase worker specification.",
+            )
+
+            continued = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=first.run_id,
+                continue_existing=True,
+            )
+
+            self.assertEqual(continued._next_call_name("plan-compiler"), "002-plan-compiler")
+
     def test_continue_blocked_worker_run_retries_from_disk(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))

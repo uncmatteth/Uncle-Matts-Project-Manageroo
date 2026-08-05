@@ -247,8 +247,6 @@ class Orchestrator:
             )
 
     def _initial_call_index(self) -> int:
-        if self.continuing:
-            return 0
         highest = 0
         for job in self.job_store.list_jobs():
             prefix = job.id.split("-", 1)[0]
