@@ -29,6 +29,14 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             ScopePolicy((".manageroo/**",)).validate_paths([".manageroo/config.toml"])
 
+    def test_scope_blocks_exact_forbidden_roots(self):
+        for path in (".git", ".manageroo"):
+            with self.subTest(path=path):
+                with self.assertRaises(SafetyError):
+                    validate_allowed_scope_patterns([path])
+                with self.assertRaises(SafetyError):
+                    ScopePolicy((path,)).validate_paths([path])
+
     def test_mixed_case_sensitive_paths_are_forbidden(self):
         for path in ("Secrets.txt", "CONFIG/CREDENTIALS.JSON", "src/ApiSecret.py"):
             with self.subTest(path=path):

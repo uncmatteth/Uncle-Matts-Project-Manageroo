@@ -14,7 +14,9 @@ from .util import safe_repo_relative
 
 
 FORBIDDEN_SCOPE_PATTERNS = (
+    ".git",
     ".git/**",
+    PROJECT_DIR,
     f"{PROJECT_DIR}/**",
     ".env",
     ".env.*",
