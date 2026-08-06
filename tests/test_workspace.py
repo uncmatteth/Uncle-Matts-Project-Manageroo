@@ -3,9 +3,11 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.errors import SafetyError
 from manageroo.runner import CommandRunner
+from manageroo.util import copy_file_preserving_mode
 from manageroo.workspace import WorkspaceMirror
 
 
@@ -58,6 +60,29 @@ class WorkspaceTests(unittest.TestCase):
             with self.assertRaises(SafetyError):
                 mirror.create()
             self.assertEqual(mirror.snapshot_path.read_bytes(), original)
+
+    def test_create_rejects_file_changed_only_while_copying_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+
+            def copy_temporary_source(source: Path, destination: Path) -> None:
+                source.write_text("temporary concurrent edit\n", encoding="utf-8")
+                try:
+                    copy_file_preserving_mode(source, destination)
+                finally:
+                    source.write_text("before\n", encoding="utf-8")
+
+            with patch(
+                "manageroo.workspace.copy_file_preserving_mode",
+                side_effect=copy_temporary_source,
+            ):
+                with self.assertRaisesRegex(SafetyError, "does not match source snapshot: a.txt"):
+                    mirror.create()
+
+            self.assertEqual((repo / "a.txt").read_text(encoding="utf-8"), "before\n")
+            self.assertFalse((mirror.workspace / ".git").exists())
 
     def test_clone_for_review_refuses_existing_or_external_destination(self):
         with tempfile.TemporaryDirectory() as temp:

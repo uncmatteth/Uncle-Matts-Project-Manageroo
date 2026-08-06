@@ -53,7 +53,17 @@ class WorkspaceMirror:
         records = self.capture_source()
         self.workspace.mkdir(parents=True)
         for record in records:
-            copy_file_preserving_mode(self.source_repo / record.path, self.workspace / safe_repo_relative(record.path))
+            destination = self.workspace / safe_repo_relative(record.path)
+            copy_file_preserving_mode(self.source_repo / record.path, destination)
+            copied_stat = destination.stat()
+            if (
+                copied_stat.st_size != record.bytes
+                or (copied_stat.st_mode & 0o777) != record.mode
+                or sha256_file(destination) != record.sha256
+            ):
+                raise SafetyError(
+                    f"Copied workspace file does not match source snapshot: {record.path}"
+                )
         self._git(["init", "-b", "manageroo-internal"])
         self._git(["config", "user.name", "MANAGEROO Controller"])
         self._git(["config", "user.email", "manageroo@local.invalid"])

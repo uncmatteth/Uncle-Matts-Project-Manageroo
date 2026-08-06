@@ -25,7 +25,7 @@ CLI
 
 ## Source isolation
 
-The source repository is inventoried through Git-visible tracked and unignored files. Manageroo copies those files into a run-owned repository and commits an internal baseline. Coding agents never need direct write access to the operator's source repository.
+The source repository is inventoried through Git-visible tracked and unignored files. Manageroo copies those files into a run-owned repository and verifies each copy's digest, size, and mode against that inventory before committing an internal baseline. Coding agents never need direct write access to the operator's source repository.
 
 After successful delivery:
 
