@@ -225,7 +225,10 @@ and recognizable temporary iteration commit agree. A combined partial-progress
 chain may contain multiple `failed` patch-attempt records because ClawPatch uses
 that status when validation fails after applying source changes. Manageroo accepts
 the latest matching applied or validation-failed record at the checkpoint's
-original/temporary Git boundary and resumes at gates. An `open` outcome creates
+original/temporary Git boundary and resumes at gates. The temporary iteration's
+paths may be a nonempty subset of the checkpoint-owned paths when later
+revalidation source progress expanded the exact fingerprinted dirty set; it may
+never contain a path outside that set. An `open` outcome creates
 the same local-only temporary iteration and continues the same finding without a
 push. Any mismatch or ambiguity refuses continuation and preserves the checkpoint
 and edits. The Manageroo project command's

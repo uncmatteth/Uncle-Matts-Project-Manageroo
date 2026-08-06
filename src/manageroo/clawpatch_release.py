@@ -2650,9 +2650,10 @@ def _resume_stopped_attempt(
             temporary_commit=temporary_commit,
             require_current=False,
         )
-        if iteration_paths != owned_paths:
+        if not iteration_paths or not set(iteration_paths).issubset(owned_paths):
             raise SafetyError(
-                "Stopped Clawpatch iteration commit does not contain its exact owned paths."
+                "Stopped Clawpatch iteration commit is not a nonempty subset of its exact "
+                "checkpoint-owned paths."
             )
         valid_bases = {current_head, temporary_commit}
         for attempt in inspected["patchAttempts"]:

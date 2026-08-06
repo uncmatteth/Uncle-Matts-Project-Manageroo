@@ -298,12 +298,14 @@ same-finding `fix` loop. Only a result that remains uncertain after the complete
 bounded validation escalation stops closure.
 
 On relaunch, a stopped attempt is resumable only when the checkpoint branch,
-finding, and owned paths match current state, and Clawpatch reports exactly one
-applied patch attempt for that finding, current HEAD,
-and path set. Manageroo then runs gates and resumes revalidation of that existing
-attempt. It does not invoke `fix`, remap, or review before returning to `next`.
-Any missing, stale, or ambiguous proof stops with the checkpoint and edits
-unchanged.
+finding, exact owned paths, and source fingerprint match current state. A
+recognized temporary iteration must contribute a nonempty subset of those paths;
+later revalidation source progress may have expanded the checkpoint, but no
+temporary-commit path may fall outside it. ClawPatch must also report a matching
+applied or validation-failed attempt at the current or temporary Git boundary.
+Manageroo then runs gates and resumes that same finding. It does not remap,
+review, or advance the queue first. Any missing, stale, or ambiguous proof stops
+with the checkpoint and edits unchanged.
 
 Compatibility recovery also handles an older supervisor that stopped after a
 fixed overlapping finding produced no new source. Manageroo clears only that

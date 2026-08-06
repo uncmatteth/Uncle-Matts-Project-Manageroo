@@ -30,7 +30,10 @@
 If revalidation unexpectedly changes source, its reported outcome is rejected.
 The outer same-finding loop may checkpoint that mutation only when it produces a
 genuinely new exact source-tree state, then invokes the same finding's `fix`
-again. Repeated, original, missing, or ambiguous source states still stop.
+again. A stopped checkpoint may therefore own more paths than its earlier
+temporary iteration commit, but only when that commit is a nonempty subset of the
+checkpoint's exact fingerprinted dirty set. Repeated, original, missing, or
+ambiguous source states still stop.
 
 A stopped combined chain can legitimately contain several ClawPatch `failed`
 attempt records because ClawPatch uses that status when validation fails after
