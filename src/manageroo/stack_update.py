@@ -13,6 +13,11 @@ from .trufflehog import (
     TRUFFLEHOG_VERSION,
     install_trufflehog_binary,
 )
+from .token_modes import (
+    CORE_HELPER_SKILLS,
+    install_core_helper_skills,
+    token_mode_skills_dir,
+)
 from .util import redact_text
 
 
@@ -29,8 +34,17 @@ AUTOREVIEW_REFERENCE = (
 CLAWPATCH_PACKAGE = "clawpatch@0.7.2"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
+MANAGEROO_SKILLS_REFERENCE = "https://github.com/unclematteth/Uncle-Matts-Project-Manageroo/tree/main/src/manageroo/assets/skills"
 OBSIDIAN_PACKAGE_MANAGERS = frozenset({"brew", "flatpak", "snap", "winget"})
-STACK_TOOL_NAMES = ("gbrain", "gitnexus", "trufflehog", "autoreview", "clawpatch", "obsidian")
+STACK_TOOL_NAMES = (
+    "gbrain",
+    "gitnexus",
+    "trufflehog",
+    "autoreview",
+    "clawpatch",
+    "obsidian",
+    "skills",
+)
 
 
 def _run(argv: list[str], *, cwd: Path | None = None, timeout: int = 900) -> dict[str, Any]:
@@ -416,6 +430,12 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     trufflehog = shutil.which("trufflehog")
     owned_trufflehog = _manageroo_owned_trufflehog_path(trufflehog)
     autoreview_installations, unsafe_autoreview_paths = _autoreview_installations()
+    skills_root = token_mode_skills_dir().expanduser()
+    installed_core_skills = [
+        name
+        for name in CORE_HELPER_SKILLS
+        if (skills_root / name / "SKILL.md").is_file()
+    ]
 
     gitnexus_commands = _pinned_package_commands(
         executable=gitnexus,
@@ -498,6 +518,21 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
             obsidian_commands,
             OBSIDIAN_REFERENCE,
             obsidian_note,
+        ),
+        _tool(
+            "skills",
+            bool(installed_core_skills),
+            [],
+            MANAGEROO_SKILLS_REFERENCE,
+            (
+                "Reconciles the complete Manageroo core skill pack shipped by this release. "
+                "Only missing or cryptographically proven Manageroo-owned trees are written; "
+                "host-owned and user-edited same-name skills are preserved."
+            ),
+            install_paths=[str(skills_root)],
+            bundled_skill_count=len(CORE_HELPER_SKILLS),
+            detected_skill_count=len(installed_core_skills),
+            bundled_skills=sorted(CORE_HELPER_SKILLS),
         ),
     ]
     if selected is not None:
@@ -746,6 +781,21 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
     plan = stack_update_plan(only)
     results: list[dict[str, Any]] = []
     for tool in plan["tools"]:
+        if tool["name"] == "skills":
+            try:
+                installed = install_core_helper_skills()
+            except (OSError, RuntimeError, ValueError) as exc:
+                results.append({"name": "skills", "ok": False, "error": str(exc)})
+            else:
+                results.append(
+                    {
+                        "name": "skills",
+                        "ok": True,
+                        "bundled_skill_count": len(CORE_HELPER_SKILLS),
+                        "resolved_skills": dict(sorted(installed.items())),
+                    }
+                )
+            continue
         if tool["name"] == "trufflehog":
             paths = [Path(path) for path in tool.get("install_paths", [])]
             if not paths:

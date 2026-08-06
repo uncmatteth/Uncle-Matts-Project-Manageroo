@@ -346,7 +346,10 @@ def _ownership_file(root: Path, explicit: Path | None) -> Path:
     configured = os.environ.get("MANAGEROO_SKILL_OWNERSHIP_FILE", "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    if root == token_mode_skills_dir().expanduser().resolve():
+    if (
+        not os.environ.get("MANAGEROO_SKILLS_DIR", "").strip()
+        and root == (Path.home() / ".agents" / "skills").expanduser().resolve()
+    ):
         return Path.home() / ".config" / "manageroo" / "skill-ownership.json"
     return root / ".manageroo-ownership.json"
 
@@ -359,7 +362,17 @@ def _read_ownership(path: Path) -> dict[str, Any]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {"version": 1, "skills": {}}
     skills = payload.get("skills", {}) if isinstance(payload, dict) else {}
-    return {"version": 1, "skills": skills if isinstance(skills, dict) else {}}
+    if not isinstance(skills, dict):
+        return {"version": 1, "skills": {}}
+    existing = {
+        path: record
+        for path, record in skills.items()
+        if isinstance(path, str)
+        and Path(path).is_absolute()
+        and Path(path).exists()
+        and isinstance(record, dict)
+    }
+    return {"version": 1, "skills": existing}
 
 
 def _snapshot_file_bytes(path: Path) -> bytes | None:

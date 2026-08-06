@@ -17,7 +17,10 @@ from .stack_update import (
     GBRAIN_REFERENCE,
     GITNEXUS_PACKAGE,
     GITNEXUS_REFERENCE,
+    MANAGEROO_SKILLS_REFERENCE,
 )
+from .assets import asset_path
+from .token_modes import CORE_HELPER_SKILLS, _skill_tree_sha256
 from .util import redact_text
 from .trufflehog import TRUFFLEHOG_REFERENCE, TRUFFLEHOG_VERSION
 
@@ -350,6 +353,57 @@ def _obsidian(which: WhichFn) -> dict:
     }
 
 
+def _skills(home: Path) -> dict:
+    roots = [home / ".agents" / "skills", home / ".codex" / "skills"]
+    found: dict[str, str] = {}
+    matching: list[str] = []
+    differing: list[str] = []
+    for name, asset in CORE_HELPER_SKILLS.items():
+        candidate = next(
+            (
+                root / name
+                for root in roots
+                if (root / name / "SKILL.md").is_file()
+                and not (root / name).is_symlink()
+            ),
+            None,
+        )
+        if candidate is None:
+            continue
+        found[name] = str(candidate)
+        try:
+            same = _skill_tree_sha256(candidate) == _skill_tree_sha256(
+                asset_path(asset).parent
+            )
+        except (OSError, ValueError):
+            same = False
+        (matching if same else differing).append(name)
+
+    missing = sorted(set(CORE_HELPER_SKILLS) - set(found))
+    configured = not missing
+    status = "ok" if configured and not differing else "warning" if configured else "needs_action"
+    details = [f"{len(found)}/{len(CORE_HELPER_SKILLS)} core skills detected"]
+    if differing:
+        details.append(f"{len(differing)} host-owned or version-different")
+    if missing:
+        details.append(f"{len(missing)} missing")
+    return {
+        "name": "skills",
+        "status": status,
+        "installed": bool(found),
+        "configured": configured,
+        "detail": "; ".join(details),
+        "next_commands": (
+            ["manageroo stack-update skills --apply"] if missing or differing else []
+        ),
+        "detected": dict(sorted(found.items())),
+        "matching_bundled": sorted(matching),
+        "preserved_host_or_different": sorted(differing),
+        "missing": missing,
+        "reference": MANAGEROO_SKILLS_REFERENCE,
+    }
+
+
 def stack_doctor(
     *,
     which: WhichFn = shutil.which,
@@ -366,6 +420,7 @@ def stack_doctor(
         _autoreview(home, trufflehog),
         _clawpatch(which, runner, codex),
         _obsidian(which),
+        _skills(home),
         codex,
     ]
     needs_action = [

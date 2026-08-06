@@ -767,6 +767,14 @@ Apply supported updates explicitly:
 manageroo stack-update --apply
 ```
 
+The same pass includes `skills`, the complete Manageroo core skill pack shipped
+by the installed release. `manageroo stack-update skills --apply`
+transactionally installs missing skills and refreshes only trees whose
+Manageroo ownership and digest are proven. Same-name tOS-, host-, or user-owned
+skills are reported by their resolved paths and left unchanged. Stale ownership
+records for skill trees that no longer exist are pruned on the next successful
+Manageroo-owned skill reconciliation.
+
 For npm/pnpm command-line tools, Manageroo updates through the package manager proven to own the active executable and tries the other supported manager only when ownership is verified there. It refuses ambiguous installations instead of guessing.
 
 AUTOREVIEW requires TruffleHog. When the recommended stack is selected, Manageroo reuses an existing `trufflehog` command or installs the release-pinned official binary for Linux, macOS, or Windows after SHA-256 verification. Manageroo records ownership only for the copy it installed, so stack updates and uninstall planning do not overwrite or remove a user-managed copy.

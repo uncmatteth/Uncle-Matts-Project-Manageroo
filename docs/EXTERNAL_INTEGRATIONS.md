@@ -57,6 +57,17 @@ The command is intentionally explicit and fail-visible. It does not silently ins
 Stack maintenance probes parse configuration, JSON, and package-manager paths from stdout only;
 separately captured stderr is retained as redacted diagnostic output.
 
+`skills` is part of the default stack plan alongside GBrain, GitNexus,
+TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian. Unlike the third-party tools,
+its update source is the core skill pack bundled with the installed Manageroo
+release. `manageroo stack-update skills --apply` uses the skill ownership ledger
+and full-tree digests: it installs missing core skills, replaces unchanged
+Manageroo-owned copies transactionally, prunes ledger entries whose trees no
+longer exist, and preserves tOS-, host-, or user-owned same-name trees. An
+environment-selected `MANAGEROO_SKILLS_DIR` keeps its ledger inside that root;
+test and temporary roots therefore cannot pollute the user's global Manageroo
+ownership file.
+
 ## GitNexus
 
 GitNexus is Manageroo's first-class recommended repository-intelligence integration.

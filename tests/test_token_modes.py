@@ -12,6 +12,8 @@ from tests.support import symlink_or_skip
 from manageroo.token_modes import (
     CORE_HELPER_SKILLS,
     _copy_skill_tree,
+    _ownership_file,
+    _read_ownership,
     _skill_install_lock,
     _skill_tree_sha256,
     install_core_helper_skills,
@@ -54,6 +56,44 @@ def _enter_skill_lock(root, lock_opened, entered) -> None:
 
 
 class TokenModeTests(unittest.TestCase):
+    def test_environment_selected_skill_root_keeps_ownership_ledger_local(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "skills"
+            with patch.dict(
+                os.environ,
+                {"MANAGEROO_SKILLS_DIR": str(root)},
+                clear=False,
+            ):
+                self.assertEqual(
+                    _ownership_file(root.resolve(), None),
+                    root.resolve() / ".manageroo-ownership.json",
+                )
+
+    def test_ownership_reader_prunes_missing_and_malformed_records(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            existing = root / "skill"
+            existing.mkdir()
+            ledger = root / "ownership.json"
+            ledger.write_text(
+                json.dumps(
+                    {
+                        "skills": {
+                            str(existing): {"name": "skill", "tree_sha256": "abc"},
+                            str(root / "missing"): {"name": "gone", "tree_sha256": "def"},
+                            "relative/path": {"name": "unsafe", "tree_sha256": "ghi"},
+                            str(root / "bad-record"): "not-an-object",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                _read_ownership(ledger)["skills"],
+                {str(existing): {"name": "skill", "tree_sha256": "abc"}},
+            )
+
     def test_contender_waits_while_skill_lock_owner_metadata_is_unpublished(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

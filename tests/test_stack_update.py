@@ -119,6 +119,23 @@ class StackUpdateTests(unittest.TestCase):
         self.assertIn(["/usr/bin/pnpm", "add", "-g", CLAWPATCH_PACKAGE], tools["clawpatch"]["commands"])
         self.assertNotIn("@latest", repr(plan))
         self.assertEqual(tools["trufflehog"]["pinned_version"], TRUFFLEHOG_VERSION)
+        self.assertEqual(
+            tools["skills"]["bundled_skill_count"],
+            len(tools["skills"]["bundled_skills"]),
+        )
+
+    def test_apply_skills_uses_transactional_owned_skill_reconciliation(self):
+        resolved = {"tdd": "/tmp/skills/tdd/SKILL.md"}
+        with patch(
+            "manageroo.stack_update.install_core_helper_skills",
+            return_value=resolved,
+        ) as install:
+            result = apply_stack_updates(["skills"])
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["selected_tools"], ["skills"])
+        self.assertEqual(result["results"][0]["resolved_skills"], resolved)
+        install.assert_called_once_with()
 
     def test_run_separates_success_stderr_from_stdout(self):
         result = _run(

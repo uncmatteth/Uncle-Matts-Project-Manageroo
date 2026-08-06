@@ -131,10 +131,25 @@ class StackDoctorTests(unittest.TestCase):
         self.assertFalse(payload["executes_changes"])
         self.assertEqual(calls, [])
         by_name = {item["name"]: item for item in payload["items"]}
-        for name in ("gbrain", "gitnexus", "trufflehog", "autoreview", "clawpatch", "obsidian", "codex"):
+        for name in ("gbrain", "gitnexus", "trufflehog", "autoreview", "clawpatch", "obsidian", "skills", "codex"):
             with self.subTest(name=name):
                 self.assertFalse(by_name[name]["installed"])
-                self.assertEqual(by_name[name]["status"], "missing")
+                self.assertIn(by_name[name]["status"], {"missing", "needs_action"})
+
+    def test_skills_doctor_reports_missing_core_pack_with_one_update_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = stack_doctor(
+                which=lambda _name: None,
+                runner=lambda _argv, _timeout: {},
+                home=Path(temp),
+            )
+
+        skills = next(item for item in report["items"] if item["name"] == "skills")
+        self.assertFalse(skills["configured"])
+        self.assertEqual(
+            skills["next_commands"],
+            ["manageroo stack-update skills --apply"],
+        )
 
     def test_autoreview_requires_a_runnable_regular_script(self):
         with tempfile.TemporaryDirectory() as temp:

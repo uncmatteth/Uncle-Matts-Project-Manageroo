@@ -32,3 +32,14 @@ Risk: **medium**, accepted for this bundled local subset.
 5. Run the focused skill, installation, package, and routing tests, then the full unit suite and `python scripts/verify_release.py`.
 
 Manageroo never updates this subset from the network at runtime. A new upstream release changes Manageroo only through another reviewed source commit.
+
+After a reviewed Manageroo release carries a newer pin, the normal maintenance
+surface deploys that reviewed bundle with:
+
+```bash
+manageroo stack-update skills --apply
+```
+
+This does not fetch and execute an unreviewed upstream `main` branch. It
+reconciles the version already reviewed and bundled with Manageroo, and it will
+not overwrite a tOS-, host-, or user-owned same-name skill tree.
