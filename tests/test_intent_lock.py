@@ -14,7 +14,7 @@ from unittest import mock
 from manageroo.cli import main
 from manageroo.errors import ConfigurationError
 from manageroo.intent_lock import audit_compaction_text, capture_intent_lock, format_compaction_audit, intent_lock_path, read_intent_lock, save_compaction_checkpoint
-from manageroo.util import atomic_write_json, sha256_bytes, sha256_file
+from manageroo.util import atomic_write_json, atomic_write_text, sha256_bytes, sha256_file
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -147,6 +147,79 @@ class IntentLockTests(unittest.TestCase):
                 report["lock"], indent=2, sort_keys=True, ensure_ascii=False
             ) + "\n"
             self.assertEqual(report["lock_hash"], sha256_bytes(serialized.encode("utf-8")))
+
+    def test_markdown_repair_stays_consistent_during_forced_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Original intent.")
+            lock = intent_lock_path(repo)
+            markdown = lock.with_suffix(".md")
+            markdown.unlink()
+            repair_started = threading.Event()
+            replacement_started = threading.Event()
+            replacement_done = threading.Event()
+            results: dict[str, object] = {}
+
+            def delayed_text_write(path, text):
+                if (
+                    Path(path) == markdown
+                    and threading.current_thread().name == "intent-lock-reader"
+                ):
+                    repair_started.set()
+                    if not replacement_started.wait(timeout=5):
+                        raise TimeoutError("test did not start the forced replacement")
+                    replacement_done.wait(timeout=1)
+                return atomic_write_text(path, text)
+
+            def read_lock() -> None:
+                try:
+                    results["reader"] = read_intent_lock(repo)
+                except BaseException as exc:
+                    results["reader"] = exc
+
+            def replace_lock() -> None:
+                replacement_started.set()
+                try:
+                    results["replacement"] = capture_intent_lock(
+                        repo,
+                        want="Replacement intent.",
+                        force=True,
+                    )
+                except BaseException as exc:
+                    results["replacement"] = exc
+                finally:
+                    replacement_done.set()
+
+            with mock.patch(
+                "manageroo.intent_lock.atomic_write_text",
+                side_effect=delayed_text_write,
+            ):
+                reader = threading.Thread(target=read_lock, name="intent-lock-reader")
+                reader.start()
+                self.assertTrue(repair_started.wait(timeout=5))
+                replacement = threading.Thread(target=replace_lock)
+                replacement.start()
+                reader.join(timeout=5)
+                replacement.join(timeout=5)
+
+            self.assertFalse(reader.is_alive())
+            self.assertFalse(replacement.is_alive())
+            self.assertIsInstance(results["reader"], dict)
+            self.assertTrue(results["reader"]["ok"], results["reader"])
+            self.assertIsInstance(results["replacement"], dict)
+            self.assertTrue(results["replacement"]["ok"], results["replacement"])
+            self.assertEqual(
+                json.loads(lock.read_text(encoding="utf-8"))["want"],
+                "Replacement intent.",
+            )
+            final_markdown = markdown.read_text(encoding="utf-8")
+            self.assertIn("Replacement intent.", final_markdown)
+            self.assertNotIn("Original intent.", final_markdown)
+            self.assertTrue(
+                final_markdown.startswith(
+                    f"<!-- manageroo-intent-lock-json-sha256: {sha256_file(lock)} -->\n"
+                )
+            )
 
     def test_capture_stays_consistent_during_competing_forced_replacement(self):
         with tempfile.TemporaryDirectory() as temp:

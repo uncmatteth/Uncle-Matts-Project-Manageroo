@@ -337,22 +337,22 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
                 )
             except UnicodeDecodeError:
                 return _invalid_intent_lock(repo, path, "file must contain UTF-8 encoded JSON")
-        if not isinstance(lock, dict):
-            return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
-        problem = _validate_intent_lock_payload(lock)
-        if problem:
-            return _invalid_intent_lock(repo, path, problem)
-        if pair_problem:
-            try:
-                atomic_write_text(
-                    path.with_name(INTENT_LOCK_MARKDOWN_NAME),
-                    _lock_markdown(lock, lock_hash=lock_hash),
-                )
-                lock, lock_hash, pair_problem = _read_lock_pair_snapshot(path)
-            except OSError as exc:
-                pair_problem = f"paired INTENT-LOCK.md could not be regenerated: {exc}"
-        if pair_problem:
-            return _invalid_intent_lock_pair(repo, path, pair_problem)
+            if not isinstance(lock, dict):
+                return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
+            problem = _validate_intent_lock_payload(lock)
+            if problem:
+                return _invalid_intent_lock(repo, path, problem)
+            if pair_problem:
+                try:
+                    atomic_write_text(
+                        path.with_name(INTENT_LOCK_MARKDOWN_NAME),
+                        _lock_markdown(lock, lock_hash=lock_hash),
+                    )
+                    lock, lock_hash, pair_problem = _read_lock_pair_snapshot(path)
+                except OSError as exc:
+                    pair_problem = f"paired INTENT-LOCK.md could not be regenerated: {exc}"
+            if pair_problem:
+                return _invalid_intent_lock_pair(repo, path, pair_problem)
     return {"ok": True, "repo": str(repo), "path": str(path), "markdown_path": str(intent_lock_markdown_path(repo)), "lock_hash": lock_hash, "lock": lock}
 
 
