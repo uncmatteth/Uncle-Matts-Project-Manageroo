@@ -50,15 +50,20 @@ class InventoryTests(unittest.TestCase):
             target.write_text(original, encoding="utf-8")
             replaced = False
 
-            def hash_then_replace(path):
+            from manageroo.inventory import _copy_inventory_descriptor
+
+            def copy_then_replace(source_fd, destination):
                 nonlocal replaced
-                digest = sha256_file(path)
-                if path == target and not replaced:
+                digest = _copy_inventory_descriptor(source_fd, destination)
+                if not replaced:
                     target.write_text(replacement, encoding="utf-8")
                     replaced = True
                 return digest
 
-            with patch("manageroo.inventory.sha256_file", side_effect=hash_then_replace):
+            with patch(
+                "manageroo.inventory._copy_inventory_descriptor",
+                side_effect=copy_then_replace,
+            ):
                 files = build_inventory(repo, CommandRunner())
 
             item = next(item for item in files if item.path == "README.md")
@@ -67,6 +72,78 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(item.bytes, len(replacement.encode("utf-8")))
             self.assertIn("# NEW", item.summary)
             self.assertIn(item.sha256, item.summary)
+
+    def test_inventory_never_reads_symlink_swapped_after_descriptor_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            target = repo / "README.md"
+            target.write_text("# INSIDE\n", encoding="utf-8")
+            outside = root / "outside.md"
+            outside.write_text("EXTERNAL SECRET\n", encoding="utf-8")
+            swapped = False
+
+            from manageroo.inventory import _copy_inventory_descriptor
+
+            def swap_then_copy(source_fd, destination):
+                nonlocal swapped
+                if not swapped:
+                    target.unlink()
+                    try:
+                        target.symlink_to(outside)
+                    except (OSError, NotImplementedError):
+                        self.skipTest("file symlinks are unavailable on this platform")
+                    swapped = True
+                return _copy_inventory_descriptor(source_fd, destination)
+
+            with patch(
+                "manageroo.inventory._copy_inventory_descriptor",
+                side_effect=swap_then_copy,
+            ):
+                files = build_inventory(repo, CommandRunner())
+
+            self.assertTrue(swapped)
+            self.assertNotIn("README.md", {item.path for item in files})
+            self.assertNotIn("EXTERNAL SECRET", "\n".join(item.summary for item in files))
+
+    def test_inventory_never_opens_detached_intermediate_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            docs = repo / "docs"
+            docs.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (docs / "guide.md").write_text("# INSIDE\n", encoding="utf-8")
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "guide.md").write_text("EXTERNAL SECRET\n", encoding="utf-8")
+            moved = root / "docs-pinned"
+            swapped = False
+
+            from manageroo.inventory import _open_beneath
+
+            def swap_then_open(root_fd, relative, flags, mode=0):
+                nonlocal swapped
+                if relative == "docs/guide.md" and not swapped:
+                    docs.rename(moved)
+                    try:
+                        docs.symlink_to(outside, target_is_directory=True)
+                    except (OSError, NotImplementedError):
+                        self.skipTest("directory symlinks are unavailable on this platform")
+                    swapped = True
+                return _open_beneath(root_fd, relative, flags, mode)
+
+            with patch(
+                "manageroo.inventory._open_beneath",
+                side_effect=swap_then_open,
+            ):
+                files = build_inventory(repo, CommandRunner())
+
+            self.assertTrue(swapped)
+            self.assertNotIn("docs/guide.md", {item.path for item in files})
+            self.assertNotIn("EXTERNAL SECRET", "\n".join(item.summary for item in files))
 
     def test_media_and_large_prose_are_visible(self):
         with tempfile.TemporaryDirectory() as temp:

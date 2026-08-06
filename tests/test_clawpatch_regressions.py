@@ -166,6 +166,7 @@ class ClawpatchRegressionTests(unittest.TestCase):
                 integration.export("../outside.md", "x")
             with self.assertRaises(SafetyError):
                 integration.export(str((Path(temp) / "absolute.md").resolve()), "x")
+            (vault / "exports").mkdir()
             destination = integration.export("safe.md", "ok")
             self.assertEqual(destination, (vault / "exports" / "safe.md").resolve())
 

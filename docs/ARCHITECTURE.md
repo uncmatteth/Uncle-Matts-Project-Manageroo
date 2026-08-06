@@ -26,8 +26,10 @@ CLI
 ## Source isolation
 
 The source repository is inventoried through Git-visible tracked and unignored files. Manageroo copies those files into a run-owned repository and verifies each copy's digest, size, and mode against that inventory before committing an internal baseline. Coding agents never need direct write access to the operator's source repository.
-Inventory inspection retries files that change identity, metadata, or digest while
-their record is built, and only stable records are written to the summary cache.
+Inventory inspection opens every path through pinned directory descriptors with
+no-follow semantics, snapshots and hashes each regular file through that one open
+descriptor, retries files that change identity or metadata, and fails closed when
+descriptor-relative access is unavailable. Only stable records reach the cache.
 
 After successful delivery:
 
