@@ -8,8 +8,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 # Exact versions from the verified supervisor source.
-$ManagerooCommit = "8daad02283e955dc6a5ade49f785aa0f2f4af6af"
-$ManagerooSource = "git+https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git@$ManagerooCommit"
+$SupervisorCommit = "52fbcd1a2079f0e4b33a8bffb4f5ecad0c55ebda"
+$SupervisorSource = "git+https://github.com/uncmatteth/clawpatch-supervise.git@$SupervisorCommit"
 $CodexPackage = "@openai/codex@0.144.4"
 $ClawPatchPackage = "clawpatch@0.7.2"
 
@@ -223,11 +223,11 @@ if (-not (Test-Path -LiteralPath $Venv -PathType Container)) {
 
 $VenvPython = Join-Path $Venv "Scripts\python.exe"
 $SupervisorExe = Join-Path $Venv "Scripts\clawpatch-supervise.exe"
-Write-Host "Installing the repaired Manageroo supervisor at $ManagerooCommit..."
-& $VenvPython -m pip install --disable-pip-version-check --no-cache-dir --upgrade --force-reinstall $ManagerooSource "pytest>=8,<10"
-if ($LASTEXITCODE -ne 0) { throw "The Manageroo supervisor installation failed (exit $LASTEXITCODE)." }
+Write-Host "Installing standalone clawpatch-supervise at $SupervisorCommit..."
+& $VenvPython -m pip install --disable-pip-version-check --no-cache-dir --upgrade --force-reinstall $SupervisorSource
+if ($LASTEXITCODE -ne 0) { throw "The clawpatch-supervise installation failed (exit $LASTEXITCODE)." }
 if (-not (Test-Path -LiteralPath $SupervisorExe -PathType Leaf)) {
-    throw "Manageroo installed without creating clawpatch-supervise.exe."
+    throw "clawpatch-supervise installed without creating clawpatch-supervise.exe."
 }
 
 $Launcher = Join-Path $BinDir "clawpatch-supervise.cmd"
@@ -295,7 +295,7 @@ finally {
 
 $manifest = [ordered]@{
     installedAt = (Get-Date).ToString("o")
-    managerooCommit = $ManagerooCommit
+    supervisorCommit = $SupervisorCommit
     codexVersion = $CodexVersion
     clawpatchVersion = $ClawPatchVersion
     launcher = $Launcher

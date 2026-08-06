@@ -394,9 +394,14 @@ class ReleaseReadyTests(unittest.TestCase):
     def test_required_clawpatch_sweep_must_prove_zero_open_at_current_head(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
+            external_state = Path(temp) / "clawpatch-supervise-state"
+            external_state.mkdir()
             self._completed_run(repo)
             helper_patch, gbrain_patch = self._release_patches()
-            with helper_patch, gbrain_patch:
+            with helper_patch, gbrain_patch, patch(
+                "manageroo.release_ready.supervisor_state_root",
+                return_value=external_state,
+            ):
                 missing = release_ready(
                     repo,
                     target="manual production deploy",
@@ -406,17 +411,20 @@ class ReleaseReadyTests(unittest.TestCase):
                 )
             item = {value["name"]: value for value in missing["items"]}["Clawpatch release sweep"]
             self.assertFalse(item["ok"])
-            self.assertIn("clawpatch release-sweep", item["next"])
+            self.assertIn("clawpatch-supervise", item["next"])
 
             head = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, stdout=subprocess.PIPE
             ).stdout.strip()
             atomic_write_json(
-                repo / ".manageroo" / "cache" / "clawpatch-release-proof.json",
+                external_state / "clawpatch-release-proof.json",
                 {"status": "COMPLETE", "git_head": head, "open_findings": 0},
             )
             helper_patch, gbrain_patch = self._release_patches()
-            with helper_patch, gbrain_patch:
+            with helper_patch, gbrain_patch, patch(
+                "manageroo.release_ready.supervisor_state_root",
+                return_value=external_state,
+            ):
                 proven = release_ready(
                     repo,
                     target="manual production deploy",

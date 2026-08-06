@@ -138,6 +138,16 @@ class WindowsNativeRegressionTests(unittest.TestCase):
         self.assertIn("/opt/homebrew/bin/brew /usr/local/bin/brew", text)
         self.assertIn('export PATH="$(dirname "${candidate}"):${PATH}"', text)
 
+    def test_native_supervisor_installers_use_the_standalone_public_pin(self):
+        for name in (
+            "Install-ClawPatch-Supervisor-Windows.ps1",
+            "Install-ClawPatch-Supervisor-macOS.sh",
+        ):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn("uncmatteth/clawpatch-supervise", text)
+            self.assertIn("52fbcd1a2079f0e4b33a8bffb4f5ecad0c55ebda", text)
+            self.assertNotIn("Uncle-Matts-Project-Manageroo.git@", text)
+
     def test_release_verifier_allows_the_native_windows_suite_full_watchdog(self):
         spec = importlib.util.spec_from_file_location(
             "manageroo_verify_release_windows_regression",

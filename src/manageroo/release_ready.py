@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
+from .clawpatch_release import SUPERVISOR_EXECUTABLE, supervisor_state_root
 from .config import load_config
 from .errors import MANAGEROOError, SafetyError
 from .gates import GateRunner, gates_from_config
@@ -160,8 +161,13 @@ def _assert_gate_checkout_unchanged(
 
 
 def _clawpatch_release_proof(repo: Path) -> dict[str, Any]:
-    path = repo / PROJECT_DIR / "cache" / "clawpatch-release-proof.json"
-    next_command = shlex.join([PUBLIC_COMMAND, "clawpatch", "release-sweep", "--repo", str(repo), "--apply"])
+    next_command = shlex.join(
+        [SUPERVISOR_EXECUTABLE, "--repo", str(repo), "--resume-stopped"]
+    )
+    try:
+        path = supervisor_state_root(repo) / "clawpatch-release-proof.json"
+    except SafetyError as exc:
+        return {"ok": False, "detail": str(exc), "next": next_command}
     if not path.is_file():
         return {"ok": False, "detail": "no Clawpatch release-sweep proof exists", "next": next_command}
     try:

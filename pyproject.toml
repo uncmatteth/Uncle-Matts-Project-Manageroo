@@ -21,7 +21,6 @@ classifiers = [
 
 [project.scripts]
 manageroo = "manageroo.entrypoint:main"
-clawpatch-supervise = "manageroo.clawpatch_external:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

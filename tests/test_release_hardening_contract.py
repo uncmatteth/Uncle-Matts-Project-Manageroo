@@ -61,7 +61,6 @@ BEHAVIORAL_REGRESSION_TESTS = {
     "tests/test_evidence_policy.py",
     "tests/test_external_repair_policy.py",
     "tests/test_external_repair_resume.py",
-    "tests/test_final_clawpatch_regressions.py",
     "tests/test_install_repair.py",
     "tests/test_integration_config_regressions.py",
     "tests/test_integrations.py",

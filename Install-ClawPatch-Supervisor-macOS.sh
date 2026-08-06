@@ -13,8 +13,8 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 # Exact versions from the verified supervisor source.
-MANAGEROO_COMMIT="8daad02283e955dc6a5ade49f785aa0f2f4af6af"
-MANAGEROO_SOURCE="git+https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git@${MANAGEROO_COMMIT}"
+SUPERVISOR_COMMIT="52fbcd1a2079f0e4b33a8bffb4f5ecad0c55ebda"
+SUPERVISOR_SOURCE="git+https://github.com/uncmatteth/clawpatch-supervise.git@${SUPERVISOR_COMMIT}"
 CODEX_PACKAGE="@openai/codex@0.144.4"
 CLAWPATCH_PACKAGE="clawpatch@0.7.2"
 
@@ -146,10 +146,10 @@ fi
 
 VENV_PYTHON="${VENV}/bin/python"
 SUPERVISOR_BIN="${VENV}/bin/clawpatch-supervise"
-echo "Installing the repaired Manageroo supervisor at ${MANAGEROO_COMMIT}..."
-"${VENV_PYTHON}" -m pip install --disable-pip-version-check --no-cache-dir --upgrade --force-reinstall "${MANAGEROO_SOURCE}" 'pytest>=8,<10'
+echo "Installing standalone clawpatch-supervise at ${SUPERVISOR_COMMIT}..."
+"${VENV_PYTHON}" -m pip install --disable-pip-version-check --no-cache-dir --upgrade --force-reinstall "${SUPERVISOR_SOURCE}"
 if [[ ! -x "${SUPERVISOR_BIN}" ]]; then
-    echo "Manageroo installed without creating ${SUPERVISOR_BIN}." >&2
+    echo "clawpatch-supervise installed without creating ${SUPERVISOR_BIN}." >&2
     exit 1
 fi
 
@@ -199,10 +199,10 @@ fi
 (cd "${RESOLVED_REPO}" && "${CLAWPATCH_BIN}" doctor)
 
 INSTALLED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-"${VENV_PYTHON}" -c 'import json, pathlib, sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"installedAt": sys.argv[2], "managerooCommit": sys.argv[3], "codexVersion": sys.argv[4], "clawpatchVersion": sys.argv[5], "launcher": sys.argv[6], "repository": sys.argv[7]}, indent=2) + "\n", encoding="utf-8")' \
+"${VENV_PYTHON}" -c 'import json, pathlib, sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"installedAt": sys.argv[2], "supervisorCommit": sys.argv[3], "codexVersion": sys.argv[4], "clawpatchVersion": sys.argv[5], "launcher": sys.argv[6], "repository": sys.argv[7]}, indent=2) + "\n", encoding="utf-8")' \
     "${INSTALL_ROOT}/installed.json" \
     "${INSTALLED_AT}" \
-    "${MANAGEROO_COMMIT}" \
+    "${SUPERVISOR_COMMIT}" \
     "${CODEX_VERSION}" \
     "${CLAWPATCH_VERSION}" \
     "${LAUNCHER}" \

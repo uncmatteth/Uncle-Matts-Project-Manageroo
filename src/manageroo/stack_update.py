@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import stat
@@ -33,6 +34,11 @@ AUTOREVIEW_REFERENCE = (
 )
 CLAWPATCH_PACKAGE = "clawpatch@0.7.2"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
+CLAWPATCH_SUPERVISOR_COMMIT = "52fbcd1a2079f0e4b33a8bffb4f5ecad0c55ebda"
+CLAWPATCH_SUPERVISOR_REFERENCE = "https://github.com/uncmatteth/clawpatch-supervise"
+CLAWPATCH_SUPERVISOR_SOURCE = (
+    f"git+{CLAWPATCH_SUPERVISOR_REFERENCE}.git@{CLAWPATCH_SUPERVISOR_COMMIT}"
+)
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
 MANAGEROO_SKILLS_REFERENCE = "https://github.com/unclematteth/Uncle-Matts-Project-Manageroo/tree/main/src/manageroo/assets/skills"
 OBSIDIAN_PACKAGE_MANAGERS = frozenset({"brew", "flatpak", "snap", "winget"})
@@ -42,6 +48,7 @@ STACK_TOOL_NAMES = (
     "trufflehog",
     "autoreview",
     "clawpatch",
+    "clawpatch-supervise",
     "obsidian",
     "skills",
 )
@@ -341,6 +348,107 @@ def _pinned_package_commands(
     return []
 
 
+def _supervisor_update_commands(executable: str | None) -> tuple[list[list[str]], str]:
+    if not executable:
+        return [], "The standalone ClawPatch supervisor was not detected."
+    try:
+        active = Path(executable).expanduser().resolve(strict=True)
+    except OSError:
+        return [], "The detected supervisor executable could not be resolved."
+    home = Path.home().resolve()
+    candidates = {
+        home / ".local" / "share" / "clawpatch-supervise" / "venv" / "bin" / "clawpatch-supervise",
+        home / "Library" / "Application Support" / "ManagerooClawPatchSupervisor" / "venv" / "bin" / "clawpatch-supervise",
+    }
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.add(
+            Path(local_app_data)
+            / "ManagerooClawPatchSupervisor"
+            / "venv-f59afab"
+            / "Scripts"
+            / "clawpatch-supervise.exe"
+        )
+    resolved_candidates = {candidate.resolve(strict=False) for candidate in candidates}
+    if active not in resolved_candidates:
+        return [], (
+            "Automatic update skipped because the active supervisor is not in a "
+            "Manageroo native-installer location."
+        )
+    scripts = active.parent
+    python_names = ("python.exe",) if active.suffix.casefold() == ".exe" else ("python", "python3")
+    python = next((scripts / name for name in python_names if (scripts / name).is_file()), None)
+    if python is None:
+        return [], "Automatic update skipped because the owned supervisor venv has no interpreter."
+    commands = [
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-cache-dir",
+            "--upgrade",
+            "--force-reinstall",
+            CLAWPATCH_SUPERVISOR_SOURCE,
+        ],
+        [str(active), "--version"],
+    ]
+    return commands, (
+        "Updates only the proven native-installer venv to standalone supervisor commit "
+        f"{CLAWPATCH_SUPERVISOR_COMMIT}. Do not apply while that supervisor is running."
+    )
+
+
+def _supervisor_update_blocker(executable: str | None) -> str | None:
+    """Return a reason when the owned supervisor executable is currently active."""
+    if not executable:
+        return None
+    candidates = {str(Path(executable).expanduser())}
+    try:
+        candidates.add(str(Path(executable).expanduser().resolve(strict=True)))
+    except OSError:
+        pass
+    ps = shutil.which("ps")
+    if not ps:
+        return (
+            "Automatic supervisor update requires a process check, but ps is unavailable; "
+            "use the native installer after stopping the queue."
+        )
+    try:
+        probe = subprocess.run(
+            [ps, "-axo", "pid=,command="],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return (
+            "Automatic supervisor update could not prove that the queue is stopped; "
+            "use the native installer after stopping it."
+        )
+    if probe.returncode != 0:
+        return (
+            "Automatic supervisor update could not prove that the queue is stopped; "
+            "use the native installer after stopping it."
+        )
+    current_pid = os.getpid()
+    for line in probe.stdout.splitlines():
+        fields = line.strip().split(maxsplit=1)
+        if len(fields) != 2 or not fields[0].isdigit() or int(fields[0]) == current_pid:
+            continue
+        command = fields[1]
+        if any(candidate and candidate in command for candidate in candidates):
+            return (
+                f"Standalone supervisor process {fields[0]} is still running; "
+                "the owned virtual environment was not updated."
+            )
+    return None
+
+
 def _snap_owned_obsidian_path(obsidian: str | None) -> bool:
     if not obsidian:
         return False
@@ -426,6 +534,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     gitnexus = shutil.which("gitnexus")
     pnpm = shutil.which("pnpm")
     clawpatch = shutil.which("clawpatch")
+    clawpatch_supervise = shutil.which("clawpatch-supervise")
     obsidian = shutil.which("obsidian")
     trufflehog = shutil.which("trufflehog")
     owned_trufflehog = _manageroo_owned_trufflehog_path(trufflehog)
@@ -458,6 +567,7 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
     )
     if clawpatch_commands and clawpatch:
         clawpatch_commands.append([clawpatch, "doctor"])
+    supervisor_commands, supervisor_note = _supervisor_update_commands(clawpatch_supervise)
 
     obsidian_commands, obsidian_note = _obsidian_update_commands(obsidian)
 
@@ -511,6 +621,14 @@ def stack_update_plan(only: Iterable[str] | None = None) -> dict[str, Any]:
             clawpatch_commands,
             CLAWPATCH_REFERENCE,
             f"Updates only to the Manageroo-release pin {CLAWPATCH_PACKAGE} and reruns `clawpatch doctor`.",
+        ),
+        _tool(
+            "clawpatch-supervise",
+            bool(clawpatch_supervise),
+            supervisor_commands,
+            CLAWPATCH_SUPERVISOR_REFERENCE,
+            supervisor_note,
+            pinned_commit=CLAWPATCH_SUPERVISOR_COMMIT,
         ),
         _tool(
             "obsidian",
@@ -781,6 +899,13 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
     plan = stack_update_plan(only)
     results: list[dict[str, Any]] = []
     for tool in plan["tools"]:
+        if tool["name"] == "clawpatch-supervise" and tool.get("commands"):
+            blocker = _supervisor_update_blocker(shutil.which("clawpatch-supervise"))
+            if blocker:
+                results.append(
+                    {"name": "clawpatch-supervise", "ok": False, "error": blocker}
+                )
+                continue
         if tool["name"] == "skills":
             try:
                 installed = install_core_helper_skills()

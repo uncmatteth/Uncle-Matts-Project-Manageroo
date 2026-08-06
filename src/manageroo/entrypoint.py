@@ -136,7 +136,7 @@ def _clawpatch_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="manageroo clawpatch",
         description=(
-            "Run Manageroo-owned cross-platform Clawpatch workflows without shell or PowerShell parsing loops."
+            "Plan or invoke the separately installed ClawPatch supervisor."
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -167,6 +167,12 @@ def _clawpatch_main(argv: list[str]) -> int:
             "Use only for trusted code on a host that already provides isolation."
         ),
     )
+    release.add_argument(
+        "--resume-stopped",
+        action="store_true",
+        help="resume one exact standalone-supervisor checkpoint instead of starting fresh",
+    )
+    release.add_argument("--timeout-minutes", type=int, default=15)
     release.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -179,6 +185,8 @@ def _clawpatch_main(argv: list[str]) -> int:
                 push_mode=args.push,
                 publish_clawpatch_state=args.publish_clawpatch_state,
                 trusted_host_codex_sandbox_bypass=args.trusted_host_codex_sandbox_bypass,
+                fresh=not args.resume_stopped,
+                timeout_minutes=args.timeout_minutes,
             )
             formatter = format_release_sweep
         else:
@@ -194,7 +202,7 @@ def _clawpatch_main(argv: list[str]) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(formatter(report), end="")
-    return 0 if report.get("ok") else 2
+    return int(report.get("exit_code", 0 if report.get("ok") else 2))
 
 
 def _run_root(repo: Path, run_id: str) -> Path:
@@ -415,7 +423,7 @@ def _root_help() -> str:
         + "  decisions             Show or answer high-impact questions surfaced during a run.\n"
         + "  host-skills           Inspect host skills without modifying or owning them.\n"
         + "\nCommand-owned repair automation:\n"
-        + "  clawpatch release-sweep  Automate Clawpatch review/fix/revalidation across the full queue.\n"
+        + "  clawpatch release-sweep  Invoke the standalone ClawPatch supervisor adapter.\n"
         + "                            Preserve, reconcile, and retry the same current finding.\n"
         + "                            Dry-run by default; --apply mutates; --push is always explicit.\n"
         + "                        Cross-platform; one commit per successful fix by default.\n"

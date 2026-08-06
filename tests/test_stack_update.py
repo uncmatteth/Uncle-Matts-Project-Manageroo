@@ -12,6 +12,8 @@ from tests.support import symlink_or_skip
 from manageroo.stack_update import (
     AUTOREVIEW_COMMIT,
     CLAWPATCH_PACKAGE,
+    CLAWPATCH_SUPERVISOR_COMMIT,
+    CLAWPATCH_SUPERVISOR_SOURCE,
     GITNEXUS_PACKAGE,
     _run,
     _replace_autoreview,
@@ -63,6 +65,65 @@ def _enter_autoreview_lock(destination, lock_opened, entered) -> None:
 
 
 class StackUpdateTests(unittest.TestCase):
+    def test_plan_updates_only_a_proven_native_supervisor_venv(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            scripts = home / ".local" / "share" / "clawpatch-supervise" / "venv" / "bin"
+            scripts.mkdir(parents=True)
+            executable = scripts / "clawpatch-supervise"
+            python = scripts / "python"
+            executable.write_text("", encoding="utf-8")
+            python.write_text("", encoding="utf-8")
+            with patch("manageroo.stack_update.Path.home", return_value=home), patch(
+                "manageroo.stack_update.shutil.which",
+                side_effect=lambda name: str(executable) if name == "clawpatch-supervise" else None,
+            ):
+                plan = stack_update_plan(["clawpatch-supervise"])
+
+        tool = plan["tools"][0]
+        self.assertEqual(tool["pinned_commit"], CLAWPATCH_SUPERVISOR_COMMIT)
+        self.assertEqual(tool["commands"][0][-1], CLAWPATCH_SUPERVISOR_SOURCE)
+        self.assertEqual(tool["commands"][1], [str(executable), "--version"])
+
+    def test_plan_does_not_update_an_unowned_supervisor_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "unowned" / "clawpatch-supervise"
+            executable.parent.mkdir()
+            executable.write_text("", encoding="utf-8")
+            with patch(
+                "manageroo.stack_update.shutil.which",
+                side_effect=lambda name: str(executable) if name == "clawpatch-supervise" else None,
+            ):
+                plan = stack_update_plan(["clawpatch-supervise"])
+
+        self.assertEqual(plan["tools"][0]["commands"], [])
+        self.assertIn("not in a Manageroo native-installer location", plan["tools"][0]["note"])
+
+    def test_apply_refuses_to_update_a_running_supervisor(self):
+        planned = {
+            "ok": True,
+            "executes_changes": False,
+            "selected_tools": ["clawpatch-supervise"],
+            "tools": [
+                {
+                    "name": "clawpatch-supervise",
+                    "commands": [["python", "-m", "pip", "install", "pinned"]],
+                }
+            ],
+        }
+        with patch("manageroo.stack_update.stack_update_plan", return_value=planned), patch(
+            "manageroo.stack_update.shutil.which",
+            return_value="/owned/clawpatch-supervise",
+        ), patch(
+            "manageroo.stack_update._supervisor_update_blocker",
+            return_value="supervisor process 42 is still running",
+        ), patch("manageroo.stack_update._run") as run:
+            result = apply_stack_updates(["clawpatch-supervise"])
+
+        self.assertFalse(result["ok"])
+        self.assertIn("still running", result["results"][0]["error"])
+        run.assert_not_called()
+
     @staticmethod
     def owned_run(argv, **_kwargs):
         if argv[1:] == ["prefix", "-g"]:
