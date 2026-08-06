@@ -232,7 +232,9 @@ paths may be a nonempty subset of the checkpoint-owned paths when later
 revalidation source progress expanded the exact fingerprinted dirty set; it may
 never contain a path outside that set. An `open` outcome creates
 the same local-only temporary iteration and continues the same finding without a
-push. Any mismatch or ambiguity refuses continuation and preserves the checkpoint
+push. If stopped-attempt revalidation itself changes source and reopens the
+finding, that new exact state follows the same local continuation path instead
+of being rejected by the recovery wrapper. Any mismatch or ambiguity refuses continuation and preserves the checkpoint
 and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
 An older stopped checkpoint may own zero paths because exact revalidation

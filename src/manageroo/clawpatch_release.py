@@ -2726,13 +2726,29 @@ def _resume_stopped_attempt(
         required=require_project_gates,
     )
     if finding_status == "uncertain":
-        validation = _revalidate(
-            repo,
-            finding_id,
-            env=env,
-            expected_paths=owned_paths,
-            progress=progress,
-        )
+        try:
+            validation = _revalidate(
+                repo,
+                finding_id,
+                env=env,
+                expected_paths=owned_paths,
+                progress=progress,
+            )
+        except _UnresolvedFinding as exc:
+            if exc.outcome != "revalidation-mutated-source":
+                raise
+            reopened = _show_finding(
+                repo,
+                finding_id,
+                env=env,
+                required_status="open",
+                progress=progress,
+            )
+            validation = {
+                "finding": finding_id,
+                "outcome": str(reopened["finding"]["status"]),
+                "managerooRevalidationProgress": True,
+            }
     else:
         validation = {
             "finding": finding_id,

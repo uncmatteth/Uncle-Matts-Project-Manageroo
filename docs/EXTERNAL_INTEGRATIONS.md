@@ -306,7 +306,9 @@ recognized temporary iteration must contribute a nonempty subset of those paths;
 later revalidation source progress may have expanded the checkpoint, but no
 temporary-commit path may fall outside it. ClawPatch must also report a matching
 applied or validation-failed attempt at the current or temporary Git boundary.
-Manageroo then runs gates and resumes that same finding. It does not remap,
+Manageroo then runs gates and resumes that same finding. Revalidation source
+progress that reopens the finding is checkpointed into that same continuation;
+the stopped-attempt wrapper does not discard it. Manageroo does not remap,
 review, or advance the queue first. Any missing, stale, or ambiguous proof stops
 with the checkpoint and edits unchanged.
 

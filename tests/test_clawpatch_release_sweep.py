@@ -1365,6 +1365,78 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._revalidate")
     @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
     @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_revalidation_mutation_reenters_open_finding(
+        self,
+        show_finding,
+        _gates,
+        revalidate,
+        push_and_verify,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("partial Clawpatch repair\n", encoding="utf-8")
+            checkpoint = {
+                "finding_id": "fnd_one",
+                "branch": branch,
+                "head_before": head,
+                "phase": "stopped",
+                "owned_paths": ["app.py"],
+            }
+            uncertain = {
+                "finding": {"id": "fnd_one", "status": "uncertain"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_one",
+                        "status": "applied",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": ["app.py"],
+                        "git": {"baseSha": head},
+                    }
+                ],
+            }
+            reopened = {
+                **uncertain,
+                "finding": {"id": "fnd_one", "status": "open"},
+            }
+            show_finding.side_effect = [uncertain, reopened]
+            revalidate.side_effect = _UnresolvedFinding(
+                "revalidation changed source",
+                finding_id="fnd_one",
+                outcome="revalidation-mutated-source",
+            )
+
+            record, pushed = _resume_stopped_attempt(
+                repo,
+                checkpoint,
+                env={},
+                push_mode="none",
+                branch=branch,
+                pushed=False,
+                require_project_gates=False,
+            )
+
+        self.assertEqual(record["revalidation"]["outcome"], "open")
+        self.assertTrue(record["revalidation"]["managerooRevalidationProgress"])
+        self.assertFalse(pushed)
+        self.assertEqual(show_finding.call_count, 2)
+        push_and_verify.assert_not_called()
+
+    @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch("manageroo.clawpatch_release._revalidate")
+    @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._show_finding")
     def test_stopped_multi_attempt_chain_resumes_from_checkpoint_owned_combined_repair(
         self,
         show_finding,
