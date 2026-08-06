@@ -157,12 +157,50 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
 
         if preexisting_complete is not None:
             saved_head = str(preexisting_complete.get("verified_git_head") or "").strip()
+            saved_tree_digest = str(
+                preexisting_complete.get("verified_source_tree_sha256") or ""
+            ).strip()
+            saved_patch_digest = str(
+                preexisting_complete.get("final_patch_sha256") or ""
+            ).strip()
+            evidence_paths = preexisting_complete.get("evidence_paths")
+            patch_value = evidence_paths.get("patch") if isinstance(evidence_paths, dict) else None
+            patch_path = (
+                Path(patch_value)
+                if patch_value
+                else self.run_root / "delivery" / "final.patch"
+            )
+            current_head_before = _git_head(self.source_repo, self.runner)
+            patch_digest_before = sha256_file(patch_path) if patch_path.is_file() else ""
+            digest = source_tree_digest(self.source_repo, self.runner)
+            patch_digest_after = sha256_file(patch_path) if patch_path.is_file() else ""
+            current_head_after = _git_head(self.source_repo, self.runner)
             if not saved_head:
                 block("Existing completed run has no run-bound Git HEAD proof.")
+            elif not saved_tree_digest:
+                block("Existing completed run has no source-tree digest proof.")
+            elif not saved_patch_digest:
+                block("Existing completed run has no final-patch digest proof.")
+            elif any(
+                result.get(field) != preexisting_complete.get(field)
+                for field in (
+                    "verified_git_head",
+                    "verified_source_tree_sha256",
+                    "final_patch_sha256",
+                )
+            ):
+                block("Completed result does not match the existing run-bound proof.")
             elif saved_head != run_git_head:
                 block("Existing completed run was verified at another Git HEAD.")
-            else:
-                return result
+            elif current_head_before != saved_head or current_head_after != saved_head:
+                block("Source repository HEAD changed after existing completed-run proof.")
+            elif digest != saved_tree_digest:
+                block("Source tree changed after existing completed-run proof.")
+            elif (
+                patch_digest_before != saved_patch_digest
+                or patch_digest_after != saved_patch_digest
+            ):
+                block("Final patch changed after existing completed-run proof.")
         elif _git_head(self.source_repo, self.runner) != run_git_head:
             block("Source repository HEAD changed before completed-run proof was bound.")
         else:

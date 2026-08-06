@@ -120,6 +120,31 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn("HEAD changed", result["error"])
             self.assertEqual(read_json(delivery / "final-result.json")["status"], "BLOCKED")
 
+    def test_completed_run_proof_rejects_source_mutation_with_preexisting_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = self._completed_run(repo, run_id="preexisting-proof-race")
+            result_path = run_root / "delivery" / "final-result.json"
+
+            class FakeOrchestrator:
+                def __init__(self):
+                    self.source_repo = repo
+                    self.run_root = run_root
+                    self.runner = CommandRunner()
+
+                def run(self):
+                    (repo / "README.md").write_text("changed during resume\n", encoding="utf-8")
+                    return read_json(result_path)
+
+            module = type("FakeModule", (), {"Orchestrator": FakeOrchestrator})
+            install_release_proof_policy(module)
+
+            result = module.Orchestrator().run()
+
+            self.assertEqual(result["status"], "BLOCKED")
+            self.assertIn("source tree", result["error"].lower())
+            self.assertEqual(read_json(result_path)["status"], "BLOCKED")
+
     def _release_ready(self, repo: Path) -> dict:
         helper_patch, gbrain_patch = self._release_patches()
         with helper_patch, gbrain_patch:
