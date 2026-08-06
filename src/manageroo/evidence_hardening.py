@@ -175,10 +175,21 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
             )
         ]
 
-    def run_artifact_retrieve(self: Any, query: str, *, limit: int = 12):
+    def run_artifact_retrieve(
+        self: Any,
+        query: str,
+        *,
+        limit: int = 12,
+        allowed_location_prefixes: Any = None,
+    ):
         limit = int(limit)
         if limit <= 0:
             return []
+        allowed_prefixes = (
+            tuple(str(prefix) for prefix in allowed_location_prefixes)
+            if allowed_location_prefixes is not None
+            else None
+        )
         run_fd = _open_directory_fd(self.run_root)
         if run_fd is None:
             return []
@@ -197,6 +208,11 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                         if eligible_seen >= eligible_cap:
                             break
                         lexical = Path("artifacts") / relative
+                        location = lexical.as_posix()
+                        if allowed_prefixes is not None and not location.startswith(
+                            allowed_prefixes
+                        ):
+                            continue
                         if lexical.suffix.lower() not in evidence_module.EVIDENCE_SUFFIXES:
                             continue
                         if evidence_module._is_derived_run_artifact(

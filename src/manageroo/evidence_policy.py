@@ -108,9 +108,12 @@ def _bundle_from_discovery(orchestrator, brief: str, payload: dict[str, Any]) ->
     items.extend(ProjectMemoryEvidenceProvider(orchestrator.source_repo).retrieve(brief, limit=4))
     native_run_items = (
         item
-        for item in RunArtifactEvidenceProvider(orchestrator.run_root).retrieve(brief, limit=64)
-        if item.location.startswith(("artifacts/intake/", "artifacts/discovery/"))
-        and item.location not in NON_INPUT_DISCOVERY_ARTIFACTS
+        for item in RunArtifactEvidenceProvider(orchestrator.run_root).retrieve(
+            brief,
+            limit=64,
+            allowed_location_prefixes=("artifacts/intake/", "artifacts/discovery/"),
+        )
+        if item.location not in NON_INPUT_DISCOVERY_ARTIFACTS
     )
     items.extend(list(native_run_items)[:8])
 

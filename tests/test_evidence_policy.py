@@ -287,6 +287,35 @@ class EvidencePolicyTests(unittest.TestCase):
             self.assertEqual(bundle.items[0].confidence, 0.92)
             self.assertEqual(bundle.items[0].freshness, 1.0)
 
+    def test_discovery_artifact_filter_applies_before_provider_truncation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_root = root / "run"
+            repo.mkdir()
+            instance = _FakeOrchestrator(repo, run_root)
+            intake = run_root / "artifacts" / "intake"
+            implementation = run_root / "artifacts" / "implementation"
+            intake.mkdir(parents=True)
+            implementation.mkdir(parents=True)
+            (intake / "brief.md").write_text("target evidence\n", encoding="utf-8")
+            for index in range(64):
+                (implementation / f"result-{index:02d}.md").write_text(
+                    "target evidence " * 10,
+                    encoding="utf-8",
+                )
+
+            bundle = _bundle_from_discovery(
+                instance,
+                "target evidence",
+                {"records": []},
+            )
+
+            self.assertEqual(
+                [item.location for item in bundle.items],
+                ["artifacts/intake/brief.md"],
+            )
+
     def test_repeated_discovery_replaces_stale_repository_evidence(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

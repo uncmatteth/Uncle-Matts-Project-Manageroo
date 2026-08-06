@@ -280,7 +280,13 @@ class RunArtifactEvidenceProvider:
         self.run_root = run_root.expanduser().resolve()
         self.artifact_root = self.run_root / "artifacts"
 
-    def retrieve(self, query: str, *, limit: int = 12) -> list[EvidenceItem]:
+    def retrieve(
+        self,
+        query: str,
+        *,
+        limit: int = 12,
+        allowed_location_prefixes: Iterable[str] | None = None,
+    ) -> list[EvidenceItem]:
         if not self.artifact_root.is_dir() or self.artifact_root.is_symlink():
             return []
         try:
@@ -289,6 +295,11 @@ class RunArtifactEvidenceProvider:
         except (OSError, ValueError):
             return []
         terms = _query_terms(query)
+        allowed_prefixes = (
+            tuple(str(prefix) for prefix in allowed_location_prefixes)
+            if allowed_location_prefixes is not None
+            else None
+        )
         candidates: list[tuple[int, float, Path, str]] = []
         eligible_seen = 0
         eligible_cap = max(limit * 20, 100)
@@ -300,6 +311,9 @@ class RunArtifactEvidenceProvider:
                 if eligible_seen >= eligible_cap:
                     break
                 lexical = Path(current) / name
+                location = lexical.relative_to(self.run_root).as_posix()
+                if allowed_prefixes is not None and not location.startswith(allowed_prefixes):
+                    continue
                 if lexical.suffix.lower() not in EVIDENCE_SUFFIXES:
                     continue
                 if _is_derived_run_artifact(self.run_root, lexical):
