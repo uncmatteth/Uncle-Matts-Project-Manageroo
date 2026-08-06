@@ -282,7 +282,10 @@ child-scoped trusted-host revalidation. These are validation-environment
 transitions, not new source fixes; a result that remains uncertain stops. If a
 revalidation process nevertheless changes source, Manageroo rejects that
 revalidation outcome, checkpoints only a genuinely new exact source-tree state,
-and reenters the same finding's `fix`. Repeated or original states still stop,
+and reenters the same finding's `fix`. This also applies when the revalidation
+command itself fails after producing source progress, including a Codex provider
+refusal; Manageroo keeps the same provider and finding instead of accepting the
+failed validation or discarding the edit. Repeated or original states still stop,
 so the recovery cannot spin on unchanged output.
 If exact revalidation returns `fixed` with unchanged HEAD and no source changes
 because an overlapping earlier finding already supplied the repair, Manageroo

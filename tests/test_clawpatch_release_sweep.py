@@ -2558,6 +2558,85 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(record["commit"], final_head)
         self.assertEqual(commit_count, "1")
 
+    @patch("manageroo.clawpatch_release._revalidation_payload")
+    def test_failed_revalidation_with_source_progress_is_preserved(
+        self, revalidation_payload
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            source.write_text("clawpatch repair\n", encoding="utf-8")
+
+            def failed_revalidation(*_args, **_kwargs):
+                source.write_text("revalidation source progress\n", encoding="utf-8")
+                raise SafetyError("phase: Clawpatch command\nexit code: 4")
+
+            revalidation_payload.side_effect = failed_revalidation
+
+            with self.assertRaises(_UnresolvedFinding) as raised:
+                _revalidate(repo, "fnd_one", env={}, expected_paths=["app.py"])
+
+        self.assertEqual(
+            raised.exception.outcome,
+            "revalidation-command-failed-with-source-progress",
+        )
+
+    @patch("manageroo.clawpatch_release._execute_fix")
+    def test_failed_revalidation_source_progress_continues_the_same_finding(
+        self, execute_fix
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+
+            def fix_side_effect(*_args, **_kwargs):
+                if execute_fix.call_count == 1:
+                    source.write_text("revalidation source progress\n", encoding="utf-8")
+                    raise _UnresolvedFinding(
+                        "revalidation command failed after changing source",
+                        finding_id="fnd_one",
+                        outcome="revalidation-command-failed-with-source-progress",
+                    )
+                source.write_text("completed repair\n", encoding="utf-8")
+                return (
+                    {
+                        "finding_id": "fnd_one",
+                        "files_changed": ["app.py"],
+                        "revalidation": {"finding": "fnd_one", "outcome": "fixed"},
+                        "commit": "",
+                    },
+                    False,
+                )
+
+            execute_fix.side_effect = fix_side_effect
+            record, pushed, continuations = _process_finding_until_fixed(
+                repo,
+                "fnd_one",
+                inspected={"finding": {"id": "fnd_one", "status": "open"}},
+                env={},
+                push_mode="none",
+                branch=branch,
+                pushed=False,
+                state_root=repo / ".manageroo" / "cache",
+                require_project_gates=False,
+            )
+
+        self.assertEqual(execute_fix.call_count, 2)
+        self.assertEqual(continuations, 1)
+        self.assertFalse(pushed)
+        self.assertEqual(record["revalidation"]["outcome"], "fixed")
+
     @patch("manageroo.clawpatch_release._run_clawpatch")
     def test_nonfix_clawpatch_timeout_stops_without_a_hidden_retry(self, run_clawpatch):
         argv = ["clawpatch", "show", "--finding", "fnd_one", "--json"]

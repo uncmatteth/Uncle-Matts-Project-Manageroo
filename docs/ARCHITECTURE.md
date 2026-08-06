@@ -111,11 +111,13 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
 Clawpatch release commits use exact source paths owned by the current finding.
-Manageroo stages only those source paths. A validation-failed-after-apply result
-or `open` revalidation creates or amends one recognizable local-only temporary
-iteration commit, then the same finding's `fix` runs again from the clean
-combined tree. Only exact `fixed` completes the finding and converts changed
-source into one normal commit directly above the finding's original HEAD. When
+Manageroo stages only those source paths. A validation-failed-after-apply result,
+an `open` revalidation, or a failed revalidation command that produced genuine
+source progress creates or amends one recognizable local-only temporary iteration
+commit, then the same finding's `fix` runs again from the clean combined tree.
+The failed command itself is not accepted as validation success. Only exact
+`fixed` completes the finding and converts changed source into one normal commit
+directly above the finding's original HEAD. When
 an overlapping earlier finding already supplied the repair, exact `fixed` with
 unchanged HEAD and no source changes completes without manufacturing an empty
 commit or push. It never

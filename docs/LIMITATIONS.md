@@ -30,7 +30,9 @@
 If revalidation unexpectedly changes source, its reported outcome is rejected.
 The outer same-finding loop may checkpoint that mutation only when it produces a
 genuinely new exact source-tree state, then invokes the same finding's `fix`
-again. A stopped checkpoint may therefore own more paths than its earlier
+again. A failed revalidation command is handled the same way only when it changed
+source to a genuinely new state; it is never treated as successful validation.
+A stopped checkpoint may therefore own more paths than its earlier
 temporary iteration commit, but only when that commit is a nonempty subset of the
 checkpoint's exact fingerprinted dirty set. Repeated, original, missing, or
 ambiguous source states still stop.

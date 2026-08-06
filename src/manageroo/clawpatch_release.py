@@ -985,14 +985,26 @@ def _revalidate(
             "Revalidation source paths no longer match the validated Clawpatch patch attempt."
         )
     before = _source_state_fingerprint(repo)
-    argv, payload, outcome = _revalidation_payload(
-        repo,
-        finding_id,
-        env=env,
-        progress=progress,
-        current=current,
-        total=total,
-    )
+    argv = ["clawpatch", "revalidate", "--finding", finding_id, "--json"]
+    try:
+        argv, payload, outcome = _revalidation_payload(
+            repo,
+            finding_id,
+            env=env,
+            progress=progress,
+            current=current,
+            total=total,
+        )
+    except SafetyError as exc:
+        after = _source_state_fingerprint(repo)
+        if after != before:
+            raise _UnresolvedFinding(
+                f"{exc}\nfailed requirement: failed revalidation source progress must be "
+                "preserved and retried on the same finding",
+                finding_id=finding_id,
+                outcome="revalidation-command-failed-with-source-progress",
+            ) from exc
+        raise
     if outcome == "uncertain" and env.get("CLAWPATCH_CODEX_SANDBOX") in {None, "read-only"}:
         escalated_env = dict(env)
         escalated_env["CLAWPATCH_CODEX_SANDBOX"] = "workspace-write"
@@ -2240,6 +2252,7 @@ def _process_finding_until_fixed(
         except _UnresolvedFinding as exc:
             if exc.outcome not in {
                 "fix-validation-failed",
+                "revalidation-command-failed-with-source-progress",
                 "revalidation-mutated-source",
             }:
                 _stop_finding_iteration(
@@ -2301,7 +2314,10 @@ def _process_finding_until_fixed(
                         "commit": temporary_commit,
                         "detail": (
                             "revalidation source progress preserved locally; continuing same finding"
-                            if exc.outcome == "revalidation-mutated-source"
+                            if exc.outcome in {
+                                "revalidation-command-failed-with-source-progress",
+                                "revalidation-mutated-source",
+                            }
                             else "partial repair preserved locally; continuing same finding"
                         ),
                     }
