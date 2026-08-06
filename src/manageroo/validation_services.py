@@ -582,11 +582,11 @@ def _provision_postgres_test_environment(
         action="startup",
     )
     container_id = result.stdout.strip()
-    if not _CONTAINER_ID.fullmatch(container_id):
-        raise SafetyError("Docker returned an invalid disposable PostgreSQL container ID.")
-
+    valid_container_id = _CONTAINER_ID.fullmatch(container_id) is not None
     body_error: BaseException | None = None
     try:
+        if not valid_container_id:
+            raise SafetyError("Docker returned an invalid disposable PostgreSQL container ID.")
         port = _published_port(root, container_id, run=run)
         deadline = monotonic() + _DEFAULT_READY_SECONDS
         while True:
@@ -637,7 +637,15 @@ def _provision_postgres_test_environment(
         raise
     finally:
         try:
-            _remove_container(root, container_id, run=run)
+            if valid_container_id:
+                _remove_container(root, container_id, run=run)
+            else:
+                _recover_stale_owned_container(
+                    root,
+                    container_name,
+                    repository_identity,
+                    run=run,
+                )
         except SafetyError as cleanup_error:
             if body_error is None:
                 raise

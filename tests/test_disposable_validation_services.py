@@ -493,6 +493,55 @@ class DisposableValidationServiceTests(unittest.TestCase):
                 1,
             )
 
+    def test_malformed_success_stdout_removes_owned_container_by_verified_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _postgres_repo(Path(temp))
+            from manageroo.validation_services import _repository_identity
+
+            repository_identity = _repository_identity(repo.resolve())
+            container_name = f"manageroo-validation-postgres-{repository_identity[:16]}"
+            docker = _DockerFixture()
+
+            def malformed_start(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                if argv[:2] == ["docker", "run"]:
+                    docker.calls.append(list(argv))
+                    docker.existing_labels = {
+                        "manageroo.validation-service": "postgresql",
+                        "manageroo.repository": repository_identity,
+                    }
+                    return subprocess.CompletedProcess(
+                        argv,
+                        0,
+                        "warning\n" + "a" * 64 + "\n",
+                        "",
+                    )
+                return docker(argv, cwd=cwd, timeout=timeout)
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "invalid disposable PostgreSQL container ID",
+            ):
+                with provision_disposable_validation_environment(
+                    repo,
+                    run=malformed_start,
+                    sleep=lambda _seconds: None,
+                ):
+                    self.fail("malformed Docker stdout must block before the queue")
+
+            remove_calls = [
+                call for call in docker.calls if call[:3] == ["docker", "rm", "-f"]
+            ]
+            self.assertEqual(remove_calls, [["docker", "rm", "-f", container_name]])
+            self.assertEqual(
+                sum(
+                    call[:3] == ["docker", "container", "inspect"]
+                    for call in docker.calls
+                ),
+                2,
+            )
+
     def test_cleanup_failure_is_reported_after_successful_supervised_work(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _postgres_repo(Path(temp))
