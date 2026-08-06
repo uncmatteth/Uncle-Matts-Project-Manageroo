@@ -339,35 +339,86 @@ def _replace_workspace_from_checkpoint(
         git_metadata_snapshot=git_metadata_snapshot,
     )
 
-    for path, expected in sorted(preserved_ignored_state.items()):
-        if _ignored_entry_state(orchestrator, path) != expected:
-            raise SafetyError(f"Command-owned {name} checkpoint ignored workspace data changed.")
-        source = orchestrator.workspace / path
-        destination = staged / path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            destination.lstat()
-        except FileNotFoundError:
-            pass
-        else:
-            raise SafetyError(
-                f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
-            )
-        os.replace(source, destination)
-        if _ignored_entry_state(orchestrator, path, root=staged) != expected:
-            raise SafetyError(f"Command-owned {name} checkpoint ignored workspace data changed.")
-
     previous = quarantine_root / "previous-workspace"
+    moved_ignored: list[tuple[str, tuple[str, int, int, int, int, str]]] = []
+    workspace_displaced = False
     try:
+        for path, expected in sorted(preserved_ignored_state.items()):
+            if _ignored_entry_state(orchestrator, path) != expected:
+                raise SafetyError(
+                    f"Command-owned {name} checkpoint ignored workspace data changed."
+                )
+            source = orchestrator.workspace / path
+            destination = staged / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                destination.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                raise SafetyError(
+                    f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
+                )
+            os.replace(source, destination)
+            moved_ignored.append((path, expected))
+            if _ignored_entry_state(orchestrator, path, root=staged) != expected:
+                raise SafetyError(
+                    f"Command-owned {name} checkpoint ignored workspace data changed."
+                )
         os.rename(orchestrator.workspace, previous)
+        workspace_displaced = True
         if orchestrator.workspace.exists() or orchestrator.workspace.is_symlink():
             concurrent = quarantine_root / "concurrent-workspace"
             os.rename(orchestrator.workspace, concurrent)
         os.rename(staged, orchestrator.workspace)
-    except OSError as exc:
+    except BaseException as exc:
+        workspace_displaced = workspace_displaced or previous.exists() or previous.is_symlink()
+        restore_root = previous if workspace_displaced else orchestrator.workspace
+        rollback_errors: list[str] = []
+        for path, expected in reversed(moved_ignored):
+            source = staged / path
+            destination = restore_root / path
+            try:
+                if _ignored_entry_state(orchestrator, path, root=staged) != expected:
+                    raise SafetyError(
+                        f"preserved ignored workspace entry changed in recovery storage: {path}"
+                    )
+                try:
+                    destination.lstat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise SafetyError(
+                        f"preserved ignored workspace entry restoration collided: {path}"
+                    )
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(source, destination)
+                if _ignored_entry_state(orchestrator, path, root=restore_root) != expected:
+                    raise SafetyError(
+                        f"preserved ignored workspace entry could not be verified: {path}"
+                    )
+            except (OSError, SafetyError) as rollback_exc:
+                rollback_errors.append(str(rollback_exc))
+        if workspace_displaced:
+            try:
+                if orchestrator.workspace.exists() or orchestrator.workspace.is_symlink():
+                    raise SafetyError("a concurrent workspace blocks restoration")
+                os.rename(previous, orchestrator.workspace)
+            except (OSError, SafetyError) as rollback_exc:
+                rollback_errors.append(str(rollback_exc))
+        if rollback_errors:
+            raise SafetyError(
+                "External repair workspace replacement failed and rollback was incomplete; "
+                f"recoverable state remains at {quarantine_root}: {exc}; "
+                + "; ".join(rollback_errors)
+            ) from exc
+        if isinstance(exc, SafetyError):
+            raise
+        if not isinstance(exc, OSError):
+            raise
         raise SafetyError(
-            "External repair workspace replacement failed; recoverable state remains at "
-            f"{quarantine_root}: {exc}"
+            "External repair workspace replacement failed; the original workspace was "
+            f"restored: {exc}"
         ) from exc
     return previous
 

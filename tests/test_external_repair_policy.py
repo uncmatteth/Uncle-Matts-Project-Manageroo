@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 import unittest
@@ -9,7 +10,9 @@ from manageroo.artifacts import ArtifactStore
 from manageroo.errors import SafetyError, ValidationError
 from manageroo.external_repair_policy import (
     _git_metadata_snapshot,
+    _ignored_state,
     _materialize_checkpoint_workspace,
+    _replace_workspace_from_checkpoint,
     run_external_review_repair_lanes,
 )
 from manageroo.runner import CommandRunner
@@ -130,6 +133,99 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             self.assertFalse((staged / ".git" / "hooks" / "unverified-hook").exists())
             self.assertIn(b"unverified live state", live_config.read_bytes())
             self.assertTrue(live_hook.is_file())
+
+    def test_checkpoint_replace_rolls_back_multiple_ignored_entries_when_later_move_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            fake, _run_root = fake_orchestrator(
+                root,
+                source,
+                "run-one",
+                lambda **_kwargs: {"name": "clawpatch", "ok": True, "exit_code": 0},
+            )
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "*.cache\n", encoding="utf-8"
+            )
+            first = fake.workspace / "first.cache"
+            second = fake.workspace / "second.cache"
+            first.write_text("first operator data\n", encoding="utf-8")
+            second.write_text("second operator data\n", encoding="utf-8")
+            ignored_state = _ignored_state(fake, {"first.cache", "second.cache"})
+            snapshot = _git_metadata_snapshot(fake)
+            real_replace = os.replace
+
+            def fail_second_move(source_path, destination_path):
+                if Path(source_path) == second and Path(destination_path).name == second.name:
+                    raise OSError("second ignored move failed")
+                return real_replace(source_path, destination_path)
+
+            with patch(
+                "manageroo.external_repair_policy.os.replace",
+                side_effect=fail_second_move,
+            ):
+                with self.assertRaisesRegex(SafetyError, "workspace replacement failed"):
+                    _replace_workspace_from_checkpoint(
+                        fake,
+                        name="clawpatch",
+                        checkpoint=fake.mirror.head(),
+                        preserved_ignored_state=ignored_state,
+                        git_metadata_snapshot=snapshot,
+                    )
+
+            self.assertEqual(first.read_text(encoding="utf-8"), "first operator data\n")
+            self.assertEqual(second.read_text(encoding="utf-8"), "second operator data\n")
+
+    def test_checkpoint_replace_restores_workspace_when_install_rename_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            fake, _run_root = fake_orchestrator(
+                root,
+                source,
+                "run-one",
+                lambda **_kwargs: {"name": "clawpatch", "ok": True, "exit_code": 0},
+            )
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "*.cache\n", encoding="utf-8"
+            )
+            first = fake.workspace / "first.cache"
+            second = fake.workspace / "second.cache"
+            first.write_text("first operator data\n", encoding="utf-8")
+            second.write_text("second operator data\n", encoding="utf-8")
+            ignored_state = _ignored_state(fake, {"first.cache", "second.cache"})
+            snapshot = _git_metadata_snapshot(fake)
+            baseline = fake.mirror.head()
+            real_rename = os.rename
+
+            def fail_staged_install(source_path, destination_path):
+                if (
+                    Path(source_path).name == "replacement-workspace"
+                    and Path(destination_path) == fake.workspace
+                ):
+                    raise OSError("staged install failed")
+                return real_rename(source_path, destination_path)
+
+            with patch(
+                "manageroo.external_repair_policy.os.rename",
+                side_effect=fail_staged_install,
+            ):
+                with self.assertRaisesRegex(SafetyError, "workspace replacement failed"):
+                    _replace_workspace_from_checkpoint(
+                        fake,
+                        name="clawpatch",
+                        checkpoint=baseline,
+                        preserved_ignored_state=ignored_state,
+                        git_metadata_snapshot=snapshot,
+                    )
+
+            self.assertTrue(fake.workspace.is_dir())
+            self.assertEqual(fake.mirror.head(), baseline)
+            self.assertEqual(first.read_text(encoding="utf-8"), "first operator data\n")
+            self.assertEqual(second.read_text(encoding="utf-8"), "second operator data\n")
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
 
     def test_incomplete_legacy_success_report_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

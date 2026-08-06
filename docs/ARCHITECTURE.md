@@ -314,6 +314,8 @@ workspace, move unchanged pre-existing ignored entries into that staged tree, an
 workspace into run-owned recovery storage before installing the replacement. They never reset or
 clean the live workspace in place, so lane residue or data created during preflight races remains in
 the displaced workspace quarantine instead of being deleted. Quarantines are retained for recovery.
+If an ignored-entry move or workspace rotation fails before installation, Manageroo reverses every
+recorded move and restores the displaced workspace; an incomplete rollback keeps its quarantine.
 Before the final report exists, successful lane manifests form the same command-ordered chain, so
 an interrupted run restores its latest validated checkpoint without repeating completed lanes.
 
