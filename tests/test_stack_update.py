@@ -461,9 +461,20 @@ class StackUpdateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "npm-prefix"
             npm_bin = prefix / "bin"
+            package_root = prefix / "lib" / "node_modules"
+            package = package_root / "gitnexus"
             npm_bin.mkdir(parents=True)
-            gitnexus = npm_bin / "gitnexus"
-            gitnexus.write_text("", encoding="utf-8")
+            (package / "dist").mkdir(parents=True)
+            (package / "dist" / "cli.js").write_text("", encoding="utf-8")
+            (package / "package.json").write_text(
+                '{"name":"gitnexus","bin":{"gitnexus":"dist/cli.js"}}',
+                encoding="utf-8",
+            )
+            gitnexus = npm_bin / "gitnexus.cmd"
+            gitnexus.write_text(
+                '@ECHO off\n"%~dp0\\..\\lib\\node_modules\\gitnexus\\dist\\cli.js" %*\n',
+                encoding="utf-8",
+            )
 
             def which(name: str):
                 return {
@@ -482,6 +493,13 @@ class StackUpdateTests(unittest.TestCase):
                         "stdout": stdout,
                         "stderr": "warning: migrated config\n",
                     }
+                if argv[1:] == ["root", "-g"]:
+                    return {
+                        "ok": True,
+                        "exit_code": 0,
+                        "argv": argv,
+                        "output": str(package_root) + "\n",
+                    }
                 if argv[1:4] == ["list", "-g", "--depth=0"]:
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": ""}
                 return {"ok": False, "exit_code": 1, "argv": argv, "output": ""}
@@ -495,6 +513,45 @@ class StackUpdateTests(unittest.TestCase):
             plan["tools"][0]["commands"],
             [["/usr/bin/npm", "install", "-g", GITNEXUS_PACKAGE]],
         )
+
+    def test_plan_rejects_unrelated_regular_executable_in_npm_bin(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "npm-prefix"
+            npm_bin = prefix / "bin"
+            package_root = prefix / "lib" / "node_modules"
+            package = package_root / "gitnexus"
+            npm_bin.mkdir(parents=True)
+            (package / "dist").mkdir(parents=True)
+            (package / "dist" / "cli.js").write_text("", encoding="utf-8")
+            (package / "package.json").write_text(
+                '{"name":"gitnexus","bin":{"gitnexus":"dist/cli.js"}}',
+                encoding="utf-8",
+            )
+            gitnexus = npm_bin / "gitnexus"
+            gitnexus.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+            def which(name: str):
+                return {
+                    "npm": "/usr/bin/npm",
+                    "gitnexus": str(gitnexus),
+                }.get(name)
+
+            def run(argv, **_kwargs):
+                if argv[1:] == ["prefix", "-g"]:
+                    return {"ok": True, "argv": argv, "output": str(prefix) + "\n"}
+                if argv[1:] == ["root", "-g"]:
+                    return {"ok": True, "argv": argv, "output": str(package_root) + "\n"}
+                if argv[1:4] == ["list", "-g", "--depth=0"]:
+                    return {"ok": True, "argv": argv, "output": "gitnexus@1.6.9\n"}
+                return {"ok": False, "argv": argv, "output": ""}
+
+            with patch("manageroo.stack_update.shutil.which", side_effect=which), patch(
+                "manageroo.stack_update._run", side_effect=run
+            ):
+                plan = stack_update_plan(["gitnexus"])
+
+        self.assertEqual(plan["tools"][0]["commands"], [])
+        self.assertIn("ownership", plan["tools"][0]["note"])
 
     def test_homebrew_owned_obsidian_update_survives_policy_hardening(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -780,9 +837,13 @@ class StackUpdateTests(unittest.TestCase):
             root = Path(temp)
             npm_prefix = root / "npm-prefix"
             pnpm_bin = root / "pnpm-bin"
+            package_root = root / "pnpm-root" / "node_modules"
             pnpm_bin.mkdir()
+            (package_root / "gitnexus" / "dist").mkdir(parents=True)
+            target = package_root / "gitnexus" / "dist" / "cli.js"
+            target.write_text("", encoding="utf-8")
             gitnexus = pnpm_bin / "gitnexus"
-            gitnexus.write_text("", encoding="utf-8")
+            symlink_or_skip(self, target, gitnexus)
 
             def which(name: str):
                 return {
@@ -796,6 +857,13 @@ class StackUpdateTests(unittest.TestCase):
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": str(npm_prefix) + "\n"}
                 if argv[0] == "/usr/bin/pnpm" and argv[1:] == ["bin", "-g"]:
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": str(pnpm_bin) + "\n"}
+                if argv[0] == "/usr/bin/pnpm" and argv[1:] == ["root", "-g"]:
+                    return {
+                        "ok": True,
+                        "exit_code": 0,
+                        "argv": argv,
+                        "output": str(package_root) + "\n",
+                    }
                 if argv[0] == "/usr/bin/pnpm" and argv[1:4] == ["list", "-g", "--depth=0"]:
                     return {"ok": True, "exit_code": 0, "argv": argv, "output": "installed\n"}
                 return {"ok": False, "exit_code": 1, "argv": argv, "output": "not owned"}

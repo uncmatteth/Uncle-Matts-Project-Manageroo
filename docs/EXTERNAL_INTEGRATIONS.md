@@ -98,7 +98,7 @@ When a configured GitNexus discovery command returns evidence, Manageroo ranks t
 
 Manageroo remains the controller. Current Git files and command output beat stale graph data, and Manageroo can still operate when GitNexus was intentionally skipped or is temporarily unavailable.
 
-For an existing persistent installation, `manageroo stack-update gitnexus --apply` refreshes the CLI with the detected supported global package-manager lane. Stack update does not install GitNexus merely because it is absent; use the Manageroo installer when you want to add the recommended stack.
+For an existing persistent installation, `manageroo stack-update gitnexus --apply` refreshes the CLI with the detected supported global package-manager lane. npm and pnpm ownership is accepted only when the active symlink resolves beneath the named package directory or a regular shim references that package's declared `bin` target. Stack update does not install GitNexus merely because it is absent; use the Manageroo installer when you want to add the recommended stack.
 
 Project: https://github.com/nxpatterns/gitnexus
 

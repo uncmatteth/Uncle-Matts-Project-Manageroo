@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import os
 import shutil
 import stat
@@ -141,6 +142,81 @@ def _manager_package_root(module: Any, manager: str) -> Path | None:
     return Path(_probe_stdout(probe).strip()).expanduser()
 
 
+def _manager_package_directory(package_root: Path, package_name: str) -> Path | None:
+    parts = package_name.split("/")
+    if (
+        not parts
+        or any(part in {"", ".", ".."} or "\\" in part for part in parts)
+        or (package_name.startswith("@") and len(parts) != 2)
+        or (not package_name.startswith("@") and len(parts) != 1)
+    ):
+        return None
+    try:
+        canonical_root = package_root.resolve(strict=True)
+        package = canonical_root.joinpath(*parts).resolve(strict=True)
+        package.relative_to(canonical_root)
+    except (OSError, ValueError):
+        return None
+    return package if package.is_dir() else None
+
+
+def _declared_package_bin(
+    package: Path,
+    package_name: str,
+    tool: Path,
+) -> Path | None:
+    try:
+        manifest = package / "package.json"
+        manifest_state = manifest.lstat()
+        if not stat.S_ISREG(manifest_state.st_mode) or _is_reparse_point(manifest_state):
+            return None
+        with manifest.open("rb") as stream:
+            payload = stream.read(64 * 1024 + 1)
+        if len(payload) > 64 * 1024:
+            return None
+        metadata = json.loads(payload.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(metadata, dict) or metadata.get("name") != package_name:
+        return None
+
+    command_name = tool.name
+    if tool.suffix.casefold() in {".cmd", ".exe", ".ps1"}:
+        command_name = tool.stem
+    declared = metadata.get("bin")
+    if isinstance(declared, str):
+        target_name = declared if command_name == package_name.rsplit("/", 1)[-1] else None
+    elif isinstance(declared, dict):
+        target_name = declared.get(command_name)
+    else:
+        target_name = None
+    if not isinstance(target_name, str) or not target_name or "\\" in target_name:
+        return None
+    try:
+        target_path = Path(target_name)
+        if target_path.is_absolute():
+            return None
+        target = (package / target_path).resolve(strict=True)
+        target.relative_to(package)
+    except (OSError, ValueError):
+        return None
+    return target if target.is_file() else None
+
+
+def _regular_shim_references(tool: Path, target: Path) -> bool:
+    try:
+        with tool.open("rb") as stream:
+            payload = stream.read(64 * 1024 + 1)
+        if len(payload) > 64 * 1024:
+            return False
+        shim = payload.decode("utf-8").replace("\\", "/").casefold()
+        relative_target = os.path.relpath(target, tool.parent).replace("\\", "/").casefold()
+    except (OSError, UnicodeError, ValueError):
+        return False
+    absolute_target = str(target).replace("\\", "/").casefold()
+    return absolute_target in shim or relative_target in shim
+
+
 def _owned_by_manager(
     module: Any,
     tool_path: str | None,
@@ -154,7 +230,12 @@ def _owned_by_manager(
     tool = Path(tool_path).expanduser()
     try:
         resolved_tool = tool.resolve(strict=True)
+        tool_state = tool.lstat()
     except OSError:
+        return False
+    if not resolved_tool.is_file() or _is_reparse_point(tool_state) or (
+        not stat.S_ISLNK(tool_state.st_mode) and not stat.S_ISREG(tool_state.st_mode)
+    ):
         return False
     if manager in {"npm", "pnpm"}:
         root = _manager_bin(module, manager)
@@ -165,13 +246,20 @@ def _owned_by_manager(
             canonical_tool_location.relative_to(root.resolve(strict=False))
         except ValueError:
             return False
-        if tool.is_symlink():
-            package_root = _manager_package_root(module, manager)
-            if package_root is None:
-                return False
+        package_root = _manager_package_root(module, manager)
+        if package_root is None:
+            return False
+        package = _manager_package_directory(package_root, package_name)
+        if package is None:
+            return False
+        if stat.S_ISLNK(tool_state.st_mode):
             try:
-                resolved_tool.relative_to(package_root.resolve(strict=False))
+                resolved_tool.relative_to(package)
             except ValueError:
+                return False
+        else:
+            declared_bin = _declared_package_bin(package, package_name, tool)
+            if declared_bin is None or not _regular_shim_references(tool, declared_bin):
                 return False
         if package_name:
             executable = shutil.which(manager)
