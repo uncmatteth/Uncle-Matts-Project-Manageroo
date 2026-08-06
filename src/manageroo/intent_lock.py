@@ -229,6 +229,12 @@ def _read_lock_pair_snapshot(path: Path) -> tuple[Any, str, str | None]:
             lock_hash,
             "JSON and Markdown generation markers do not match",
         )
+    if (
+        isinstance(lock, dict)
+        and _validate_intent_lock_payload(lock) is None
+        and markdown != _lock_markdown(lock, lock_hash=lock_hash)
+    ):
+        return lock, lock_hash, "paired INTENT-LOCK.md does not match canonical JSON rendering"
     return lock, lock_hash, None
 
 

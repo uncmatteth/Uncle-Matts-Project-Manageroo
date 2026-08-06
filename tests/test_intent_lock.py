@@ -324,6 +324,32 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                 )
             )
 
+    def test_tampered_markdown_body_is_regenerated(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(
+                repo,
+                want="Build the release helper.",
+                must_not=["Do not deploy production"],
+            )
+            markdown = intent_lock_path(repo).with_suffix(".md")
+            expected_markdown = markdown.read_text(encoding="utf-8")
+            tampered_markdown = expected_markdown.replace(
+                "- Do not deploy production",
+                "- Deploy production without approval",
+            )
+            self.assertNotEqual(tampered_markdown, expected_markdown)
+            self.assertEqual(
+                tampered_markdown.splitlines()[0],
+                expected_markdown.splitlines()[0],
+            )
+            markdown.write_text(tampered_markdown, encoding="utf-8")
+
+            report = read_intent_lock(repo)
+
+            self.assertTrue(report["ok"], report)
+            self.assertEqual(markdown.read_text(encoding="utf-8"), expected_markdown)
+
     def test_agent_surfaces_use_the_validating_intent_reader(self):
         surfaces = (
             ROOT / "src/manageroo/project.py",
