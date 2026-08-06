@@ -49,6 +49,45 @@ class WorkspaceTests(unittest.TestCase):
             mirror.apply_patch_to_source(patch)
             self.assertEqual((repo / "a.txt").read_text(encoding="utf-8"), "after\n")
 
+    def test_apply_rejects_concurrent_source_edit_before_mutating_any_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            (repo / "b.txt").write_text("second before\n", encoding="utf-8")
+            self.assertTrue(runner.run(["git", "add", "b.txt"], cwd=repo).passed)
+            self.assertTrue(
+                runner.run(
+                    [
+                        "git",
+                        "-c",
+                        "commit.gpgSign=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "commit",
+                        "-m",
+                        "add second file",
+                    ],
+                    cwd=repo,
+                ).passed
+            )
+
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            (workspace / "a.txt").write_text("workspace after\n", encoding="utf-8")
+            (workspace / "b.txt").write_text("second after\n", encoding="utf-8")
+            mirror.checkpoint("controller")
+            final_patch = mirror.write_patch(root / "final.patch")
+
+            concurrent_edit = b"independent source edit\n"
+            original_second_file = (repo / "b.txt").read_bytes()
+            (repo / "a.txt").write_bytes(concurrent_edit)
+
+            with self.assertRaisesRegex(SafetyError, "Source tree changed during run: a.txt"):
+                mirror.apply_patch_to_source(final_patch)
+
+            self.assertEqual((repo / "a.txt").read_bytes(), concurrent_edit)
+            self.assertEqual((repo / "b.txt").read_bytes(), original_second_file)
+
     def test_second_create_does_not_replace_original_source_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
