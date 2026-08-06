@@ -41,6 +41,7 @@ _LANGUAGE_BY_SUFFIX = {
     ".yml": "yaml",
     ".sql": "sql",
 }
+_FILE_INSPECTION_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,17 @@ def _cached_inventory_file(
         return None
 
 
+def _inspection_signature(state: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        state.st_dev,
+        state.st_ino,
+        state.st_mode,
+        state.st_size,
+        state.st_mtime_ns,
+        state.st_ctime_ns,
+    )
+
+
 def build_inventory(
     repo: Path,
     runner: CommandRunner,
@@ -116,42 +128,61 @@ def build_inventory(
         path = repo / relative
         if not path.is_file() or path.is_symlink():
             continue
-        size = path.stat().st_size
-        digest = sha256_file(path)
-        cached = _cached_inventory_file(
-            relative,
-            cached=cache.get(relative) if isinstance(cache.get(relative), dict) else None,
-            sha256=digest,
-            size=size,
-        )
-        if cached:
-            files.append(cached)
-            next_cache[relative] = asdict(cached)
-            continue
-        content_kind = content_kind_for_path(path)
-        if content_kind == "media":
-            language = language_for_media(path) or "binary"
-            summary, line_count = media_summary(path, relative, runner=runner)
-            estimated_tokens = max(1, int(len(summary) / chars_per_token))
-        else:
-            if looks_binary(path):
+        item: InventoryFile | None = None
+        for _attempt in range(_FILE_INSPECTION_ATTEMPTS):
+            try:
+                before = path.stat()
+                size = before.st_size
+                digest = sha256_file(path)
+                cached = _cached_inventory_file(
+                    relative,
+                    cached=cache.get(relative) if isinstance(cache.get(relative), dict) else None,
+                    sha256=digest,
+                    size=size,
+                )
+                if cached:
+                    candidate = cached
+                else:
+                    content_kind = content_kind_for_path(path)
+                    if content_kind == "media":
+                        language = language_for_media(path) or "binary"
+                        summary, line_count = media_summary(path, relative, runner=runner)
+                        estimated_tokens = max(1, int(len(summary) / chars_per_token))
+                    else:
+                        if looks_binary(path):
+                            break
+                        text = path.read_text(encoding="utf-8", errors="replace")
+                        summary, line_count = text_summary(path, relative)
+                        language = _LANGUAGE_BY_SUFFIX.get(path.suffix.lower(), "text")
+                        estimated_tokens = max(1, int(len(text) / chars_per_token))
+                        if content_kind == "source":
+                            summary = (
+                                f"Source text file. Bytes: {path.stat().st_size}. "
+                                f"Lines: {line_count}."
+                            )
+                    candidate = InventoryFile(
+                        path=relative,
+                        bytes=size,
+                        sha256=digest,
+                        language=language,
+                        estimated_tokens=estimated_tokens,
+                        content_kind=content_kind,
+                        line_count=line_count,
+                        summary=summary,
+                    )
+                final_digest = sha256_file(path)
+                after = path.stat()
+            except OSError:
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            summary, line_count = text_summary(path, relative)
-            language = _LANGUAGE_BY_SUFFIX.get(path.suffix.lower(), "text")
-            estimated_tokens = max(1, int(len(text) / chars_per_token))
-            if content_kind == "source":
-                summary = f"Source text file. Bytes: {path.stat().st_size}. Lines: {line_count}."
-        item = InventoryFile(
-            path=relative,
-            bytes=size,
-            sha256=digest,
-            language=language,
-            estimated_tokens=estimated_tokens,
-            content_kind=content_kind,
-            line_count=line_count,
-            summary=summary,
-        )
+            if (
+                _inspection_signature(before) != _inspection_signature(after)
+                or digest != final_digest
+            ):
+                continue
+            item = candidate
+            break
+        if item is None:
+            continue
         files.append(item)
         next_cache[relative] = asdict(item)
     if summary_cache_path:

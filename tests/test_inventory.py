@@ -8,6 +8,7 @@ from unittest.mock import patch
 from manageroo.file_inspection import image_dimensions, media_summary, pdf_page_count, prose_chunks
 from manageroo.inventory import build_inventory, inventory_summary
 from manageroo.runner import CommandResult, CommandRunner
+from manageroo.util import sha256_file
 
 
 PNG_1X1 = base64.b64decode(
@@ -38,6 +39,35 @@ class _CountingReader:
 
 
 class InventoryTests(unittest.TestCase):
+    def test_inventory_record_stays_consistent_when_file_changes_during_inspection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            target = repo / "README.md"
+            original = "# OLD\n\nold body\n"
+            replacement = "# NEW\n\nnew body\n"
+            self.assertEqual(len(original), len(replacement))
+            target.write_text(original, encoding="utf-8")
+            replaced = False
+
+            def hash_then_replace(path):
+                nonlocal replaced
+                digest = sha256_file(path)
+                if path == target and not replaced:
+                    target.write_text(replacement, encoding="utf-8")
+                    replaced = True
+                return digest
+
+            with patch("manageroo.inventory.sha256_file", side_effect=hash_then_replace):
+                files = build_inventory(repo, CommandRunner())
+
+            item = next(item for item in files if item.path == "README.md")
+            self.assertTrue(replaced)
+            self.assertEqual(item.sha256, sha256_file(target))
+            self.assertEqual(item.bytes, len(replacement.encode("utf-8")))
+            self.assertIn("# NEW", item.summary)
+            self.assertIn(item.sha256, item.summary)
+
     def test_media_and_large_prose_are_visible(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
