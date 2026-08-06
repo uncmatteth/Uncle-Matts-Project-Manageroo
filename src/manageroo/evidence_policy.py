@@ -208,10 +208,11 @@ def _evidence_summary(orchestrator, evidence_payload: dict[str, Any]) -> dict[st
 
 
 def install_evidence_policy(orchestrator_module) -> None:
-    original_external = orchestrator_module.Orchestrator._external_intelligence
-    original_call = orchestrator_module.Orchestrator._call
-    if getattr(original_external, "_manageroo_evidence_policy", False):
+    cls = orchestrator_module.Orchestrator
+    if getattr(cls, "_manageroo_evidence_policy_installed", False):
         return
+    original_external = cls._external_intelligence
+    original_call = cls._call
 
     def _external_intelligence_with_evidence(self, brief: str, inventory: dict[str, Any]) -> dict[str, Any]:
         payload = original_external(self, brief, inventory)
@@ -255,5 +256,6 @@ def install_evidence_policy(orchestrator_module) -> None:
 
     _external_intelligence_with_evidence._manageroo_evidence_policy = True
     _call_with_evidence._manageroo_evidence_policy = True
-    orchestrator_module.Orchestrator._external_intelligence = _external_intelligence_with_evidence
-    orchestrator_module.Orchestrator._call = _call_with_evidence
+    cls._external_intelligence = _external_intelligence_with_evidence
+    cls._call = _call_with_evidence
+    cls._manageroo_evidence_policy_installed = True

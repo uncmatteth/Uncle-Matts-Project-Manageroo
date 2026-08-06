@@ -88,9 +88,9 @@ def _validate_existing_evidence(path, brief: str) -> None:
 
 def install_evidence_artifact_guard(orchestrator_module: Any) -> None:
     cls = orchestrator_module.Orchestrator
-    original = cls._external_intelligence
-    if getattr(original, "_manageroo_evidence_artifact_guard", False):
+    if getattr(cls, "_manageroo_evidence_artifact_guard_installed", False):
         return
+    original = cls._external_intelligence
 
     def guarded(self, brief: str, inventory: dict[str, Any]) -> dict[str, Any]:
         evidence_path = self.artifacts.root / "discovery" / "evidence.json"
@@ -103,3 +103,4 @@ def install_evidence_artifact_guard(orchestrator_module: Any) -> None:
 
     guarded._manageroo_evidence_artifact_guard = True
     cls._external_intelligence = guarded
+    cls._manageroo_evidence_artifact_guard_installed = True

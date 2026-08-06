@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from manageroo.adapters.mock import MockAdapter
 from manageroo.errors import SafetyError
@@ -64,6 +65,55 @@ class EvidencePolicyTests(unittest.TestCase):
         install_evidence_policy(module)
         install_evidence_artifact_guard(module)
         return module.Orchestrator
+
+    def test_interleaved_installers_remain_idempotent(self):
+        sequences = (
+            (install_evidence_policy, install_evidence_artifact_guard, install_evidence_policy),
+            (
+                install_evidence_artifact_guard,
+                install_evidence_policy,
+                install_evidence_artifact_guard,
+            ),
+        )
+        for installers in sequences:
+            with self.subTest(order=[installer.__name__ for installer in installers]):
+                class Fake(_FakeOrchestrator):
+                    pass
+
+                module = SimpleNamespace(Orchestrator=Fake)
+                for installer in installers:
+                    installer(module)
+
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    repo = root / "repo"
+                    run_root = root / "run"
+                    repo.mkdir()
+                    run_root.mkdir()
+                    instance = Fake(repo, run_root)
+                    instance._external_intelligence("brief", {})
+
+                    with (
+                        patch.object(
+                            instance.artifacts,
+                            "write_json",
+                            wraps=instance.artifacts.write_json,
+                        ) as write_json,
+                        patch(
+                            "manageroo.evidence_artifact_guard._validate_existing_evidence",
+                            wraps=_validate_existing_evidence,
+                        ) as validate_existing,
+                    ):
+                        payload = instance._external_intelligence("brief", {})
+
+                    self.assertEqual(write_json.call_count, 1)
+                    self.assertEqual(validate_existing.call_count, 2)
+                    self.assertEqual(
+                        payload["note"].count(
+                            "Retrieved evidence is provenance-ranked context only"
+                        ),
+                        1,
+                    )
 
     def test_discovery_writes_ranked_evidence_and_planning_call_receives_bounded_items(self):
         with tempfile.TemporaryDirectory() as temp:
