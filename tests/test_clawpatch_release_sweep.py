@@ -1237,6 +1237,77 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         revalidate.assert_called_once()
         push_and_verify.assert_not_called()
 
+    @patch("manageroo.clawpatch_release._commit_attempt")
+    @patch("manageroo.clawpatch_release._revalidate")
+    @patch(
+        "manageroo.clawpatch_release._run_project_gates",
+        side_effect=SafetyError("PromptStoreTest failed after the partial repair"),
+    )
+    @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_timeout_gate_failure_returns_open_for_same_finding_continuation(
+        self,
+        show_finding,
+        _gates,
+        revalidate,
+        commit_attempt,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("partial timed-out repair\n", encoding="utf-8")
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_timed_out",
+                        "status": "planned",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": [],
+                        "git": {"baseSha": head},
+                    }
+                ],
+            }
+
+            record, pushed = _resume_stopped_attempt(
+                repo,
+                checkpoint,
+                env={},
+                push_mode="none",
+                branch=branch,
+                pushed=False,
+            )
+
+        self.assertTrue(record["resumed"])
+        self.assertFalse(pushed)
+        self.assertEqual(record["patch_attempt"], "pat_timed_out")
+        self.assertEqual(record["gate_runs"], [])
+        self.assertEqual(record["revalidation"]["outcome"], "open")
+        self.assertIn(
+            "PromptStoreTest failed",
+            record["revalidation"]["managerooResumedGateFailure"],
+        )
+        revalidate.assert_not_called()
+        commit_attempt.assert_not_called()
+
     @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
     @patch("manageroo.clawpatch_release._show_finding")
     def test_stopped_planned_attempt_rejects_descendant_that_touched_owned_source(

@@ -125,7 +125,7 @@ features in bounded worker waves. Before each wave, ClawPatch's review dry-run
 reports the pending count and current job count. Manageroo runs one
 `review --limit <jobs>` child and requires the next dry-run to decrease pending
 features by exactly the child's reviewed count. There is no arbitrary wave cap;
-zero pending completes review, no progress stops, and the 900-second process-tree
+zero pending completes review, no progress stops, and the 29-minute process-tree
 watchdog remains enforced per child instead of spanning the whole repository.
 After every fresh ClawPatch initialization on native Windows, Manageroo rewrites
 only a leading repository-local `./wrapper` validation command when a matching
@@ -164,8 +164,12 @@ the fixed-point proof that records every reviewed generation.
 Ordinary relaunch resumes a stopped applied attempt only when the durable
 checkpoint's branch, finding, and exact dirty path set agree, and exactly one
 applied Clawpatch patch-attempt record matches current HEAD. It resumes at gates
-and revalidation without invoking `fix` again; an `open` outcome creates the
-same local-only temporary iteration and continues the same finding without a
+and revalidation without invoking `fix` again. If the preserved partial repair
+makes a configured project gate red, that gate failure becomes an `open`
+same-finding continuation rather than a terminal resume failure; Manageroo saves
+the exact owned source as the local-only iteration and enters the next bounded
+fix attempt. An `open` revalidation outcome likewise creates the same
+local-only temporary iteration and continues the same finding without a
 push. Any mismatch or ambiguity refuses continuation and preserves the
 checkpoint and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.

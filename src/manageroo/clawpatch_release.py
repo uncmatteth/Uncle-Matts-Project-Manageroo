@@ -2633,12 +2633,23 @@ def _resume_stopped_attempt(
             patch_attempt_id = str(planned_candidates[0]["patchAttemptId"])
             planned_timeout = True
     _validate_attempt_paths(repo, owned_paths)
-    gate_runs = _run_project_gates(
-        repo,
-        finding_id=finding_id,
-        required=require_project_gates,
-    )
-    if finding_status == "uncertain" or temporary_commit or planned_timeout:
+    gate_failure = ""
+    try:
+        gate_runs = _run_project_gates(
+            repo,
+            finding_id=finding_id,
+            required=require_project_gates,
+        )
+    except SafetyError as exc:
+        gate_runs = []
+        gate_failure = str(exc)
+    if gate_failure:
+        validation = {
+            "finding": finding_id,
+            "outcome": "open",
+            "managerooResumedGateFailure": gate_failure,
+        }
+    elif finding_status == "uncertain" or temporary_commit or planned_timeout:
         validation = _revalidate(
             repo,
             finding_id,
