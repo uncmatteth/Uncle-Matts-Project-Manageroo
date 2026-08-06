@@ -95,6 +95,86 @@ def _postgres_repo(root: Path) -> Path:
 
 
 class DisposableValidationServiceTests(unittest.TestCase):
+    def test_src_layout_project_is_installed_in_disposable_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            (repo / "src" / "example").mkdir(parents=True)
+            (repo / "tests").mkdir()
+            (repo / "pyproject.toml").write_text(
+                "[build-system]\n"
+                "requires = []\n"
+                "build-backend = 'fixture_backend'\n"
+                "backend-path = ['.']\n"
+                "\n"
+                "[project]\n"
+                "name = 'example-fixture'\n"
+                "version = '1'\n"
+                "dependencies = []\n"
+                "\n"
+                "[tool.pytest.ini_options]\n"
+                "testpaths = ['tests']\n",
+                encoding="utf-8",
+            )
+            (repo / "src" / "example" / "__init__.py").write_text(
+                "VALUE = 42\n",
+                encoding="utf-8",
+            )
+            (repo / "tests" / "test_import.py").write_text(
+                "from example import VALUE\n\nassert VALUE == 42\n",
+                encoding="utf-8",
+            )
+            (repo / "fixture_backend.py").write_text(
+                "from pathlib import Path\n"
+                "from zipfile import ZIP_DEFLATED, ZipFile\n\n"
+                "def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n"
+                "    name = 'example_fixture-1-py3-none-any.whl'\n"
+                "    wheel = Path(wheel_directory) / name\n"
+                "    with ZipFile(wheel, 'w', ZIP_DEFLATED) as archive:\n"
+                "        archive.write('src/example/__init__.py', 'example/__init__.py')\n"
+                "        archive.writestr('example_fixture-1.dist-info/METADATA', "
+                "'Metadata-Version: 2.1\\nName: example-fixture\\nVersion: 1\\n')\n"
+                "        archive.writestr('example_fixture-1.dist-info/WHEEL', "
+                "'Wheel-Version: 1.0\\nGenerator: fixture\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n')\n"
+                "        archive.writestr('example_fixture-1.dist-info/RECORD', '')\n"
+                "    return name\n",
+                encoding="utf-8",
+            )
+
+            def offline_runner(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                if argv[1:4] == ["-m", "pip", "install"] and "pytest>=8,<10" in argv:
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+                return subprocess.run(
+                    argv,
+                    cwd=cwd,
+                    timeout=timeout,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    shell=False,
+                )
+
+            with provision_disposable_validation_environment(
+                repo,
+                run=offline_runner,
+            ) as child_env:
+                environment = os.environ.copy()
+                environment.update(child_env)
+                environment.pop("PYTHONPATH", None)
+                result = subprocess.run(
+                    ["python", "tests/test_import.py"],
+                    cwd=repo,
+                    env=environment,
+                    timeout=30,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    shell=False,
+                )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_pep621_pytest_project_gets_disposable_dependency_environment(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"

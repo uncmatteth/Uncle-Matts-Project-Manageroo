@@ -157,11 +157,12 @@ Before the queue, the external supervisor may satisfy bounded, manifest-backed
 validation contracts without writing dependency state into the target repository.
 A root, regular `pyproject.toml` with `[tool.pytest]` and static PEP 621
 `project.dependencies` receives a temporary external virtual environment.
-Manageroo installs pytest, the declared runtime dependencies, and static
-`test`/`tests`/`dev`/`development` optional groups through argv-only pip, then
-prepends that environment only for ClawPatch children. Invalid or unbounded
-dependency declarations and failed installs stop before map/review. The temporary
-environment is removed after completion, stop, failure, or interruption.
+Manageroo installs pytest, the declared runtime dependencies, static
+`test`/`tests`/`dev`/`development` optional groups, and the target project through
+argv-only pip, then prepends that environment only for ClawPatch children. Invalid
+or unbounded dependency declarations and failed dependency or project installs stop
+before map/review. The temporary environment is removed after completion, stop,
+failure, or interruption.
 
 The external supervisor may also satisfy one narrowly discovered repository
 service contract: tests that explicitly require

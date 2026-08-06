@@ -346,6 +346,23 @@ def _provision_python_test_environment(
                 timeout=900,
                 action="dependency installation",
             )
+            _checked_python_environment_command(
+                run,
+                [
+                    str(python),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    "--no-deps",
+                    "--",
+                    ".",
+                ],
+                repo=repo,
+                timeout=900,
+                action="project installation",
+            )
             child_path = str(executable_dir)
             inherited_path = os.environ.get("PATH")
             if inherited_path:
