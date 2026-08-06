@@ -2555,6 +2555,7 @@ def _resume_stopped_attempt(
         )
     current_head = _git_text(repo, ["git", "rev-parse", "HEAD"])
     temporary_commit = str(checkpoint.get("temporary_commit") or "")
+    planned_timeout = False
     if temporary_commit:
         original_head = str(checkpoint.get("head_before") or "")
         if current_head != original_head or _verify_iteration_commit(
@@ -2581,19 +2582,63 @@ def _resume_stopped_attempt(
                 and git_record.get("baseSha") == current_head
             ):
                 candidates.append(attempt)
-        if len(candidates) != 1:
+        if len(candidates) == 1:
+            patch_attempt_id = str(candidates[0]["patchAttemptId"])
+        elif candidates:
             raise SafetyError(
-                "Stopped Clawpatch progress requires exactly one applied patch attempt bound "
-                "to the current HEAD and owned source paths."
+                "Stopped Clawpatch progress matches multiple applied patch attempts."
             )
-        patch_attempt_id = str(candidates[0]["patchAttemptId"])
+        else:
+            recorded_fingerprint = str(checkpoint.get("owned_source_fingerprint") or "")
+            planned_candidates = []
+            if (
+                checkpoint.get("head_before") == current_head
+                and recorded_fingerprint
+                and _owned_source_fingerprint(repo, owned_paths) == recorded_fingerprint
+            ):
+                for attempt in inspected["patchAttempts"]:
+                    if not isinstance(attempt, dict) or attempt.get("status") != "planned":
+                        continue
+                    attempt_id = attempt.get("patchAttemptId")
+                    finding_ids = attempt.get("findingIds")
+                    git_record = attempt.get("git")
+                    base_sha = git_record.get("baseSha") if isinstance(git_record, dict) else None
+                    if (
+                        not isinstance(attempt_id, str)
+                        or not attempt_id
+                        or not isinstance(finding_ids, list)
+                        or finding_id not in finding_ids
+                        or attempt.get("filesChanged") != []
+                        or not isinstance(base_sha, str)
+                        or not base_sha
+                    ):
+                        continue
+                    ancestor = _run(
+                        ["git", "merge-base", "--is-ancestor", base_sha, current_head],
+                        cwd=repo,
+                        timeout=60,
+                    )
+                    if ancestor.returncode:
+                        continue
+                    intervening_paths = set(_paths_between(repo, base_sha, current_head))
+                    if intervening_paths & set(owned_paths):
+                        continue
+                    planned_candidates.append(attempt)
+            if len(planned_candidates) != 1:
+                raise SafetyError(
+                    "Stopped Clawpatch progress requires exactly one applied attempt, or one "
+                    "fingerprinted timeout-stranded planned attempt whose intervening commits "
+                    "do not touch the owned source paths."
+                )
+            patch_attempt_id = str(planned_candidates[0]["patchAttemptId"])
+            planned_timeout = True
     _validate_attempt_paths(repo, owned_paths)
     gate_runs = _run_project_gates(
         repo,
         finding_id=finding_id,
         required=require_project_gates,
     )
-    if finding_status == "uncertain" or temporary_commit:
+    if finding_status == "uncertain" or temporary_commit or planned_timeout:
         validation = _revalidate(
             repo,
             finding_id,

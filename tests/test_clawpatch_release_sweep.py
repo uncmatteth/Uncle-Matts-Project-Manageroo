@@ -1087,6 +1087,148 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         revalidate.assert_called_once()
         push_and_verify.assert_not_called()
 
+    @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch(
+        "manageroo.clawpatch_release._revalidate",
+        return_value={"finding": "fnd_one", "outcome": "open"},
+    )
+    @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_planned_attempt_with_owned_source_survives_unrelated_descendant_commit(
+        self,
+        show_finding,
+        _gates,
+        revalidate,
+        push_and_verify,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            attempt_base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("partial Clawpatch repair\n", encoding="utf-8")
+            website = repo / "website.txt"
+            website.write_text("new website\n", encoding="utf-8")
+            subprocess.run(["git", "add", "website.txt"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "unrelated website update"],
+                cwd=repo,
+                check=True,
+            )
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            current_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=current_head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_timed_out",
+                        "status": "planned",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": [],
+                        "git": {"baseSha": attempt_base},
+                    }
+                ],
+            }
+
+            record, pushed = _resume_stopped_attempt(
+                repo,
+                checkpoint,
+                env={},
+                push_mode="none",
+                branch=branch,
+                pushed=False,
+                require_project_gates=False,
+            )
+
+        self.assertEqual(record["patch_attempt"], "pat_timed_out")
+        self.assertTrue(record["resumed"])
+        self.assertEqual(record["revalidation"]["outcome"], "open")
+        self.assertFalse(pushed)
+        revalidate.assert_called_once()
+        push_and_verify.assert_not_called()
+
+    @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_planned_attempt_rejects_descendant_that_touched_owned_source(
+        self,
+        show_finding,
+        _gates,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            attempt_base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("committed by somebody else\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "overlapping update"],
+                cwd=repo,
+                check=True,
+            )
+            source.write_text("uncommitted follow-up\n", encoding="utf-8")
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            current_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            checkpoint = _write_release_progress(
+                repo,
+                finding_id="fnd_one",
+                branch=branch,
+                head_before=current_head,
+                phase="stopped",
+                owned_paths=["app.py"],
+            )
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "open"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_ambiguous",
+                        "status": "planned",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": [],
+                        "git": {"baseSha": attempt_base},
+                    }
+                ],
+            }
+
+            with self.assertRaisesRegex(SafetyError, "fingerprinted timeout-stranded"):
+                _resume_stopped_attempt(
+                    repo,
+                    checkpoint,
+                    env={},
+                    push_mode="none",
+                    branch=branch,
+                    pushed=False,
+                    require_project_gates=False,
+                )
+
     @patch("manageroo.clawpatch_release._final_closure")
     @patch("manageroo.clawpatch_release._execute_fix")
     @patch("manageroo.clawpatch_release._next_finding")

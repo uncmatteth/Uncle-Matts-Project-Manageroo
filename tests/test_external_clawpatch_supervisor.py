@@ -79,6 +79,16 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
             "manageroo.clawpatch_external:main",
         )
 
+    def test_windows_installer_prints_a_resumable_bounded_run_command(self):
+        installer = Path("Install-ClawPatch-Supervisor-Windows.ps1").read_text(encoding="utf-8")
+
+        run_command = next(
+            line for line in installer.splitlines() if line.startswith("$runCommand =")
+        )
+        self.assertNotIn("--fresh", run_command)
+        self.assertIn("--resume-stopped", run_command)
+        self.assertIn("--timeout-minutes 15", run_command)
+
     def test_terminal_command_shows_one_finding_scoped_fix_and_verified_commit(self):
         calls = []
 
@@ -178,7 +188,22 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["branch"], "current")
         self.assertEqual(calls[0][1]["push_mode"], "each")
         self.assertEqual(calls[0][1]["integration_mode"], "external")
-        self.assertTrue(calls[0][1]["fresh"])
+        self.assertFalse(calls[0][1]["fresh"])
+
+    def test_default_start_mode_resumes_a_stopped_checkpoint_when_present(self):
+        calls = []
+
+        def fake_sweep(repo: Path, **kwargs):
+            calls.append((repo, kwargs))
+            return {"ok": True, "finding_count": 1, "open_findings": 0, "git_head": "abc123"}
+
+        output = StringIO()
+        with redirect_stdout(output):
+            code = main(["--repo", "."], run_sweep=fake_sweep, heartbeat_seconds=0)
+
+        self.assertEqual(code, 0)
+        self.assertFalse(calls[0][1]["fresh"])
+        self.assertIn("mode=resume-or-start", output.getvalue())
 
     def test_terminal_command_renders_stopped_state_without_retrying(self):
         def fake_sweep(_repo: Path, **kwargs):
@@ -222,7 +247,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertTrue(calls[0][1]["fresh"])
         self.assertEqual(calls[0][1]["child_timeout_seconds"], 900)
 
-    def test_resume_stopped_disables_only_the_default_fresh_start(self):
+    def test_resume_stopped_explicitly_selects_the_default_safe_restart(self):
         calls = []
 
         def fake_sweep(repo: Path, **kwargs):

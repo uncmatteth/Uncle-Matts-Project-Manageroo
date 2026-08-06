@@ -237,11 +237,11 @@ $manifest = [ordered]@{
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $InstallRoot "installed.json") -Encoding UTF8
 
 $escapedRepo = $ResolvedRepo.Replace('"', '`"')
-$runCommand = 'Set-Location "{0}"; & "$env:USERPROFILE\.local\bin\clawpatch-supervise.cmd" --repo . --branch current --push each --fresh' -f $escapedRepo
+$runCommand = 'Set-Location "{0}"; & "$env:USERPROFILE\.local\bin\clawpatch-supervise.cmd" --repo . --branch current --push each --resume-stopped --timeout-minutes 15' -f $escapedRepo
 
 Write-Host ""
 Write-Host "INSTALLATION VERIFIED. The supervisor was installed but was not started." -ForegroundColor Green
 Write-Host "Run it with this exact PowerShell command:"
 Write-Host ""
 Write-Host $runCommand -ForegroundColor Cyan
-Write-Host "If an older supervisor already stopped with checkpoint-owned source changes, run the same command with --resume-stopped instead of --fresh." -ForegroundColor Yellow
+Write-Host "The same command safely resumes an exactly checkpoint-owned stopped attempt; use --fresh only when you deliberately want to discard supervisor-owned stopped state." -ForegroundColor Yellow

@@ -155,14 +155,17 @@ def main(
         "--fresh",
         dest="fresh",
         action="store_true",
-        default=True,
-        help="start a fresh ClawPatch map/review queue (the default)",
+        default=False,
+        help="discard supervisor-owned stopped state and start a fresh ClawPatch map/review queue",
     )
     start_mode.add_argument(
         "--resume-stopped",
         dest="fresh",
         action="store_false",
-        help="resume one exactly checkpoint-owned stopped attempt before continuing its queue",
+        help=(
+            "resume one exactly checkpoint-owned stopped attempt before continuing its queue "
+            "(the default when a checkpoint exists)"
+        ),
     )
     parser.add_argument(
         "--timeout-minutes",
@@ -220,7 +223,8 @@ def main(
 
     print(
         f"ClawPatch external supervisor: repo={Path(args.repo).resolve()} "
-        f"branch={args.branch} push={args.push} fresh={args.fresh} "
+        f"branch={args.branch} push={args.push} "
+        f"mode={'fresh' if args.fresh else 'resume-or-start'} "
         f"timeout={args.timeout_minutes}m",
         flush=True,
     )
@@ -241,7 +245,7 @@ def main(
         print(f"\nSTOPPED: {exc}", flush=True)
         return 2
     except KeyboardInterrupt:
-        print("\nINTERRUPTED: stopped safely; run the command again for a fresh start.", flush=True)
+        print("\nINTERRUPTED: stopped safely; run the same command again to resume.", flush=True)
         return 130
     finally:
         stopped.set()

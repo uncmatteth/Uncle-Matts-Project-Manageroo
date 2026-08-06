@@ -171,13 +171,15 @@ manageroo clawpatch release-sweep --repo . --apply --push final
 manageroo clawpatch release-sweep --repo . --apply --trusted-host-codex-sandbox-bypass
 ```
 
-`clawpatch-supervise` is a separate installed console command for an operator who wants to launch and watch the workflow directly rather than enter through the `manageroo` command tree. It works in any Git repository and does not require `.manageroo/config.toml`. Every normal invocation starts a fresh map, complete review, and current finding queue. It prints named process-preflight, fresh initialization, status, lock-cleanup, map, review, review-verification, queue, show, numbered fix-attempt, revalidation, stopped, and fixed phases. Every command includes its exact argv. The 30-second heartbeat reports time in the currently displayed phase and the exact configured child watchdog. It uses the same command-owned repair controller described below.
+`clawpatch-supervise` is a separate installed console command for an operator who wants to launch and watch the workflow directly rather than enter through the `manageroo` command tree. It works in any Git repository and does not require `.manageroo/config.toml`. A normal invocation resumes an exactly checkpoint-owned stopped attempt when present; otherwise it starts the map, complete review, and current finding queue. It prints named process-preflight, fresh initialization, status, lock-cleanup, map, review, review-verification, queue, show, numbered fix-attempt, revalidation, stopped, and fixed phases. Every command includes its exact argv. The 30-second heartbeat reports time in the currently displayed phase and the exact configured child watchdog. It uses the same command-owned repair controller described below.
 
-`clawpatch-supervise --resume-stopped` is the narrow exception for an already
-stopped applied repair. It requires the external checkpoint to prove the exact
-repository, branch, start HEAD, finding, patch attempt, and complete dirty path
-set, then resumes at validation rather than deleting or rerunning that repair.
-The bare command remains fresh by default.
+`clawpatch-supervise --resume-stopped` explicitly requests the default safe
+restart behavior for an already stopped applied repair. It requires the external
+checkpoint to prove the exact repository, branch, start HEAD, finding, patch
+attempt, and complete dirty path set, then resumes at validation rather than
+deleting or rerunning that repair.
+Use `--fresh` only to deliberately discard supervisor-owned stopped state and
+start a fresh queue; unrelated source changes still block cleanup.
 
 The sweep first proves repository, process, Git, status, and lock state. It maps
 the repository, asks Clawpatch to review every pending feature, and verifies a
@@ -320,8 +322,9 @@ Clawpatch 0.7.2's `show` output includes a human triage template. Manageroo
 records that inspection but does not execute or fill in the template. Its
 explicit release policy sends every current open finding to Clawpatch's own
 finding-scoped `fix`. Failed attempts are never called fixed or skipped. A
-normal external invocation is fresh by default, but source cleanup still
-requires an exact durable ownership proof. The supervisor recovers a
+normal external invocation resumes exact stopped state by default. An explicit
+fresh invocation still requires an exact durable ownership proof before source
+cleanup. The supervisor recovers a
 recognizable interrupted temporary commit, verifies its repository, branch,
 finding, parent, starting HEAD, and exact paths, and discards only that owned
 repair for the requested fresh run. Unrelated source changes block unchanged.
@@ -341,14 +344,14 @@ under `.manageroo/cache` for the Manageroo project command. Ordinary relaunch
 resumes only the exact stopped applied attempt proven by that record and current
 Clawpatch state, or clears an already-committed checkpoint using exact descendant
 Git path proof; it refuses to guess when any ownership proof differs. For the
-external `clawpatch-supervise` command, fresh is the default and removes old
-`.clawpatch` run/discovery state only after exact interrupted-work recovery.
+external `clawpatch-supervise` command, `--fresh` removes old `.clawpatch`
+run/discovery state only after exact interrupted-work recovery.
 Both external and Manageroo project lanes may discard source only when current
 dirty paths exactly equal checkpoint-owned paths.
 On upgrade, the external runner recognizes and verifies its legacy version-2
 checkpoint under `.manageroo/cache`, moves that ownership record into the
-Manageroo-owned external state directory, and then applies the external fresh
-reset contract.
+Manageroo-owned external state directory, and then applies the selected resume
+or explicit fresh-reset contract.
 Manageroo is not an OS daemon and
 cannot relaunch its own terminated controller process.
 
