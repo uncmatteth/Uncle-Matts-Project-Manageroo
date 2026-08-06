@@ -175,7 +175,7 @@ The adapter passes argv directly with no command shell. It does not import the s
 
 `manageroo release-ready --require-clawpatch` asks the standalone executable for its state directory and validates `clawpatch-release-proof.json` against the current Git HEAD. This avoids duplicating platform-specific state paths.
 
-`manageroo stack-update clawpatch-supervise` previews the pinned standalone commit. Apply is allowed only for an executable resolved inside one of the native-installer virtual environments; unowned installations are left untouched. The native Windows and macOS supervisor installers also install the standalone repository pin rather than Manageroo itself. Do not update that environment while its queue is running.
+`manageroo stack-update clawpatch-supervise` previews the pinned standalone commit. Apply is allowed only for an executable resolved inside one of the native-installer virtual environments; unowned installations are left untouched. Before the first package mutation, Manageroo installs a stdlib-only console-entry gate that makes direct and service supervisor runs share the updater's cross-platform installation lock. Migration from an older ungated launcher also requires a successful platform-native process snapshot. Later updates rely on the shared lock rather than a process-list snapshot. The native Windows and macOS supervisor installers still install the standalone repository pin rather than Manageroo itself.
 
 The standalone project is the authoritative source for detailed transition, recovery, checkpoint, disposable validation, and systemd service behavior.
 

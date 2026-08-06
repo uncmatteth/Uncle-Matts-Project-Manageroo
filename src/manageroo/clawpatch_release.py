@@ -3,16 +3,47 @@ from __future__ import annotations
 import shlex
 import shutil
 import subprocess
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Callable
 
+from .config_lock import config_mutation_lock
 from .errors import SafetyError
 
 
 SUPERVISOR_EXECUTABLE = "clawpatch-supervise"
 SUPERVISOR_REPOSITORY = "https://github.com/uncmatteth/clawpatch-supervise"
 SUPERVISOR_VERSION = "0.1.2"
+SUPERVISOR_GATE_VERSION = "1.0.0"
+SUPERVISOR_GATE_VERSION_ARG = "--manageroo-runtime-gate-version"
 TRANSIENT_EXIT_CODE = 75
+
+
+def supervisor_runtime_lock(executable: str) -> AbstractContextManager[None]:
+    """Exclude updates while the standalone supervisor executable is active."""
+    try:
+        active = Path(executable).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise SafetyError(
+            f"Could not resolve the standalone supervisor for its runtime lock: {exc}"
+        ) from exc
+    return config_mutation_lock(active, timeout_seconds=0)
+
+
+def supervisor_runtime_gate_ready(executable: str) -> bool:
+    try:
+        probe = subprocess.run(
+            [executable, SUPERVISOR_GATE_VERSION_ARG],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return probe.returncode == 0 and probe.stdout.strip() == SUPERVISOR_GATE_VERSION
 
 
 def _supervisor_path(*, which: Callable[[str], str | None] = shutil.which) -> str:
@@ -94,16 +125,24 @@ def release_sweep(
     }
     if not apply:
         return report
-    try:
-        result = run(
-            argv,
-            cwd=repo.expanduser().resolve(),
-            text=True,
-            check=False,
-            shell=False,
-        )
-    except OSError as exc:
-        raise SafetyError(f"Could not start standalone clawpatch-supervise: {exc}") from exc
+
+    def invoke() -> subprocess.CompletedProcess[str]:
+        try:
+            return run(
+                argv,
+                cwd=repo.expanduser().resolve(),
+                text=True,
+                check=False,
+                shell=False,
+            )
+        except OSError as exc:
+            raise SafetyError(f"Could not start standalone clawpatch-supervise: {exc}") from exc
+
+    if supervisor_runtime_gate_ready(executable):
+        result = invoke()
+    else:
+        with supervisor_runtime_lock(executable):
+            result = invoke()
     report["exit_code"] = int(result.returncode)
     report["ok"] = result.returncode == 0
     report["transient"] = result.returncode == TRANSIENT_EXIT_CODE

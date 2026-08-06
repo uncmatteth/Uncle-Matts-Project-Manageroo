@@ -35,6 +35,7 @@ manageroo = [
   "assets/skills/*/SKILL.md",
   "assets/skills/*/*",
   "assets/skills/*/*/*",
+  "assets/supervisor_gate/*",
   "assets/templates/*",
 ]
 

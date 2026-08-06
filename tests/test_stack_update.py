@@ -1,6 +1,7 @@
 import multiprocessing
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -64,6 +65,58 @@ def _enter_autoreview_lock(destination, lock_opened, entered) -> None:
         entered.set()
 
 
+def _load_supervisor_runtime_gate():
+    import importlib.util
+
+    from manageroo.assets import asset_path
+
+    gate_path = asset_path("supervisor_gate/manageroo_supervisor_gate.py")
+    spec = importlib.util.spec_from_file_location("test_supervisor_runtime_gate", gate_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("could not load supervisor runtime gate")
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    return gate
+
+
+def _run_standalone_gate_until_released(executable, active, release) -> None:
+    gate = _load_supervisor_runtime_gate()
+
+    def run_supervisor():
+        active.set()
+        if not release.wait(timeout=5):
+            return 2
+        return 0
+
+    gate._run_supervisor = run_supervisor
+    original_argv = sys.argv
+    try:
+        sys.argv = [executable, "--repo", "."]
+        gate.main()
+    finally:
+        sys.argv = original_argv
+
+
+def _attempt_standalone_gate(executable, entered, result_queue) -> None:
+    from contextlib import redirect_stderr
+    from io import StringIO
+
+    gate = _load_supervisor_runtime_gate()
+
+    def run_supervisor():
+        entered.set()
+        return 0
+
+    gate._run_supervisor = run_supervisor
+    original_argv = sys.argv
+    try:
+        sys.argv = [executable, "--repo", "."]
+        with redirect_stderr(StringIO()):
+            result_queue.put(gate.main())
+    finally:
+        sys.argv = original_argv
+
+
 class StackUpdateTests(unittest.TestCase):
     def test_plan_updates_only_a_proven_native_supervisor_venv(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -82,8 +135,9 @@ class StackUpdateTests(unittest.TestCase):
 
         tool = plan["tools"][0]
         self.assertEqual(tool["pinned_commit"], CLAWPATCH_SUPERVISOR_COMMIT)
-        self.assertEqual(tool["commands"][0][-1], CLAWPATCH_SUPERVISOR_SOURCE)
-        self.assertEqual(tool["commands"][1], [str(executable), "--version"])
+        self.assertEqual(Path(tool["commands"][0][-1]).name, "supervisor_gate")
+        self.assertEqual(tool["commands"][1][-1], CLAWPATCH_SUPERVISOR_SOURCE)
+        self.assertEqual(tool["commands"][2], [str(executable), "--version"])
 
     def test_plan_does_not_update_an_unowned_supervisor_path(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -107,22 +161,213 @@ class StackUpdateTests(unittest.TestCase):
             "tools": [
                 {
                     "name": "clawpatch-supervise",
-                    "commands": [["python", "-m", "pip", "install", "pinned"]],
+                    "commands": [
+                        ["python", "-m", "pip", "install", "gate"],
+                        ["python", "-m", "pip", "install", "pinned"],
+                    ],
                 }
             ],
         }
-        with patch("manageroo.stack_update.stack_update_plan", return_value=planned), patch(
-            "manageroo.stack_update.shutil.which",
-            return_value="/owned/clawpatch-supervise",
-        ), patch(
-            "manageroo.stack_update._supervisor_update_blocker",
-            return_value="supervisor process 42 is still running",
-        ), patch("manageroo.stack_update._run") as run:
-            result = apply_stack_updates(["clawpatch-supervise"])
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "clawpatch-supervise"
+            executable.write_text("", encoding="utf-8")
+            with patch(
+                "manageroo.stack_update.stack_update_plan", return_value=planned
+            ), patch(
+                "manageroo.stack_update.shutil.which",
+                return_value=str(executable),
+            ), patch(
+                "manageroo.stack_update._supervisor_update_blocker",
+                return_value="supervisor process 42 is still running",
+            ), patch(
+                "manageroo.stack_update.supervisor_runtime_gate_ready",
+                side_effect=[False, True],
+            ), patch(
+                "manageroo.stack_update._run",
+                return_value={"ok": True, "exit_code": 0, "output": ""},
+            ) as run:
+                result = apply_stack_updates(["clawpatch-supervise"])
 
         self.assertFalse(result["ok"])
         self.assertIn("still running", result["results"][0]["error"])
+        run.assert_called_once_with(planned["tools"][0]["commands"][0])
+
+    def test_apply_refuses_when_supervisor_runtime_lock_is_held(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            executable = root / "venv" / "bin" / "clawpatch-supervise"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("", encoding="utf-8")
+            active = multiprocessing.Event()
+            release = multiprocessing.Event()
+            process = multiprocessing.Process(
+                target=_run_standalone_gate_until_released,
+                args=(str(executable), active, release),
+            )
+            process.start()
+            self.assertTrue(active.wait(timeout=5))
+            planned = {
+                "ok": True,
+                "executes_changes": False,
+                "selected_tools": ["clawpatch-supervise"],
+                "tools": [
+                    {
+                        "name": "clawpatch-supervise",
+                        "commands": [["python", "-m", "pip", "install", "pinned"]],
+                    }
+                ],
+            }
+            try:
+                with patch(
+                    "manageroo.stack_update.stack_update_plan", return_value=planned
+                ), patch(
+                    "manageroo.stack_update.shutil.which", return_value=str(executable)
+                ), patch(
+                    "manageroo.stack_update._supervisor_update_blocker", return_value=None
+                ), patch("manageroo.stack_update._run") as run:
+                    result = apply_stack_updates(["clawpatch-supervise"])
+            finally:
+                release.set()
+                process.join(timeout=5)
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=5)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("lock", result["results"][0]["error"])
         run.assert_not_called()
+
+    def test_unverified_gate_migration_rechecks_legacy_processes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "clawpatch-supervise"
+            executable.write_text("", encoding="utf-8")
+            planned = {
+                "ok": True,
+                "executes_changes": False,
+                "selected_tools": ["clawpatch-supervise"],
+                "tools": [
+                    {
+                        "name": "clawpatch-supervise",
+                        "commands": [
+                            ["python", "-m", "pip", "install", "gate"],
+                            ["python", "-m", "pip", "install", "pinned"],
+                        ],
+                    }
+                ],
+            }
+            with patch(
+                "manageroo.stack_update.stack_update_plan", return_value=planned
+            ), patch(
+                "manageroo.stack_update.shutil.which", return_value=str(executable)
+            ), patch(
+                "manageroo.stack_update.supervisor_runtime_gate_ready",
+                return_value=True,
+            ), patch(
+                "manageroo.stack_update._supervisor_update_blocker",
+                return_value="legacy supervisor process 42 is still running",
+            ) as blocker, patch("manageroo.stack_update._run") as run:
+                result = apply_stack_updates(["clawpatch-supervise"])
+
+        self.assertFalse(result["ok"])
+        self.assertIn("still running", result["results"][0]["error"])
+        blocker.assert_called_once_with(str(executable))
+        run.assert_not_called()
+
+    def test_windows_owned_supervisor_updates_without_ps(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            local_app_data = root / "LocalAppData"
+            scripts = (
+                local_app_data
+                / "ManagerooClawPatchSupervisor"
+                / "venv-f59afab"
+                / "Scripts"
+            )
+            scripts.mkdir(parents=True)
+            executable = scripts / "clawpatch-supervise.exe"
+            python = scripts / "python.exe"
+            executable.write_text("", encoding="utf-8")
+            python.write_text("", encoding="utf-8")
+
+            def which(name: str):
+                return {
+                    "clawpatch-supervise": str(executable),
+                    "powershell": "C:/Windows/System32/WindowsPowerShell/powershell.exe",
+                }.get(name)
+
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(local_app_data)}), patch(
+                "manageroo.stack_update.Path.home", return_value=root
+            ), patch(
+                "manageroo.stack_update.platform.system", return_value="Windows"
+            ), patch(
+                "manageroo.stack_update.shutil.which", side_effect=which
+            ), patch(
+                "manageroo.stack_update.supervisor_runtime_gate_ready",
+                side_effect=[False, True],
+            ), patch(
+                "manageroo.stack_update.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 0, "[]", ""),
+            ), patch(
+                "manageroo.stack_update._run",
+                return_value={"ok": True, "exit_code": 0, "output": ""},
+            ) as run:
+                result = apply_stack_updates(["clawpatch-supervise"])
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(run.call_count, 3)
+
+    def test_direct_supervisor_cannot_start_between_snapshot_and_update(self):
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "clawpatch-supervise"
+            executable.write_text("", encoding="utf-8")
+            planned = {
+                "ok": True,
+                "executes_changes": False,
+                "selected_tools": ["clawpatch-supervise"],
+                "tools": [
+                    {
+                        "name": "clawpatch-supervise",
+                        "commands": [
+                            ["python", "-m", "pip", "install", "gate"],
+                            ["python", "-m", "pip", "install", "pinned"],
+                            [str(executable), "--version"],
+                        ],
+                    }
+                ],
+            }
+            entered = multiprocessing.Event()
+            result_queue = multiprocessing.Queue()
+
+            def blocker(_executable):
+                process = multiprocessing.Process(
+                    target=_attempt_standalone_gate,
+                    args=(str(executable), entered, result_queue),
+                )
+                process.start()
+                process.join(timeout=5)
+                self.assertFalse(process.is_alive())
+                self.assertEqual(result_queue.get(timeout=1), 75)
+                self.assertFalse(entered.is_set())
+                return None
+
+            with patch(
+                "manageroo.stack_update.stack_update_plan", return_value=planned
+            ), patch(
+                "manageroo.stack_update.shutil.which", return_value=str(executable)
+            ), patch(
+                "manageroo.stack_update.supervisor_runtime_gate_ready",
+                side_effect=[False, True],
+            ), patch(
+                "manageroo.stack_update._supervisor_update_blocker",
+                side_effect=blocker,
+            ), patch(
+                "manageroo.stack_update._run",
+                return_value={"ok": True, "exit_code": 0, "output": ""},
+            ) as run:
+                result = apply_stack_updates(["clawpatch-supervise"])
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(run.call_count, 3)
 
     @staticmethod
     def owned_run(argv, **_kwargs):

@@ -23,6 +23,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Manageroo masks a retryable or terminal standalone stop | Return the standalone process exit code unchanged, including `75` for typed retryable stops and `2` for terminal or safety stops | Preventive, service-policy preservation |
 | Manageroo reads a stale in-repository ClawPatch proof | Ask the standalone executable for its external state root, then bind its complete zero-open proof to current Git HEAD | Preventive, single checkpoint authority |
 | Stack update overwrites an unowned supervisor installation | Update only an executable resolved inside a recognized native-installer virtual environment at the pinned public commit | Preventive, ownership-gated updater |
+| Stack update mutates the supervisor virtual environment while its queue is active | Cross-platform advisory lock keyed to the resolved supervisor executable and held across the complete queue or update lifetime; process inspection is supplemental only | Preventive for Manageroo-managed execution and updates |
 | Push begins from an unsynchronized branch | Compare local HEAD with live `origin/<branch>` before creating a repair branch or starting queue work | Preventive |
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |

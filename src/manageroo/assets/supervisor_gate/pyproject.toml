@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manageroo-clawpatch-supervisor-gate"
+version = "1.0.0"
+description = "Cross-platform runtime lock gate for Manageroo-owned ClawPatch supervisors."
+requires-python = ">=3.11"
+
+[project.scripts]
+clawpatch-supervise = "manageroo_supervisor_gate:main"
+
+[tool.setuptools]
+py-modules = ["manageroo_supervisor_gate"]

@@ -66,36 +66,48 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
             calls.append((argv, kwargs))
             return subprocess.CompletedProcess(argv, 0)
 
-        with tempfile.TemporaryDirectory() as temp, patch(
-            "manageroo.clawpatch_release._supervisor_path",
-            return_value="/opt/clawpatch-supervise",
-        ):
-            report = release_sweep(
-                Path(temp),
-                apply=True,
-                branch="current",
-                push_mode="none",
-                fresh=False,
-                timeout_minutes=60,
-                run=run,
-            )
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "clawpatch-supervise"
+            executable.write_text("", encoding="utf-8")
+            with patch(
+                "manageroo.clawpatch_release._supervisor_path",
+                return_value=str(executable),
+            ), patch(
+                "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
+                return_value=True,
+            ), patch(
+                "manageroo.clawpatch_release.supervisor_runtime_lock"
+            ) as runtime_lock:
+                report = release_sweep(
+                    Path(temp),
+                    apply=True,
+                    branch="current",
+                    push_mode="none",
+                    fresh=False,
+                    timeout_minutes=60,
+                    run=run,
+                )
 
         self.assertTrue(report["ok"])
         argv, kwargs = calls[0]
-        self.assertEqual(argv[0], "/opt/clawpatch-supervise")
+        self.assertEqual(argv[0], str(executable))
         self.assertIn("--resume-stopped", argv)
         self.assertEqual(kwargs["shell"], False)
         self.assertEqual(kwargs["check"], False)
+        runtime_lock.assert_not_called()
 
     def test_transient_exit_code_is_preserved_for_service_policy(self):
         def run(argv, **_kwargs):
             return subprocess.CompletedProcess(argv, TRANSIENT_EXIT_CODE)
 
-        with tempfile.TemporaryDirectory() as temp, patch(
-            "manageroo.clawpatch_release._supervisor_path",
-            return_value="/opt/clawpatch-supervise",
-        ):
-            report = release_sweep(Path(temp), apply=True, run=run)
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "clawpatch-supervise"
+            executable.write_text("", encoding="utf-8")
+            with patch(
+                "manageroo.clawpatch_release._supervisor_path",
+                return_value=str(executable),
+            ):
+                report = release_sweep(Path(temp), apply=True, run=run)
 
         self.assertFalse(report["ok"])
         self.assertTrue(report["transient"])

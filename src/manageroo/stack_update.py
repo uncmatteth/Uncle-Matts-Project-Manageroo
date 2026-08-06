@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
@@ -9,6 +10,13 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from .assets import asset_path
+from .clawpatch_release import (
+    SUPERVISOR_GATE_VERSION,
+    supervisor_runtime_gate_ready,
+    supervisor_runtime_lock,
+)
+from .errors import SafetyError
 from .trufflehog import (
     TRUFFLEHOG_REFERENCE,
     TRUFFLEHOG_VERSION,
@@ -38,6 +46,13 @@ CLAWPATCH_SUPERVISOR_COMMIT = "f731f6da56d3ae58d1934b3b723716d54ad82975"
 CLAWPATCH_SUPERVISOR_REFERENCE = "https://github.com/uncmatteth/clawpatch-supervise"
 CLAWPATCH_SUPERVISOR_SOURCE = (
     f"git+{CLAWPATCH_SUPERVISOR_REFERENCE}.git@{CLAWPATCH_SUPERVISOR_COMMIT}"
+)
+_SUPERVISOR_TARGET_UPDATE = (
+    "import runpy,sys,sysconfig;"
+    "sys.argv=['pip','install','--disable-pip-version-check','--no-cache-dir',"
+    "'--no-deps','--upgrade','--force-reinstall','--target',"
+    "sysconfig.get_path('purelib'),sys.argv[1]];"
+    "runpy.run_module('pip',run_name='__main__')"
 )
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
 MANAGEROO_SKILLS_REFERENCE = "https://github.com/unclematteth/Uncle-Matts-Project-Manageroo/tree/main/src/manageroo/assets/skills"
@@ -380,6 +395,7 @@ def _supervisor_update_commands(executable: str | None) -> tuple[list[list[str]]
     python = next((scripts / name for name in python_names if (scripts / name).is_file()), None)
     if python is None:
         return [], "Automatic update skipped because the owned supervisor venv has no interpreter."
+    gate_source = asset_path("supervisor_gate")
     commands = [
         [
             str(python),
@@ -388,21 +404,87 @@ def _supervisor_update_commands(executable: str | None) -> tuple[list[list[str]]
             "install",
             "--disable-pip-version-check",
             "--no-cache-dir",
-            "--upgrade",
+            "--no-deps",
             "--force-reinstall",
+            str(gate_source),
+        ],
+        [
+            str(python),
+            "-c",
+            _SUPERVISOR_TARGET_UPDATE,
             CLAWPATCH_SUPERVISOR_SOURCE,
         ],
         [str(active), "--version"],
     ]
     return commands, (
-        "Updates only the proven native-installer venv to standalone supervisor commit "
-        f"{CLAWPATCH_SUPERVISOR_COMMIT}. Do not apply while that supervisor is running."
+        "Installs the shared runtime gate, then updates only the proven native-installer "
+        f"venv to standalone supervisor commit {CLAWPATCH_SUPERVISOR_COMMIT}."
     )
 
 
 def _supervisor_update_blocker(executable: str | None) -> str | None:
-    """Return a reason when the owned supervisor executable is currently active."""
+    """Find a legacy supervisor while its launcher is migrated to the runtime gate."""
     if not executable:
+        return None
+    if platform.system().lower() == "windows":
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if not powershell:
+            return (
+                "Automatic supervisor update could not inspect legacy Windows processes; "
+                "the owned virtual environment was not updated."
+            )
+        try:
+            probe = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    (
+                        "Get-CimInstance Win32_Process | "
+                        "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
+                    ),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=False,
+                check=False,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            probe = None
+        if probe is None or probe.returncode != 0:
+            return (
+                "Automatic supervisor update could not inspect legacy Windows processes; "
+                "the owned virtual environment was not updated."
+            )
+        try:
+            records = json.loads(probe.stdout or "[]")
+        except json.JSONDecodeError:
+            return (
+                "Automatic supervisor update received an invalid Windows process snapshot; "
+                "the owned virtual environment was not updated."
+            )
+        if isinstance(records, dict):
+            records = [records]
+        candidates = {str(Path(executable).expanduser())}
+        try:
+            candidates.add(str(Path(executable).expanduser().resolve(strict=True)))
+        except OSError:
+            pass
+        for record in records if isinstance(records, list) else []:
+            if not isinstance(record, dict):
+                continue
+            command = str(record.get("CommandLine") or "")
+            if any(
+                candidate and candidate.casefold() in command.casefold()
+                for candidate in candidates
+            ):
+                return (
+                    f"Standalone supervisor process {record.get('ProcessId', '?')} is still "
+                    "running; the owned virtual environment was not updated."
+                )
         return None
     candidates = {str(Path(executable).expanduser())}
     try:
@@ -412,8 +494,8 @@ def _supervisor_update_blocker(executable: str | None) -> str | None:
     ps = shutil.which("ps")
     if not ps:
         return (
-            "Automatic supervisor update requires a process check, but ps is unavailable; "
-            "use the native installer after stopping the queue."
+            "Automatic supervisor update could not inspect legacy processes because ps is "
+            "unavailable; the owned virtual environment was not updated."
         )
     try:
         probe = subprocess.run(
@@ -427,13 +509,13 @@ def _supervisor_update_blocker(executable: str | None) -> str | None:
         )
     except (OSError, subprocess.TimeoutExpired):
         return (
-            "Automatic supervisor update could not prove that the queue is stopped; "
-            "use the native installer after stopping it."
+            "Automatic supervisor update could not inspect legacy processes; the owned "
+            "virtual environment was not updated."
         )
     if probe.returncode != 0:
         return (
-            "Automatic supervisor update could not prove that the queue is stopped; "
-            "use the native installer after stopping it."
+            "Automatic supervisor update could not inspect legacy processes; the owned "
+            "virtual environment was not updated."
         )
     current_pid = os.getpid()
     for line in probe.stdout.splitlines():
@@ -447,6 +529,75 @@ def _supervisor_update_blocker(executable: str | None) -> str | None:
                 "the owned virtual environment was not updated."
             )
     return None
+
+
+def _supervisor_gate_migration_marker(executable: str) -> Path:
+    active = Path(executable).expanduser().resolve(strict=True)
+    return active.parent / "cache" / f"{active.name}.manageroo-gate-migrated"
+
+
+def _supervisor_gate_migration_complete(executable: str) -> bool:
+    descriptor: int | None = None
+    try:
+        marker = _supervisor_gate_migration_marker(executable)
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(marker, flags)
+        descriptor_state = os.fstat(descriptor)
+        path_state = marker.lstat()
+        content = os.read(descriptor, 64)
+    except OSError:
+        return False
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return bool(
+        stat.S_ISREG(descriptor_state.st_mode)
+        and stat.S_ISREG(path_state.st_mode)
+        and descriptor_state.st_nlink == 1
+        and path_state.st_nlink == 1
+        and (descriptor_state.st_dev, descriptor_state.st_ino)
+        == (path_state.st_dev, path_state.st_ino)
+        and content == f"{SUPERVISOR_GATE_VERSION}\n".encode("utf-8")
+    )
+
+
+def _record_supervisor_gate_migration(executable: str) -> None:
+    marker = _supervisor_gate_migration_marker(executable)
+    payload = f"{SUPERVISOR_GATE_VERSION}\n".encode("utf-8")
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(marker, flags, 0o600)
+    except FileExistsError as exc:
+        if _supervisor_gate_migration_complete(executable):
+            return
+        raise SafetyError(
+            f"Supervisor runtime gate migration marker is unsafe or invalid: {marker}"
+        ) from exc
+    except OSError as exc:
+        raise SafetyError(
+            f"Could not create supervisor runtime gate migration marker: {marker}: {exc}"
+        ) from exc
+    try:
+        descriptor_state = os.fstat(descriptor)
+        path_state = marker.lstat()
+        if (
+            not stat.S_ISREG(descriptor_state.st_mode)
+            or not stat.S_ISREG(path_state.st_mode)
+            or descriptor_state.st_nlink != 1
+            or path_state.st_nlink != 1
+            or (descriptor_state.st_dev, descriptor_state.st_ino)
+            != (path_state.st_dev, path_state.st_ino)
+        ):
+            raise SafetyError(
+                f"Supervisor runtime gate migration marker is unsafe: {marker}"
+            )
+        os.write(descriptor, payload)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _snap_owned_obsidian_path(obsidian: str | None) -> bool:
@@ -899,13 +1050,6 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
     plan = stack_update_plan(only)
     results: list[dict[str, Any]] = []
     for tool in plan["tools"]:
-        if tool["name"] == "clawpatch-supervise" and tool.get("commands"):
-            blocker = _supervisor_update_blocker(shutil.which("clawpatch-supervise"))
-            if blocker:
-                results.append(
-                    {"name": "clawpatch-supervise", "ok": False, "error": blocker}
-                )
-                continue
         if tool["name"] == "skills":
             try:
                 installed = install_core_helper_skills()
@@ -957,6 +1101,75 @@ def apply_stack_updates(only: Iterable[str] | None = None) -> dict[str, Any]:
                     "reason": "no safe automatic update command for the detected installation",
                 }
             )
+            continue
+        if tool["name"] == "clawpatch-supervise":
+            executable = shutil.which("clawpatch-supervise")
+            try:
+                if not executable:
+                    raise SafetyError(
+                        "The planned standalone supervisor executable is no longer available."
+                    )
+                with supervisor_runtime_lock(executable):
+                    command_results: list[dict[str, Any]] = []
+                    gate_ready = supervisor_runtime_gate_ready(executable)
+                    migration_complete = (
+                        gate_ready and _supervisor_gate_migration_complete(executable)
+                    )
+                    if not gate_ready:
+                        gate_result = _run(list(commands[0]))
+                        command_results.append(gate_result)
+                        if not gate_result.get("ok"):
+                            results.append(
+                                {
+                                    "name": "clawpatch-supervise",
+                                    "ok": False,
+                                    "error": (
+                                        "Could not install the shared supervisor runtime gate."
+                                    ),
+                                    "commands": command_results,
+                                }
+                            )
+                            continue
+                        if not supervisor_runtime_gate_ready(executable):
+                            results.append(
+                                {
+                                    "name": "clawpatch-supervise",
+                                    "ok": False,
+                                    "error": (
+                                        "The installed supervisor runtime gate failed verification."
+                                    ),
+                                    "commands": command_results,
+                                }
+                            )
+                            continue
+                    if not migration_complete:
+                        blocker = _supervisor_update_blocker(executable)
+                        if blocker:
+                            results.append(
+                                {
+                                    "name": "clawpatch-supervise",
+                                    "ok": False,
+                                    "error": blocker,
+                                    "commands": command_results,
+                                }
+                            )
+                            continue
+                        _record_supervisor_gate_migration(executable)
+                    command_results.extend(
+                        _run(list(command)) for command in commands[1:]
+                    )
+            except SafetyError as exc:
+                results.append(
+                    {"name": "clawpatch-supervise", "ok": False, "error": str(exc)}
+                )
+            else:
+                results.append(
+                    {
+                        "name": "clawpatch-supervise",
+                        "ok": all(item.get("ok") for item in command_results),
+                        "commands": command_results,
+                    }
+                )
             continue
         command_results = [_run(list(command)) for command in commands]
         results.append(
