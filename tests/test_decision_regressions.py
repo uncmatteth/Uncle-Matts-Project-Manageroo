@@ -1,9 +1,10 @@
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -264,6 +265,555 @@ class DecisionRegressionTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("changed while answers were being entered", stderr.getvalue())
             self.assertFalse((planning / "resolved-decisions.json").exists())
+
+    def test_planning_directory_swap_at_commit_cannot_redirect_resolution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "swapped-planning-run"
+            artifacts = repo / ".manageroo" / "runs" / run_id / "artifacts"
+            planning = artifacts / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            displaced = artifacts / "planning-original"
+            external = root / "external"
+            external.mkdir()
+
+            def swap_planning_directory() -> str:
+                planning.rename(displaced)
+                try:
+                    planning.symlink_to(external, target_is_directory=True)
+                except OSError as exc:
+                    self.skipTest(f"Symlink creation is unavailable: {exc}")
+                return "2026-08-06T00:00:00Z"
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint.utc_now", side_effect=swap_planning_directory
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("Cannot save decision answers", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((displaced / "resolved-decisions.json").exists())
+
+    def test_planning_directory_swap_during_atomic_write_cannot_report_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "late-swapped-planning-run"
+            artifacts = repo / ".manageroo" / "runs" / run_id / "artifacts"
+            planning = artifacts / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            displaced = artifacts / "planning-original"
+            external = root / "external"
+            external.mkdir()
+            original_write = entrypoint._atomic_write_json_at
+
+            def swap_then_write(*args, **kwargs):
+                planning.rename(displaced)
+                try:
+                    planning.symlink_to(external, target_is_directory=True)
+                except OSError as exc:
+                    self.skipTest(f"Symlink creation is unavailable: {exc}")
+                return original_write(*args, **kwargs)
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint._atomic_write_json_at", side_effect=swap_then_write
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("Cannot save decision answers", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((displaced / "resolved-decisions.json").exists())
+
+    def test_planning_directory_swap_after_pre_restore_validation_cannot_report_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "post-validation-swapped-planning-run"
+            artifacts = repo / ".manageroo" / "runs" / run_id / "artifacts"
+            planning = artifacts / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            displaced = artifacts / "planning-original"
+            external = root / "external"
+            external.mkdir()
+            original_validate = entrypoint._validate_pinned_planning
+            validation_calls = 0
+
+            def swap_after_fourth_validation(*args, **kwargs):
+                nonlocal validation_calls
+                original_validate(*args, **kwargs)
+                validation_calls += 1
+                if validation_calls == 4:
+                    planning.rename(displaced)
+                    try:
+                        planning.symlink_to(external, target_is_directory=True)
+                    except OSError as exc:
+                        self.skipTest(f"Symlink creation is unavailable: {exc}")
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint._validate_pinned_planning",
+                side_effect=swap_after_fourth_validation,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("Cannot save decision answers", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((displaced / "resolved-decisions.json").exists())
+
+    def test_planning_directory_swap_at_lock_release_cannot_report_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "lock-release-swapped-planning-run"
+            artifacts = repo / ".manageroo" / "runs" / run_id / "artifacts"
+            planning = artifacts / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            displaced = artifacts / "planning-original"
+            external = root / "external"
+            external.mkdir()
+            original_lock = entrypoint.config_mutation_lock
+
+            @contextmanager
+            def swap_at_lock_release(*args, **kwargs):
+                with original_lock(*args, **kwargs):
+                    yield
+                planning.rename(displaced)
+                try:
+                    planning.symlink_to(external, target_is_directory=True)
+                except OSError as exc:
+                    self.skipTest(f"Symlink creation is unavailable: {exc}")
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint.config_mutation_lock",
+                side_effect=swap_at_lock_release,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("Cannot save decision answers", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((displaced / "resolved-decisions.json").exists())
+
+    def test_planning_directory_swap_after_final_validation_cannot_report_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "final-validation-swapped-planning-run"
+            artifacts = repo / ".manageroo" / "runs" / run_id / "artifacts"
+            planning = artifacts / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            displaced = artifacts / "planning-original"
+            external = root / "external"
+            external.mkdir()
+            original_validate = entrypoint._validate_pinned_planning
+            validation_calls = 0
+
+            def swap_after_final_validation(*args, **kwargs):
+                nonlocal validation_calls
+                original_validate(*args, **kwargs)
+                validation_calls += 1
+                if validation_calls == 6:
+                    planning.rename(displaced)
+                    try:
+                        planning.symlink_to(external, target_is_directory=True)
+                    except OSError as exc:
+                        self.skipTest(f"Symlink creation is unavailable: {exc}")
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint._validate_pinned_planning",
+                side_effect=swap_after_final_validation,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("Cannot save decision answers", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((displaced / "resolved-decisions.json").exists())
+
+    def test_planning_directory_swap_during_artifact_republish_cannot_report_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "republish-swapped-planning-run"
+            run_root = repo / ".manageroo" / "runs" / run_id
+            artifacts = run_root / "artifacts"
+            planning = artifacts / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            planning_state = planning.stat()
+            displaced = artifacts / "planning-original"
+            external = root / "external"
+            external.mkdir()
+            original_fstat = entrypoint.os.fstat
+            swapped = False
+
+            def swap_after_republish_identity_snapshot(descriptor):
+                nonlocal swapped
+                opened = original_fstat(descriptor)
+                claimed_artifacts = list(run_root.glob(".artifacts.answer-*"))
+                if (
+                    not swapped
+                    and claimed_artifacts
+                    and (opened.st_dev, opened.st_ino)
+                    == (planning_state.st_dev, planning_state.st_ino)
+                ):
+                    claimed_planning = claimed_artifacts[0] / "planning"
+                    claimed_planning.rename(claimed_artifacts[0] / displaced.name)
+                    try:
+                        claimed_planning.symlink_to(external, target_is_directory=True)
+                    except OSError as exc:
+                        self.skipTest(f"Symlink creation is unavailable: {exc}")
+                    swapped = True
+                return opened
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint.os.fstat",
+                side_effect=swap_after_republish_identity_snapshot,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertTrue(swapped)
+            self.assertEqual(code, 2)
+            self.assertIn("Cannot save decision answers", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((displaced / "resolved-decisions.json").exists())
+
+    def test_planning_directory_swap_after_republish_validation_cannot_report_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "post-republish-validation-swap-run"
+            run_root = repo / ".manageroo" / "runs" / run_id
+            artifacts = run_root / "artifacts"
+            planning = artifacts / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            run_state = run_root.stat()
+            displaced = artifacts / "planning-original"
+            external = root / "external"
+            external.mkdir()
+            original_fsync = entrypoint.os.fsync
+            swapped = False
+
+            def swap_after_republish_validation(descriptor):
+                nonlocal swapped
+                original_fsync(descriptor)
+                opened = entrypoint.os.fstat(descriptor)
+                if (
+                    not swapped
+                    and (opened.st_dev, opened.st_ino)
+                    == (run_state.st_dev, run_state.st_ino)
+                ):
+                    planning.rename(displaced)
+                    try:
+                        planning.symlink_to(external, target_is_directory=True)
+                    except OSError as exc:
+                        self.skipTest(f"Symlink creation is unavailable: {exc}")
+                    swapped = True
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint.os.fsync",
+                side_effect=swap_after_republish_validation,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertTrue(swapped)
+            self.assertEqual(code, 2)
+            self.assertIn("Cannot save decision answers", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((displaced / "resolved-decisions.json").exists())
+
+    def test_answer_fails_closed_without_descriptor_relative_filesystem_access(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "unsupported-filesystem-run"
+            planning = (
+                repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            )
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint._descriptor_relative_planning_supported",
+                return_value=False,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("descriptor-relative no-follow", stderr.getvalue())
+            self.assertFalse((planning / "resolved-decisions.json").exists())
+
+    def test_blocking_decisions_mutation_at_commit_cannot_save_stale_answers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "commit-race-run"
+            planning = (
+                repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            )
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            atomic_write_json(
+                blocking,
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+
+            def mutate_blocking_decisions() -> str:
+                atomic_write_json(
+                    blocking,
+                    {
+                        "decisions": [
+                            {"id": "region", "question": "Choose", "options": ["east"]}
+                        ]
+                    },
+                )
+                return "2026-08-06T00:00:00Z"
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint.utc_now", side_effect=mutate_blocking_decisions
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("changed while answers were being entered", stderr.getvalue())
+            self.assertFalse((planning / "resolved-decisions.json").exists())
+
+    def test_blocking_decisions_mutation_after_final_check_cannot_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "post-check-race-run"
+            planning = (
+                repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            )
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            atomic_write_json(
+                blocking,
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            replacement = {
+                "decisions": [
+                    {"id": "region", "question": "Choose", "options": ["east"]}
+                ]
+            }
+            original_match = entrypoint._blocking_decisions_match
+            match_calls = 0
+
+            def mutate_after_match(*args, **kwargs):
+                nonlocal match_calls
+                matches = original_match(*args, **kwargs)
+                match_calls += 1
+                if match_calls == 3:
+                    atomic_write_json(blocking, replacement)
+                return matches
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint._blocking_decisions_match",
+                side_effect=mutate_after_match,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("changed", stderr.getvalue())
+            self.assertEqual(read_json(blocking), replacement)
+            self.assertFalse((planning / "resolved-decisions.json").exists())
+            self.assertEqual(list(planning.glob(".blocking-decisions.json.answer-*")), [])
+
+    def test_open_blocking_decisions_inode_mutation_cannot_commit_stale_answers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "open-inode-race-run"
+            planning = (
+                repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            )
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            atomic_write_json(
+                blocking,
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            replacement = {
+                "decisions": [
+                    {"id": "region", "question": "Choose", "options": ["east"]}
+                ]
+            }
+            held_descriptor = os.open(blocking, os.O_WRONLY)
+            original_match = entrypoint._blocking_decisions_match
+            match_calls = 0
+
+            def mutate_claimed_inode_after_match(*args, **kwargs):
+                nonlocal match_calls
+                matches = original_match(*args, **kwargs)
+                match_calls += 1
+                if match_calls == 3:
+                    payload = (
+                        json.dumps(replacement, indent=2, sort_keys=True) + "\n"
+                    ).encode("utf-8")
+                    os.ftruncate(held_descriptor, 0)
+                    os.lseek(held_descriptor, 0, os.SEEK_SET)
+                    os.write(held_descriptor, payload)
+                    os.fsync(held_descriptor)
+                return matches
+
+            stderr = io.StringIO()
+            try:
+                with patch("builtins.input", return_value="1"), patch(
+                    "manageroo.entrypoint._blocking_decisions_match",
+                    side_effect=mutate_claimed_inode_after_match,
+                ):
+                    with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                        code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+            finally:
+                os.close(held_descriptor)
+
+            self.assertEqual(code, 2)
+            self.assertIn("changed", stderr.getvalue())
+            self.assertEqual(read_json(blocking), replacement)
+            self.assertFalse((planning / "resolved-decisions.json").exists())
+            self.assertEqual(list(planning.glob(".blocking-decisions.json.answer-*")), [])
+
+    def test_blocking_decisions_replacement_after_restore_read_cannot_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "restore-read-race-run"
+            planning = (
+                repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            )
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            atomic_write_json(
+                blocking,
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            replacement = {
+                "decisions": [
+                    {"id": "region", "question": "Choose", "options": ["east"]}
+                ]
+            }
+            original_read = entrypoint._read_json_at
+            read_calls = 0
+
+            def mutate_after_restore_read(*args, **kwargs):
+                nonlocal read_calls
+                payload = original_read(*args, **kwargs)
+                read_calls += 1
+                if read_calls == 5:
+                    atomic_write_json(blocking, replacement)
+                return payload
+
+            stderr = io.StringIO()
+            with patch("builtins.input", return_value="1"), patch(
+                "manageroo.entrypoint._read_json_at",
+                side_effect=mutate_after_restore_read,
+            ):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertGreaterEqual(read_calls, 5)
+            self.assertEqual(code, 2)
+            self.assertIn("changed", stderr.getvalue())
+            self.assertEqual(read_json(blocking), replacement)
+            self.assertFalse((planning / "resolved-decisions.json").exists())
+            self.assertEqual(list(planning.glob(".blocking-decisions.json.answer-*")), [])
 
     def test_answer_rejects_external_symlinked_planning_directory(self):
         with tempfile.TemporaryDirectory() as temp:

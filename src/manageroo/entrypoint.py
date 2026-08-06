@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import secrets
 import shlex
 import shutil
 import stat
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Iterator
 
 from .branding import PROJECT_DIR
 from .clawpatch_release import format_release_sweep, release_sweep
@@ -247,15 +251,540 @@ def _planning_directory(run_root: Path) -> Path:
     return planning
 
 
-def _blocking_decisions(run_root: Path) -> list[object]:
+def _descriptor_relative_planning_supported() -> bool:
+    return (
+        hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
+        and os.link in os.supports_dir_fd
+        and os.link in os.supports_follow_symlinks
+        and os.rename in os.supports_dir_fd
+        and os.unlink in os.supports_dir_fd
+    )
+
+
+def _directory_flags() -> int:
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+
+
+@contextmanager
+def _pinned_planning_directory(
+    run_root: Path,
+) -> Iterator[
+    tuple[Path, int, os.stat_result, int, os.stat_result, int]
+]:
     planning = _planning_directory(run_root)
+    if not _descriptor_relative_planning_supported():
+        raise SafetyError(
+            "Decision persistence requires descriptor-relative no-follow filesystem access."
+        )
+
+    run_descriptor = -1
+    artifacts_descriptor = -1
+    planning_descriptor = -1
+    try:
+        run_descriptor = os.open(run_root, _directory_flags())
+        artifacts_descriptor = os.open(
+            "artifacts",
+            _directory_flags(),
+            dir_fd=run_descriptor,
+        )
+        planning_descriptor = os.open(
+            planning.name,
+            _directory_flags(),
+            dir_fd=artifacts_descriptor,
+        )
+        planning_state = os.fstat(planning_descriptor)
+        artifacts_state = os.fstat(artifacts_descriptor)
+        _validate_pinned_planning(
+            run_root,
+            planning,
+            planning_descriptor,
+            planning_state,
+        )
+        yield (
+            planning,
+            planning_descriptor,
+            planning_state,
+            artifacts_descriptor,
+            artifacts_state,
+            run_descriptor,
+        )
+    except SafetyError:
+        raise
+    except OSError as exc:
+        raise SafetyError(
+            f"Cannot pin planning artifact directory: {planning}: {exc}"
+        ) from exc
+    finally:
+        for descriptor in (
+            planning_descriptor,
+            artifacts_descriptor,
+            run_descriptor,
+        ):
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
+def _validate_pinned_planning(
+    run_root: Path,
+    planning: Path,
+    planning_descriptor: int | None,
+    expected: os.stat_result,
+) -> None:
+    try:
+        _planning_directory(run_root)
+        current = planning.lstat()
+        opened = (
+            expected
+            if planning_descriptor is None
+            else os.fstat(planning_descriptor)
+        )
+    except OSError as exc:
+        raise SafetyError(
+            f"Planning artifact directory changed during decision persistence: {planning}: {exc}"
+        ) from exc
+    if (
+        stat.S_ISLNK(current.st_mode)
+        or not stat.S_ISDIR(current.st_mode)
+        or not stat.S_ISDIR(opened.st_mode)
+        or (current.st_dev, current.st_ino) != (expected.st_dev, expected.st_ino)
+        or (opened.st_dev, opened.st_ino) != (expected.st_dev, expected.st_ino)
+    ):
+        raise SafetyError(
+            f"Planning artifact directory changed during decision persistence: {planning}"
+        )
+
+
+def _republish_pinned_artifacts(
+    run_descriptor: int,
+    artifacts_descriptor: int,
+    artifacts_expected: os.stat_result,
+    planning_descriptor: int,
+    planning_expected: os.stat_result,
+    planning: Path,
+    blocking_decisions_sha256: str,
+) -> None:
+    claimed_name = f".artifacts.answer-{secrets.token_hex(16)}"
+    claimed = False
+    try:
+        os.rename(
+            "artifacts",
+            claimed_name,
+            src_dir_fd=run_descriptor,
+            dst_dir_fd=run_descriptor,
+        )
+        claimed = True
+        current_artifacts = os.stat(
+            claimed_name,
+            dir_fd=run_descriptor,
+            follow_symlinks=False,
+        )
+        opened_artifacts = os.fstat(artifacts_descriptor)
+        current_planning = os.stat(
+            planning.name,
+            dir_fd=artifacts_descriptor,
+            follow_symlinks=False,
+        )
+        opened_planning = os.fstat(planning_descriptor)
+        if (
+            not stat.S_ISDIR(current_artifacts.st_mode)
+            or not stat.S_ISDIR(opened_artifacts.st_mode)
+            or not stat.S_ISDIR(current_planning.st_mode)
+            or not stat.S_ISDIR(opened_planning.st_mode)
+            or (current_artifacts.st_dev, current_artifacts.st_ino)
+            != (artifacts_expected.st_dev, artifacts_expected.st_ino)
+            or (opened_artifacts.st_dev, opened_artifacts.st_ino)
+            != (artifacts_expected.st_dev, artifacts_expected.st_ino)
+            or (current_planning.st_dev, current_planning.st_ino)
+            != (planning_expected.st_dev, planning_expected.st_ino)
+            or (opened_planning.st_dev, opened_planning.st_ino)
+            != (planning_expected.st_dev, planning_expected.st_ino)
+        ):
+            raise SafetyError(
+                f"Planning artifact directory changed during decision persistence: {planning}"
+            )
+        blocking = planning / "blocking-decisions.json"
+        try:
+            blocking_payload = _read_json_at(
+                planning_descriptor,
+                blocking.name,
+                blocking,
+            )
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise SafetyError(
+                f"Blocking decision artifact is unreadable: {blocking}: {exc}"
+            ) from exc
+        if not _blocking_decisions_payload_matches(
+            blocking_payload,
+            blocking_decisions_sha256,
+        ):
+            raise SafetyError(
+                f"Blocking decision artifact changed during decision persistence: {blocking}"
+            )
+        os.rename(
+            claimed_name,
+            "artifacts",
+            src_dir_fd=run_descriptor,
+            dst_dir_fd=run_descriptor,
+        )
+        claimed = False
+        os.fsync(run_descriptor)
+        published = os.stat(
+            "artifacts",
+            dir_fd=run_descriptor,
+            follow_symlinks=False,
+        )
+        published_planning = os.stat(
+            planning.name,
+            dir_fd=artifacts_descriptor,
+            follow_symlinks=False,
+        )
+        opened_planning = os.fstat(planning_descriptor)
+        if (
+            not stat.S_ISDIR(published.st_mode)
+            or not stat.S_ISDIR(published_planning.st_mode)
+            or not stat.S_ISDIR(opened_planning.st_mode)
+            or (published.st_dev, published.st_ino)
+            != (artifacts_expected.st_dev, artifacts_expected.st_ino)
+            or (published_planning.st_dev, published_planning.st_ino)
+            != (planning_expected.st_dev, planning_expected.st_ino)
+            or (opened_planning.st_dev, opened_planning.st_ino)
+            != (planning_expected.st_dev, planning_expected.st_ino)
+        ):
+            raise SafetyError(
+                f"Planning artifact directory changed during decision persistence: {planning}"
+            )
+    except SafetyError:
+        raise
+    except OSError as exc:
+        raise SafetyError(
+            f"Cannot publish decision artifacts safely: {planning}: {exc}"
+        ) from exc
+    finally:
+        if claimed:
+            try:
+                os.stat(
+                    "artifacts",
+                    dir_fd=run_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                try:
+                    os.rename(
+                        claimed_name,
+                        "artifacts",
+                        src_dir_fd=run_descriptor,
+                        dst_dir_fd=run_descriptor,
+                    )
+                    os.fsync(run_descriptor)
+                except OSError as exc:
+                    raise SafetyError(
+                        f"Cannot restore decision artifacts safely: {planning}: {exc}"
+                    ) from exc
+            except OSError as exc:
+                raise SafetyError(
+                    f"Cannot inspect decision artifacts during restoration: {planning}: {exc}"
+                ) from exc
+            else:
+                raise SafetyError(
+                    f"Cannot restore decision artifacts because the path was replaced: {planning}"
+                )
+
+
+def _read_json_at(directory_descriptor: int, name: str, path: Path) -> Any:
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(name, flags, dir_fd=directory_descriptor)
+        opened = os.fstat(descriptor)
+        current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or not stat.S_ISREG(current.st_mode)
+            or opened.st_nlink != 1
+            or current.st_nlink != 1
+            or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+        ):
+            raise SafetyError(f"Blocking decision artifact is unsafe: {path}")
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = -1
+            payload = json.load(handle)
+        latest = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if (latest.st_dev, latest.st_ino) != (opened.st_dev, opened.st_ino):
+            raise SafetyError(f"Blocking decision artifact changed while reading: {path}")
+        return payload
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _blocking_decisions_payload_matches(payload: Any, expected_sha256: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    decisions = payload.get("decisions", [])
+    if not isinstance(decisions, list):
+        return False
+    decisions, error = _validated_decisions(decisions)
+    return error is None and sha256_json({"decisions": decisions}) == expected_sha256
+
+
+def _restore_claimed_blocking_decisions(
+    directory_descriptor: int,
+    claimed_name: str,
+    path: Path,
+    expected_sha256: str,
+) -> bool:
+    try:
+        os.link(
+            claimed_name,
+            path.name,
+            src_dir_fd=directory_descriptor,
+            dst_dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+    except FileExistsError:
+        replacement = os.stat(
+            path.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if not stat.S_ISREG(replacement.st_mode) or replacement.st_nlink != 1:
+            raise SafetyError(
+                f"Blocking decision artifact changed unsafely during persistence: {path}"
+            )
+        try:
+            replacement_payload = _read_json_at(
+                directory_descriptor,
+                path.name,
+                path,
+            )
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            replacement_payload = None
+        os.unlink(claimed_name, dir_fd=directory_descriptor)
+        os.fsync(directory_descriptor)
+        return _blocking_decisions_payload_matches(
+            replacement_payload,
+            expected_sha256,
+        )
+    except OSError as exc:
+        raise SafetyError(
+            f"Cannot restore blocking decision artifact safely: {path}: {exc}"
+        ) from exc
+
+    claimed = os.stat(
+        claimed_name,
+        dir_fd=directory_descriptor,
+        follow_symlinks=False,
+    )
+    restored = os.stat(
+        path.name,
+        dir_fd=directory_descriptor,
+        follow_symlinks=False,
+    )
+    if (
+        not stat.S_ISREG(claimed.st_mode)
+        or not stat.S_ISREG(restored.st_mode)
+        or claimed.st_nlink != 2
+        or restored.st_nlink != 2
+        or (claimed.st_dev, claimed.st_ino) != (restored.st_dev, restored.st_ino)
+    ):
+        raise SafetyError(
+            f"Blocking decision artifact changed unsafely during persistence: {path}"
+        )
+    os.unlink(claimed_name, dir_fd=directory_descriptor)
+    latest = os.stat(
+        path.name,
+        dir_fd=directory_descriptor,
+        follow_symlinks=False,
+    )
+    if (
+        not stat.S_ISREG(latest.st_mode)
+        or latest.st_nlink != 1
+        or (latest.st_dev, latest.st_ino) != (restored.st_dev, restored.st_ino)
+    ):
+        raise SafetyError(
+            f"Blocking decision artifact changed during restoration: {path}"
+        )
+    os.fsync(directory_descriptor)
+    return True
+
+
+@contextmanager
+def _claimed_blocking_decisions(
+    directory_descriptor: int,
+    path: Path,
+    expected_sha256: str,
+) -> Iterator[str]:
+    claimed_name = f".{path.name}.answer-{secrets.token_hex(16)}"
+    try:
+        os.rename(
+            path.name,
+            claimed_name,
+            src_dir_fd=directory_descriptor,
+            dst_dir_fd=directory_descriptor,
+        )
+    except OSError as exc:
+        raise SafetyError(
+            f"Cannot claim blocking decision artifact safely: {path}: {exc}"
+        ) from exc
+    try:
+        yield claimed_name
+    finally:
+        try:
+            restored = _restore_claimed_blocking_decisions(
+                directory_descriptor,
+                claimed_name,
+                path,
+                expected_sha256,
+            )
+        except SafetyError:
+            raise
+        except OSError as exc:
+            raise SafetyError(
+                f"Cannot restore blocking decision artifact safely: {path}: {exc}"
+            ) from exc
+        if not restored:
+            raise SafetyError(
+                f"Blocking decision artifact changed during decision persistence: {path}"
+            )
+
+
+def _atomic_write_json_at(
+    directory_descriptor: int,
+    name: str,
+    data: Any,
+    *,
+    replace: bool = True,
+) -> None:
+    temporary_name = f".{name}.{secrets.token_hex(16)}"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = -1
+    replaced = False
+    completed = False
+    temporary_exists = False
+    try:
+        descriptor = os.open(
+            temporary_name,
+            flags,
+            0o600,
+            dir_fd=directory_descriptor,
+        )
+        temporary_exists = True
+        payload = (
+            json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("Decision artifact write made no progress.")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        written_state = os.fstat(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        if replace:
+            os.rename(
+                temporary_name,
+                name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+            )
+            replaced = True
+            temporary_exists = False
+        else:
+            os.link(
+                temporary_name,
+                name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            replaced = True
+            os.unlink(temporary_name, dir_fd=directory_descriptor)
+            temporary_exists = False
+        current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or current.st_nlink != 1
+            or (current.st_dev, current.st_ino)
+            != (written_state.st_dev, written_state.st_ino)
+        ):
+            raise SafetyError(f"Decision artifact changed during replacement: {name}")
+        os.fsync(directory_descriptor)
+        completed = True
+    except SafetyError:
+        raise
+    except OSError as exc:
+        raise SafetyError(f"Cannot write decision artifact safely: {name}: {exc}") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_exists:
+            try:
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+            except FileNotFoundError:
+                pass
+        if replaced and not completed:
+            try:
+                os.unlink(name, dir_fd=directory_descriptor)
+            except FileNotFoundError:
+                pass
+
+
+def _path_exists_at(directory_descriptor: int | None, name: str, path: Path) -> bool:
+    if directory_descriptor is None:
+        return path.exists()
+    try:
+        state = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(state.st_mode) or state.st_nlink != 1:
+        raise SafetyError(f"Decision artifact is unsafe: {path}")
+    return True
+
+
+def _remove_resolution(
+    planning_descriptor: int | None,
+    resolved: Path,
+) -> None:
+    try:
+        if planning_descriptor is None:
+            resolved.unlink()
+        else:
+            os.unlink(resolved.name, dir_fd=planning_descriptor)
+    except FileNotFoundError:
+        pass
+
+
+def _blocking_decisions_from_directory(
+    run_root: Path,
+    planning: Path,
+    planning_descriptor: int | None,
+    *,
+    artifact_name: str = "blocking-decisions.json",
+) -> list[object]:
     if decisions_fully_resolved(run_root):
         return []
     path = planning / "blocking-decisions.json"
-    if not path.is_file():
+    if not _path_exists_at(planning_descriptor, artifact_name, path):
         return []
     try:
-        payload = read_json(path)
+        payload = (
+            read_json(path)
+            if planning_descriptor is None
+            else _read_json_at(planning_descriptor, artifact_name, path)
+        )
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise SafetyError(f"Blocking decision artifact is unreadable: {path}: {exc}") from exc
     if not isinstance(payload, dict):
@@ -264,6 +793,29 @@ def _blocking_decisions(run_root: Path) -> list[object]:
     if not isinstance(decisions, list):
         raise SafetyError(f"Blocking decision artifact field 'decisions' must be an array: {path}")
     return decisions
+
+
+def _blocking_decisions(run_root: Path) -> list[object]:
+    planning = _planning_directory(run_root)
+    return _blocking_decisions_from_directory(run_root, planning, None)
+
+
+def _blocking_decisions_match(
+    run_root: Path,
+    planning: Path,
+    planning_descriptor: int | None,
+    expected_sha256: str,
+    *,
+    artifact_name: str = "blocking-decisions.json",
+) -> bool:
+    decisions = _blocking_decisions_from_directory(
+        run_root,
+        planning,
+        planning_descriptor,
+        artifact_name=artifact_name,
+    )
+    decisions, error = _validated_decisions(decisions)
+    return error is None and sha256_json({"decisions": decisions}) == expected_sha256
 
 
 def _validated_decisions(decisions: list[object]) -> tuple[list[dict], str | None]:
@@ -369,39 +921,164 @@ def _decisions_main(argv: list[str]) -> int:
         answers.append({"id": str(decision.get("id") or ""), "chosen": chosen})
 
     try:
-        planning = _planning_directory(run_root)
-        resolved = planning / "resolved-decisions.json"
-        with config_mutation_lock(resolved):
-            planning = _planning_directory(run_root)
+        with _pinned_planning_directory(run_root) as (
+            planning,
+            planning_descriptor,
+            planning_state,
+            artifacts_descriptor,
+            artifacts_state,
+            run_descriptor,
+        ):
             resolved = planning / "resolved-decisions.json"
-            if resolved.exists():
-                print(
-                    "Decision answers were not saved because another decision answer "
-                    "session already saved a resolution for this run.",
-                    file=sys.stderr,
+            lock_target = run_root / "artifacts" / "resolved-decisions.json"
+            with config_mutation_lock(lock_target):
+                _validate_pinned_planning(
+                    run_root,
+                    planning,
+                    planning_descriptor,
+                    planning_state,
                 )
-                return 2
-            current_decisions = _blocking_decisions(run_root)
-            current_decisions, current_error = _validated_decisions(current_decisions)
-            current_sha256 = sha256_json({"decisions": current_decisions})
-            if current_error or current_sha256 != blocking_decisions_sha256:
-                print(
-                    "Decision answers were not saved because the blocking decisions "
-                    "changed while answers were being entered. Review the current "
-                    "decisions and answer again.",
-                    file=sys.stderr,
-                )
-                return 2
-            _planning_directory(run_root)
-            atomic_write_json(
-                resolved,
-                {
+                if _path_exists_at(
+                    planning_descriptor,
+                    resolved.name,
+                    resolved,
+                ):
+                    print(
+                        "Decision answers were not saved because another decision answer "
+                        "session already saved a resolution for this run.",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if not _blocking_decisions_match(
+                    run_root,
+                    planning,
+                    planning_descriptor,
+                    blocking_decisions_sha256,
+                ):
+                    print(
+                        "Decision answers were not saved because the blocking decisions "
+                        "changed while answers were being entered. Review the current "
+                        "decisions and answer again.",
+                        file=sys.stderr,
+                    )
+                    return 2
+                payload = {
                     "run_id": args.run_id,
                     "answered_at": utc_now(),
                     "blocking_decisions_sha256": blocking_decisions_sha256,
                     "answers": answers,
-                },
-            )
+                }
+                _validate_pinned_planning(
+                    run_root,
+                    planning,
+                    planning_descriptor,
+                    planning_state,
+                )
+                if not _blocking_decisions_match(
+                    run_root,
+                    planning,
+                    planning_descriptor,
+                    blocking_decisions_sha256,
+                ):
+                    print(
+                        "Decision answers were not saved because the blocking decisions "
+                        "changed while answers were being entered. Review the current "
+                        "decisions and answer again.",
+                        file=sys.stderr,
+                    )
+                    return 2
+                resolution_written = False
+                try:
+                    blocking = planning / "blocking-decisions.json"
+                    with _claimed_blocking_decisions(
+                        planning_descriptor,
+                        blocking,
+                        blocking_decisions_sha256,
+                    ) as claimed_name:
+                        if not _blocking_decisions_match(
+                            run_root,
+                            planning,
+                            planning_descriptor,
+                            blocking_decisions_sha256,
+                            artifact_name=claimed_name,
+                        ):
+                            print(
+                                "Decision answers were not saved because the blocking decisions "
+                                "changed while answers were being entered. Review the current "
+                                "decisions and answer again.",
+                                file=sys.stderr,
+                            )
+                            return 2
+                        try:
+                            blocking_payload = _read_json_at(
+                                planning_descriptor,
+                                claimed_name,
+                                blocking,
+                            )
+                        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+                            raise SafetyError(
+                                f"Blocking decision artifact is unreadable: {blocking}: {exc}"
+                            ) from exc
+                        if not _blocking_decisions_payload_matches(
+                            blocking_payload,
+                            blocking_decisions_sha256,
+                        ):
+                            print(
+                                "Decision answers were not saved because the blocking decisions "
+                                "changed while answers were being entered. Review the current "
+                                "decisions and answer again.",
+                                file=sys.stderr,
+                            )
+                            return 2
+                        _atomic_write_json_at(
+                            planning_descriptor,
+                            resolved.name,
+                            payload,
+                            replace=False,
+                        )
+                        resolution_written = True
+                        _atomic_write_json_at(
+                            planning_descriptor,
+                            blocking.name,
+                            blocking_payload,
+                            replace=False,
+                        )
+                        _validate_pinned_planning(
+                            run_root,
+                            planning,
+                            planning_descriptor,
+                            planning_state,
+                        )
+                    _validate_pinned_planning(
+                        run_root,
+                        planning,
+                        planning_descriptor,
+                        planning_state,
+                    )
+                except BaseException:
+                    if resolution_written:
+                        _remove_resolution(planning_descriptor, resolved)
+                    raise
+            try:
+                _validate_pinned_planning(
+                    run_root,
+                    planning,
+                    planning_descriptor,
+                    planning_state,
+                )
+                _republish_pinned_artifacts(
+                    run_descriptor,
+                    artifacts_descriptor,
+                    artifacts_state,
+                    planning_descriptor,
+                    planning_state,
+                    planning,
+                    blocking_decisions_sha256,
+                )
+            except BaseException:
+                if resolution_written:
+                    _remove_resolution(planning_descriptor, resolved)
+                raise
     except SafetyError as exc:
         print(f"Cannot save decision answers: {exc}", file=sys.stderr)
         return 2
