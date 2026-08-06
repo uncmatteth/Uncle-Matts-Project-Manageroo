@@ -4,8 +4,11 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.trufflehog import (
+    TRUFFLEHOG_ASSET_SHA256,
+    TRUFFLEHOG_RELEASE_BASE,
     TRUFFLEHOG_VERSION,
     install_trufflehog_binary,
     trufflehog_asset,
@@ -14,9 +17,51 @@ from manageroo.trufflehog import (
 
 class TruffleHogTests(unittest.TestCase):
     def test_release_assets_cover_supported_desktop_platforms(self):
-        self.assertEqual(trufflehog_asset("Linux", "x86_64")[0], f"trufflehog_{TRUFFLEHOG_VERSION}_linux_amd64.tar.gz")
-        self.assertEqual(trufflehog_asset("Darwin", "arm64")[0], f"trufflehog_{TRUFFLEHOG_VERSION}_darwin_arm64.tar.gz")
-        self.assertEqual(trufflehog_asset("Windows", "AMD64")[0], f"trufflehog_{TRUFFLEHOG_VERSION}_windows_amd64.tar.gz")
+        reviewed_assets = {
+            ("Darwin", "x86_64"): (
+                "trufflehog_3.96.0_darwin_amd64.tar.gz",
+                "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/"
+                "trufflehog_3.96.0_darwin_amd64.tar.gz",
+                "a30d8f1095e031a81a668e1582f2ed479c3b50476cef86317e0fb74210c33617",
+            ),
+            ("Darwin", "arm64"): (
+                "trufflehog_3.96.0_darwin_arm64.tar.gz",
+                "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/"
+                "trufflehog_3.96.0_darwin_arm64.tar.gz",
+                "87478306b95ca2420cfb844b7582383ac60b922e262350a0088e797f328d2e62",
+            ),
+            ("Linux", "x86_64"): (
+                "trufflehog_3.96.0_linux_amd64.tar.gz",
+                "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/"
+                "trufflehog_3.96.0_linux_amd64.tar.gz",
+                "7105f1cd6577f058a9e39d0578f1a99c8a1e481e4d3512cd8a09acfe22a0fdc0",
+            ),
+            ("Linux", "arm64"): (
+                "trufflehog_3.96.0_linux_arm64.tar.gz",
+                "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/"
+                "trufflehog_3.96.0_linux_arm64.tar.gz",
+                "50acd4c7a3b8ebfe5083d8350956057030c44be3515dedd55b45263495c490b2",
+            ),
+            ("Windows", "AMD64"): (
+                "trufflehog_3.96.0_windows_amd64.tar.gz",
+                "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/"
+                "trufflehog_3.96.0_windows_amd64.tar.gz",
+                "fbf918c52a1f29be96344e1c4696fe019cfc34fb1184fab31cf3e8347917b43a",
+            ),
+            ("Windows", "arm64"): (
+                "trufflehog_3.96.0_windows_arm64.tar.gz",
+                "https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/"
+                "trufflehog_3.96.0_windows_arm64.tar.gz",
+                "e8a8a2db3e479c420b6c12b0740e4ff013ebc672b35a730637937b56eb55562e",
+            ),
+        }
+        self.assertEqual(TRUFFLEHOG_VERSION, "3.96.0")
+        for platform, (expected_asset, expected_url, expected_sha256) in reviewed_assets.items():
+            with self.subTest(platform=platform):
+                asset, sha256 = trufflehog_asset(*platform)
+                self.assertEqual(asset, expected_asset)
+                self.assertEqual(f"{TRUFFLEHOG_RELEASE_BASE}/{asset}", expected_url)
+                self.assertEqual(sha256, expected_sha256)
         with self.assertRaisesRegex(RuntimeError, "Unsupported TruffleHog platform"):
             trufflehog_asset("Plan9", "mips")
 
@@ -27,16 +72,22 @@ class TruffleHogTests(unittest.TestCase):
             member = tarfile.TarInfo("trufflehog")
             member.size = len(payload)
             bundle.addfile(member, io.BytesIO(payload))
+        data = archive.getvalue()
         with tempfile.TemporaryDirectory() as temp:
             destination = Path(temp) / "trufflehog"
             destination.write_bytes(b"old binary")
-            with self.assertRaisesRegex(RuntimeError, "checksum"):
+            with (
+                patch.dict(
+                    TRUFFLEHOG_ASSET_SHA256,
+                    {"linux_amd64": hashlib.sha256(data).hexdigest()},
+                ),
+                self.assertRaisesRegex(RuntimeError, "checksum"),
+            ):
                 install_trufflehog_binary(
                     destination,
                     system="Linux",
                     machine="x86_64",
-                    downloader=lambda _url: archive.getvalue(),
-                    expected_sha256="0" * 64,
+                    downloader=lambda _url: data + b"altered",
                 )
             self.assertEqual(destination.read_bytes(), b"old binary")
 
@@ -54,13 +105,16 @@ class TruffleHogTests(unittest.TestCase):
         data = archive.getvalue()
         with tempfile.TemporaryDirectory() as temp:
             destination = Path(temp) / "bin" / "trufflehog"
-            report = install_trufflehog_binary(
-                destination,
-                system="Linux",
-                machine="x86_64",
-                downloader=lambda _url: data,
-                expected_sha256=hashlib.sha256(data).hexdigest(),
-            )
+            with patch.dict(
+                TRUFFLEHOG_ASSET_SHA256,
+                {"linux_amd64": hashlib.sha256(data).hexdigest()},
+            ):
+                report = install_trufflehog_binary(
+                    destination,
+                    system="Linux",
+                    machine="x86_64",
+                    downloader=lambda _url: data,
+                )
             self.assertEqual(destination.read_bytes(), b"verified binary")
             self.assertFalse((Path(temp) / "escape").exists())
             self.assertEqual(report["version"], TRUFFLEHOG_VERSION)
