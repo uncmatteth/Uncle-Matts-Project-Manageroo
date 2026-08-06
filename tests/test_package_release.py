@@ -271,6 +271,12 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertFalse(any(path == ".clawpatch" or path.startswith(".clawpatch/") for path in selected))
         self.assertIn(".clawpatch/", (ROOT / ".gitignore").read_text(encoding="utf-8"))
 
+    def test_only_tracked_manageroo_release_policy_is_packaged(self):
+        for selector in (package_release.included_files, package_release.end_user_files):
+            selected = {path.relative_to(ROOT).as_posix() for path in selector()}
+            manageroo_paths = {path for path in selected if path.startswith(".manageroo/")}
+            self.assertEqual(manageroo_paths, {".manageroo/config.toml"})
+
     def test_untracked_sensitive_and_benign_working_tree_files_are_never_selected(self):
         with tempfile.TemporaryDirectory(dir=ROOT, prefix="release-secret-fixture-") as temp:
             fixture = Path(temp)
@@ -482,6 +488,7 @@ class PackageReleaseTests(unittest.TestCase):
             root = Path(temp) / "project"
             root.mkdir()
             files = {
+                ".manageroo/config.toml": "# release policy fixture\n",
                 "README.md": "validated snapshot\n",
                 "pyproject.toml": "[project]\nname = 'fixture'\nversion = '1'\n",
                 "install.sh": "#!/bin/sh\n",

@@ -32,6 +32,7 @@ EXCLUDED_PARTS = {
     ".git", ".manageroo", ".venv", ".clawpatch", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", "__pycache__", "dist", "build",
 }
+EXPLICIT_TRACKED_POLICY_FILES = {".manageroo/config.toml"}
 SENSITIVE_FILENAMES = {".env", "credentials.json", "service-account.json", "id_rsa", "id_ed25519"}
 SAFE_ENV_EXAMPLES = {".env.example", ".env.sample", ".env.template"}
 SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
@@ -81,7 +82,8 @@ def release_file_allowed(path: Path) -> bool:
         return False
     if path.is_symlink():
         return False
-    if any(part in EXCLUDED_PARTS for part in relative.parts):
+    relative_text = relative.as_posix()
+    if any(part in EXCLUDED_PARTS for part in relative.parts) and relative_text not in EXPLICIT_TRACKED_POLICY_FILES:
         return False
     lowered = path.name.lower()
     if lowered in SENSITIVE_FILENAMES or path.suffix.lower() in SENSITIVE_SUFFIXES:
@@ -118,7 +120,14 @@ def included_files() -> list[Path]:
     relative_paths = _tracked_relative_paths()
     relative_paths.update(relative for relative in EXPLICIT_GENERATED if (ROOT / relative).is_file())
     files = [ROOT / relative for relative in sorted(relative_paths) if release_file_allowed(ROOT / relative)]
-    required = {"README.md", "pyproject.toml", "install.sh", "install.ps1", "src/manageroo/__init__.py"}
+    required = {
+        ".manageroo/config.toml",
+        "README.md",
+        "pyproject.toml",
+        "install.sh",
+        "install.ps1",
+        "src/manageroo/__init__.py",
+    }
     present = {path.relative_to(ROOT).as_posix() for path in files}
     missing = sorted(required - present)
     if missing:
