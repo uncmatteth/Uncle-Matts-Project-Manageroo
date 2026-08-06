@@ -265,6 +265,40 @@ class DecisionRegressionTests(unittest.TestCase):
             self.assertIn("changed while answers were being entered", stderr.getvalue())
             self.assertFalse((planning / "resolved-decisions.json").exists())
 
+    def test_answer_rejects_external_symlinked_planning_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "symlinked-planning-run"
+            artifacts = repo / ".manageroo" / "runs" / run_id / "artifacts"
+            artifacts.mkdir(parents=True)
+            external = root / "external"
+            external.mkdir()
+            atomic_write_json(
+                external / "blocking-decisions.json",
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            try:
+                (artifacts / "planning").symlink_to(external, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"Symlink creation is unavailable: {exc}")
+
+            stderr = io.StringIO()
+            with patch(
+                "builtins.input", side_effect=AssertionError("input must not be called")
+            ):
+                with redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("Planning artifact path cannot contain symlinks", stderr.getvalue())
+            self.assertFalse((external / "resolved-decisions.json").exists())
+            self.assertFalse((external / "cache").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

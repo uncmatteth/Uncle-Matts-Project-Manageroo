@@ -13,9 +13,10 @@ def install_entrypoint_policy(entrypoint_module: Any) -> None:
     original_decisions_main = entrypoint_module._decisions_main
 
     def blocking_decisions(run_root):
+        planning = entrypoint_module._planning_directory(run_root)
         if entrypoint_module.decisions_fully_resolved(run_root):
             return []
-        path = run_root / "artifacts" / "planning" / "blocking-decisions.json"
+        path = planning / "blocking-decisions.json"
         if not path.is_file():
             return []
         try:

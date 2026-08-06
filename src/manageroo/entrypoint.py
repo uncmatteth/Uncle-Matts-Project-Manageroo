@@ -4,6 +4,7 @@ import argparse
 import json
 import shlex
 import shutil
+import stat
 import sys
 from pathlib import Path
 
@@ -210,10 +211,39 @@ def _run_root(repo: Path, run_id: str) -> Path:
     return resolved
 
 
+def _planning_directory(run_root: Path) -> Path:
+    planning = run_root / "artifacts" / "planning"
+    for component in (run_root / "artifacts", planning):
+        try:
+            state = component.lstat()
+        except FileNotFoundError:
+            break
+        except OSError as exc:
+            raise SafetyError(
+                f"Cannot validate planning artifact directory: {component}: {exc}"
+            ) from exc
+        reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        if stat.S_ISLNK(state.st_mode) or bool(
+            getattr(state, "st_file_attributes", 0) & reparse_point
+        ):
+            raise SafetyError(f"Planning artifact path cannot contain symlinks: {component}")
+        if not stat.S_ISDIR(state.st_mode):
+            raise SafetyError(
+                f"Planning artifact path component is not a directory: {component}"
+            )
+    resolved = planning.resolve()
+    try:
+        resolved.relative_to(run_root)
+    except ValueError as exc:
+        raise SafetyError(f"Planning artifact directory escapes run root: {planning}") from exc
+    return planning
+
+
 def _blocking_decisions(run_root: Path) -> list[object]:
+    planning = _planning_directory(run_root)
     if decisions_fully_resolved(run_root):
         return []
-    path = run_root / "artifacts" / "planning" / "blocking-decisions.json"
+    path = planning / "blocking-decisions.json"
     if not path.is_file():
         return []
     try:
@@ -295,6 +325,7 @@ def _decisions_main(argv: list[str]) -> int:
         if args.json:
             print(json.dumps({"run_id": args.run_id, "decisions": decisions}, indent=2))
         else:
+            _planning_directory(run_root)
             markdown = render_blocking_questions(run_root)
             text = markdown.read_text(encoding="utf-8") if markdown else "No blocking questions found."
             print(text, end="")
@@ -329,9 +360,12 @@ def _decisions_main(argv: list[str]) -> int:
             print("Choose one of the numbered options.")
         answers.append({"id": str(decision.get("id") or ""), "chosen": chosen})
 
-    resolved = run_root / "artifacts" / "planning" / "resolved-decisions.json"
     try:
+        planning = _planning_directory(run_root)
+        resolved = planning / "resolved-decisions.json"
         with config_mutation_lock(resolved):
+            planning = _planning_directory(run_root)
+            resolved = planning / "resolved-decisions.json"
             if resolved.exists():
                 print(
                     "Decision answers were not saved because another decision answer "
@@ -350,6 +384,7 @@ def _decisions_main(argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            _planning_directory(run_root)
             atomic_write_json(
                 resolved,
                 {
