@@ -219,6 +219,52 @@ class DecisionRegressionTests(unittest.TestCase):
             )
             self.assertRegex(resolved["blocking_decisions_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_changed_blocking_decisions_during_prompt_are_not_saved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "changed-decisions-run"
+            planning = (
+                repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            )
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            atomic_write_json(
+                blocking,
+                {
+                    "decisions": [
+                        {
+                            "id": "deployment",
+                            "question": "Choose deployment",
+                            "options": ["Blue", "Green"],
+                        }
+                    ]
+                },
+            )
+
+            def change_decisions(_: str) -> str:
+                atomic_write_json(
+                    blocking,
+                    {
+                        "decisions": [
+                            {
+                                "id": "region",
+                                "question": "Choose region",
+                                "options": ["East", "West"],
+                            }
+                        ]
+                    },
+                )
+                return "1"
+
+            stderr = io.StringIO()
+            with patch("builtins.input", side_effect=change_decisions):
+                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+
+            self.assertEqual(code, 2)
+            self.assertIn("changed while answers were being entered", stderr.getvalue())
+            self.assertFalse((planning / "resolved-decisions.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
