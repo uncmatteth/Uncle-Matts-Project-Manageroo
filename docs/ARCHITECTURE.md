@@ -305,6 +305,10 @@ then restores the exact clean final checkpoint only from a clean workspace. Igno
 predated the lane are fingerprinted in checkpoint state, preserved across controller commits, and
 must remain unchanged and disjoint from checkpoint-tracked paths during restoration; incomplete
 legacy reports and dirty or unapproved ignored resume state fail closed without restoration.
+Immediately before each external command, Manageroo captures a bounded snapshot of repository-local
+Git metadata. Any command mutation of that metadata is restored and rejects the lane before Git-based
+path inspection. Checkpoint restoration and rollback reconstruct `.git` from the captured snapshot;
+they never copy the post-command live Git directory into the replacement workspace.
 Checkpoint restoration and failed-lane rollback materialize the desired Git tree outside the live
 workspace, move unchanged pre-existing ignored entries into that staged tree, and rotate the live
 workspace into run-owned recovery storage before installing the replacement. They never reset or

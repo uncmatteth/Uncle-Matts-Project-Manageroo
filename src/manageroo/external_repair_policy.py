@@ -4,11 +4,11 @@ import hashlib
 import json
 import os
 import secrets
-import shutil
 import stat
 from pathlib import Path
 from typing import Any
 
+from .adapters.transactional import TransactionalAdapter
 from .errors import SafetyError, ValidationError
 from .policy import ScopePolicy
 from .util import atomic_write_json, read_json, safe_repo_relative
@@ -219,21 +219,69 @@ def _checkpoint_ignored_collisions(
     return {safe_repo_relative(item) for item in result.stdout.split("\0") if item}
 
 
+def _git_metadata_snapshot(
+    orchestrator: Any,
+) -> tuple[TransactionalAdapter, tuple[Path, dict[str, tuple[str, int, bytes]]]]:
+    """Capture bounded Git metadata for integrity checks and safe reconstruction."""
+
+    assert orchestrator.workspace is not None
+    protector = TransactionalAdapter(None, orchestrator.runner)  # type: ignore[arg-type]
+    try:
+        return protector, protector._snapshot_git_metadata(orchestrator.workspace)
+    except SafetyError as exc:
+        raise SafetyError(f"Could not snapshot protected external repair Git metadata: {exc}") from exc
+
+
+def _restore_and_reject_git_metadata_changes(
+    *,
+    name: str,
+    snapshot: tuple[TransactionalAdapter, tuple[Path, dict[str, tuple[str, int, bytes]]]],
+) -> None:
+    """Restore the pre-command Git directory and reject every metadata mutation."""
+
+    protector, (git_dir, expected) = snapshot
+    try:
+        current = protector._git_metadata_state(git_dir)
+    except (OSError, SafetyError):
+        current = {}
+    changed = current != expected
+    try:
+        protector._restore_git_metadata((git_dir, expected))
+    except SafetyError as exc:
+        raise SafetyError(
+            f"Command-owned {name} repair lane changed protected Git metadata and it could "
+            "not be restored."
+        ) from exc
+    if changed:
+        raise SafetyError(
+            f"Command-owned {name} repair lane changed protected Git metadata; changes were "
+            "restored."
+        )
+
+
 def _materialize_checkpoint_workspace(
     orchestrator: Any,
     *,
     checkpoint: str,
     recovery_root: Path,
+    git_metadata_snapshot: tuple[
+        TransactionalAdapter, tuple[Path, dict[str, tuple[str, int, bytes]]]
+    ],
 ) -> Path:
     """Build a clean checkpoint workspace without changing the live workspace."""
 
     assert orchestrator.workspace is not None
-    git_dir = orchestrator.workspace / ".git"
-    if not git_dir.is_dir() or git_dir.is_symlink():
-        raise SafetyError("External repair workspace Git metadata is not a safe directory.")
     staged = recovery_root / "replacement-workspace"
     staged.mkdir(mode=0o700)
-    shutil.copytree(git_dir, staged / ".git", symlinks=True)
+    protector, (git_dir, expected) = git_metadata_snapshot
+    materialized_git_dir = protector._materialize_git_metadata(git_dir, expected)
+    try:
+        os.replace(materialized_git_dir, staged / ".git")
+    except OSError as exc:
+        protector._remove_git_metadata_path(materialized_git_dir)
+        raise SafetyError(
+            f"Could not install verified external repair Git metadata: {exc}"
+        ) from exc
     reset = orchestrator.runner.run(
         ["git", "reset", "--hard", checkpoint],
         cwd=staged,
@@ -266,6 +314,9 @@ def _replace_workspace_from_checkpoint(
     name: str,
     checkpoint: str,
     preserved_ignored_state: dict[str, tuple[str, int, int, int, int, str]],
+    git_metadata_snapshot: tuple[
+        TransactionalAdapter, tuple[Path, dict[str, tuple[str, int, bytes]]]
+    ],
 ) -> Path:
     """Install a staged checkpoint and retain the displaced workspace for recovery."""
 
@@ -285,6 +336,7 @@ def _replace_workspace_from_checkpoint(
         orchestrator,
         checkpoint=checkpoint,
         recovery_root=quarantine_root,
+        git_metadata_snapshot=git_metadata_snapshot,
     )
 
     for path, expected in sorted(preserved_ignored_state.items()):
@@ -326,6 +378,9 @@ def _restore_checkpoint(
     name: str,
     checkpoint: str,
     preserved_ignored_state: dict[str, tuple[str, int, int, int, int, str]],
+    git_metadata_snapshot: tuple[
+        TransactionalAdapter, tuple[Path, dict[str, tuple[str, int, bytes]]]
+    ],
 ) -> None:
     assert orchestrator.workspace is not None
     status = orchestrator.runner.run(
@@ -354,6 +409,7 @@ def _restore_checkpoint(
         name=name,
         checkpoint=checkpoint,
         preserved_ignored_state=preserved_ignored_state,
+        git_metadata_snapshot=git_metadata_snapshot,
     )
     head = orchestrator.runner.run(
         ["git", "rev-parse", "HEAD"],
@@ -448,6 +504,7 @@ def _existing_checkpoint_chain(
 ) -> list[dict[str, Any]]:
     """Validate and restore the contiguous same-run checkpoint prefix."""
 
+    git_metadata_snapshot = _git_metadata_snapshot(orchestrator)
     chain: list[dict[str, Any]] = []
     policy = ScopePolicy(tuple(allowed_paths))
     expected_baseline = ""
@@ -513,6 +570,7 @@ def _existing_checkpoint_chain(
         name="interrupted external review/repair",
         checkpoint=chain[-1]["checkpoint"],
         preserved_ignored_state=chain[-1]["ignored_state"],
+        git_metadata_snapshot=git_metadata_snapshot,
     )
     return chain
 
@@ -542,6 +600,9 @@ def _rollback_lane(
     name: str,
     baseline: str,
     preserved_ignored_state: dict[str, tuple[str, int, int, int, int, str]],
+    git_metadata_snapshot: tuple[
+        TransactionalAdapter, tuple[Path, dict[str, tuple[str, int, bytes]]]
+    ],
 ) -> None:
     """Restore the exact clean pre-command checkpoint and verify rollback before continuation."""
 
@@ -551,6 +612,7 @@ def _rollback_lane(
         name=name,
         checkpoint=baseline,
         preserved_ignored_state=preserved_ignored_state,
+        git_metadata_snapshot=git_metadata_snapshot,
     )
     preserved_ignored_paths = set(preserved_ignored_state)
     head = orchestrator.runner.run(
@@ -611,6 +673,7 @@ def _validate_persisted_report(
     allowed_paths: list[str],
     input_fingerprint: str,
 ) -> dict:
+    git_metadata_snapshot = _git_metadata_snapshot(orchestrator)
     if not isinstance(existing, dict):
         raise SafetyError("Persisted external review/repair report is malformed.")
     summary = existing.get("summary")
@@ -685,6 +748,7 @@ def _validate_persisted_report(
         name="persisted external review/repair",
         checkpoint=final_checkpoint,
         preserved_ignored_state=preserved_ignored_state,
+        git_metadata_snapshot=git_metadata_snapshot,
     )
     return existing
 
@@ -800,14 +864,21 @@ def run_external_review_repair_lanes(
             raise SafetyError("Command-owned external repair checkpoint ignored state changed.")
         approved_ignored_state = preserved_ignored_state
         before_command = baseline
+        git_metadata_snapshot = _git_metadata_snapshot(self)
         try:
-            record = self._run_optional_external_command(
-                name=name,
-                argv_template=argv_template,
-                values=values,
-                cwd=self.workspace,
-                timeout_seconds=600,
-            )
+            try:
+                record = self._run_optional_external_command(
+                    name=name,
+                    argv_template=argv_template,
+                    values=values,
+                    cwd=self.workspace,
+                    timeout_seconds=600,
+                )
+            finally:
+                _restore_and_reject_git_metadata_changes(
+                    name=name,
+                    snapshot=git_metadata_snapshot,
+                )
             if not isinstance(record, dict):
                 record = {
                     "name": name,
@@ -899,6 +970,7 @@ def run_external_review_repair_lanes(
                     name=name,
                     baseline=before_command,
                     preserved_ignored_state=preserved_ignored_state,
+                    git_metadata_snapshot=git_metadata_snapshot,
                 )
             except SafetyError as rollback_exc:
                 raise SafetyError(
@@ -917,6 +989,7 @@ def run_external_review_repair_lanes(
                     name=name,
                     baseline=before_command,
                     preserved_ignored_state=preserved_ignored_state,
+                    git_metadata_snapshot=git_metadata_snapshot,
                 )
                 record["rollback_verified"] = True
                 record["changed_paths_after_rollback"] = []

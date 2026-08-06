@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 from manageroo.artifacts import ArtifactStore
 from manageroo.errors import SafetyError, ValidationError
-from manageroo.external_repair_policy import run_external_review_repair_lanes
+from manageroo.external_repair_policy import (
+    _git_metadata_snapshot,
+    _materialize_checkpoint_workspace,
+    run_external_review_repair_lanes,
+)
 from manageroo.runner import CommandRunner
 from manageroo.util import atomic_write_json, read_json
 from manageroo.workspace import WorkspaceMirror
@@ -60,6 +64,73 @@ def fake_orchestrator(root: Path, source: Path, run_id: str, command):
 
 
 class ExternalRepairPolicyTests(unittest.TestCase):
+    def test_command_git_metadata_mutation_is_rejected_restored_and_rolled_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("allowed mutation\n", encoding="utf-8")
+                config = workspace / ".git" / "config"
+                config.write_bytes(config.read_bytes() + b"\n# external mutation\n")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, _run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            baseline = fake.mirror.head()
+            config = fake.workspace / ".git" / "config"
+            expected_config = config.read_bytes()
+
+            with self.assertRaisesRegex(SafetyError, "protected Git metadata"):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                    gate_results=[],
+                )
+
+            self.assertEqual(fake.mirror.head(), baseline)
+            self.assertEqual(config.read_bytes(), expected_config)
+            self.assertEqual(
+                (fake.workspace / "tracked.txt").read_text(encoding="utf-8"), "baseline\n"
+            )
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
+    def test_checkpoint_materialization_uses_verified_metadata_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            fake, run_root = fake_orchestrator(
+                root,
+                source,
+                "run-one",
+                lambda **_kwargs: {"name": "clawpatch", "ok": True, "exit_code": 0},
+            )
+            checkpoint = fake.mirror.head()
+            snapshot = _git_metadata_snapshot(fake)
+            live_config = fake.workspace / ".git" / "config"
+            live_config.write_bytes(live_config.read_bytes() + b"\n# unverified live state\n")
+            live_hook = fake.workspace / ".git" / "hooks" / "unverified-hook"
+            live_hook.write_text("unverified\n", encoding="utf-8")
+            recovery_root = run_root / "recovery"
+            recovery_root.mkdir()
+
+            staged = _materialize_checkpoint_workspace(
+                fake,
+                checkpoint=checkpoint,
+                recovery_root=recovery_root,
+                git_metadata_snapshot=snapshot,
+            )
+
+            self.assertNotIn(b"unverified live state", (staged / ".git" / "config").read_bytes())
+            self.assertFalse((staged / ".git" / "hooks" / "unverified-hook").exists())
+            self.assertIn(b"unverified live state", live_config.read_bytes())
+            self.assertTrue(live_hook.is_file())
+
     def test_incomplete_legacy_success_report_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
