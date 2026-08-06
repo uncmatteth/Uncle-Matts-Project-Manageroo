@@ -1,0 +1,27 @@
+﻿WORKING_DIRECTORY=C:\Users\david\Documents\Codex\repos\Uncle-Matts-Project-Manageroo-verify-0a1a2d9
+NODE_PATH=C:\Users\david\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64\node.exe
+v24.19.0
+NPM_PATH=C:\Users\david\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64\npm.cmd
+11.17.0
+COMMAND=.\Install-ClawPatch-Supervisor-Windows.ps1 -Repo "C:\Users\david\Documents\Codex\verification-repos\manageroo-installer-clean-test-0a1a2d9"
+powershell.exe : 
+C:\Users\david\Documents\Codex\repos\Uncle-Matts-Project-Manageroo-verify-0a1a2d9\Install-ClawPatch-Supervisor-Windows.
+At line:25 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\ ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\david\...rvisor-Windows.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ps1 : The term 'C:\Program Files\nodejs\node.exe C:\Users\david\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.L
+TS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64\node.exe' is not recognized as the name of a cmdlet, 
+function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the 
+path is correct and try again.
+At line:1 char:1
++ & '.\Install-ClawPatch-Supervisor-Windows.ps1' -Repo 'C:\Users\david\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\Program File...in-x64\node.exe:String) [Install-ClawPatch-Supervisor 
+   -Windows.ps1], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException,Install-ClawPatch-Supervisor-Windows.ps1
+ 
+COMMAND_EXIT_CODE=1
+

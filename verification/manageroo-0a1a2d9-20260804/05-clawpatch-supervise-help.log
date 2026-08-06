@@ -1,0 +1,21 @@
+﻿usage: clawpatch-supervise [-h] [--repo REPO] [--branch BRANCH]
+                           [--push {none,each,final}]
+                           [--publish-clawpatch-state]
+                           [--trusted-host-codex-sandbox-bypass]
+                           [--fresh | --resume-stopped]
+                           [--timeout-minutes TIMEOUT_MINUTES]
+
+Visibly process ClawPatch's live queue one current finding at a time.
+
+options:
+  -h, --help            show this help message and exit
+  --repo REPO
+  --branch BRANCH
+  --push {none,each,final}
+  --publish-clawpatch-state
+  --trusted-host-codex-sandbox-bypass
+  --fresh               start a fresh ClawPatch map/review queue (the default)
+  --resume-stopped      resume one exactly checkpoint-owned stopped attempt
+                        before continuing its queue
+  --timeout-minutes TIMEOUT_MINUTES
+

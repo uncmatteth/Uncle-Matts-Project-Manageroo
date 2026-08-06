@@ -1,0 +1,30 @@
+﻿Installing or updating Node.js LTS...
+Found an existing package already installed. Trying to upgrade the installed package...
+Found Node.js (LTS) [OpenJS.NodeJS.LTS] Version 24.19.0
+This application is licensed to you by its owner.
+Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.
+Downloading https://nodejs.org/dist/v24.19.0/node-v24.19.0-win-x64.zip
+Successfully verified installer hash
+Extracting archive...
+Successfully extracted archive
+Starting package install...
+Path environment variable modified; restart your shell to use the new value.
+Command line alias added: "node"
+Successfully installed
+powershell.exe : ClawPatch requires Node.js 22 or newer. Install it, open a new PowerShell window, and rerun this 
+installer.
+At line:2 char:365
++ ... r-fix.log'; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ClawPatch requi...this installer.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+At C:\Users\david\Documents\Codex\verification-logs\manageroo-0a1a2d9-20260804\Install-ClawPatch-Supervisor-Windows.pat
+h-resolver-fix.ps1:98 char:5
++     throw "ClawPatch requires Node.js 22 or newer. Install it, open a ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (ClawPatch requi...this installer.:String) [], RuntimeException
+    + FullyQualifiedErrorId : ClawPatch requires Node.js 22 or newer. Install it, open a new PowerShell window, and re 
+   run this installer.
+ 
+

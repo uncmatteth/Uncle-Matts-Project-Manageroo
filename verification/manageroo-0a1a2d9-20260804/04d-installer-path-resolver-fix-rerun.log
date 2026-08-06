@@ -1,0 +1,19 @@
+﻿Installing or updating Node.js LTS...
+Found an existing package already installed. Trying to upgrade the installed package...
+No available upgrade found.
+No newer package versions are available from the configured sources.
+powershell.exe : winget could not install Node.js LTS (exit -1978335189).
+At line:2 char:371
++ ... rerun.log'; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (winget could no...t -1978335189).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+At C:\Users\david\Documents\Codex\verification-logs\manageroo-0a1a2d9-20260804\Install-ClawPatch-Supervisor-Windows.pat
+h-resolver-fix.ps1:61 char:9
++         throw "winget could not install $DisplayName (exit $LASTEXITC ...
++         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (winget could no...t -1978335189).:String) [], RuntimeException
+    + FullyQualifiedErrorId : winget could not install Node.js LTS (exit -1978335189).
+ 
+

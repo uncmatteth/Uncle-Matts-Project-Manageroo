@@ -1,0 +1,121 @@
+﻿WORKING_DIRECTORY=C:\Users\david\Documents\Codex\repos\Uncle-Matts-Project-Manageroo-verify-0a1a2d9
+COMMAND=.\Install-ClawPatch-Supervisor-Windows.ps1 -Repo "C:\Users\david\Documents\Codex\verification-repos\manageroo-installer-clean-test-0a1a2d9"
+CHILD_NODE_PATH=C:\Users\david\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64\node.exe
+v24.19.0
+CHILD_NPM_PATH=C:\Users\david\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64\npm.cmd
+11.17.0
+powershell.exe : 
+C:\Users\david\Documents\Codex\repos\Uncle-Matts-Project-Manageroo-verify-0a1a2d9\Install-ClawPatch-Supervisor-Windows.
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\david\...isor-Windows.
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe : ps1 : The term 'C:\Program Files\nodejs\node.exe 
+C:\Users\david\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS.L
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ps1 : The term ...enJS.NodeJS.L
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe : TS_Microsoft.Winget.Source_8wekyb3d8bbwe\node-v24.19.0-win-x64\node.exe' is not recognized as the 
+name of a cmdlet, 
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (TS_Microsoft.Wi...of a cmdlet, 
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe : function, script file, or operable program. Check the spelling of the name, or if a path was 
+included, verify that the 
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (function, scrip...ify that the 
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe : path is correct and try again.
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (path is correct and try again.
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe : At line:1 char:608
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (At line:1 char:608
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe : + ...  --version; & '.\Install-ClawPatch-Supervisor-Windows.ps1' -Repo 'C:\ ...
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (+ ...  --versio...Repo 'C:\ ...
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe : +                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (+              ...~~~~~~~~~~~~~
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe :     + CategoryInfo          : ObjectNotFound: (C:\Program File...in-x64\node.exe:String) 
+[Install-ClawPatch-Supervisor 
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    + CategoryI...h-Supervisor 
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe :    -Windows.ps1], CommandNotFoundException
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   -Windows.ps1...oundException
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe :     + FullyQualifiedErrorId : CommandNotFoundException,Install-ClawPatch-Supervisor-Windows.ps1
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    + FullyQual...r-Windows.ps1
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+powershell.exe :  
+
+At line:22 char:3
++   & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ( 
+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+COMMAND_EXIT_CODE=0
+
