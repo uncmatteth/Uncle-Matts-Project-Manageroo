@@ -1,8 +1,10 @@
 import json
+import os
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.support import symlink_or_skip
 
@@ -11,6 +13,66 @@ from manageroo.errors import SafetyError
 
 
 class ArtifactStoreTests(unittest.TestCase):
+    def test_parent_swap_during_creation_never_writes_outside_store(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "artifacts"
+            outside = base / "outside"
+            outside.mkdir()
+            store = ArtifactStore(root)
+            parent = root / "nested"
+            real_mkdir = os.mkdir
+            swapped = False
+
+            def swap_then_mkdir(path, *args, **kwargs):
+                nonlocal swapped
+                if Path(path).name == "nested" and not swapped:
+                    symlink_or_skip(self, outside, parent, target_is_directory=True)
+                    swapped = True
+                return real_mkdir(path, *args, **kwargs)
+
+            with mock.patch(
+                "manageroo.artifacts.os.mkdir",
+                side_effect=swap_then_mkdir,
+            ):
+                with self.assertRaises(SafetyError):
+                    store.write_text("nested/report.txt", "contained\n")
+
+            self.assertTrue(swapped)
+            self.assertFalse((outside / "report.txt").exists())
+
+    def test_parent_swap_during_replacement_never_writes_outside_store(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "artifacts"
+            parent = root / "nested"
+            outside = base / "outside"
+            parent.mkdir(parents=True)
+            outside.mkdir()
+            store = ArtifactStore(root)
+            moved = base / "nested-pinned"
+            real_replace = os.replace
+            swapped = False
+
+            def swap_then_replace(source, destination, *args, **kwargs):
+                nonlocal swapped
+                if Path(destination).name == "report.txt" and not swapped:
+                    parent.rename(moved)
+                    symlink_or_skip(self, outside, parent, target_is_directory=True)
+                    swapped = True
+                return real_replace(source, destination, *args, **kwargs)
+
+            with mock.patch(
+                "manageroo.artifacts.os.replace",
+                side_effect=swap_then_replace,
+            ):
+                with self.assertRaises(SafetyError):
+                    store.write_text("nested/report.txt", "contained\n")
+
+            self.assertTrue(swapped)
+            self.assertFalse((outside / "report.txt").exists())
+            self.assertFalse((moved / "report.txt").exists())
+
     def test_locked_artifact_cannot_be_overwritten_through_symlink_alias(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "artifacts"

@@ -11,11 +11,12 @@ import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterator
 
 from .errors import SafetyError
-from .util import atomic_write_json, atomic_write_text, read_json, sha256_file, utc_now
+from .util import atomic_write_json, atomic_write_text, utc_now
 
 
 @dataclass
@@ -31,14 +32,74 @@ class ArtifactStore:
         self.root = root.expanduser().resolve()
         self._lock = threading.RLock()
         self.root.mkdir(parents=True, exist_ok=True)
+        self._root_descriptor = self._open_root_descriptor()
         self.ledger_path = self.root / "artifact-ledger.json"
         self.lock_path = self.root / ".artifact-ledger.lock"
         self.advisory_lock_path = self.root / ".artifact-ledger.advisory.lock"
         self.transaction_path = self.root / ".artifact-ledger.transaction"
-        with self._transaction_lock():
-            self._recover_pending_transaction()
-            if not self.ledger_path.exists():
-                atomic_write_json(self.ledger_path, {"artifacts": {}})
+        try:
+            with self._transaction_lock():
+                self._recover_pending_transaction()
+                try:
+                    descriptor = self._open_regular_at(
+                        self._root_descriptor,
+                        self.ledger_path.name,
+                    )
+                except FileNotFoundError:
+                    self._atomic_write_at(
+                        self._root_descriptor,
+                        self.ledger_path.name,
+                        lambda path: atomic_write_json(path, {"artifacts": {}}),
+                    )
+                else:
+                    os.close(descriptor)
+        except BaseException:
+            os.close(self._root_descriptor)
+            self._root_descriptor = -1
+            raise
+
+    def __del__(self) -> None:
+        descriptor = getattr(self, "_root_descriptor", -1)
+        if descriptor >= 0:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            self._root_descriptor = -1
+
+    def _open_root_descriptor(self) -> int:
+        required = (
+            hasattr(os, "O_DIRECTORY")
+            and hasattr(os, "O_NOFOLLOW")
+            and os.open in os.supports_dir_fd
+            and os.mkdir in os.supports_dir_fd
+            and os.rename in os.supports_dir_fd
+            and os.rmdir in os.supports_dir_fd
+            and os.stat in os.supports_dir_fd
+            and os.stat in os.supports_follow_symlinks
+            and os.unlink in os.supports_dir_fd
+            and os.listdir in os.supports_fd
+        )
+        if not required:
+            raise SafetyError(
+                "Artifact storage requires descriptor-relative no-follow filesystem access."
+            )
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open(self.root, flags)
+        try:
+            descriptor_state = os.fstat(descriptor)
+            path_state = os.stat(self.root, follow_symlinks=False)
+            if (
+                not stat.S_ISDIR(descriptor_state.st_mode)
+                or (descriptor_state.st_dev, descriptor_state.st_ino)
+                != (path_state.st_dev, path_state.st_ino)
+            ):
+                raise SafetyError(f"Artifact root changed while opening: {self.root}")
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
 
     @staticmethod
     def _owner_from_lines(lines: list[str]) -> tuple[int, str] | None:
@@ -384,7 +445,10 @@ class ArtifactStore:
                         ) from exc
 
     def _ledger(self) -> dict:
-        data = read_json(self.ledger_path)
+        try:
+            data = self._read_json_at(self._root_descriptor, self.ledger_path.name)
+        except (OSError, ValueError) as exc:
+            raise SafetyError(f"Artifact ledger is malformed: {self.ledger_path}") from exc
         if not isinstance(data, dict) or not isinstance(data.get("artifacts"), dict):
             raise SafetyError(f"Artifact ledger is malformed: {self.ledger_path}")
         return data
@@ -405,123 +469,464 @@ class ArtifactStore:
             self.transaction_path.name,
         }:
             raise SafetyError(f"Artifact path is reserved: {relative}")
-        current = self.root
-        for part in candidate.parts:
-            current /= part
-            if current.is_symlink():
-                raise SafetyError(f"Artifact path contains a symlink: {relative}")
-        destination = (self.root / candidate).resolve()
-        try:
-            destination.relative_to(self.root)
-        except ValueError as exc:
-            raise SafetyError(f"Artifact path escapes artifact root: {relative}") from exc
-        return normalized, destination
+        return normalized, self.root / candidate
 
     @staticmethod
-    def _atomic_copy(source: Path, destination: Path) -> None:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{destination.name}.",
-            dir=str(destination.parent),
-        )
+    def _directory_flags() -> int:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        return flags | getattr(os, "O_CLOEXEC", 0)
+
+    @staticmethod
+    def _same_object(first: os.stat_result, second: os.stat_result) -> bool:
+        return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+    def _open_directory_at(self, directory_fd: int, name: str, relative: str) -> int:
         try:
-            with os.fdopen(fd, "wb") as destination_handle:
-                with source.open("rb") as source_handle:
-                    shutil.copyfileobj(source_handle, destination_handle)
-                    destination_handle.flush()
-                    os.fsync(destination_handle.fileno())
-            os.replace(temporary_name, destination)
+            descriptor = os.open(name, self._directory_flags(), dir_fd=directory_fd)
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise SafetyError(
+                f"Artifact path contains a symlink or unsafe directory: {relative}"
+            ) from exc
+        state = os.fstat(descriptor)
+        if not stat.S_ISDIR(state.st_mode):
+            os.close(descriptor)
+            raise SafetyError(f"Artifact path contains an unsafe directory: {relative}")
+        return descriptor
+
+    def _open_parent(
+        self,
+        relative: str,
+        *,
+        create: bool,
+    ) -> tuple[int, str]:
+        parts = Path(relative).parts
+        current_fd = os.dup(self._root_descriptor)
+        try:
+            for part in parts[:-1]:
+                try:
+                    child_fd = self._open_directory_at(current_fd, part, relative)
+                except FileNotFoundError:
+                    if not create:
+                        raise
+                    try:
+                        os.mkdir(part, 0o700, dir_fd=current_fd)
+                    except FileExistsError:
+                        pass
+                    child_fd = self._open_directory_at(current_fd, part, relative)
+                os.close(current_fd)
+                current_fd = child_fd
+            return current_fd, parts[-1]
+        except BaseException:
+            os.close(current_fd)
+            raise
+
+    @staticmethod
+    def _open_regular_at(directory_fd: int, name: str) -> int:
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
+        flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        try:
+            descriptor = os.open(name, flags, dir_fd=directory_fd)
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise SafetyError(f"Artifact file is unsafe or a symlink: {name}") from exc
+        state = os.fstat(descriptor)
+        if not stat.S_ISREG(state.st_mode) or state.st_nlink != 1:
+            os.close(descriptor)
+            raise SafetyError(f"Artifact file is unsafe: {name}")
+        return descriptor
+
+    @staticmethod
+    def _digest_descriptor(descriptor: int) -> str:
+        digest = sha256()
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        while block := os.read(descriptor, 1024 * 1024):
+            digest.update(block)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _copy_descriptor(source_fd: int, destination_fd: int) -> None:
+        os.lseek(source_fd, 0, os.SEEK_SET)
+        while block := os.read(source_fd, 1024 * 1024):
+            remaining = memoryview(block)
+            while remaining:
+                written = os.write(destination_fd, remaining)
+                if written <= 0:
+                    raise OSError("Artifact copy made no progress.")
+                remaining = remaining[written:]
+
+    def _atomic_install_at(
+        self,
+        source_fd: int,
+        destination_fd: int,
+        destination_name: str,
+    ) -> os.stat_result:
+        source_state = os.fstat(source_fd)
+        if not stat.S_ISREG(source_state.st_mode) or source_state.st_nlink != 1:
+            raise SafetyError(f"Artifact copy source is unsafe: {destination_name}")
+        temporary_name = f".{destination_name}.{secrets.token_hex(16)}"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        temporary_fd: int | None = None
+        replaced = False
+        try:
+            temporary_fd = os.open(
+                temporary_name,
+                flags,
+                0o600,
+                dir_fd=destination_fd,
+            )
+            self._copy_descriptor(source_fd, temporary_fd)
+            os.fsync(temporary_fd)
+            written_state = os.fstat(temporary_fd)
+            if not stat.S_ISREG(written_state.st_mode) or written_state.st_nlink != 1:
+                raise SafetyError(f"Artifact temporary file is unsafe: {destination_name}")
+            os.replace(
+                temporary_name,
+                destination_name,
+                src_dir_fd=destination_fd,
+                dst_dir_fd=destination_fd,
+            )
+            replaced = True
+            current = os.stat(
+                destination_name,
+                dir_fd=destination_fd,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or current.st_nlink != 1
+                or not self._same_object(written_state, current)
+            ):
+                raise SafetyError(f"Artifact changed during replacement: {destination_name}")
+            os.fsync(destination_fd)
+            return current
         finally:
-            if os.path.exists(temporary_name):
-                os.unlink(temporary_name)
+            if temporary_fd is not None:
+                os.close(temporary_fd)
+            if not replaced:
+                try:
+                    os.unlink(temporary_name, dir_fd=destination_fd)
+                except FileNotFoundError:
+                    pass
 
-    def _recover_pending_transaction(self) -> None:
-        if self.transaction_path.is_symlink():
-            raise SafetyError(
-                f"Artifact transaction path is unsafe: {self.transaction_path}"
-            )
-        if not self.transaction_path.exists():
-            return
-        if not self.transaction_path.is_dir():
-            raise SafetyError(
-                f"Artifact transaction path is unsafe: {self.transaction_path}"
-            )
+    def _atomic_write_at(self, directory_fd: int, name: str, writer: Any) -> os.stat_result:
+        with tempfile.TemporaryDirectory(prefix="manageroo-artifact-stage-") as temp:
+            staged_path = Path(temp) / name
+            writer(staged_path)
+            stage_directory_fd = os.open(temp, self._directory_flags())
+            try:
+                source_fd = self._open_regular_at(stage_directory_fd, name)
+            finally:
+                os.close(stage_directory_fd)
+            try:
+                return self._atomic_install_at(source_fd, directory_fd, name)
+            finally:
+                os.close(source_fd)
 
-        marker_path = self.transaction_path / "pending.json"
-        if not marker_path.exists():
-            shutil.rmtree(self.transaction_path)
-            return
+    def _copy_at(
+        self,
+        source_directory_fd: int,
+        source_name: str,
+        destination_directory_fd: int,
+        destination_name: str,
+    ) -> os.stat_result:
+        source_fd = self._open_regular_at(source_directory_fd, source_name)
         try:
-            pending = read_json(marker_path)
+            return self._atomic_install_at(
+                source_fd,
+                destination_directory_fd,
+                destination_name,
+            )
+        finally:
+            os.close(source_fd)
+
+    def _read_json_at(self, directory_fd: int, name: str) -> Any:
+        descriptor = self._open_regular_at(directory_fd, name)
+        try:
+            with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                descriptor = -1
+                return json.load(handle)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+    def _open_transaction_directory(self) -> tuple[int, os.stat_result] | None:
+        try:
+            descriptor = self._open_directory_at(
+                self._root_descriptor,
+                self.transaction_path.name,
+                self.transaction_path.name,
+            )
+        except FileNotFoundError:
+            return None
+        state = os.fstat(descriptor)
+        return descriptor, state
+
+    def _create_transaction_directory(self) -> tuple[int, os.stat_result]:
+        try:
+            os.mkdir(self.transaction_path.name, 0o700, dir_fd=self._root_descriptor)
+        except OSError as exc:
+            raise SafetyError(
+                f"Could not create artifact transaction: {self.transaction_path}: {exc}"
+            ) from exc
+        opened = self._open_transaction_directory()
+        if opened is None:
+            raise SafetyError(f"Artifact transaction disappeared: {self.transaction_path}")
+        return opened
+
+    def _remove_transaction_directory(
+        self,
+        transaction_fd: int,
+        transaction_state: os.stat_result,
+    ) -> None:
+        for name in os.listdir(transaction_fd):
+            state = os.stat(name, dir_fd=transaction_fd, follow_symlinks=False)
+            if stat.S_ISDIR(state.st_mode):
+                raise SafetyError(
+                    f"Artifact transaction contains an unsafe directory: {name}"
+                )
+            os.unlink(name, dir_fd=transaction_fd)
+        os.fsync(transaction_fd)
+        try:
+            current = os.stat(
+                self.transaction_path.name,
+                dir_fd=self._root_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return
+        if not self._same_object(transaction_state, current):
+            raise SafetyError(f"Artifact transaction path changed: {self.transaction_path}")
+        os.rmdir(self.transaction_path.name, dir_fd=self._root_descriptor)
+        os.fsync(self._root_descriptor)
+
+    @staticmethod
+    def _unlink_at(directory_fd: int, name: str) -> None:
+        try:
+            state = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if stat.S_ISDIR(state.st_mode):
+            raise SafetyError(f"Artifact destination is an unsafe directory: {name}")
+        os.unlink(name, dir_fd=directory_fd)
+        os.fsync(directory_fd)
+
+    def _verify_attached_destination(
+        self,
+        relative: str,
+        parent_fd: int,
+        name: str,
+        expected: os.stat_result,
+    ) -> None:
+        verification_fd, verification_name = self._open_parent(relative, create=False)
+        try:
+            if (
+                verification_name != name
+                or not self._same_object(os.fstat(parent_fd), os.fstat(verification_fd))
+            ):
+                raise SafetyError(f"Artifact parent changed during replacement: {relative}")
+            current = os.stat(name, dir_fd=verification_fd, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or current.st_nlink != 1
+                or not self._same_object(expected, current)
+            ):
+                raise SafetyError(f"Artifact changed during replacement: {relative}")
+        except OSError as exc:
+            raise SafetyError(f"Artifact changed during replacement: {relative}") from exc
+        finally:
+            os.close(verification_fd)
+
+    def _recover_transaction(
+        self,
+        transaction_fd: int,
+        transaction_state: os.stat_result,
+        *,
+        artifact_target: tuple[int, str, str] | None = None,
+    ) -> None:
+        try:
+            pending = self._read_json_at(transaction_fd, "pending.json")
+        except FileNotFoundError:
+            self._remove_transaction_directory(transaction_fd, transaction_state)
+            return
         except (OSError, ValueError) as exc:
             raise SafetyError(
-                f"Artifact transaction marker is malformed: {marker_path}"
+                f"Artifact transaction marker is malformed: "
+                f"{self.transaction_path / 'pending.json'}"
             ) from exc
         if not isinstance(pending, dict) or type(pending.get("had_artifact")) is not bool:
-            raise SafetyError(f"Artifact transaction marker is malformed: {marker_path}")
+            raise SafetyError(
+                f"Artifact transaction marker is malformed: "
+                f"{self.transaction_path / 'pending.json'}"
+            )
 
-        _, path = self._safe_path(str(pending.get("path") or ""))
-        artifact_before = self.transaction_path / "artifact.before"
-        ledger_before = self.transaction_path / "ledger.before"
+        normalized, _ = self._safe_path(str(pending.get("path") or ""))
+        if artifact_target is None:
+            parent_fd, name = self._open_parent(normalized, create=True)
+            close_parent = True
+        else:
+            supplied_fd, name, supplied_relative = artifact_target
+            if supplied_relative != normalized:
+                raise SafetyError("Artifact recovery target does not match transaction marker.")
+            parent_fd = os.dup(supplied_fd)
+            close_parent = True
         try:
             if pending["had_artifact"]:
-                if not artifact_before.is_file() or artifact_before.is_symlink():
-                    raise SafetyError(
-                        f"Artifact transaction backup is missing: {artifact_before}"
+                try:
+                    restored = self._copy_at(
+                        transaction_fd,
+                        "artifact.before",
+                        parent_fd,
+                        name,
                     )
-                self._atomic_copy(artifact_before, path)
+                except FileNotFoundError as exc:
+                    raise SafetyError(
+                        "Artifact transaction backup is missing: "
+                        f"{self.transaction_path / 'artifact.before'}"
+                    ) from exc
+                if artifact_target is None:
+                    self._verify_attached_destination(
+                        normalized,
+                        parent_fd,
+                        name,
+                        restored,
+                    )
             else:
-                path.unlink(missing_ok=True)
-            if not ledger_before.is_file() or ledger_before.is_symlink():
-                raise SafetyError(f"Artifact ledger backup is missing: {ledger_before}")
-            self._atomic_copy(ledger_before, self.ledger_path)
+                self._unlink_at(parent_fd, name)
+            try:
+                self._copy_at(
+                    transaction_fd,
+                    "ledger.before",
+                    self._root_descriptor,
+                    self.ledger_path.name,
+                )
+            except FileNotFoundError as exc:
+                raise SafetyError(
+                    f"Artifact ledger backup is missing: "
+                    f"{self.transaction_path / 'ledger.before'}"
+                ) from exc
         except OSError as exc:
             raise SafetyError(
                 f"Could not recover artifact transaction: {self.transaction_path}: {exc}"
             ) from exc
-        shutil.rmtree(self.transaction_path)
+        finally:
+            if close_parent:
+                os.close(parent_fd)
+        self._remove_transaction_directory(transaction_fd, transaction_state)
+
+    def _recover_pending_transaction(self) -> None:
+        opened = self._open_transaction_directory()
+        if opened is None:
+            return
+        transaction_fd, transaction_state = opened
+        try:
+            self._recover_transaction(transaction_fd, transaction_state)
+        finally:
+            os.close(transaction_fd)
 
     def _write(self, relative: str, writer: Any, *, lock: bool) -> ArtifactRecord:
         with self._transaction_lock():
             self._recover_pending_transaction()
-            normalized, path = self._safe_path(relative)
+            normalized, _ = self._safe_path(relative)
             ledger = self._ledger()
             current = ledger.get("artifacts", {}).get(normalized)
             if current and current.get("locked"):
                 raise SafetyError(f"Attempt to overwrite locked artifact: {normalized}")
 
-            self.transaction_path.mkdir()
-            staged_path = self.transaction_path / "artifact.after"
-            marker_path = self.transaction_path / "pending.json"
+            parent_fd, name = self._open_parent(normalized, create=True)
+            transaction_fd, transaction_state = self._create_transaction_directory()
             try:
-                self._atomic_copy(self.ledger_path, self.transaction_path / "ledger.before")
-                had_artifact = path.exists()
-                if had_artifact:
-                    self._atomic_copy(path, self.transaction_path / "artifact.before")
-                writer(staged_path)
-                record = ArtifactRecord(
-                    path=normalized,
-                    sha256=sha256_file(staged_path),
-                    locked=lock,
-                    created_at=utc_now(),
+                self._copy_at(
+                    self._root_descriptor,
+                    self.ledger_path.name,
+                    transaction_fd,
+                    "ledger.before",
                 )
-                atomic_write_text(
-                    marker_path,
-                    json.dumps(
-                        {"had_artifact": had_artifact, "path": normalized},
-                        sort_keys=True,
-                    )
-                    + "\n",
+                try:
+                    artifact_fd = self._open_regular_at(parent_fd, name)
+                except FileNotFoundError:
+                    had_artifact = False
+                else:
+                    had_artifact = True
+                    try:
+                        self._atomic_install_at(
+                            artifact_fd,
+                            transaction_fd,
+                            "artifact.before",
+                        )
+                    finally:
+                        os.close(artifact_fd)
+
+                with tempfile.TemporaryDirectory(
+                    prefix="manageroo-artifact-writer-"
+                ) as temp:
+                    staged_path = Path(temp) / "artifact.after"
+                    writer(staged_path)
+                    stage_directory_fd = os.open(temp, self._directory_flags())
+                    try:
+                        staged_fd = self._open_regular_at(
+                            stage_directory_fd,
+                            staged_path.name,
+                        )
+                    finally:
+                        os.close(stage_directory_fd)
+                    try:
+                        record = ArtifactRecord(
+                            path=normalized,
+                            sha256=self._digest_descriptor(staged_fd),
+                            locked=lock,
+                            created_at=utc_now(),
+                        )
+                        self._atomic_write_at(
+                            transaction_fd,
+                            "pending.json",
+                            lambda path: atomic_write_text(
+                                path,
+                                json.dumps(
+                                    {
+                                        "had_artifact": had_artifact,
+                                        "path": normalized,
+                                    },
+                                    sort_keys=True,
+                                )
+                                + "\n",
+                            ),
+                        )
+                        installed = self._atomic_install_at(
+                            staged_fd,
+                            parent_fd,
+                            name,
+                        )
+                    finally:
+                        os.close(staged_fd)
+                self._verify_attached_destination(
+                    normalized,
+                    parent_fd,
+                    name,
+                    installed,
                 )
-                path.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(staged_path, path)
                 ledger["artifacts"][normalized] = record.__dict__
-                atomic_write_json(self.ledger_path, ledger)
-                marker_path.unlink()
+                self._atomic_write_at(
+                    self._root_descriptor,
+                    self.ledger_path.name,
+                    lambda path: atomic_write_json(path, ledger),
+                )
+                self._unlink_at(transaction_fd, "pending.json")
+                self._remove_transaction_directory(transaction_fd, transaction_state)
             except Exception:
-                self._recover_pending_transaction()
+                self._recover_transaction(
+                    transaction_fd,
+                    transaction_state,
+                    artifact_target=(parent_fd, name, normalized),
+                )
                 raise
-            shutil.rmtree(self.transaction_path, ignore_errors=True)
+            finally:
+                os.close(transaction_fd)
+                os.close(parent_fd)
             return record
 
     def write_json(self, relative: str, data: Any, *, lock: bool = False) -> ArtifactRecord:
@@ -537,6 +942,25 @@ class ArtifactStore:
             for relative, record in ledger.get("artifacts", {}).items():
                 if not record.get("locked"):
                     continue
-                _, path = self._safe_path(relative)
-                if not path.exists() or sha256_file(path) != record["sha256"]:
+                normalized, _ = self._safe_path(relative)
+                try:
+                    parent_fd, name = self._open_parent(normalized, create=False)
+                except (FileNotFoundError, SafetyError):
                     raise SafetyError(f"Locked artifact changed or disappeared: {relative}")
+                try:
+                    try:
+                        descriptor = self._open_regular_at(parent_fd, name)
+                    except (FileNotFoundError, SafetyError):
+                        raise SafetyError(
+                            f"Locked artifact changed or disappeared: {relative}"
+                        ) from None
+                    try:
+                        digest = self._digest_descriptor(descriptor)
+                    finally:
+                        os.close(descriptor)
+                    if digest != record["sha256"]:
+                        raise SafetyError(
+                            f"Locked artifact changed or disappeared: {relative}"
+                        )
+                finally:
+                    os.close(parent_fd)
