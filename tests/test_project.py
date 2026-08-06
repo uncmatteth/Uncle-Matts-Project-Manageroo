@@ -3,7 +3,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import manageroo.project as project_module
 from manageroo.errors import SafetyError
 from manageroo.project import create_project_repo, initialize_project
 from manageroo.project_memory import ensure_project_memory
@@ -140,6 +142,130 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn("index.html", result["created_files"])
             self.assertTrue((repo / "index.html").is_file())
             self.assertTrue((repo / "styles.css").is_file())
+
+    def test_existing_git_repo_with_deleted_tracked_file_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "existing-deletion"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            tracked = repo / "tracked.txt"
+            tracked.write_text("keep this in history\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                    "commit", "-q", "-m", "Existing project",
+                ],
+                cwd=repo,
+                check=True,
+            )
+            tracked.unlink()
+            head_before = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            index_before = subprocess.run(
+                ["git", "diff", "--cached", "--name-status"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            status_before = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+
+            with self.assertRaises(ValueError):
+                create_project_repo(repo, title="Do Not Scaffold")
+
+            head_after = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            index_after = subprocess.run(
+                ["git", "diff", "--cached", "--name-status"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            status_after = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            self.assertEqual(head_after, head_before)
+            self.assertEqual(index_after, index_before)
+            self.assertEqual(status_after, status_before)
+            self.assertFalse(tracked.exists())
+            self.assertFalse((repo / "README.md").exists())
+
+    def test_existing_clean_git_repo_with_hidden_tracked_file_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "existing-hidden-tracked"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            tracked = repo / "tracked.txt"
+            tracked.write_text("existing project\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                    "commit", "-q", "-m", "Existing project",
+                ],
+                cwd=repo,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "update-index", "--skip-worktree", "tracked.txt"], cwd=repo, check=True,
+            )
+            tracked.unlink()
+            head_before = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            status_before = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            self.assertEqual(status_before, "")
+
+            with self.assertRaises(ValueError):
+                create_project_repo(repo, title="Do Not Scaffold")
+
+            head_after = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            status_after = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout
+            self.assertEqual(head_after, head_before)
+            self.assertEqual(status_after, status_before)
+            self.assertFalse(tracked.exists())
+            self.assertFalse((repo / "README.md").exists())
+
+    def test_create_project_repo_stages_only_scaffold_created_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "scoped-staging"
+            original_scaffold = project_module._scaffold_base_files
+
+            def scaffold_with_operator_file(*args, **kwargs):
+                created = original_scaffold(*args, **kwargs)
+                (repo / "operator-note.txt").write_text("do not commit\n", encoding="utf-8")
+                return created
+
+            with patch.object(
+                project_module, "_scaffold_base_files", side_effect=scaffold_with_operator_file,
+            ):
+                create_project_repo(repo, title="Scoped Staging")
+
+            tracked = subprocess.run(
+                ["git", "ls-files"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout.splitlines()
+            status = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=repo, text=True,
+                stdout=subprocess.PIPE, check=True,
+            ).stdout.splitlines()
+            self.assertIn("README.md", tracked)
+            self.assertNotIn("operator-note.txt", tracked)
+            self.assertIn("?? operator-note.txt", status)
 
     def test_initialization_preflights_non_utf8_instruction_file_before_mutating_repo(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -241,6 +241,14 @@ def create_project_repo(path: Path, *, title: str = "", description: str = "", s
             requested_scaffold = starter != "blank" or bool(title.strip()) or bool(description.strip())
             if not requested_scaffold:
                 return {"status": "already-git", "repo": str(root), "initial_commit": "", "created_files": []}
+            if _run_git(runner, ["status", "--porcelain", "--untracked-files=all"], target):
+                raise ValueError(
+                    "Refusing to scaffold an existing Git repository with index or worktree changes."
+                )
+            if _run_git(runner, ["ls-files"], target):
+                raise ValueError(
+                    "Refusing to scaffold an existing Git repository that already tracks project files."
+                )
             if _non_git_entries(target):
                 raise ValueError(
                     "Starter/title/description options were supplied for an existing non-empty Git repository. "
@@ -266,7 +274,8 @@ def create_project_repo(path: Path, *, title: str = "", description: str = "", s
 
     if not existing_git:
         _run_git(runner, ["init", "-b", "main"], target)
-    _run_git(runner, ["add", "."], target)
+    if created_files:
+        _run_git(runner, ["add", "--", *created_files], target)
     status = _run_git(runner, ["status", "--porcelain"], target)
     initial_commit = ""
     if status:
