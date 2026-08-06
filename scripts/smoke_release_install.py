@@ -192,7 +192,8 @@ def smoke(
         if len(bundled) != EXPECTED_SKILL_COUNT or len(bundled) != len(set(bundled)):
             raise RuntimeError(f"Unexpected core skill list: {bundled}")
         support_files = [
-            home / ".agents" / "skills" / "grill-with-docs" / "ADR-FORMAT.md",
+            home / ".agents" / "skills" / "domain-modeling" / "ADR-FORMAT.md",
+            home / ".agents" / "skills" / "domain-modeling" / "CONTEXT-FORMAT.md",
         ]
         missing_support = [str(path) for path in support_files if not path.is_file()]
         if missing_support:
