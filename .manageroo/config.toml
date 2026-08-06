@@ -1,5 +1,8 @@
 # Project Manageroo controller-owned release proof.
 
+[safety]
+allowed_programs = ["python3"]
+
 [[verification.gates]]
 id = "manageroo-release"
 kind = "test"

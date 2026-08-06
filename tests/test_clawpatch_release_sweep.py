@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -19,8 +20,20 @@ from manageroo.clawpatch_release import (
 from manageroo.errors import SafetyError
 from manageroo.entrypoint import _clawpatch_main
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class StandaloneClawpatchAdapterTests(unittest.TestCase):
+    def test_repository_release_gate_approves_its_executable(self):
+        config_path = ROOT / ".manageroo" / "config.toml"
+        with config_path.open("rb") as handle:
+            config = tomllib.load(handle)
+
+        allowed = config.get("safety", {}).get("allowed_programs", [])
+        for gate in config.get("verification", {}).get("gates", []):
+            executable = Path(gate["argv"][0]).name
+            self.assertIn(executable, allowed, msg=f"unapproved gate executable: {executable}")
+
     def test_manageroo_cli_preserves_transient_supervisor_exit(self):
         report = {
             "ok": False,
