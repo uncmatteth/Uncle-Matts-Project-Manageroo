@@ -242,6 +242,7 @@ def _python_test_contract(repo: Path) -> PythonTestContract | None:
         encoded_size = len(requirement.encode("utf-8"))
         if (
             not requirement
+            or requirement.startswith("-")
             or "\x00" in requirement
             or "\n" in requirement
             or "\r" in requirement
@@ -338,6 +339,7 @@ def _provision_python_test_environment(
                     "--disable-pip-version-check",
                     "--no-input",
                     "pytest>=8,<10",
+                    "--",
                     *contract.requirements,
                 ],
                 repo=repo,

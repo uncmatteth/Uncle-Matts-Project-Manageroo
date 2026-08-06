@@ -165,6 +165,7 @@ class DisposableValidationServiceTests(unittest.TestCase):
             self.assertEqual(calls[1][1:4], ["-m", "pip", "install"])
             self.assertIn("pytest>=8,<10", calls[1])
             self.assertIn("Pillow>=10", calls[1])
+            self.assertLess(calls[1].index("--"), calls[1].index("Pillow>=10"))
             self.assertEqual(
                 [event["phase"] for event in events],
                 [
@@ -311,6 +312,37 @@ class DisposableValidationServiceTests(unittest.TestCase):
             ):
                 with provision_disposable_validation_environment(repo, run=runner):
                     self.fail("the queue must not start from a malformed manifest")
+
+            self.assertEqual(calls, [])
+
+    def test_option_like_python_dependency_stops_before_execution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            (repo / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = 'fixture'\n"
+                "version = '1'\n"
+                "dependencies = ['--target=/tmp/manageroo-escape', 'example-package']\n"
+                "\n"
+                "[tool.pytest.ini_options]\n",
+                encoding="utf-8",
+            )
+            calls: list[list[str]] = []
+
+            def runner(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                del cwd, timeout
+                calls.append(list(argv))
+                return subprocess.CompletedProcess(argv, 0, "", "")
+
+            with self.assertRaisesRegex(
+                SafetyError,
+                "project.dependencies contains an unsafe requirement",
+            ):
+                with provision_disposable_validation_environment(repo, run=runner):
+                    self.fail("pip options from project dependencies must be rejected")
 
             self.assertEqual(calls, [])
 
