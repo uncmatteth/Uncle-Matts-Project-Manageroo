@@ -176,9 +176,10 @@ does not start that Compose stack or use its volumes. It creates a separately
 named Docker container with tmpfs database storage, a random password, and one
 random loopback-only port, then passes the URL and reset guard only to child
 ClawPatch processes. Validation services cannot override Manageroo-owned
-sandbox, watchdog, or bypass-fallback policy variables. Repository identity
-labels prove ownership before stale
-container recovery or deletion. A missing or production-looking configured guard,
+sandbox, watchdog, or bypass-fallback policy variables. Each concurrent validation
+uses a distinct container name, and cleanup removes only the immutable container ID
+returned by its own successful startup. Malformed startup output fails closed without
+inspecting or removing a container by name. A missing or production-looking configured guard,
 any additional reset guard, unknown image, ambiguous Compose state, foreign
 same-named container, or unavailable Docker fails
 closed or leaves automatic provisioning disabled; no existing database is

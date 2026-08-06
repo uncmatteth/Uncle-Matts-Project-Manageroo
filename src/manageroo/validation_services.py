@@ -79,57 +79,6 @@ def _repository_identity(repo: Path) -> str:
     return hashlib.sha256(os.fsencode(str(repo.resolve()))).hexdigest()
 
 
-def _recover_stale_owned_container(
-    repo: Path,
-    container_name: str,
-    repository_identity: str,
-    *,
-    run: RunCommand,
-) -> None:
-    try:
-        result = run(
-            [
-                "docker",
-                "container",
-                "inspect",
-                "--format",
-                "{{json .Config.Labels}}",
-                container_name,
-            ],
-            cwd=repo,
-            timeout=30,
-        )
-    except (FileNotFoundError, OSError) as exc:
-        raise SafetyError(
-            "This repository requires Docker to create its disposable PostgreSQL "
-            "validation database. Install and start Docker, then resume the stopped finding."
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise SafetyError("Disposable PostgreSQL ownership inspection timed out.") from exc
-    if result.returncode != 0:
-        missing = (result.stderr or "").casefold()
-        if "no such object" in missing or "no such container" in missing:
-            return
-        raise SafetyError(
-            "Manageroo could not inspect prior disposable PostgreSQL ownership: "
-            + (result.stderr or result.stdout or "unknown Docker error")[-2000:]
-        )
-    try:
-        labels = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise SafetyError("Docker returned malformed disposable PostgreSQL ownership labels.") from exc
-    expected = {
-        "manageroo.validation-service": "postgresql",
-        "manageroo.repository": repository_identity,
-    }
-    if not isinstance(labels, dict) or any(labels.get(key) != value for key, value in expected.items()):
-        raise SafetyError(
-            "The existing disposable PostgreSQL container name does not carry this "
-            "repository's exact ownership labels. Manageroo left it untouched."
-        )
-    _remove_container(repo, container_name, run=run)
-
-
 def _test_contract_envs(repo: Path) -> tuple[str, tuple[str, ...]] | None:
     total = 0
     reset_envs: set[str] = set()
@@ -588,12 +537,10 @@ def _provision_postgres_test_environment(
     if not password or "\x00" in password:
         raise SafetyError("Disposable PostgreSQL generated an invalid password.")
     repository_identity = _repository_identity(root)
-    container_name = f"manageroo-validation-postgres-{repository_identity[:16]}"
-    _recover_stale_owned_container(
-        root,
-        container_name,
-        repository_identity,
-        run=run,
+    validation_run_identity = secrets.token_hex(16)
+    container_name = (
+        f"manageroo-validation-postgres-{repository_identity[:16]}-"
+        f"{validation_run_identity}"
     )
     result = _checked(
         run,
@@ -608,6 +555,8 @@ def _provision_postgres_test_environment(
             "manageroo.validation-service=postgresql",
             "--label",
             f"manageroo.repository={repository_identity}",
+            "--label",
+            f"manageroo.validation-run={validation_run_identity}",
             "--mount",
             "type=tmpfs,destination=/var/lib/postgresql/data",
             "--publish",
@@ -680,30 +629,25 @@ def _provision_postgres_test_environment(
         body_error = exc
         raise
     finally:
-        try:
-            if valid_container_id:
+        if valid_container_id:
+            try:
                 _remove_container(root, container_id, run=run)
+            except SafetyError as cleanup_error:
+                if body_error is None:
+                    raise
+                body_error.add_note(
+                    f"Disposable PostgreSQL cleanup also failed: {cleanup_error}"
+                )
             else:
-                _recover_stale_owned_container(
-                    root,
-                    container_name,
-                    repository_identity,
-                    run=run,
-                )
-        except SafetyError as cleanup_error:
-            if body_error is None:
-                raise
-            body_error.add_note(f"Disposable PostgreSQL cleanup also failed: {cleanup_error}")
-        else:
-            if progress is not None:
-                progress(
-                    {
-                        "phase": "validation-service-cleanup",
-                        "current": "?",
-                        "total": "?",
-                        "detail": "owned disposable PostgreSQL validation database removed",
-                    }
-                )
+                if progress is not None:
+                    progress(
+                        {
+                            "phase": "validation-service-cleanup",
+                            "current": "?",
+                            "total": "?",
+                            "detail": "owned disposable PostgreSQL validation database removed",
+                        }
+                    )
 
 
 @contextmanager

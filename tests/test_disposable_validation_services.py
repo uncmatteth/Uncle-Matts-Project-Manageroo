@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.errors import SafetyError
 from manageroo.validation_services import provision_disposable_validation_environment
@@ -18,11 +19,15 @@ class _DockerFixture:
         *,
         ready: bool = True,
         existing_labels: dict[str, str] | None = None,
+        existing_container_id: str = "b" * 64,
+        started_container_id: str = "a" * 64,
         remove_error: str | None = None,
     ) -> None:
         self.calls: list[list[str]] = []
         self.ready = ready
         self.existing_labels = existing_labels
+        self.existing_container_id = existing_container_id
+        self.started_container_id = started_container_id
         self.remove_error = remove_error
 
     def __call__(
@@ -54,11 +59,29 @@ class _DockerFixture:
             return subprocess.CompletedProcess(
                 argv,
                 0,
-                json.dumps(self.existing_labels) + "\n",
+                json.dumps(
+                    {
+                        "Id": self.existing_container_id,
+                        "Config": {"Labels": self.existing_labels},
+                    }
+                )
+                + "\n",
                 "",
             )
         if argv[:2] == ["docker", "run"]:
-            return subprocess.CompletedProcess(argv, 0, "a" * 64 + "\n", "")
+            if self.existing_labels is not None:
+                return subprocess.CompletedProcess(
+                    argv,
+                    125,
+                    "",
+                    "Conflict. The container name is already in use.",
+                )
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                self.started_container_id + "\n",
+                "",
+            )
         if argv[:2] == ["docker", "port"]:
             return subprocess.CompletedProcess(argv, 0, "127.0.0.1:49152\n", "")
         if argv[:2] == ["docker", "exec"]:
@@ -481,6 +504,57 @@ class DisposableValidationServiceTests(unittest.TestCase):
             }
             self.assertEqual(after, before)
 
+    def test_concurrent_postgres_validations_use_distinct_cleanup_targets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _postgres_repo(Path(temp))
+            first_container_id = "a" * 64
+            second_container_id = "c" * 64
+            first = _DockerFixture(started_container_id=first_container_id)
+            second = _DockerFixture(started_container_id=second_container_id)
+
+            with patch(
+                "manageroo.validation_services.secrets.token_hex",
+                side_effect=["1" * 32, "2" * 32],
+            ):
+                with provision_disposable_validation_environment(
+                    repo,
+                    run=first,
+                    sleep=lambda _seconds: None,
+                ):
+                    with provision_disposable_validation_environment(
+                        repo,
+                        run=second,
+                        sleep=lambda _seconds: None,
+                    ):
+                        first_run = next(
+                            call for call in first.calls if call[:2] == ["docker", "run"]
+                        )
+                        second_run = next(
+                            call for call in second.calls if call[:2] == ["docker", "run"]
+                        )
+                        first_name = first_run[first_run.index("--name") + 1]
+                        second_name = second_run[second_run.index("--name") + 1]
+                        self.assertNotEqual(first_name, second_name)
+                        self.assertFalse(
+                            any(
+                                call[:3] == ["docker", "rm", "-f"]
+                                for call in first.calls + second.calls
+                            )
+                        )
+
+                    self.assertFalse(
+                        any(call[:3] == ["docker", "rm", "-f"] for call in first.calls)
+                    )
+                    self.assertEqual(
+                        [call for call in second.calls if call[:3] == ["docker", "rm", "-f"]],
+                        [["docker", "rm", "-f", second_container_id]],
+                    )
+
+            self.assertEqual(
+                [call for call in first.calls if call[:3] == ["docker", "rm", "-f"]],
+                [["docker", "rm", "-f", first_container_id]],
+            )
+
     def test_cleanup_runs_when_supervised_work_raises(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _postgres_repo(Path(temp))
@@ -499,13 +573,13 @@ class DisposableValidationServiceTests(unittest.TestCase):
                 1,
             )
 
-    def test_malformed_success_stdout_removes_owned_container_by_verified_name(self):
+    def test_malformed_success_stdout_leaves_unproven_container_untouched(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _postgres_repo(Path(temp))
             from manageroo.validation_services import _repository_identity
 
             repository_identity = _repository_identity(repo.resolve())
-            container_name = f"manageroo-validation-postgres-{repository_identity[:16]}"
+            validation_run_identity = "3" * 32
             docker = _DockerFixture()
 
             def malformed_start(
@@ -513,9 +587,13 @@ class DisposableValidationServiceTests(unittest.TestCase):
             ) -> subprocess.CompletedProcess[str]:
                 if argv[:2] == ["docker", "run"]:
                     docker.calls.append(list(argv))
+                    # Another active validation may now own the name with the same
+                    # labels. Malformed startup output did not provide an immutable
+                    # container ID, so cleanup must not inspect or remove by name.
                     docker.existing_labels = {
                         "manageroo.validation-service": "postgresql",
                         "manageroo.repository": repository_identity,
+                        "manageroo.validation-run": validation_run_identity,
                     }
                     return subprocess.CompletedProcess(
                         argv,
@@ -525,27 +603,29 @@ class DisposableValidationServiceTests(unittest.TestCase):
                     )
                 return docker(argv, cwd=cwd, timeout=timeout)
 
-            with self.assertRaisesRegex(
-                SafetyError,
-                "invalid disposable PostgreSQL container ID",
+            with patch(
+                "manageroo.validation_services.secrets.token_hex",
+                return_value=validation_run_identity,
             ):
-                with provision_disposable_validation_environment(
-                    repo,
-                    run=malformed_start,
-                    sleep=lambda _seconds: None,
+                with self.assertRaisesRegex(
+                    SafetyError,
+                    "invalid disposable PostgreSQL container ID",
                 ):
-                    self.fail("malformed Docker stdout must block before the queue")
+                    with provision_disposable_validation_environment(
+                        repo,
+                        run=malformed_start,
+                        sleep=lambda _seconds: None,
+                    ):
+                        self.fail("malformed Docker stdout must block before the queue")
 
-            remove_calls = [
-                call for call in docker.calls if call[:3] == ["docker", "rm", "-f"]
-            ]
-            self.assertEqual(remove_calls, [["docker", "rm", "-f", container_name]])
-            self.assertEqual(
-                sum(
-                    call[:3] == ["docker", "container", "inspect"]
+            self.assertFalse(
+                any(
+                    call[:3] in (
+                        ["docker", "container", "inspect"],
+                        ["docker", "rm", "-f"],
+                    )
                     for call in docker.calls
-                ),
-                2,
+                )
             )
 
     def test_cleanup_failure_is_reported_after_successful_supervised_work(self):
@@ -662,43 +742,36 @@ class DisposableValidationServiceTests(unittest.TestCase):
                 with provision_disposable_validation_environment(repo, run=missing_docker):
                     self.fail("the queue must not start without its required test database")
 
-    def test_exact_stale_owned_container_is_removed_before_replacement(self):
+    def test_exact_run_name_collision_is_never_removed_before_startup(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _postgres_repo(Path(temp))
             from manageroo.validation_services import _repository_identity
 
+            validation_run_identity = "4" * 32
             docker = _DockerFixture(
                 existing_labels={
                     "manageroo.validation-service": "postgresql",
                     "manageroo.repository": _repository_identity(repo.resolve()),
+                    "manageroo.validation-run": validation_run_identity,
                 }
             )
 
-            with provision_disposable_validation_environment(
-                repo,
-                run=docker,
-                sleep=lambda _seconds: None,
-            ):
-                pass
+            with self.assertRaisesRegex(SafetyError, "startup failed with exit code 125"):
+                with patch(
+                    "manageroo.validation_services.secrets.token_hex",
+                    return_value=validation_run_identity,
+                ):
+                    with provision_disposable_validation_environment(
+                        repo,
+                        run=docker,
+                        sleep=lambda _seconds: None,
+                    ):
+                        self.fail("a name collision must block before the queue")
 
-            inspect_index = next(
-                index
-                for index, call in enumerate(docker.calls)
-                if call[:3] == ["docker", "container", "inspect"]
+            self.assertFalse(
+                any(call[:3] == ["docker", "container", "inspect"] for call in docker.calls)
             )
-            remove_indexes = [
-                index
-                for index, call in enumerate(docker.calls)
-                if call[:3] == ["docker", "rm", "-f"]
-            ]
-            run_index = next(
-                index
-                for index, call in enumerate(docker.calls)
-                if call[:2] == ["docker", "run"]
-            )
-            self.assertEqual(len(remove_indexes), 2)
-            self.assertLess(inspect_index, remove_indexes[0])
-            self.assertLess(remove_indexes[0], run_index)
+            self.assertFalse(any(call[:3] == ["docker", "rm", "-f"] for call in docker.calls))
 
     def test_similarly_named_unowned_container_is_never_removed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -710,15 +783,15 @@ class DisposableValidationServiceTests(unittest.TestCase):
                 }
             )
 
-            with self.assertRaisesRegex(
-                SafetyError,
-                "does not carry this repository's exact ownership labels",
-            ):
+            with self.assertRaisesRegex(SafetyError, "startup failed with exit code 125"):
                 with provision_disposable_validation_environment(repo, run=docker):
                     self.fail("an unowned container must block before the queue")
 
+            self.assertFalse(
+                any(call[:3] == ["docker", "container", "inspect"] for call in docker.calls)
+            )
             self.assertFalse(any(call[:3] == ["docker", "rm", "-f"] for call in docker.calls))
-            self.assertFalse(any(call[:2] == ["docker", "run"] for call in docker.calls))
+            self.assertTrue(any(call[:2] == ["docker", "run"] for call in docker.calls))
 
 
 if __name__ == "__main__":
