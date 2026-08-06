@@ -33,12 +33,12 @@ class ArtifactConcurrencyTests(unittest.TestCase):
             release_first = process_context.Event()
             second_entered = process_context.Event()
 
-            def delayed_first_owner_write(path: Path, text: str, *args, **kwargs):
-                if path == lock_path / "owner" and not owner_write_started.is_set():
+            def delayed_first_owner_write(store, directory_fd: int, token: str):
+                if not owner_write_started.is_set():
                     owner_write_started.set()
                     if not resume_owner_write.wait(timeout=5):
                         raise TimeoutError("test did not resume first owner publication")
-                return real_write_text(path, text, *args, **kwargs)
+                return real_write_owner(store, directory_fd, token)
 
             def delayed_reclaim_rename(source, destination, *args, **kwargs):
                 if Path(source) == lock_path and ".reclaimed-" in Path(destination).name:
@@ -48,7 +48,11 @@ class ArtifactConcurrencyTests(unittest.TestCase):
                 return real_rename(source, destination, *args, **kwargs)
 
             def hold_first_lock() -> None:
-                with mock.patch.object(Path, "write_text", new=delayed_first_owner_write):
+                with mock.patch.object(
+                    ArtifactStore,
+                    "_write_owner_at",
+                    new=delayed_first_owner_write,
+                ):
                     with first._transaction_lock():
                         first_entered.set()
                         if not release_first.wait(timeout=5):
@@ -59,7 +63,7 @@ class ArtifactConcurrencyTests(unittest.TestCase):
                     with second._transaction_lock():
                         second_entered.set()
 
-            real_write_text = Path.write_text
+            real_write_owner = ArtifactStore._write_owner_at
             real_rename = os.rename
             first_process = process_context.Process(target=hold_first_lock)
             second_process = process_context.Process(target=acquire_second_lock)
@@ -171,7 +175,7 @@ class ArtifactConcurrencyTests(unittest.TestCase):
             stale_time = time.time() - 10
             os.utime(lock_path, (stale_time, stale_time))
 
-            real_rmtree = shutil.rmtree
+            real_remove_tree = ArtifactStore._remove_tree_at
             removal_guard = process_context.Lock()
             removal_count = process_context.Value("i", 0)
             second_reclaimer_ready = process_context.Event()
@@ -183,17 +187,17 @@ class ArtifactConcurrencyTests(unittest.TestCase):
             active = process_context.Value("i", 0)
             overlap = process_context.Event()
 
-            def coordinated_rmtree(path, *args, **kwargs):
-                if Path(path) != lock_path or race_window_closed.is_set():
-                    return real_rmtree(path, *args, **kwargs)
+            def coordinated_remove_tree(store, parent_fd, name, *args, **kwargs):
+                if name != lock_path.name or race_window_closed.is_set():
+                    return real_remove_tree(store, parent_fd, name, *args, **kwargs)
                 with removal_guard:
                     removal_count.value += 1
                     removal_number = removal_count.value
                 if removal_number == 1:
                     if not second_reclaimer_ready.wait(timeout=0.5):
                         race_window_closed.set()
-                        return real_rmtree(path, *args, **kwargs)
-                    result = real_rmtree(path, *args, **kwargs)
+                        return real_remove_tree(store, parent_fd, name, *args, **kwargs)
+                    result = real_remove_tree(store, parent_fd, name, *args, **kwargs)
                     stale_lock_removed.set()
                     return result
                 if removal_number == 2:
@@ -203,8 +207,8 @@ class ArtifactConcurrencyTests(unittest.TestCase):
                     if not first_critical_section.wait(timeout=5):
                         raise TimeoutError("first contender did not acquire the replacement lock")
                     race_window_closed.set()
-                    return real_rmtree(path, *args, **kwargs)
-                return real_rmtree(path, *args, **kwargs)
+                    return real_remove_tree(store, parent_fd, name, *args, **kwargs)
+                return real_remove_tree(store, parent_fd, name, *args, **kwargs)
 
             def coordinated_write(path: Path, text: str) -> None:
                 with active_guard:
@@ -230,7 +234,11 @@ class ArtifactConcurrencyTests(unittest.TestCase):
                 process_context.Process(target=contender, args=(second, "second.txt")),
             ]
             with (
-                mock.patch("manageroo.artifacts.shutil.rmtree", side_effect=coordinated_rmtree),
+                mock.patch.object(
+                    ArtifactStore,
+                    "_remove_tree_at",
+                    new=coordinated_remove_tree,
+                ),
                 mock.patch(
                     "manageroo.artifacts.atomic_write_text",
                     side_effect=coordinated_write,

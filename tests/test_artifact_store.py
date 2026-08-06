@@ -13,6 +13,33 @@ from manageroo.errors import SafetyError
 
 
 class ArtifactStoreTests(unittest.TestCase):
+    def test_symlinked_transaction_lock_cannot_modify_external_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "artifacts"
+            external = base / "external-lock"
+            reclaim = external / "reclaim"
+            root.mkdir()
+            reclaim.mkdir(parents=True)
+            sentinel = reclaim / "sentinel.txt"
+            sentinel.write_text("external\n", encoding="utf-8")
+            stale_time = 1
+            os.utime(reclaim, (stale_time, stale_time))
+            os.utime(external, (stale_time, stale_time))
+            symlink_or_skip(
+                self,
+                external,
+                root / ".artifact-ledger.lock",
+                target_is_directory=True,
+            )
+
+            with self.assertRaises(SafetyError):
+                ArtifactStore(root)
+
+            self.assertTrue(reclaim.is_dir())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "external\n")
+            self.assertEqual([path.name for path in external.iterdir()], ["reclaim"])
+
     def test_parent_swap_during_creation_never_writes_outside_store(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

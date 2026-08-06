@@ -4,7 +4,6 @@ import errno
 import json
 import os
 import secrets
-import shutil
 import stat
 import tempfile
 import threading
@@ -115,28 +114,94 @@ class ArtifactStore:
                 token = line.split("=", 1)[1].strip()
         return (pid, token) if pid is not None and pid > 0 else None
 
-    @classmethod
-    def _directory_owner(cls, directory: Path) -> tuple[int, str] | None:
+    def _owner_file_at(self, directory_fd: int, name: str) -> tuple[int, str] | None:
         try:
-            lines = (directory / "owner").read_text(encoding="utf-8").splitlines()
+            descriptor = self._open_regular_at(directory_fd, name)
+        except FileNotFoundError:
+            return None
+        try:
+            with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                descriptor = -1
+                return self._owner_from_lines(handle.read().splitlines())
         except OSError:
             return None
-        return cls._owner_from_lines(lines)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
 
-    @classmethod
-    def _claim_owner(cls, claim_path: Path) -> tuple[int, str] | None:
-        if claim_path.is_dir() and not claim_path.is_symlink():
-            return cls._directory_owner(claim_path)
+    def _owner_at(self, directory_fd: int) -> tuple[int, str] | None:
+        return self._owner_file_at(directory_fd, "owner")
+
+    def _write_owner_at(self, directory_fd: int, token: str) -> None:
+        payload = (
+            f"pid={os.getpid()}\ntoken={token}\ncreated_at={utc_now()}\n"
+        ).encode("utf-8")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open("owner", flags, 0o600, dir_fd=directory_fd)
         try:
-            if claim_path.is_symlink() or not claim_path.is_file():
-                return None
-            lines = claim_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            return None
-        return cls._owner_from_lines(lines)
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("Artifact lock owner write made no progress.")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.fsync(directory_fd)
+
+    def _open_lock_directory(self) -> int:
+        return self._open_directory_at(
+            self._root_descriptor,
+            self.lock_path.name,
+            self.lock_path.name,
+        )
 
     def _lock_owner(self) -> tuple[int, str] | None:
-        return self._directory_owner(self.lock_path)
+        try:
+            descriptor = self._open_lock_directory()
+        except FileNotFoundError:
+            return None
+        try:
+            return self._owner_at(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _remove_tree_at(
+        self,
+        parent_fd: int,
+        name: str,
+        *,
+        expected: os.stat_result | None = None,
+    ) -> None:
+        try:
+            state = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        if expected is not None and not self._same_object(expected, state):
+            raise SafetyError(f"Artifact lock path changed during cleanup: {name}")
+        if not stat.S_ISDIR(state.st_mode):
+            os.unlink(name, dir_fd=parent_fd)
+            os.fsync(parent_fd)
+            return
+
+        descriptor = self._open_directory_at(parent_fd, name, name)
+        try:
+            directory_state = os.fstat(descriptor)
+            if not self._same_object(state, directory_state):
+                raise SafetyError(f"Artifact lock path changed during cleanup: {name}")
+            for child in os.listdir(descriptor):
+                child_state = os.stat(child, dir_fd=descriptor, follow_symlinks=False)
+                self._remove_tree_at(descriptor, child, expected=child_state)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if not self._same_object(state, current):
+            raise SafetyError(f"Artifact lock path changed during cleanup: {name}")
+        os.rmdir(name, dir_fd=parent_fd)
+        os.fsync(parent_fd)
 
     @staticmethod
     def _windows_pid_is_live(pid: int) -> bool:
@@ -207,7 +272,11 @@ class ArtifactStore:
 
     def _validate_advisory_lock(self, descriptor: int) -> None:
         descriptor_state = os.fstat(descriptor)
-        path_state = self.advisory_lock_path.lstat()
+        path_state = os.stat(
+            self.advisory_lock_path.name,
+            dir_fd=self._root_descriptor,
+            follow_symlinks=False,
+        )
         reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
         getuid = getattr(os, "getuid", None)
         if (
@@ -234,7 +303,12 @@ class ArtifactStore:
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         try:
-            descriptor = os.open(self.advisory_lock_path, flags, 0o600)
+            descriptor = os.open(
+                self.advisory_lock_path.name,
+                flags,
+                0o600,
+                dir_fd=self._root_descriptor,
+            )
         except OSError as exc:
             raise SafetyError(
                 f"Could not open artifact-store advisory lock: "
@@ -280,106 +354,143 @@ class ArtifactStore:
                 os.close(descriptor)
 
     def _reclaim_abandoned_lock(self) -> bool:
-        owner = self._lock_owner()
-        if owner is not None and self._pid_is_live(owner[0]):
-            return False
-        # Unknown-owner lock directories are reclaimable only after a short age guard,
-        # which avoids stealing one during the tiny mkdir -> owner-write window.
         try:
-            lock_stat = self.lock_path.stat()
-            age = time.time() - lock_stat.st_mtime
+            lock_fd = self._open_lock_directory()
         except FileNotFoundError:
             return True
-        except OSError:
-            return False
-        if owner is None and age < 2.0:
-            return False
-
-        claim_path = self.lock_path / "reclaim"
-        while True:
-            claim_token = secrets.token_hex(16)
-            try:
-                claim_path.mkdir()
-                atomic_write_text(
-                    claim_path / "owner",
-                    (
-                        f"pid={os.getpid()}\ntoken={claim_token}\n"
-                        f"created_at={utc_now()}\n"
-                    ),
-                )
-                break
-            except FileNotFoundError:
-                return True
-            except FileExistsError:
-                if not self._reclaim_abandoned_claim(claim_path):
-                    return False
-            except OSError:
-                return False
-
-        lock_identity = (lock_stat.st_dev, lock_stat.st_ino)
+        lock_state = os.fstat(lock_fd)
+        claim_state: os.stat_result | None = None
+        claim_token = ""
         claimed = False
         try:
-            current_stat = self.lock_path.stat()
-            if (current_stat.st_dev, current_stat.st_ino) != lock_identity:
+            owner = self._owner_at(lock_fd)
+            if owner is not None and self._pid_is_live(owner[0]):
                 return False
-            current_owner = self._lock_owner()
-            if current_owner != owner:
-                return False
-            if current_owner is not None and self._pid_is_live(current_owner[0]):
+            # Unknown-owner lock directories are reclaimable only after a short age
+            # guard, which avoids stealing one during owner publication.
+            if owner is None and time.time() - lock_state.st_mtime < 2.0:
                 return False
 
-            quarantine = self.root / f"{self.lock_path.name}.reclaimed-{secrets.token_hex(16)}"
-            os.rename(self.lock_path, quarantine)
-            claimed = True
-            shutil.rmtree(quarantine, ignore_errors=True)
-            return True
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
-        finally:
-            if not claimed:
+            while True:
+                claim_token = secrets.token_hex(16)
                 try:
-                    current_stat = self.lock_path.stat()
+                    os.mkdir("reclaim", 0o700, dir_fd=lock_fd)
+                except FileExistsError:
+                    if not self._reclaim_abandoned_claim(lock_fd):
+                        return False
+                    continue
+                except FileNotFoundError:
+                    return True
+                claim_fd = self._open_directory_at(lock_fd, "reclaim", "reclaim")
+                try:
+                    claim_state = os.fstat(claim_fd)
+                    self._write_owner_at(claim_fd, claim_token)
+                except BaseException:
+                    self._remove_tree_at(lock_fd, "reclaim", expected=claim_state)
+                    claim_state = None
+                    raise
+                finally:
+                    os.close(claim_fd)
+                break
+
+            try:
+                current_state = os.stat(
+                    self.lock_path.name,
+                    dir_fd=self._root_descriptor,
+                    follow_symlinks=False,
+                )
+                if not self._same_object(lock_state, current_state):
+                    return False
+                current_owner = self._owner_at(lock_fd)
+                if current_owner != owner:
+                    return False
+                if current_owner is not None and self._pid_is_live(current_owner[0]):
+                    return False
+
+                quarantine_name = (
+                    f"{self.lock_path.name}.reclaimed-{secrets.token_hex(16)}"
+                )
+                os.rename(
+                    self.lock_path.name,
+                    quarantine_name,
+                    src_dir_fd=self._root_descriptor,
+                    dst_dir_fd=self._root_descriptor,
+                )
+                claimed = True
+                self._remove_tree_at(
+                    self._root_descriptor,
+                    quarantine_name,
+                    expected=lock_state,
+                )
+                return True
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+        finally:
+            if not claimed and claim_state is not None:
+                try:
+                    current_state = os.stat(
+                        self.lock_path.name,
+                        dir_fd=self._root_descriptor,
+                        follow_symlinks=False,
+                    )
                     if (
-                        (current_stat.st_dev, current_stat.st_ino) == lock_identity
-                        and self._claim_owner(claim_path) == (os.getpid(), claim_token)
+                        self._same_object(lock_state, current_state)
+                        and self._claim_owner_at(lock_fd) == (os.getpid(), claim_token)
                     ):
-                        shutil.rmtree(claim_path)
+                        self._remove_tree_at(lock_fd, "reclaim", expected=claim_state)
                 except OSError:
                     pass
+            os.close(lock_fd)
 
-    def _reclaim_abandoned_claim(self, claim_path: Path) -> bool:
-        owner = self._claim_owner(claim_path)
-        if owner is not None and self._pid_is_live(owner[0]):
-            return False
+    def _claim_owner_at(self, lock_fd: int) -> tuple[int, str] | None:
+        state = os.stat("reclaim", dir_fd=lock_fd, follow_symlinks=False)
+        reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        if stat.S_ISLNK(state.st_mode) or bool(
+            getattr(state, "st_file_attributes", 0) & reparse_point
+        ):
+            raise SafetyError(f"Artifact-store reclaim claim is unsafe: {self.lock_path}")
+        if stat.S_ISDIR(state.st_mode):
+            descriptor = self._open_directory_at(lock_fd, "reclaim", "reclaim")
+            try:
+                return self._owner_at(descriptor)
+            finally:
+                os.close(descriptor)
+        if stat.S_ISREG(state.st_mode):
+            return self._owner_file_at(lock_fd, "reclaim")
+        return None
+
+    def _reclaim_abandoned_claim(self, lock_fd: int) -> bool:
         try:
-            if claim_path.is_symlink() or not (claim_path.is_file() or claim_path.is_dir()):
-                return False
-            claim_stat = claim_path.stat()
-            if owner is None and time.time() - claim_stat.st_mtime < 2.0:
-                return False
+            claim_state = os.stat("reclaim", dir_fd=lock_fd, follow_symlinks=False)
         except FileNotFoundError:
             return True
-        except OSError:
+        owner = self._claim_owner_at(lock_fd)
+        if owner is not None and self._pid_is_live(owner[0]):
+            return False
+        if not (stat.S_ISREG(claim_state.st_mode) or stat.S_ISDIR(claim_state.st_mode)):
+            return False
+        if owner is None and time.time() - claim_state.st_mtime < 2.0:
             return False
 
-        claim_identity = (claim_stat.st_dev, claim_stat.st_ino)
-        quarantine = self.lock_path / f".reclaim-abandoned-{secrets.token_hex(16)}"
+        quarantine_name = f".reclaim-abandoned-{secrets.token_hex(16)}"
         try:
-            current_stat = claim_path.stat()
-            if (current_stat.st_dev, current_stat.st_ino) != claim_identity:
+            current_state = os.stat("reclaim", dir_fd=lock_fd, follow_symlinks=False)
+            if not self._same_object(claim_state, current_state):
                 return False
-            current_owner = self._claim_owner(claim_path)
+            current_owner = self._claim_owner_at(lock_fd)
             if current_owner != owner:
                 return False
             if current_owner is not None and self._pid_is_live(current_owner[0]):
                 return False
-            os.rename(claim_path, quarantine)
-            if quarantine.is_dir():
-                shutil.rmtree(quarantine, ignore_errors=True)
-            else:
-                quarantine.unlink(missing_ok=True)
+            os.rename(
+                "reclaim",
+                quarantine_name,
+                src_dir_fd=lock_fd,
+                dst_dir_fd=lock_fd,
+            )
+            self._remove_tree_at(lock_fd, quarantine_name, expected=claim_state)
             return True
         except FileNotFoundError:
             return True
@@ -393,17 +504,15 @@ class ArtifactStore:
             with self._advisory_transaction_lock(timeout_seconds=timeout_seconds):
                 deadline = time.monotonic() + timeout_seconds
                 acquired = False
-                acquired_identity: tuple[int, int] | None = None
+                acquired_fd: int | None = None
+                acquired_state: os.stat_result | None = None
                 owner_token = secrets.token_hex(16)
                 while not acquired:
                     try:
-                        self.lock_path.mkdir()
-                        acquired = True
-                        lock_stat = self.lock_path.stat()
-                        acquired_identity = (lock_stat.st_dev, lock_stat.st_ino)
-                        (self.lock_path / "owner").write_text(
-                            f"pid={os.getpid()}\ntoken={owner_token}\ncreated_at={utc_now()}\n",
-                            encoding="utf-8",
+                        os.mkdir(
+                            self.lock_path.name,
+                            0o700,
+                            dir_fd=self._root_descriptor,
                         )
                     except FileExistsError:
                         self._reclaim_abandoned_lock()
@@ -413,19 +522,43 @@ class ArtifactStore:
                                 f"{self.lock_path}"
                             )
                         time.sleep(0.05)
+                        continue
                     except OSError as exc:
-                        if acquired and acquired_identity is not None:
+                        raise SafetyError(
+                            "Could not acquire artifact-store transaction lock: "
+                            f"{self.lock_path}: {exc}"
+                        ) from exc
+                    try:
+                        acquired_fd = self._open_lock_directory()
+                        acquired_state = os.fstat(acquired_fd)
+                        self._write_owner_at(acquired_fd, owner_token)
+                        acquired = True
+                    except (OSError, SafetyError) as exc:
+                        if acquired_fd is not None and acquired_state is not None:
                             try:
-                                current_stat = self.lock_path.stat()
-                                current_identity = (current_stat.st_dev, current_stat.st_ino)
-                                current_owner = self._lock_owner()
-                                if current_identity == acquired_identity and current_owner in {
-                                    None,
-                                    (os.getpid(), owner_token),
-                                }:
-                                    shutil.rmtree(self.lock_path, ignore_errors=True)
+                                current_state = os.stat(
+                                    self.lock_path.name,
+                                    dir_fd=self._root_descriptor,
+                                    follow_symlinks=False,
+                                )
+                                current_owner = self._owner_at(acquired_fd)
+                                if (
+                                    self._same_object(acquired_state, current_state)
+                                    and current_owner
+                                    in {None, (os.getpid(), owner_token)}
+                                ):
+                                    self._remove_tree_at(
+                                        self._root_descriptor,
+                                        self.lock_path.name,
+                                        expected=acquired_state,
+                                    )
                             except OSError:
                                 pass
+                            finally:
+                                os.close(acquired_fd)
+                                acquired_fd = None
+                        if isinstance(exc, SafetyError):
+                            raise
                         raise SafetyError(
                             "Could not acquire artifact-store transaction lock: "
                             f"{self.lock_path}: {exc}"
@@ -434,8 +567,22 @@ class ArtifactStore:
                     yield
                 finally:
                     try:
-                        if self._lock_owner() == (os.getpid(), owner_token):
-                            shutil.rmtree(self.lock_path)
+                        if acquired_fd is not None and acquired_state is not None:
+                            current_state = os.stat(
+                                self.lock_path.name,
+                                dir_fd=self._root_descriptor,
+                                follow_symlinks=False,
+                            )
+                            if (
+                                self._same_object(acquired_state, current_state)
+                                and self._owner_at(acquired_fd)
+                                == (os.getpid(), owner_token)
+                            ):
+                                self._remove_tree_at(
+                                    self._root_descriptor,
+                                    self.lock_path.name,
+                                    expected=acquired_state,
+                                )
                     except FileNotFoundError:
                         pass
                     except OSError as exc:
@@ -443,6 +590,9 @@ class ArtifactStore:
                             "Could not release artifact-store transaction lock: "
                             f"{self.lock_path}: {exc}"
                         ) from exc
+                    finally:
+                        if acquired_fd is not None:
+                            os.close(acquired_fd)
 
     def _ledger(self) -> dict:
         try:
