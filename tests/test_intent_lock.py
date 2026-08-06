@@ -555,6 +555,34 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
             report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: Production-ready because the release gate and smoke tests passed."]))
             self.assertTrue(report["ok"], report); self.assertEqual(report["status"], "passed"); self.assertFalse(report["confidence_claims_blocking"]); self.assertTrue(report["warnings"])
 
+    def test_audit_allows_colon_form_confidence_claim_supported_by_locked_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            proof = "Production-ready: release gate passed."
+            capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+            report = audit_compaction_text(
+                repo,
+                f"Intent: Ship the release.\nProof: {proof}",
+            )
+
+            self.assertTrue(report["ok"], report)
+            self.assertFalse(report["confidence_claims_blocking"])
+
+    def test_audit_blocks_negated_colon_form_confidence_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            proof = "Production-ready: release gate did not pass."
+            capture_intent_lock(repo, want="Ship the release.", proof=[proof])
+
+            report = audit_compaction_text(
+                repo,
+                f"Intent: Ship the release.\nProof: {proof}",
+            )
+
+            self.assertFalse(report["ok"], report)
+            self.assertTrue(report["confidence_claims_blocking"])
+
     def test_audit_blocks_confidence_claim_without_matching_locked_proof(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Ship the release.", proof=["The release gate and smoke tests have not run."])

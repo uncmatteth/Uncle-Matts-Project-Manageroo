@@ -84,10 +84,12 @@ def _affirmatively_supports_claim(evidence: str, claim: str) -> bool:
         after = evidence[end:]
         quoted = _inside_quoted_span(evidence, index, end)
         clause_start = max(before.rfind(delimiter) for delimiter in ".!?;:\n") + 1
+        colon_connector = re.match(r"^\s*:", after)
+        boundary_start = colon_connector.end() if colon_connector else 0
         following_boundaries = [
             boundary
             for delimiter in ".!?;:\n"
-            if (boundary := after.find(delimiter)) >= 0
+            if (boundary := after.find(delimiter, boundary_start)) >= 0
         ]
         clause_end = end + (min(following_boundaries) if following_boundaries else len(after))
         clause_prefix = evidence[clause_start:index]
