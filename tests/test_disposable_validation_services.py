@@ -78,6 +78,12 @@ class _DockerFixture:
 def _postgres_repo(root: Path) -> Path:
     repo = root / "repo"
     (repo / "tests").mkdir(parents=True)
+    (repo / "manageroo-validation.toml").write_text(
+        "[postgres]\n"
+        "url_env = 'TEST_DATABASE_URL'\n"
+        "reset_env = 'BTT_ALLOW_DATABASE_RESET'\n",
+        encoding="utf-8",
+    )
     (repo / "docker-compose.yml").write_text(
         "services:\n"
         "  postgres:\n"
@@ -601,6 +607,41 @@ class DisposableValidationServiceTests(unittest.TestCase):
 
             with provision_disposable_validation_environment(repo, run=docker) as child_env:
                 self.assertEqual(child_env, {})
+
+            self.assertEqual(docker.calls, [])
+
+    def test_unconfigured_production_reset_guard_blocks_discovery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _postgres_repo(Path(temp))
+            docker = _DockerFixture()
+            (repo / "tests" / "database.test.mjs").write_text(
+                "const test = process.env.TEST_DATABASE_URL "
+                "&& process.env.BTT_ALLOW_DATABASE_RESET === 'true';\n"
+                "const production = process.env.TEST_DATABASE_URL "
+                "&& process.env.PRODUCTION_ALLOW_DATABASE_RESET === 'true';\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(SafetyError, "unconfigured database reset guard"):
+                with provision_disposable_validation_environment(repo, run=docker):
+                    self.fail("ambiguous reset authorization must block before the queue")
+
+            self.assertEqual(docker.calls, [])
+
+    def test_reset_guard_without_repository_contract_blocks_discovery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _postgres_repo(Path(temp))
+            docker = _DockerFixture()
+            (repo / "manageroo-validation.toml").unlink()
+            (repo / "tests" / "database.test.mjs").write_text(
+                "const enabled = process.env.TEST_DATABASE_URL "
+                "&& process.env.PRODUCTION_ALLOW_DATABASE_RESET === 'true';\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(SafetyError, "explicit manageroo-validation.toml"):
+                with provision_disposable_validation_environment(repo, run=docker):
+                    self.fail("source text alone must never authorize a database reset")
 
             self.assertEqual(docker.calls, [])
 

@@ -32,7 +32,10 @@ _OFFICIAL_POSTGRES_IMAGE = re.compile(
 )
 _IMAGE_LINE = re.compile(r"(?m)^\s*image:\s*['\"]?([^\s#'\"]+)['\"]?\s*(?:#.*)?$")
 _RESET_ENV = re.compile(r"\b([A-Z][A-Z0-9_]*ALLOW_DATABASE_RESET)\b")
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_PRODUCTION_ENV = re.compile(r"(?:^|_)(?:LIVE|PROD|PRODUCTION)(?:_|$)")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
+_VALIDATION_CONTRACT_FILE = "manageroo-validation.toml"
 _MAX_TEST_SOURCE_BYTES = 24 * 1024 * 1024
 _DEFAULT_READY_SECONDS = 90
 _MAX_PYTHON_REQUIREMENTS = 256
@@ -167,7 +170,48 @@ def _test_contract_envs(repo: Path) -> tuple[str, tuple[str, ...]] | None:
             reset_envs.update(local_reset_envs)
     if not found_url or not reset_envs:
         return None
-    return "TEST_DATABASE_URL", tuple(sorted(reset_envs))
+    contract_file = repo / _VALIDATION_CONTRACT_FILE
+    if not contract_file.is_file():
+        raise SafetyError(
+            "Disposable PostgreSQL validation requires an explicit "
+            f"{_VALIDATION_CONTRACT_FILE} reset-variable contract."
+        )
+    if contract_file.is_symlink() or contract_file.resolve().parent != repo.resolve():
+        raise SafetyError("The disposable PostgreSQL validation contract must be a root file.")
+    try:
+        with contract_file.open("rb") as handle:
+            payload = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise SafetyError(
+            "Manageroo could not read the disposable PostgreSQL validation contract."
+        ) from exc
+    postgres = payload.get("postgres")
+    if not isinstance(postgres, dict):
+        raise SafetyError("The disposable PostgreSQL validation contract needs [postgres].")
+    url_env = postgres.get("url_env")
+    reset_env = postgres.get("reset_env")
+    if url_env != "TEST_DATABASE_URL":
+        raise SafetyError(
+            "The disposable PostgreSQL validation contract must use TEST_DATABASE_URL."
+        )
+    if (
+        not isinstance(reset_env, str)
+        or _RESET_ENV.fullmatch(reset_env) is None
+        or _ENV_NAME.fullmatch(reset_env) is None
+        or _PRODUCTION_ENV.search(reset_env)
+    ):
+        raise SafetyError(
+            "The disposable PostgreSQL validation contract has an unsafe reset variable."
+        )
+    unexpected = sorted(reset_envs - {reset_env})
+    if unexpected:
+        raise SafetyError(
+            "Test sources contain an unconfigured database reset guard: "
+            + ", ".join(unexpected)
+        )
+    if reset_env not in reset_envs:
+        return None
+    return url_env, (reset_env,)
 
 
 def _compose_contract(repo: Path) -> PostgresTestContract | None:

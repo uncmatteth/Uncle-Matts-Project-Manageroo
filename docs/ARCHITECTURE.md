@@ -166,18 +166,19 @@ or unbounded dependency declarations and failed dependency or project installs s
 before map/review. The temporary environment is removed after completion, stop,
 failure, or interruption.
 
-The external supervisor may also satisfy one narrowly discovered repository
-service contract: tests that explicitly require
-`TEST_DATABASE_URL` plus an `*_ALLOW_DATABASE_RESET` guard, together with one
-root Compose file declaring one official versioned PostgreSQL image. Manageroo
+The external supervisor may also satisfy one narrowly configured repository
+service contract: bounded tests must use `TEST_DATABASE_URL` plus the single reset
+guard named by root `manageroo-validation.toml` under `[postgres]`, and one root
+Compose file must declare one official versioned PostgreSQL image. Manageroo
 does not start that Compose stack or use its volumes. It creates a separately
 named Docker container with tmpfs database storage, a random password, and one
 random loopback-only port, then passes the URL and reset guard only to child
 ClawPatch processes. Validation services cannot override Manageroo-owned
 sandbox, watchdog, or bypass-fallback policy variables. Repository identity
 labels prove ownership before stale
-container recovery or deletion. An unknown image, ambiguous Compose state,
-missing reset guard, foreign same-named container, or unavailable Docker fails
+container recovery or deletion. A missing or production-looking configured guard,
+any additional reset guard, unknown image, ambiguous Compose state, foreign
+same-named container, or unavailable Docker fails
 closed or leaves automatic provisioning disabled; no existing database is
 reset. Cleanup runs after completion, stop, failure, or interruption and a
 cleanup failure is reported.

@@ -391,9 +391,9 @@ dependency declarations. Only ClawPatch children receive that environment, and
 it is removed without writing dependency state into the project. External checkpoint
 and proof files stay in the Manageroo-owned external-runner state directory
 rather than adding files to the target worktree or its Git metadata. A repository
-whose tests explicitly declare `TEST_DATABASE_URL` plus an
-`*_ALLOW_DATABASE_RESET` guard and one official versioned PostgreSQL Compose
-image gets a separate owned disposable database automatically. It uses tmpfs,
+whose root `manageroo-validation.toml` binds `TEST_DATABASE_URL` to one
+non-production reset guard used by its tests, with one official versioned PostgreSQL
+Compose image, gets a separate owned disposable database automatically. It uses tmpfs,
 a random password, and a random loopback-only port; the repository Compose
 volume and every existing database remain untouched. The terminal shows service
 start, ready, and cleanup, and only ClawPatch children receive its variables.

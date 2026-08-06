@@ -627,6 +627,37 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         )
         self.assertEqual(child["BTT_ALLOW_DATABASE_RESET"], "true")
 
+    @patch.dict(
+        "manageroo.clawpatch_release.os.environ",
+        {
+            "PRODUCTION_DATABASE_URL": "postgresql://production.invalid/live",
+            "SECONDARY_DB_PASSWORD": "do-not-inherit",
+            "PGHOST": "production.invalid",
+            "MYSQL_PWD": "do-not-inherit",
+            "MYSQL_ROOT_PASSWORD": "do-not-inherit",
+            "PRODUCTION_ALLOW_DATABASE_RESET": "true",
+            "SAFE_VALUE": "keep",
+        },
+        clear=True,
+    )
+    def test_database_validation_removes_unrelated_database_credentials(self):
+        child = _release_clawpatch_env(
+            trusted_host_codex_sandbox_bypass=False,
+            child_env_overrides={
+                "TEST_DATABASE_URL": "postgresql://127.0.0.1:49152/test",
+                "BTT_ALLOW_DATABASE_RESET": "true",
+            },
+        )
+
+        self.assertEqual(child["SAFE_VALUE"], "keep")
+        self.assertEqual(child["BTT_ALLOW_DATABASE_RESET"], "true")
+        self.assertNotIn("PRODUCTION_DATABASE_URL", child)
+        self.assertNotIn("SECONDARY_DB_PASSWORD", child)
+        self.assertNotIn("PGHOST", child)
+        self.assertNotIn("MYSQL_PWD", child)
+        self.assertNotIn("MYSQL_ROOT_PASSWORD", child)
+        self.assertNotIn("PRODUCTION_ALLOW_DATABASE_RESET", child)
+
     def test_release_environment_rejects_validation_service_policy_overrides(self):
         for name in (
             "CLAWPATCH_CODEX_SANDBOX",

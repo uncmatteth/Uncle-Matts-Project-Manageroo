@@ -226,11 +226,20 @@ checkpoint and proof files live in the Manageroo-owned external-runner state
 directory, so the command adds nothing to the target worktree or Git metadata.
 
 The external supervisor can provision one strict disposable validation service
-without changing that ownership boundary. If bounded test/spec source explicitly
-uses `TEST_DATABASE_URL` and an `*_ALLOW_DATABASE_RESET` guard, and exactly one
-root Compose file declares exactly one official versioned PostgreSQL image,
+without changing that ownership boundary. Root `manageroo-validation.toml` must
+bind `TEST_DATABASE_URL` to one non-production reset guard used by bounded
+test/spec source, and exactly one root Compose file must declare one official versioned PostgreSQL image.
+The contract is explicit rather than inferred from test text:
+
+```toml
+[postgres]
+url_env = "TEST_DATABASE_URL"
+reset_env = "APP_ALLOW_DATABASE_RESET"
+```
+
 Manageroo verifies the resolved Compose image and starts a separate Docker
-container. The container uses tmpfs instead of project volumes, a random
+Manageroo rejects other reset guards and removes unrelated ambient database
+credentials from validation children. The container uses tmpfs instead of project volumes, a random
 password, a random loopback-only port, and deterministic repository ownership
 labels. Only ClawPatch children receive the test URL and reset flag. Manageroo
 never launches the repository Compose stack, never connects to an existing

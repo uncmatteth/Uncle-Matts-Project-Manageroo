@@ -43,9 +43,9 @@ revalidation if read-only and workspace-write validation both remain uncertain.
 The source fingerprint guard remains active, and a finding still uncertain after
 that bounded sequence is a real blocker.
 Its automatic service support is intentionally limited to one disposable
-PostgreSQL convention: bounded test/spec source must explicitly use
-`TEST_DATABASE_URL` and an `*_ALLOW_DATABASE_RESET` guard, exactly one root
-Compose file must identify one official versioned PostgreSQL image, and Docker
+PostgreSQL convention: root `manageroo-validation.toml` must bind
+`TEST_DATABASE_URL` to one non-production reset guard used by bounded test/spec
+source, exactly one root Compose file must identify one official versioned PostgreSQL image, and Docker
 must be available. The service is a separate tmpfs-backed loopback container;
 Manageroo does not start arbitrary Compose services, provision other databases,
 infer test commands, reuse project volumes, or connect to an existing database.

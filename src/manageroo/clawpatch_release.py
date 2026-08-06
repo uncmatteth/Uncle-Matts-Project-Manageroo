@@ -46,6 +46,15 @@ LIFECYCLE = (
 )
 _FINDING_ID = re.compile(r"^fnd_[A-Za-z0-9_.-]+$")
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DATABASE_CREDENTIAL_ENV = re.compile(
+    r"(?:^|_)(?:DATABASE|DB|MARIADB|MONGODB?|MSSQL|MYSQL|POSTGRESQL?|REDIS|SQLSERVER)_"
+    r"(?:[A-Z0-9]+_)*"
+    r"(?:CONNECTION_STRING|CREDENTIALS?|HOST|NAME|PASS|PASSWORD|"
+    r"PORT|PWD|URI|URL|USER|USERNAME)$"
+    r"|^PG(?:DATABASE|HOST|HOSTADDR|PASSFILE|PASSWORD|PORT|SERVICE|SERVICEFILE|USER)$"
+    r"|ALLOW_DATABASE_RESET$",
+    re.IGNORECASE,
+)
 _CLAWPATCH_POLICY_ENV_NAMES = frozenset(
     {
         "CLAWPATCH_CODEX_SANDBOX",
@@ -104,6 +113,11 @@ def _release_clawpatch_env(
     if child_timeout_seconds < 60:
         raise SafetyError("Clawpatch child timeout must be at least 60 seconds.")
     child_env = dict(os.environ)
+    overrides = child_env_overrides or {}
+    if "TEST_DATABASE_URL" in overrides:
+        for name in tuple(child_env):
+            if _DATABASE_CREDENTIAL_ENV.search(name):
+                child_env.pop(name, None)
     child_env["CLAWPATCH_CODEX_TIMEOUT_MS"] = str(child_timeout_seconds * 1_000)
     child_env["MANAGEROO_CLAWPATCH_CHILD_TIMEOUT_SECONDS"] = str(child_timeout_seconds)
     child_env.pop("MANAGEROO_CLAWPATCH_ALLOW_BYPASS_FALLBACK", None)
@@ -112,7 +126,7 @@ def _release_clawpatch_env(
         child_env["CLAWPATCH_CODEX_SANDBOX"] = "bypass"
     elif allow_sandbox_bypass_fallback:
         child_env["MANAGEROO_CLAWPATCH_ALLOW_BYPASS_FALLBACK"] = "1"
-    for name, value in (child_env_overrides or {}).items():
+    for name, value in overrides.items():
         if not _ENV_NAME.fullmatch(name) or "\x00" in value:
             raise SafetyError("Manageroo received an invalid validation-service environment value.")
         if name.upper() in _CLAWPATCH_POLICY_ENV_NAMES:
