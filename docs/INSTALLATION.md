@@ -87,20 +87,24 @@ Manageroo installs a small portable core by default:
 2. `use-installed-skills-first`
 3. `skill-vetter`
 4. `pimp-my-prompt`
-5. `to-prd`
-6. `to-issues`
-7. `grill-me`
-8. `grill-with-docs`
-9. `diagnose`
-10. `tdd`
-11. `testing`
-12. `security-review`
-13. `handoff`
-14. `write-a-skill`
-15. `edit-skill`
-16. `skillify`
-17. `caveman`
-18. `uncle-matts-caveman-curse`
+5. `setup-matt-pocock-skills`
+6. `to-spec`
+7. `to-tickets`
+8. `grill-me`
+9. `grilling`
+10. `grill-with-docs`
+11. `domain-modeling`
+12. `codebase-design`
+13. `diagnosing-bugs`
+14. `tdd`
+15. `testing`
+16. `security-review`
+17. `handoff`
+18. `writing-for-agents`
+19. `edit-skill`
+20. `skillify`
+21. `caveman`
+22. `uncle-matts-caveman-curse`
 
 The repository may ship additional optional skill assets, but they are not Manageroo-owned default dependencies.
 

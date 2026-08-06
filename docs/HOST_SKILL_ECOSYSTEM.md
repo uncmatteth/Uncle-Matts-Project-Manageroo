@@ -44,7 +44,7 @@ These skills stay host-owned unless explicitly imported through a reviewed insta
 
 ### Engineering and orchestration
 
-The surveyed environments also contained useful skills such as `autoreview`, `codebase-design`, `decision-mapping`, `diagnosing-bugs`, `domain-modeling`, `handoff`, `implement`, `qa`, `review`, `tdd`, `triage`, `request-refactor-plan`, `to-prd`, and `to-issues`.
+The surveyed environments also contained useful skills such as `autoreview`, `codebase-design`, `decision-mapping`, `diagnosing-bugs`, `domain-modeling`, `handoff`, `implement`, `qa`, `review`, `tdd`, `triage`, `request-refactor-plan`, `to-spec`, and `to-tickets`.
 
 ### Retrieval and writing
 
@@ -77,7 +77,7 @@ skill-selection prompt is shown to the operator.
 
 Ordinary mentions participate in automatic matching; they are not treated as
 hard requirements. Explicit fail-closed handling is reserved for recognizable
-invocation syntax such as `use $diagnose` or a hyphenated `$skill-name`, so shell
+invocation syntax such as `use $diagnosing-bugs` or a hyphenated `$skill-name`, so shell
 variables and template placeholders remain ordinary task text. Unknown explicit
 skill invocations block before launch instead of disappearing silently.
 

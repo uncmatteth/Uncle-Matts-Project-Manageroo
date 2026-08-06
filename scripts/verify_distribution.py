@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
 EXPECTED_VERSION = str(PROJECT["version"])
-EXPECTED_CORE_SKILLS = 18
+EXPECTED_CORE_SKILLS = 22
 EXPECTED_OPTIONAL_SKILLS = 32
 EXPECTED_TOTAL_SKILLS = EXPECTED_CORE_SKILLS + EXPECTED_OPTIONAL_SKILLS
 

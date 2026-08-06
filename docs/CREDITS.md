@@ -50,6 +50,10 @@ Together they are the local-agent super team: skills shape the ask, loops define
 
 Manageroo's contribution is the controller above those pieces: the layer that owns the mission, durable run state, decisions, boundaries, verification, evidence, and definition of done.
 
+## Matt Pocock Skills
+
+Manageroo bundles a reviewed subset of [mattpocock/skills](https://github.com/mattpocock/skills), imported from version 1.2.2 at commit `8b36d4fb2635b3c21998dcd8144439c9e5ba7302`. Each imported skill carries its upstream path, commit, and MIT license in `SOURCE.md` and `LICENSE.txt`.
+
 ## OpenClaw License Note
 
 The public OpenClaw core repository and official docs identify OpenClaw as MIT licensed. MIT means the public code can be used, copied, changed, and shared under the license terms.

@@ -30,7 +30,7 @@ If not, make a small script or write normal docs instead.
 ## Workflow
 
 1. Audit the raw workflow: job, trigger phrases, inputs, outputs, proof.
-2. Create or update the skill using `$write-a-skill`.
+2. Create or update the skill using `$writing-for-agents` as the writing and skill-mechanics reference.
 3. Tighten it with `$edit-skill`.
 4. Run the smallest useful proof: validation, script test, or realistic dry run.
 5. Report what is ready, what is partial, and what still needs real-world testing.

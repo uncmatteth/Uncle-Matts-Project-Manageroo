@@ -80,17 +80,21 @@ BUNDLED_SKILL_LIBRARY = {
     "perplexity-research": "skills/perplexity-research/SKILL.md",
     "repo-architecture": "skills/repo-architecture/SKILL.md",
     "find-skills": "skills/find-skills/SKILL.md",
-    "write-a-skill": "skills/write-a-skill/SKILL.md",
+    "writing-for-agents": "skills/writing-for-agents/SKILL.md",
     "edit-skill": "skills/edit-skill/SKILL.md",
     "skillify": "skills/skillify/SKILL.md",
     "skillpack-check": "skills/skillpack-check/SKILL.md",
     "handoff": "skills/handoff/SKILL.md",
-    "to-prd": "skills/to-prd/SKILL.md",
-    "to-issues": "skills/to-issues/SKILL.md",
+    "setup-matt-pocock-skills": "skills/setup-matt-pocock-skills/SKILL.md",
+    "to-spec": "skills/to-spec/SKILL.md",
+    "to-tickets": "skills/to-tickets/SKILL.md",
     "grill-me": "skills/grill-me/SKILL.md",
+    "grilling": "skills/grilling/SKILL.md",
     "grill-with-docs": "skills/grill-with-docs/SKILL.md",
+    "domain-modeling": "skills/domain-modeling/SKILL.md",
+    "codebase-design": "skills/codebase-design/SKILL.md",
     "functional-area-resolver": "skills/functional-area-resolver/SKILL.md",
-    "diagnose": "skills/diagnose/SKILL.md",
+    "diagnosing-bugs": "skills/diagnosing-bugs/SKILL.md",
     "tdd": "skills/tdd/SKILL.md",
     "testing": "skills/testing/SKILL.md",
     "improve-codebase-architecture": "skills/improve-codebase-architecture/SKILL.md",
@@ -114,16 +118,20 @@ CORE_SKILL_NAMES = (
     "use-installed-skills-first",
     "skill-vetter",
     "pimp-my-prompt",
-    "to-prd",
-    "to-issues",
+    "setup-matt-pocock-skills",
+    "to-spec",
+    "to-tickets",
     "grill-me",
+    "grilling",
     "grill-with-docs",
-    "diagnose",
+    "domain-modeling",
+    "codebase-design",
+    "diagnosing-bugs",
     "tdd",
     "testing",
     "security-review",
     "handoff",
-    "write-a-skill",
+    "writing-for-agents",
     "edit-skill",
     "skillify",
     "caveman",
@@ -135,6 +143,13 @@ OPTIONAL_SKILL_PACK = {
 }
 RECOMMENDED_SKILL_PACK = CORE_SKILL_PACK
 CORE_HELPER_SKILLS = CORE_SKILL_PACK
+
+RETIRED_CORE_SKILL_NAMES = (
+    "to-prd",
+    "to-issues",
+    "diagnose",
+    "write-a-skill",
+)
 
 MAX_OWNED_SKILL_TREE_BYTES = 2_000_000
 MAX_OWNED_SKILL_TREE_FILES = 128
@@ -637,6 +652,7 @@ def _install_skill_pack_transactionally(
     *,
     search_roots: list[Path],
     ownership_path: Path,
+    retired_skill_names: tuple[str, ...] = (),
     finalize: Callable[[dict[str, str]], None] | None = None,
 ) -> dict[str, str]:
     unresolved_root = root.expanduser()
@@ -650,12 +666,46 @@ def _install_skill_pack_transactionally(
         transaction = Path(tempfile.mkdtemp(prefix=".manageroo-skill-transaction-", dir=root_real))
         snapshots = transaction / "snapshots"
         snapshots.mkdir()
+        retired_root = transaction / "retired"
+        retired_root.mkdir()
         absent: set[str] = set()
         snapshotted: set[str] = set()
         written: dict[str, tuple[int, int, str]] = {}
+        retired: dict[str, tuple[Path, tuple[int, int, str]]] = {}
         ownership_written = False
         ownership_written_bytes: bytes | None = None
         try:
+            ownership_skills = ownership.setdefault("skills", {})
+            for skill_name in retired_skill_names:
+                skill_dir = root_real / skill_name
+                ownership_key = str(skill_dir.resolve(strict=False))
+                if skill_dir.is_symlink() or not skill_dir.is_dir():
+                    ownership_skills.pop(ownership_key, None)
+                    continue
+                skill_file = skill_dir / "SKILL.md"
+                if skill_file.is_symlink() or not skill_file.is_file():
+                    ownership_skills.pop(ownership_key, None)
+                    continue
+                current_identity = _tree_identity(skill_dir)
+                if not _is_manageroo_owned(
+                    skill_dir,
+                    skill_name,
+                    ownership,
+                    current_identity[2],
+                ):
+                    ownership_skills.pop(ownership_key, None)
+                    continue
+                if not _same_tree_identity(skill_dir, current_identity):
+                    raise RuntimeError(f"Skill tree changed during retirement: {skill_dir}")
+                moved = retired_root / skill_name
+                skill_dir.rename(moved)
+                if not _same_tree_identity(moved, current_identity):
+                    if not skill_dir.exists():
+                        moved.rename(skill_dir)
+                    raise RuntimeError(f"Skill tree changed during retirement: {skill_dir}")
+                retired[skill_name] = (moved, current_identity)
+                ownership_skills.pop(ownership_key, None)
+
             for _, skill_name, asset in items:
                 skill_dir = unresolved_root / skill_name
                 if not skill_dir.exists():
@@ -703,6 +753,17 @@ def _install_skill_pack_transactionally(
                     destination_dir = unresolved_root / skill_name
                     if _same_tree_identity(destination_dir, written.get(skill_name)):
                         shutil.rmtree(destination_dir)
+                for skill_name, (moved, _) in retired.items():
+                    if not moved.exists():
+                        continue
+                    destination_dir = root_real / skill_name
+                    if not destination_dir.exists():
+                        moved.rename(destination_dir)
+                        continue
+                    recovery = root_real / (
+                        f".{skill_name}.manageroo-retired-recovery-{os.urandom(6).hex()}"
+                    )
+                    moved.rename(recovery)
             finally:
                 if ownership_written and ownership_written_bytes is not None:
                     _restore_file_bytes_if_matches(
@@ -734,6 +795,7 @@ def install_core_helper_skills(
         [(skill_name, skill_name, asset) for skill_name, asset in CORE_SKILL_PACK.items()],
         search_roots=roots,
         ownership_path=state_path,
+        retired_skill_names=RETIRED_CORE_SKILL_NAMES,
     )
 
 

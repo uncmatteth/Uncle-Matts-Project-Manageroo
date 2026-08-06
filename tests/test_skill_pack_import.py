@@ -67,7 +67,7 @@ class SkillPackImportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / "skills"
             report = reconcile_skill_pack(skills_dir=target, apply=True, scan_default_roots=False)
-            self.assertTrue(report["ok"]); self.assertTrue(report["applied"]); self.assertEqual(report["missing_bundled"], []); self.assertEqual(report["bundled_skill_count"], len(CORE_HELPER_SKILLS)); self.assertEqual(report["bundled_skill_count"], 18); self.assertTrue((target / "pimp-my-prompt" / "SKILL.md").exists()); self.assertTrue((target / "uncle-matts-project-manageroo" / "SKILL.md").exists()); self.assertFalse((target / "playwright" / "SKILL.md").exists())
+            self.assertTrue(report["ok"]); self.assertTrue(report["applied"]); self.assertEqual(report["missing_bundled"], []); self.assertEqual(report["bundled_skill_count"], len(CORE_HELPER_SKILLS)); self.assertEqual(report["bundled_skill_count"], 22); self.assertTrue((target / "pimp-my-prompt" / "SKILL.md").exists()); self.assertTrue((target / "uncle-matts-project-manageroo" / "SKILL.md").exists()); self.assertFalse((target / "playwright" / "SKILL.md").exists())
 
     def test_reconcile_reports_duplicate_skill_names_across_roots(self):
         with tempfile.TemporaryDirectory() as temp:

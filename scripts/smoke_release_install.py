@@ -19,7 +19,7 @@ EXPECTED_VERSION = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encodin
 VERSION_TAG = f"v{EXPECTED_VERSION}"
 ARCHIVE_NAME = f"uncle-matts-project-manageroo-{VERSION_TAG}.zip"
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-EXPECTED_SKILL_COUNT = 18
+EXPECTED_SKILL_COUNT = 22
 
 
 def run(

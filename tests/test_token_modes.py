@@ -117,8 +117,8 @@ class TokenModeTests(unittest.TestCase):
 
             self.assertEqual(lock.read_text(encoding="utf-8"), "existing user data\n")
 
-    def test_public_token_mode_apis_import_and_core_is_18_skills(self):
-        self.assertEqual(len(CORE_HELPER_SKILLS), 18)
+    def test_public_token_mode_apis_import_and_core_is_22_skills(self):
+        self.assertEqual(len(CORE_HELPER_SKILLS), 22)
         self.assertIn("skill-vetter", CORE_HELPER_SKILLS)
         self.assertIn("uncle-matts-project-manageroo", CORE_HELPER_SKILLS)
 
@@ -127,7 +127,7 @@ class TokenModeTests(unittest.TestCase):
             root = Path(temp)
             installed = install_core_helper_skills(root)
             self.assertEqual(set(installed), set(CORE_HELPER_SKILLS))
-            self.assertEqual(len(installed), 18)
+            self.assertEqual(len(installed), 22)
             for name in CORE_HELPER_SKILLS:
                 self.assertTrue((root / name / "SKILL.md").is_file(), name)
             self.assertFalse((root / "brain-ops" / "SKILL.md").exists())
@@ -136,6 +136,115 @@ class TokenModeTests(unittest.TestCase):
             self.assertIn("Do not load the whole pack for every job", controller)
             self.assertIn("Route only to relevant helpers", controller)
             self.assertIn("use-installed-skills-first", controller)
+
+    def test_core_upgrade_retires_only_unchanged_manageroo_owned_old_skill_names(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            skills = base / "skills"
+            ownership = base / "ownership.json"
+            retired = skills / "diagnose"
+            retired.mkdir(parents=True)
+            (retired / "SKILL.md").write_text("old manageroo diagnose\n", encoding="utf-8")
+            ownership.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "skills": {
+                            str(retired.resolve()): {
+                                "name": "diagnose",
+                                "tree_sha256": _skill_tree_sha256(retired),
+                                "tree_hash_version": 2,
+                            }
+                        },
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            install_core_helper_skills(skills, ownership_path=ownership)
+
+            self.assertFalse(retired.exists())
+            self.assertTrue((skills / "diagnosing-bugs" / "SKILL.md").is_file())
+            ledger = json.loads(ownership.read_text(encoding="utf-8"))
+            self.assertNotIn(str(retired.resolve()), ledger["skills"])
+
+    def test_core_upgrade_preserves_user_edited_retired_skill_and_revokes_ownership(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            skills = base / "skills"
+            ownership = base / "ownership.json"
+            retired = skills / "diagnose"
+            retired.mkdir(parents=True)
+            skill_file = retired / "SKILL.md"
+            skill_file.write_text("old manageroo diagnose\n", encoding="utf-8")
+            recorded_digest = _skill_tree_sha256(retired)
+            skill_file.write_text("user edited diagnose\n", encoding="utf-8")
+            ownership.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "skills": {
+                            str(retired.resolve()): {
+                                "name": "diagnose",
+                                "tree_sha256": recorded_digest,
+                                "tree_hash_version": 2,
+                            }
+                        },
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            install_core_helper_skills(skills, ownership_path=ownership)
+
+            self.assertEqual(skill_file.read_text(encoding="utf-8"), "user edited diagnose\n")
+            ledger = json.loads(ownership.read_text(encoding="utf-8"))
+            self.assertNotIn(str(retired.resolve()), ledger["skills"])
+
+    def test_core_upgrade_rolls_retired_skill_back_when_install_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            skills = base / "skills"
+            ownership = base / "ownership.json"
+            retired = skills / "diagnose"
+            retired.mkdir(parents=True)
+            skill_file = retired / "SKILL.md"
+            skill_file.write_text("old manageroo diagnose\n", encoding="utf-8")
+            ownership.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "skills": {
+                            str(retired.resolve()): {
+                                "name": "diagnose",
+                                "tree_sha256": _skill_tree_sha256(retired),
+                                "tree_hash_version": 2,
+                            }
+                        },
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            ownership_before = ownership.read_bytes()
+
+            with patch(
+                "manageroo.token_modes._install_bundled_skill",
+                side_effect=OSError("injected install failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "install failure"):
+                    install_core_helper_skills(skills, ownership_path=ownership)
+
+            self.assertEqual(skill_file.read_text(encoding="utf-8"), "old manageroo diagnose\n")
+            self.assertEqual(ownership.read_bytes(), ownership_before)
 
     def test_installs_bundled_caveman_skills(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -262,9 +371,9 @@ class TokenModeTests(unittest.TestCase):
             base = Path(temp)
             target_root = base / ".agents" / "skills"
             existing_root = base / ".codex" / "skills"
-            existing = existing_root / "diagnose" / "SKILL.md"
+            existing = existing_root / "diagnosing-bugs" / "SKILL.md"
             existing.parent.mkdir(parents=True)
-            existing.write_text("existing diagnose skill\n", encoding="utf-8")
+            existing.write_text("existing diagnosing-bugs skill\n", encoding="utf-8")
 
             installed = install_core_helper_skills(
                 target_root,
@@ -272,8 +381,8 @@ class TokenModeTests(unittest.TestCase):
                 ownership_path=base / "ownership.json",
             )
 
-            self.assertEqual(installed["diagnose"], str(existing.resolve()))
-            self.assertFalse((target_root / "diagnose").exists())
+            self.assertEqual(installed["diagnosing-bugs"], str(existing.resolve()))
+            self.assertFalse((target_root / "diagnosing-bugs").exists())
 
     def test_user_edit_to_manageroo_installed_skill_is_preserved_on_reinstall(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -281,12 +390,12 @@ class TokenModeTests(unittest.TestCase):
             skills = base / "skills"
             ownership = base / "ownership.json"
             install_core_helper_skills(skills, ownership_path=ownership)
-            target = skills / "diagnose" / "SKILL.md"
-            target.write_text("user customized diagnose\n", encoding="utf-8")
+            target = skills / "diagnosing-bugs" / "SKILL.md"
+            target.write_text("user customized diagnosing-bugs\n", encoding="utf-8")
 
             install_core_helper_skills(skills, ownership_path=ownership)
 
-            self.assertEqual(target.read_text(encoding="utf-8"), "user customized diagnose\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "user customized diagnosing-bugs\n")
             self.assertEqual(list(target.parent.glob("*.manageroo-backup-*")), [])
 
     def test_concurrent_edit_during_owned_skill_replacement_is_preserved(self):
@@ -295,8 +404,8 @@ class TokenModeTests(unittest.TestCase):
             skills = base / "skills"
             ownership = base / "ownership.json"
             install_core_helper_skills(skills, ownership_path=ownership)
-            target = skills / "diagnose" / "SKILL.md"
-            target.write_text("previous manageroo diagnose\n", encoding="utf-8")
+            target = skills / "diagnosing-bugs" / "SKILL.md"
+            target.write_text("previous manageroo diagnosing-bugs\n", encoding="utf-8")
             ownership_data = json.loads(ownership.read_text(encoding="utf-8"))
             ownership_data["skills"][str(target.parent.resolve())]["tree_sha256"] = (
                 _skill_tree_sha256(target.parent)
@@ -341,7 +450,7 @@ class TokenModeTests(unittest.TestCase):
             install_core_helper_skills(skills, ownership_path=ownership)
 
             payload = json.loads(ownership.read_text(encoding="utf-8"))
-            diagnose_key = str((skills / "diagnose").resolve())
+            diagnose_key = str((skills / "diagnosing-bugs").resolve())
             self.assertIn(diagnose_key, payload["skills"])
 
     def test_midpack_failure_rolls_back_all_new_skill_trees(self):
@@ -417,7 +526,7 @@ class TokenModeTests(unittest.TestCase):
             outside.mkdir()
             (outside / "SKILL.md").write_text("unsafe external copy\n", encoding="utf-8")
             search_root.mkdir()
-            (search_root / "diagnose").symlink_to(outside, target_is_directory=True)
+            (search_root / "diagnosing-bugs").symlink_to(outside, target_is_directory=True)
 
             installed = install_core_helper_skills(
                 target_root,
@@ -425,8 +534,8 @@ class TokenModeTests(unittest.TestCase):
                 ownership_path=base / "ownership.json",
             )
 
-            self.assertEqual(Path(installed["diagnose"]), (target_root / "diagnose" / "SKILL.md").resolve())
-            self.assertFalse((target_root / "diagnose").is_symlink())
+            self.assertEqual(Path(installed["diagnosing-bugs"]), (target_root / "diagnosing-bugs" / "SKILL.md").resolve())
+            self.assertFalse((target_root / "diagnosing-bugs").is_symlink())
 
     def test_skill_tree_digest_includes_directory_structure_and_counts(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -458,9 +567,9 @@ class TokenModeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             skills = base / "skills"
-            target = skills / "diagnose"
+            target = skills / "diagnosing-bugs"
             target.mkdir(parents=True)
-            (target / "SKILL.md").write_text("custom diagnose\n", encoding="utf-8")
+            (target / "SKILL.md").write_text("custom diagnosing-bugs\n", encoding="utf-8")
             for index in range(130):
                 (target / f"file-{index}.txt").write_text("x", encoding="utf-8")
 
@@ -470,7 +579,7 @@ class TokenModeTests(unittest.TestCase):
                     ownership_path=base / "ownership.json",
                 )
 
-            self.assertEqual((target / "SKILL.md").read_text(encoding="utf-8"), "custom diagnose\n")
+            self.assertEqual((target / "SKILL.md").read_text(encoding="utf-8"), "custom diagnosing-bugs\n")
 
     def test_refuses_to_overwrite_symlinked_skill_file(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -26,7 +26,7 @@ MANAGEROO does not attempt to replace those systems. Its distinct role is the op
 
 - one product intake;
 - rough request cleanup through the bundled `pimp-my-prompt` skill;
-- reusable skill creation through the bundled `write-a-skill` and `skillify` skills;
+- reusable agent-instruction and skill creation through the bundled `writing-for-agents` and `skillify` skills;
 - externalized durable state;
 - reversible decision defaults;
 - reuse gate;

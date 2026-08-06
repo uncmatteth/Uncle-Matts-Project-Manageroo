@@ -18,11 +18,12 @@ Before doing work:
 Manageroo core defaults:
 
 - Use `pimp-my-prompt` when rough operator intent needs to become exact scope and proof.
-- Use `to-prd`, `grill-me`, or `grill-with-docs` when product requirements need pressure before implementation.
-- Use `diagnose` before changing code when the failure is not understood.
+- Use `setup-matt-pocock-skills` once per repo before `to-spec` or `to-tickets` needs tracker configuration.
+- Use `to-spec`, `to-tickets`, `grill-me`, or `grill-with-docs` when product requirements need pressure before implementation.
+- Use `diagnosing-bugs` before changing code when the failure is not understood.
 - Use `tdd`, `testing`, and `security-review` when executable or security proof is relevant.
 - Use `handoff` for durable continuation context.
-- Use `write-a-skill`, `edit-skill`, and `skillify` only when the task is actually about reusable skill behavior.
+- Use `writing-for-agents`, `edit-skill`, and `skillify` only when the task is actually about reusable agent instructions or skill behavior.
 
 Host integration:
 

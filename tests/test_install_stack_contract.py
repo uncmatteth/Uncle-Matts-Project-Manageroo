@@ -21,7 +21,7 @@ class InstallStackContractTests(unittest.TestCase):
         self.assertIn('record["configured"] = configured', finalizer)
         self.assertIn('lock["stack_summary"] = summarize_external_tools', finalizer)
 
-    def test_public_docs_match_portable_boundary_and_exact_18_skill_core(self):
+    def test_public_docs_match_portable_boundary_and_exact_22_skill_core(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         installation = (ROOT / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
         public = readme + "\n" + installation
@@ -31,7 +31,7 @@ class InstallStackContractTests(unittest.TestCase):
         self.assertIn("docs/HOST_SKILL_ECOSYSTEM.md", readme)
 
         expected = list(CORE_SKILL_NAMES)
-        self.assertEqual(len(expected), 18)
+        self.assertEqual(len(expected), 22)
         self.assertEqual(len(expected), len(set(expected)))
         for index, skill in enumerate(expected, 1):
             with self.subTest(skill=skill):
@@ -41,9 +41,9 @@ class InstallStackContractTests(unittest.TestCase):
 
         for text in (readme, installation):
             numbered = re.findall(r"(?m)^\s*(\d+)\. `([^`]+)`\s*$", text)
-            core_block = [name for number, name in numbered if 1 <= int(number) <= 18]
-            self.assertGreaterEqual(len(core_block), 18)
-            self.assertEqual(core_block[:18], expected)
+            core_block = [name for number, name in numbered if 1 <= int(number) <= 22]
+            self.assertGreaterEqual(len(core_block), 22)
+            self.assertEqual(core_block[:22], expected)
 
     def test_gitnexus_is_documented_as_first_class_but_non_authoritative(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

@@ -66,19 +66,20 @@ Do not invent selections or bypass explicit choices.
 
 ## Core skill routing
 
-Manageroo owns a small portable 18-skill core. Do not load the whole pack for every job. Route only to relevant helpers.
+Manageroo owns a small portable 22-skill core. Do not load the whole pack for every job. Route only to relevant helpers.
 
 - Manageroo-controlled workers receive automatic capability capsules. Do not ask the operator to choose or remember skills.
 - Outside a Manageroo-controlled run, use `$use-installed-skills-first` before non-trivial local work when the host supports skills.
 - Use `$skill-vetter` before adopting or installing third-party skills from external sources.
 - Use `$pimp-my-prompt` when a rough or overloaded request needs exact scope, acceptance criteria, proof, and stop rules.
-- Use `$to-prd`, `$to-issues`, `$grill-me`, or `$grill-with-docs` for product definition, issue breakdown, and requirement pressure.
-- Use `$diagnose` before editing when something is broken, flaky, slow, or confusing.
+- Use `$setup-matt-pocock-skills` once per repo before the tracker-aware engineering flow.
+- Use `$to-spec`, `$to-tickets`, `$grill-me`, or `$grill-with-docs` for product definition, ticket breakdown, and requirement pressure.
+- Use `$diagnosing-bugs` before editing when something is broken, flaky, slow, or confusing.
 - Use `$tdd` for behavior that should be protected by tests.
 - Use `$testing` for broader test-suite and conformance work.
 - Use `$security-review` for auth, secrets, deployments, custody, data loss, public readiness claims, and production-risk review.
 - Use `$handoff` when a fresh agent needs to continue from durable evidence rather than chat memory.
-- Use `$write-a-skill`, `$edit-skill`, and `$skillify` for reusable workflow creation and cleanup.
+- Use `$writing-for-agents`, `$edit-skill`, and `$skillify` for reusable agent instructions and skill cleanup.
 - Use `$caveman` or `$uncle-matts-caveman-curse` only when the selected token mode or user explicitly asks for token reduction.
 
 ## Host and optional skill routing

@@ -79,10 +79,10 @@ leave it out and install it later with `manageroo skills reconcile --apply`.
 - `article-enrichment`, `book-mirror`, and `strategic-reading` for long prose.
 - `pdf`, `brain-pdf`, `citation-fixer`, `reports`, and
   `exact-text-replacement` for PDF work, citations, reports, and exact wording.
-- `write-a-skill` for making a repeated workflow into a concise reusable skill.
+- `writing-for-agents` for writing predictable skills and agent instruction files.
 - `edit-skill` for keeping local skills short, clear, and non-duplicative.
 - `skillify` for deciding whether a workflow deserves a skill and checking its proof.
-- `diagnose` for broken, flaky, confusing, or slow behavior.
+- `diagnosing-bugs` for broken, flaky, confusing, or slow behavior.
 - `tdd` for one behavior test at a time.
 - `autoreview` for closeout code review before commit, release, or handoff.
 - `plain-web-copy` for factual public copy.
@@ -93,6 +93,8 @@ leave it out and install it later with `manageroo skills reconcile --apply`.
 These are bundled files, not network dependencies. Existing different local
 versions are backed up before replacement. They are available even when token
 mode is off.
+
+The reviewed Matt Pocock subset, pinned source commit, dependency graph, side effects, and upgrade policy are documented in `docs/MATT_POCOCK_SKILLS.md`.
 
 Copied skill folders can be curated locally with
 `manageroo skills reconcile --source ~/Downloads/SKILLS --include-external

@@ -63,28 +63,32 @@ capabilities before each worker starts. It does not ask the user to remember a
 Normal, Caveman, and Caveman Curse remain the one-time installer communication
 choice. That saved preference is applied separately from task routing.
 
-The repository contains **50 bundled skill packages**.
+The repository contains **54 bundled skill packages**.
 
-- **18 portable core skills** are installed as the recommended/default Manageroo-owned pack.
+- **22 portable core skills** are installed as the recommended/default Manageroo-owned pack.
 - **32 additional bundled skills** are optional capabilities and are not silently installed as Manageroo-owned defaults.
 - Skills already installed on the user's machine remain host-owned and can be discovered separately.
 
-## 18 portable core skills
+## 22 portable core skills
 
 - `uncle-matts-project-manageroo`
 - `use-installed-skills-first`
 - `skill-vetter`
 - `pimp-my-prompt`
-- `to-prd`
-- `to-issues`
+- `setup-matt-pocock-skills`
+- `to-spec`
+- `to-tickets`
 - `grill-me`
+- `grilling`
 - `grill-with-docs`
-- `diagnose`
+- `domain-modeling`
+- `codebase-design`
+- `diagnosing-bugs`
 - `tdd`
 - `testing`
 - `security-review`
 - `handoff`
-- `write-a-skill`
+- `writing-for-agents`
 - `edit-skill`
 - `skillify`
 - `caveman`

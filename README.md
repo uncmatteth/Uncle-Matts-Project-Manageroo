@@ -626,13 +626,13 @@ The installer's **normal**, **Caveman**, and **Caveman Curse** choice is a
 separate saved communication preference. It is selected once during setup and
 applied automatically; those modes do not compete in task routing.
 
-This repository currently contains **50 bundled skill packages**.
+This repository currently contains **54 bundled skill packages**.
 
-That does **not** mean Manageroo installs all 50 by default.
+That does **not** mean Manageroo installs all 54 by default.
 
 The boundary is:
 
-- **18 portable core skills** are the recommended/default Manageroo-owned pack;
+- **22 portable core skills** are the recommended/default Manageroo-owned pack;
 - **32 additional bundled skills** ship in the repository as optional capabilities;
 - **host-installed skills** can also be discovered and used when relevant, but Manageroo does not claim ownership of the user's entire skill environment.
 
@@ -642,26 +642,30 @@ not overwrite a differing host-owned skill. Manageroo updates only skill trees
 recorded in its ownership ledger and still unchanged since Manageroo installed
 them; a user edit revokes that ownership automatically.
 
-## 18 portable core skills installed by default
+## 22 portable core skills installed by default
 
 1. `uncle-matts-project-manageroo`
 2. `use-installed-skills-first`
 3. `skill-vetter`
 4. `pimp-my-prompt`
-5. `to-prd`
-6. `to-issues`
-7. `grill-me`
-8. `grill-with-docs`
-9. `diagnose`
-10. `tdd`
-11. `testing`
-12. `security-review`
-13. `handoff`
-14. `write-a-skill`
-15. `edit-skill`
-16. `skillify`
-17. `caveman`
-18. `uncle-matts-caveman-curse`
+5. `setup-matt-pocock-skills`
+6. `to-spec`
+7. `to-tickets`
+8. `grill-me`
+9. `grilling`
+10. `grill-with-docs`
+11. `domain-modeling`
+12. `codebase-design`
+13. `diagnosing-bugs`
+14. `tdd`
+15. `testing`
+16. `security-review`
+17. `handoff`
+18. `writing-for-agents`
+19. `edit-skill`
+20. `skillify`
+21. `caveman`
+22. `uncle-matts-caveman-curse`
 
 These are the small portable core Manageroo installs as its own default skill pack.
 

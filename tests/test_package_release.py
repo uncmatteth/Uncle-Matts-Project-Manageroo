@@ -13,6 +13,8 @@ from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
+from manageroo.token_modes import BUNDLED_SKILL_LIBRARY
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("package_release", ROOT / "scripts" / "package_release.py")
 assert SPEC and SPEC.loader
@@ -102,6 +104,45 @@ def _finalize_gitnexus_fixture(prefix_value, marker, setup_started, release_setu
 
 
 class PackageReleaseTests(unittest.TestCase):
+    def test_matt_pocock_skill_subset_is_pinned_licensed_and_codex_ready(self):
+        imported = {
+            "codebase-design",
+            "diagnosing-bugs",
+            "domain-modeling",
+            "grill-me",
+            "grill-with-docs",
+            "grilling",
+            "handoff",
+            "improve-codebase-architecture",
+            "setup-matt-pocock-skills",
+            "tdd",
+            "to-spec",
+            "to-tickets",
+            "writing-for-agents",
+        }
+        commit = "8b36d4fb2635b3c21998dcd8144439c9e5ba7302"
+        license_sha256 = "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
+
+        self.assertTrue(imported <= set(BUNDLED_SKILL_LIBRARY))
+        for name in sorted(imported):
+            with self.subTest(skill=name):
+                skill_root = ROOT / "src" / "manageroo" / "assets" / "skills" / name
+                source = (skill_root / "SOURCE.md").read_text(encoding="utf-8")
+                self.assertIn("https://github.com/mattpocock/skills", source)
+                self.assertIn("Version: 1.2.2", source)
+                self.assertIn(commit, source)
+                self.assertTrue((skill_root / "agents" / "openai.yaml").is_file())
+                self.assertEqual(
+                    hashlib.sha256((skill_root / "LICENSE.txt").read_bytes()).hexdigest(),
+                    license_sha256,
+                )
+
+        for retired in ("diagnose", "to-issues", "to-prd", "write-a-skill"):
+            self.assertNotIn(retired, BUNDLED_SKILL_LIBRARY)
+            self.assertFalse(
+                (ROOT / "src" / "manageroo" / "assets" / "skills" / retired).exists()
+            )
+
     def test_release_verifier_timeout_stops_descendant_process_tree(self):
         with tempfile.TemporaryDirectory() as temp:
             marker = Path(temp) / "descendant-writes.txt"
@@ -348,11 +389,13 @@ class PackageReleaseTests(unittest.TestCase):
         included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         skill_names = [path.parent.name for path in (ROOT / "src" / "manageroo" / "assets" / "skills").glob("*/SKILL.md")]
         counts = Counter(skill_names)
-        self.assertEqual(len(skill_names), 50)
+        self.assertEqual(len(skill_names), 54)
         self.assertEqual([name for name, count in counts.items() if count > 1], [])
         self.assertIn("skill-vetter", skill_names)
         self.assertIn("src/manageroo/assets/skills/playwright/references/cli.md", included)
-        self.assertIn("src/manageroo/assets/skills/grill-with-docs/ADR-FORMAT.md", included)
+        self.assertIn("src/manageroo/assets/skills/domain-modeling/ADR-FORMAT.md", included)
+        self.assertIn("src/manageroo/assets/skills/diagnosing-bugs/scripts/hitl-loop.template.sh", included)
+        self.assertIn("src/manageroo/assets/skills/writing-for-agents/LICENSE.txt", included)
 
     def test_bundled_playwright_skills_do_not_ship_decorative_images(self):
         included = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
@@ -377,8 +420,8 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn('EXPECTED_VERSION = str(tomllib.loads(', smoke_text)
         self.assertEqual(package_release.PROJECT_VERSION, project_version)
         self.assertIn("if version != EXPECTED_VERSION", smoke_text)
-        self.assertIn("EXPECTED_SKILL_COUNT = 18", smoke_text)
-        self.assertIn("EXPECTED_CORE_SKILLS = 18", distribution_text)
+        self.assertIn("EXPECTED_SKILL_COUNT = 22", smoke_text)
+        self.assertIn("EXPECTED_CORE_SKILLS = 22", distribution_text)
         self.assertIn("EXPECTED_OPTIONAL_SKILLS = 32", distribution_text)
         self.assertIn("Installed wheel did not create the manageroo console entry point", distribution_text)
 
