@@ -209,10 +209,11 @@ def ensure_within(root: Path, candidate: Path) -> Path:
 
 
 def safe_repo_relative(value: str) -> str:
-    normalized = str(value).replace("\\", "/")
+    normalized = str(value)
     pure = PurePosixPath(normalized)
     if (
         not normalized
+        or "\\" in normalized
         or normalized.startswith("/")
         or _WINDOWS_ABSOLUTE_RE.match(normalized)
         or pure.is_absolute()

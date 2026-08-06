@@ -30,6 +30,8 @@ Inventory inspection opens every path through pinned directory descriptors with
 no-follow semantics, snapshots and hashes each regular file through that one open
 descriptor, retries files that change identity or metadata, and fails closed when
 descriptor-relative access is unavailable. Only stable records reach the cache.
+Repository-relative paths containing backslashes fail closed instead of being
+normalized into a different file identity during workspace mirroring.
 
 After successful delivery:
 

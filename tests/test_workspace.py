@@ -84,6 +84,53 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual((repo / "a.txt").read_text(encoding="utf-8"), "before\n")
             self.assertFalse((mirror.workspace / ".git").exists())
 
+    def test_capture_source_revalidates_inventory_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+
+            with patch(
+                "manageroo.workspace.git_visible_files",
+                return_value=["a.txt", "nested\\file.txt"],
+            ):
+                with self.assertRaisesRegex(SafetyError, "Unsafe repository-relative path"):
+                    mirror.capture_source()
+
+            self.assertFalse(mirror.snapshot_path.exists())
+
+    @unittest.skipIf(os.name == "nt", "literal backslash filenames are not distinct on Windows")
+    def test_create_rejects_distinct_paths_that_backslash_normalization_would_collapse(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            (repo / "nested").mkdir()
+            (repo / "nested" / "file.txt").write_text("slash path\n", encoding="utf-8")
+            (repo / "nested\\file.txt").write_text("backslash path\n", encoding="utf-8")
+            self.assertTrue(runner.run(["git", "add", "-A"], cwd=repo).passed)
+            self.assertTrue(
+                runner.run(
+                    [
+                        "git",
+                        "-c",
+                        "commit.gpgSign=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "commit",
+                        "-m",
+                        "add distinct paths",
+                    ],
+                    cwd=repo,
+                ).passed
+            )
+
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            with self.assertRaisesRegex(SafetyError, "Unsafe repository-relative path"):
+                mirror.create()
+
+            self.assertFalse(mirror.snapshot_path.exists())
+            self.assertFalse(mirror.workspace.exists())
+
     def test_clone_for_review_refuses_existing_or_external_destination(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

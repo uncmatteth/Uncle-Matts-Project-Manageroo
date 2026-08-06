@@ -35,7 +35,8 @@ class WorkspaceMirror:
 
     def capture_source(self) -> list[SourceFile]:
         records: list[SourceFile] = []
-        for relative in git_visible_files(self.source_repo, self.runner):
+        for raw_relative in git_visible_files(self.source_repo, self.runner):
+            relative = safe_repo_relative(raw_relative)
             path = self.source_repo / relative
             if path.is_symlink():
                 raise SafetyError(f"Tracked or visible symlinks are not supported by the isolated workspace policy: {relative}")
@@ -53,7 +54,7 @@ class WorkspaceMirror:
         records = self.capture_source()
         self.workspace.mkdir(parents=True)
         for record in records:
-            destination = self.workspace / safe_repo_relative(record.path)
+            destination = self.workspace / record.path
             copy_file_preserving_mode(self.source_repo / record.path, destination)
             copied_stat = destination.stat()
             if (

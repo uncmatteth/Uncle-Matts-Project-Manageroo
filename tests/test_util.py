@@ -1,7 +1,15 @@
 import json
 import unittest
 
-from manageroo.util import redact_argv, redact_text
+from manageroo.errors import SafetyError
+from manageroo.util import redact_argv, redact_text, safe_repo_relative
+
+
+class SafeRepoRelativeTests(unittest.TestCase):
+    def test_backslashes_are_rejected_instead_of_normalized(self):
+        self.assertEqual(safe_repo_relative("nested/file.txt"), "nested/file.txt")
+        with self.assertRaisesRegex(SafetyError, "Unsafe repository-relative path"):
+            safe_repo_relative("nested\\file.txt")
 
 
 class RedactTextTests(unittest.TestCase):
