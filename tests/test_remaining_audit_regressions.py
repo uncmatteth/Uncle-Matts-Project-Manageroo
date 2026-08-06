@@ -86,6 +86,21 @@ class RemainingAuditRegressionTests(unittest.TestCase):
         self.assertTrue(result.passed, result.stderr)
         self.assertIn("shim-ok hello", result.stdout)
 
+    @unittest.skipUnless(os.name == "nt", "Windows repository-local batch resolution")
+    def test_windows_runner_resolves_bare_batch_file_from_requested_cwd(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            shim = repo / "manageroo-repo-local-proof.bat"
+            shim.write_text("@echo off\r\necho repo-local-ok %1\r\n", encoding="utf-8")
+            result = CommandRunner().run(
+                [shim.name, "hello"],
+                cwd=repo,
+                timeout_seconds=5,
+            )
+        self.assertTrue(result.passed, result.stderr)
+        self.assertIn("repo-local-ok hello", result.stdout)
+
     def test_top_level_and_nested_secret_and_credential_paths_are_forbidden(self):
         sensitive = ("client-secret.json", "credentials.toml", "config/client-secret.json", "config/service-credential.txt")
         for path in sensitive:

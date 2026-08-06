@@ -824,7 +824,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             ["clawpatch", "fix", "--finding", "fnd_one", "--json"],
         )
         self.assertTrue(run.call_args.kwargs["kill_process_group"])
-        self.assertEqual(run.call_args.kwargs["timeout"], 900)
+        self.assertEqual(run.call_args.kwargs["timeout"], 1740)
 
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._run")
@@ -840,7 +840,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.outcome, "timeout")
         self.assertTrue(run.call_args.kwargs["kill_process_group"])
-        self.assertEqual(run.call_args.kwargs["timeout"], 900)
+        self.assertEqual(run.call_args.kwargs["timeout"], 1740)
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_uncertain_read_only_revalidation_escalates_without_rerunning_fix(

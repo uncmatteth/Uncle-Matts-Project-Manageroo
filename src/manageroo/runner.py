@@ -98,7 +98,7 @@ def _terminate_process_group(
     return stdout, stderr
 
 
-def _platform_argv(argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
+def _platform_argv(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> list[str]:
     resolved = list(argv)
     if os.name != "nt":
         return resolved
@@ -109,6 +109,10 @@ def _platform_argv(argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
     discovered = shutil.which(program, path=env.get("PATH"))
     if discovered:
         resolved[0] = discovered
+        return resolved
+    repo_local = cwd / program
+    if repo_local.is_file():
+        resolved[0] = str(repo_local.resolve())
     return resolved
 
 
@@ -139,7 +143,7 @@ class CommandRunner:
         process_env = os.environ.copy()
         if env:
             process_env.update({str(k): str(v) for k, v in env.items()})
-        launch_argv = _platform_argv(argv, process_env)
+        launch_argv = _platform_argv(argv, process_env, cwd)
         try:
             if kill_process_group:
                 completed, timed_out = self._run_process_group(

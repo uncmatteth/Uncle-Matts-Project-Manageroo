@@ -87,7 +87,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         )
         self.assertNotIn("--fresh", run_command)
         self.assertIn("--resume-stopped", run_command)
-        self.assertIn("--timeout-minutes 15", run_command)
+        self.assertIn("--timeout-minutes 29", run_command)
 
     def test_terminal_command_shows_one_finding_scoped_fix_and_verified_commit(self):
         calls = []
@@ -229,7 +229,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
         self.assertIn("source left in place: app.py", rendered)
         self.assertNotIn("RETRY", rendered)
 
-    def test_terminal_command_requests_a_fresh_run_and_fifteen_minute_shared_timeout(self):
+    def test_terminal_command_requests_a_fresh_run_and_twenty_nine_minute_shared_timeout(self):
         calls = []
 
         def fake_sweep(repo: Path, **kwargs):
@@ -245,7 +245,7 @@ class ExternalClawpatchSupervisorTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertTrue(calls[0][1]["fresh"])
-        self.assertEqual(calls[0][1]["child_timeout_seconds"], 900)
+        self.assertEqual(calls[0][1]["child_timeout_seconds"], 1740)
 
     def test_resume_stopped_explicitly_selects_the_default_safe_restart(self):
         calls = []

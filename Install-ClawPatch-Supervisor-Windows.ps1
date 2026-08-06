@@ -237,7 +237,7 @@ $manifest = [ordered]@{
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $InstallRoot "installed.json") -Encoding UTF8
 
 $escapedRepo = $ResolvedRepo.Replace('"', '`"')
-$runCommand = 'Set-Location "{0}"; & "$env:USERPROFILE\.local\bin\clawpatch-supervise.cmd" --repo . --branch current --push each --resume-stopped --timeout-minutes 15' -f $escapedRepo
+$runCommand = 'Set-Location "{0}"; & "$env:USERPROFILE\.local\bin\clawpatch-supervise.cmd" --repo . --branch current --push each --resume-stopped --timeout-minutes 29' -f $escapedRepo
 
 Write-Host ""
 Write-Host "INSTALLATION VERIFIED. The supervisor was installed but was not started." -ForegroundColor Green
