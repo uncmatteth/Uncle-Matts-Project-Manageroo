@@ -9,6 +9,7 @@ from unittest.mock import patch
 from manageroo.artifacts import ArtifactStore
 from manageroo.errors import SafetyError, ValidationError
 from manageroo.external_repair_policy import (
+    _copy_ignored_entry,
     _git_metadata_snapshot,
     _ignored_state,
     _materialize_checkpoint_workspace,
@@ -134,7 +135,7 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             self.assertIn(b"unverified live state", live_config.read_bytes())
             self.assertTrue(live_hook.is_file())
 
-    def test_checkpoint_replace_rolls_back_multiple_ignored_entries_when_later_move_fails(self):
+    def test_checkpoint_replace_preserves_originals_when_later_copy_fails(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = source_repo(root)
@@ -153,16 +154,21 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             second.write_text("second operator data\n", encoding="utf-8")
             ignored_state = _ignored_state(fake, {"first.cache", "second.cache"})
             snapshot = _git_metadata_snapshot(fake)
-            real_replace = os.replace
+            real_copy = _copy_ignored_entry
 
-            def fail_second_move(source_path, destination_path):
-                if Path(source_path) == second and Path(destination_path).name == second.name:
-                    raise OSError("second ignored move failed")
-                return real_replace(source_path, destination_path)
+            def fail_second_copy(orchestrator, *, path, destination_root, expected):
+                if path == second.name:
+                    raise OSError("second ignored copy failed")
+                return real_copy(
+                    orchestrator,
+                    path=path,
+                    destination_root=destination_root,
+                    expected=expected,
+                )
 
             with patch(
-                "manageroo.external_repair_policy.os.replace",
-                side_effect=fail_second_move,
+                "manageroo.external_repair_policy._copy_ignored_entry",
+                side_effect=fail_second_copy,
             ):
                 with self.assertRaisesRegex(SafetyError, "workspace replacement failed"):
                     _replace_workspace_from_checkpoint(
@@ -175,6 +181,104 @@ class ExternalRepairPolicyTests(unittest.TestCase):
 
             self.assertEqual(first.read_text(encoding="utf-8"), "first operator data\n")
             self.assertEqual(second.read_text(encoding="utf-8"), "second operator data\n")
+
+    def test_checkpoint_replace_open_ignored_descriptor_cannot_mutate_installed_copy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            fake, _run_root = fake_orchestrator(
+                root,
+                source,
+                "run-one",
+                lambda **_kwargs: {"name": "clawpatch", "ok": True, "exit_code": 0},
+            )
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "preexisting.cache\n", encoding="utf-8"
+            )
+            ignored = fake.workspace / "preexisting.cache"
+            ignored.write_text("operator data\n", encoding="utf-8")
+            ignored_state = _ignored_state(fake, {ignored.name})
+            snapshot = _git_metadata_snapshot(fake)
+            real_rename = os.rename
+            descriptor = os.open(ignored, os.O_WRONLY)
+            interleaved = {"done": False}
+
+            def mutate_original_after_copy(source_path, destination_path):
+                if Path(source_path) == fake.workspace and not interleaved["done"]:
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    os.write(descriptor, b"concurrent data\n")
+                    os.ftruncate(descriptor, len(b"concurrent data\n"))
+                    interleaved["done"] = True
+                return real_rename(source_path, destination_path)
+
+            try:
+                with patch(
+                    "manageroo.external_repair_policy.os.rename",
+                    side_effect=mutate_original_after_copy,
+                ):
+                    previous = _replace_workspace_from_checkpoint(
+                        fake,
+                        name="clawpatch",
+                        checkpoint=fake.mirror.head(),
+                        preserved_ignored_state=ignored_state,
+                        git_metadata_snapshot=snapshot,
+                    )
+            finally:
+                os.close(descriptor)
+
+            self.assertTrue(interleaved["done"])
+            self.assertEqual(ignored.read_text(encoding="utf-8"), "operator data\n")
+            self.assertEqual(
+                (previous / ignored.name).read_text(encoding="utf-8"),
+                "concurrent data\n",
+            )
+
+    def test_checkpoint_replace_rolls_back_post_install_verification_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            fake, _run_root = fake_orchestrator(
+                root,
+                source,
+                "run-one",
+                lambda **_kwargs: {"name": "clawpatch", "ok": True, "exit_code": 0},
+            )
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "preexisting.cache\n", encoding="utf-8"
+            )
+            ignored = fake.workspace / "preexisting.cache"
+            ignored.write_text("operator data\n", encoding="utf-8")
+            ignored_state = _ignored_state(fake, {ignored.name})
+            snapshot = _git_metadata_snapshot(fake)
+            checkpoint = fake.mirror.head()
+            real_run = fake.runner.run
+            interleaved = {"done": False}
+
+            def mutate_installed_copy(argv, **kwargs):
+                if (
+                    not interleaved["done"]
+                    and list(argv) == ["git", "rev-parse", "HEAD"]
+                    and Path(kwargs["cwd"]) == fake.workspace
+                ):
+                    ignored.write_text("corrupt copy\n", encoding="utf-8")
+                    interleaved["done"] = True
+                return real_run(argv, **kwargs)
+
+            with patch.object(fake.runner, "run", side_effect=mutate_installed_copy):
+                with self.assertRaisesRegex(SafetyError, "ignored workspace data changed"):
+                    _replace_workspace_from_checkpoint(
+                        fake,
+                        name="clawpatch",
+                        checkpoint=checkpoint,
+                        preserved_ignored_state=ignored_state,
+                        git_metadata_snapshot=snapshot,
+                    )
+
+            self.assertTrue(interleaved["done"])
+            self.assertEqual(ignored.read_text(encoding="utf-8"), "operator data\n")
+            self.assertEqual(
+                git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
 
     def test_checkpoint_replace_restores_workspace_when_install_rename_fails(self):
         with tempfile.TemporaryDirectory() as temp:

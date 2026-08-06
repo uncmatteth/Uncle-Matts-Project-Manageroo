@@ -160,6 +160,22 @@ def _ignored_state_payload(
     return {path: list(entry) for path, entry in sorted(state.items())}
 
 
+def _ignored_entry_matches(
+    actual: tuple[str, int, int, int, int, str],
+    expected: tuple[str, int, int, int, int, str],
+    *,
+    require_identity: bool,
+) -> bool:
+    if require_identity and actual[2:4] != expected[2:4]:
+        return False
+    return (actual[0], actual[1], actual[4], actual[5]) == (
+        expected[0],
+        expected[1],
+        expected[4],
+        expected[5],
+    )
+
+
 def _persisted_ignored_state(
     payload: dict[str, Any], *, name: str
 ) -> dict[str, tuple[str, int, int, int, int, str]]:
@@ -188,10 +204,92 @@ def _verify_ignored_state(
     *,
     name: str,
     expected: dict[str, tuple[str, int, int, int, int, str]],
+    require_identity: bool = True,
 ) -> None:
     paths = _untracked_paths(orchestrator, ignored=True)
-    if paths != set(expected) or _ignored_state(orchestrator, paths) != expected:
+    actual = _ignored_state(orchestrator, paths)
+    if paths != set(expected) or any(
+        not _ignored_entry_matches(actual[path], expected[path], require_identity=require_identity)
+        for path in paths
+    ):
         raise SafetyError(f"Command-owned {name} checkpoint ignored workspace data changed.")
+
+
+def _copy_ignored_entry(
+    orchestrator: Any,
+    *,
+    path: str,
+    destination_root: Path,
+    expected: tuple[str, int, int, int, int, str],
+) -> None:
+    """Copy one ignored entry without following it or changing the live inode."""
+
+    assert orchestrator.workspace is not None
+    source = orchestrator.workspace / path
+    destination = destination_root / path
+    actual = _ignored_entry_state(orchestrator, path)
+    if not _ignored_entry_matches(actual, expected, require_identity=False):
+        raise SafetyError(f"Ignored workspace entry changed while copying {path}.")
+    if actual[0] == "file":
+        read_flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        write_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        source_descriptor = os.open(source, read_flags)
+        try:
+            before = os.fstat(source_descriptor)
+            if not stat.S_ISREG(before.st_mode) or (
+                before.st_dev,
+                before.st_ino,
+            ) != actual[2:4]:
+                raise SafetyError(f"Ignored workspace entry changed while copying {path}.")
+            destination_descriptor = os.open(destination, write_flags, 0o600)
+            try:
+                digest = hashlib.sha256()
+                while chunk := os.read(source_descriptor, 1024 * 1024):
+                    digest.update(chunk)
+                    remaining = memoryview(chunk)
+                    while remaining:
+                        written = os.write(destination_descriptor, remaining)
+                        if written <= 0:
+                            raise OSError("copy write made no progress")
+                        remaining = remaining[written:]
+                if hasattr(os, "fchmod"):
+                    os.fchmod(destination_descriptor, actual[1])
+                else:
+                    os.chmod(destination, actual[1], follow_symlinks=False)
+            finally:
+                os.close(destination_descriptor)
+            after = os.fstat(source_descriptor)
+            if (
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            ) != (
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            ) or digest.hexdigest() != actual[5]:
+                raise SafetyError(f"Ignored workspace entry changed while copying {path}.")
+        finally:
+            os.close(source_descriptor)
+    elif actual[0] == "symlink":
+        target = os.readlink(source)
+        os.symlink(target, destination)
+    else:
+        raise SafetyError(f"Ignored workspace entry cannot be copied safely: {path}.")
+    if not _ignored_entry_matches(
+        _ignored_entry_state(orchestrator, path), expected, require_identity=False
+    ) or not _ignored_entry_matches(
+        _ignored_entry_state(orchestrator, path, root=destination_root),
+        expected,
+        require_identity=False,
+    ):
+        raise SafetyError(f"Ignored workspace entry changed while copying {path}.")
 
 
 def _checkpoint_ignored_collisions(
@@ -340,15 +438,16 @@ def _replace_workspace_from_checkpoint(
     )
 
     previous = quarantine_root / "previous-workspace"
-    moved_ignored: list[tuple[str, tuple[str, int, int, int, int, str]]] = []
     workspace_displaced = False
+    workspace_installed = False
     try:
         for path, expected in sorted(preserved_ignored_state.items()):
-            if _ignored_entry_state(orchestrator, path) != expected:
+            if not _ignored_entry_matches(
+                _ignored_entry_state(orchestrator, path), expected, require_identity=False
+            ):
                 raise SafetyError(
                     f"Command-owned {name} checkpoint ignored workspace data changed."
                 )
-            source = orchestrator.workspace / path
             destination = staged / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -359,44 +458,49 @@ def _replace_workspace_from_checkpoint(
                 raise SafetyError(
                     f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
                 )
-            os.replace(source, destination)
-            moved_ignored.append((path, expected))
-            if _ignored_entry_state(orchestrator, path, root=staged) != expected:
-                raise SafetyError(
-                    f"Command-owned {name} checkpoint ignored workspace data changed."
-                )
+            _copy_ignored_entry(
+                orchestrator,
+                path=path,
+                destination_root=staged,
+                expected=expected,
+            )
         os.rename(orchestrator.workspace, previous)
         workspace_displaced = True
         if orchestrator.workspace.exists() or orchestrator.workspace.is_symlink():
             concurrent = quarantine_root / "concurrent-workspace"
             os.rename(orchestrator.workspace, concurrent)
         os.rename(staged, orchestrator.workspace)
+        workspace_installed = True
+        head = orchestrator.runner.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=orchestrator.workspace,
+            timeout_seconds=60,
+        )
+        status = orchestrator.runner.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=orchestrator.workspace,
+            timeout_seconds=60,
+        )
+        _verify_ignored_state(
+            orchestrator,
+            name=name,
+            expected=preserved_ignored_state,
+            require_identity=False,
+        )
+        if (
+            not head.passed
+            or head.stdout.strip() != checkpoint
+            or not status.passed
+            or status.stdout.strip()
+        ):
+            raise SafetyError(f"Command-owned {name} checkpoint could not be restored exactly.")
     except BaseException as exc:
         workspace_displaced = workspace_displaced or previous.exists() or previous.is_symlink()
-        restore_root = previous if workspace_displaced else orchestrator.workspace
         rollback_errors: list[str] = []
-        for path, expected in reversed(moved_ignored):
-            source = staged / path
-            destination = restore_root / path
+        if workspace_installed:
             try:
-                if _ignored_entry_state(orchestrator, path, root=staged) != expected:
-                    raise SafetyError(
-                        f"preserved ignored workspace entry changed in recovery storage: {path}"
-                    )
-                try:
-                    destination.lstat()
-                except FileNotFoundError:
-                    pass
-                else:
-                    raise SafetyError(
-                        f"preserved ignored workspace entry restoration collided: {path}"
-                    )
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(source, destination)
-                if _ignored_entry_state(orchestrator, path, root=restore_root) != expected:
-                    raise SafetyError(
-                        f"preserved ignored workspace entry could not be verified: {path}"
-                    )
+                failed = quarantine_root / "failed-workspace"
+                os.rename(orchestrator.workspace, failed)
             except (OSError, SafetyError) as rollback_exc:
                 rollback_errors.append(str(rollback_exc))
         if workspace_displaced:
@@ -404,6 +508,15 @@ def _replace_workspace_from_checkpoint(
                 if orchestrator.workspace.exists() or orchestrator.workspace.is_symlink():
                     raise SafetyError("a concurrent workspace blocks restoration")
                 os.rename(previous, orchestrator.workspace)
+                for path, expected in sorted(preserved_ignored_state.items()):
+                    if not _ignored_entry_matches(
+                        _ignored_entry_state(orchestrator, path),
+                        expected,
+                        require_identity=False,
+                    ):
+                        raise SafetyError(
+                            f"preserved ignored workspace entry could not be verified: {path}"
+                        )
             except (OSError, SafetyError) as rollback_exc:
                 rollback_errors.append(str(rollback_exc))
         if rollback_errors:
@@ -447,6 +560,7 @@ def _restore_checkpoint(
         orchestrator,
         name=name,
         expected=preserved_ignored_state,
+        require_identity=False,
     )
     collisions = _checkpoint_ignored_collisions(
         orchestrator, checkpoint, set(preserved_ignored_state)
@@ -478,6 +592,7 @@ def _restore_checkpoint(
             orchestrator,
             name=name,
             expected=preserved_ignored_state,
+            require_identity=False,
         )
     except SafetyError:
         ignored_state_matches = False
@@ -685,7 +800,14 @@ def _rollback_lane(
         or not status.passed
         or status.stdout.strip()
         or remaining_unmanaged != preserved_ignored_paths
-        or _ignored_state(orchestrator, preserved_ignored_paths) != preserved_ignored_state
+        or any(
+            not _ignored_entry_matches(
+                _ignored_entry_state(orchestrator, path),
+                preserved_ignored_state[path],
+                require_identity=False,
+            )
+            for path in preserved_ignored_paths
+        )
     ):
         raise SafetyError(
             f"Command-owned {name} repair lane failed and rollback could not be verified."
