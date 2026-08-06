@@ -96,6 +96,27 @@ def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+def _contains_required_phrase(normalized_summary: str, phrase: str) -> bool:
+    normalized_phrase = _normalize(phrase)
+    start = 0
+    while (index := normalized_summary.find(normalized_phrase, start)) >= 0:
+        end = index + len(normalized_phrase)
+        left_ok = (
+            index == 0
+            or not normalized_phrase[0].isalnum()
+            or not normalized_summary[index - 1].isalnum()
+        )
+        right_ok = (
+            end == len(normalized_summary)
+            or not normalized_phrase[-1].isalnum()
+            or not normalized_summary[end].isalnum()
+        )
+        if left_ok and right_ok:
+            return True
+        start = index + 1
+    return False
+
+
 def _bullets(values: list[str], fallback: str = "None recorded.") -> list[str]:
     if not values:
         return [f"- {fallback}"]
@@ -382,7 +403,11 @@ def audit_compaction_text(repo_path: Path, summary_text: str, *, summary_path: P
         return {"ok": False, "status": "blocked", "repo": str(repo), "lock_path": lock_report["path"], "summary_path": str(summary_path.resolve()) if summary_path else "", "summary_hash": sha256_text(summary_text), "missing": [{"category": "intent_lock", "text": lock_report["error"]}], "warnings": [], "next_command": lock_report["next_command"]}
     lock = lock_report["lock"]
     normalized_summary = _normalize(summary_text)
-    missing = [item for item in _required_phrases(lock) if _normalize(item["text"]) not in normalized_summary]
+    missing = [
+        item
+        for item in _required_phrases(lock)
+        if not _contains_required_phrase(normalized_summary, item["text"])
+    ]
     warnings = _confidence_warnings(summary_text)
     ok = not missing
     return {

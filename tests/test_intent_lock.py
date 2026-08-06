@@ -344,6 +344,25 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
             report = audit_compaction_text(repo, "Current task: build the release helper. Proof: release-ready reports READY.")
             self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); missing = {(item["category"], item["text"]) for item in report["missing"]}; self.assertIn(("must_not", "Do not deploy production"), missing); self.assertIn(("rejected", "Do not add GitHub Actions"), missing)
 
+    def test_audit_requires_alphanumeric_phrase_boundaries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="ship", proof=["test"])
+
+            overlapping = audit_compaction_text(
+                repo,
+                "Shipping is postponed while the contest continues.",
+            )
+            self.assertFalse(overlapping["ok"])
+            self.assertEqual(
+                {(item["category"], item["text"]) for item in overlapping["missing"]},
+                {("want", "ship"), ("proof", "test")},
+            )
+
+            standalone = audit_compaction_text(repo, "Intent: (SHIP). Proof: [test]!")
+            self.assertTrue(standalone["ok"], standalone)
+            self.assertFalse(standalone["missing"])
+
     def test_malformed_intent_locks_are_blocked_configuration_reports(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
