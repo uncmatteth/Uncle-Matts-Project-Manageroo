@@ -569,12 +569,41 @@ def _restore_claimed_blocking_decisions(
             )
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             replacement_payload = None
-        os.unlink(claimed_name, dir_fd=directory_descriptor)
-        os.fsync(directory_descriptor)
-        return _blocking_decisions_payload_matches(
+        replacement_matches = _blocking_decisions_payload_matches(
             replacement_payload,
             expected_sha256,
         )
+        if replacement_matches:
+            os.unlink(claimed_name, dir_fd=directory_descriptor)
+            os.fsync(directory_descriptor)
+            return True
+
+        replacement_name = f".{path.name}.replacement-{secrets.token_hex(16)}"
+        original_recovery_path = path.with_name(claimed_name)
+        replacement_recovery_path = path
+        try:
+            os.rename(
+                path.name,
+                replacement_name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+            )
+            replacement_recovery_path = path.with_name(replacement_name)
+            os.rename(
+                claimed_name,
+                path.name,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+            )
+            original_recovery_path = path
+            os.fsync(directory_descriptor)
+        except OSError as exc:
+            raise SafetyError(
+                "Cannot restore blocking decision artifact safely; "
+                f"the original remains recoverable at {original_recovery_path} and "
+                f"the replacement at {replacement_recovery_path}: {exc}"
+            ) from exc
+        return False
     except OSError as exc:
         raise SafetyError(
             f"Cannot restore blocking decision artifact safely: {path}: {exc}"

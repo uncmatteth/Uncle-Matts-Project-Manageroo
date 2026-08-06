@@ -663,7 +663,7 @@ class DecisionRegressionTests(unittest.TestCase):
             self.assertIn("changed while answers were being entered", stderr.getvalue())
             self.assertFalse((planning / "resolved-decisions.json").exists())
 
-    def test_blocking_decisions_mutation_after_final_check_cannot_commit(self):
+    def test_concurrent_blocking_decisions_replacement_restores_original(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             run_id = "post-check-race-run"
@@ -672,14 +672,12 @@ class DecisionRegressionTests(unittest.TestCase):
             )
             planning.mkdir(parents=True)
             blocking = planning / "blocking-decisions.json"
-            atomic_write_json(
-                blocking,
-                {
-                    "decisions": [
-                        {"id": "deployment", "question": "Choose", "options": ["one"]}
-                    ]
-                },
-            )
+            original = {
+                "decisions": [
+                    {"id": "deployment", "question": "Choose", "options": ["one"]}
+                ]
+            }
+            atomic_write_json(blocking, original)
             replacement = {
                 "decisions": [
                     {"id": "region", "question": "Choose", "options": ["east"]}
@@ -706,9 +704,14 @@ class DecisionRegressionTests(unittest.TestCase):
 
             self.assertEqual(code, 2)
             self.assertIn("changed", stderr.getvalue())
-            self.assertEqual(read_json(blocking), replacement)
+            self.assertEqual(read_json(blocking), original)
             self.assertFalse((planning / "resolved-decisions.json").exists())
             self.assertEqual(list(planning.glob(".blocking-decisions.json.answer-*")), [])
+            recoverable = list(
+                planning.glob(".blocking-decisions.json.replacement-*")
+            )
+            self.assertEqual(len(recoverable), 1)
+            self.assertEqual(read_json(recoverable[0]), replacement)
 
     def test_open_blocking_decisions_inode_mutation_cannot_commit_stale_answers(self):
         with tempfile.TemporaryDirectory() as temp:
