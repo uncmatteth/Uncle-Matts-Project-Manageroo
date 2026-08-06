@@ -504,6 +504,31 @@ class DisposableValidationServiceTests(unittest.TestCase):
             }
             self.assertEqual(after, before)
 
+    def test_inherited_database_url_cannot_bypass_owned_postgres(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _postgres_repo(Path(temp))
+            docker = _DockerFixture()
+
+            with patch.dict(
+                os.environ,
+                {
+                    "TEST_DATABASE_URL": "postgresql://production.example/app",
+                    "BTT_ALLOW_DATABASE_RESET": "true",
+                },
+            ):
+                with provision_disposable_validation_environment(
+                    repo,
+                    run=docker,
+                    sleep=lambda _seconds: None,
+                    password_factory=lambda: "manageroo-test-password",
+                ) as child_env:
+                    self.assertEqual(
+                        child_env["TEST_DATABASE_URL"],
+                        "postgresql://manageroo:manageroo-test-password@127.0.0.1:49152/manageroo_test",
+                    )
+
+            self.assertTrue(any(call[:2] == ["docker", "run"] for call in docker.calls))
+
     def test_concurrent_postgres_validations_use_distinct_cleanup_targets(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _postgres_repo(Path(temp))
