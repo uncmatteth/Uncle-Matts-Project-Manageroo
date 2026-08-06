@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,25 +37,15 @@ class ContextTests(unittest.TestCase):
         version_a = b"version-a\n"
         version_b = b"version-b\n"
         source.write_bytes(version_a)
-        original_read_text = Path.read_text
-        original_read_bytes = Path.read_bytes
+        original_read_repo_bytes = ContextCompiler._read_repo_bytes
 
-        def read_text_then_replace(path, *args, **kwargs):
-            text = original_read_text(path, *args, **kwargs)
-            if path == source:
-                source.write_bytes(version_b)
-            return text
-
-        def read_bytes_then_replace(path):
-            data = original_read_bytes(path)
-            if path == source:
+        def read_bytes_then_replace(compiler, relative):
+            data = original_read_repo_bytes(compiler, relative)
+            if relative == "a.txt":
                 source.write_bytes(version_b)
             return data
 
-        with (
-            mock.patch.object(Path, "read_text", read_text_then_replace),
-            mock.patch.object(Path, "read_bytes", read_bytes_then_replace),
-        ):
+        with mock.patch.object(ContextCompiler, "_read_repo_bytes", read_bytes_then_replace):
             packet = self.compiler(max_tokens=4000, max_single_file_tokens=1000).compile(
                 packet_name,
                 instructions="x",
@@ -92,6 +83,35 @@ class ContextTests(unittest.TestCase):
             "concurrent-full", mode="full"
         )
         self.assert_packet_attests_snapshot(packet, expected_bytes)
+
+    def test_source_swap_to_external_symlink_is_rejected_before_read(self):
+        source = self.repo / "a.txt"
+        external = self.root / "external.txt"
+        external.write_text("external secret\n", encoding="utf-8")
+        original_is_file = Path.is_file
+        swapped = False
+
+        def is_file_then_swap(path):
+            nonlocal swapped
+            result = original_is_file(path)
+            if path == source and result and not swapped:
+                source.unlink()
+                source.symlink_to(external)
+                swapped = True
+            return result
+
+        with mock.patch.object(Path, "is_file", is_file_then_swap):
+            with self.assertRaises(SafetyError):
+                self.compiler().compile(
+                    "source-symlink-race",
+                    instructions="x",
+                    requests=[ContextRequest("a.txt", "required", required=True)],
+                )
+
+        packet_root = self.root / "packets"
+        if packet_root.exists():
+            for prompt in packet_root.rglob("prompt.md"):
+                self.assertNotIn("external secret", prompt.read_text(encoding="utf-8"))
 
     def test_instructions_alone_cannot_overflow(self):
         with self.assertRaises(ContextBudgetError):
@@ -150,6 +170,29 @@ class ContextTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             self.compiler().validate_freshness(manifest)
 
+    def test_freshness_rejects_unsafe_manifest_paths_before_hashing(self):
+        external = self.root / "external.txt"
+        external.write_text("external\n", encoding="utf-8")
+
+        for unsafe_path in (str(external), "../external.txt"):
+            with self.subTest(path=unsafe_path):
+                with mock.patch(
+                    "manageroo.context.sha256_file",
+                    create=True,
+                ) as hash_file:
+                    with self.assertRaises(SafetyError):
+                        self.compiler().validate_freshness(
+                            {
+                                "entries": [
+                                    {
+                                        "path": unsafe_path,
+                                        "source_sha256": "unused",
+                                    }
+                                ]
+                            }
+                        )
+                    hash_file.assert_not_called()
+
     def test_failed_compile_does_not_consume_packet_name(self):
         compiler = self.compiler()
         with self.assertRaises(ContextBudgetError):
@@ -167,6 +210,54 @@ class ContextTests(unittest.TestCase):
             requests=[ContextRequest("missing.txt", "required", required=True)],
         )
         self.assertTrue((packet / "manifest.json").is_file())
+
+    def test_nested_packet_names_are_rejected(self):
+        with self.assertRaises(SafetyError):
+            self.compiler().compile(
+                "nested/packet",
+                instructions="x",
+                requests=[],
+            )
+        self.assertFalse((self.root / "packets" / "nested").exists())
+
+    def test_packet_root_swap_cannot_redirect_publication(self):
+        packet_root = self.root / "packets"
+        moved_root = self.root / "packets-moved"
+        external = self.root / "external-packets"
+        external.mkdir()
+        original_replace = os.replace
+        original_rename = os.rename
+        swapped = False
+
+        def replace_then_swap(source, destination, *args, **kwargs):
+            nonlocal swapped
+            if not swapped and Path(destination).name == "packet-root-race":
+                original_rename(packet_root, moved_root)
+                packet_root.symlink_to(external, target_is_directory=True)
+                (external / Path(source).name).mkdir()
+                swapped = True
+            return original_replace(source, destination, *args, **kwargs)
+
+        def rename_then_swap(source, destination, *args, **kwargs):
+            nonlocal swapped
+            if not swapped and str(destination) == "packet-root-race":
+                original_rename(packet_root, moved_root)
+                packet_root.symlink_to(external, target_is_directory=True)
+                swapped = True
+            return original_rename(source, destination, *args, **kwargs)
+
+        with (
+            mock.patch("manageroo.context.os.replace", replace_then_swap),
+            mock.patch("manageroo.context.os.rename", rename_then_swap),
+        ):
+            with self.assertRaises(SafetyError):
+                self.compiler().compile(
+                    "packet-root-race",
+                    instructions="x",
+                    requests=[],
+                )
+
+        self.assertFalse((external / "packet-root-race").exists())
 
     def test_serialized_prompt_overhead_is_included_in_budget(self):
         for index in range(10):

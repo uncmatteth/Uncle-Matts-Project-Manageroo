@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import math
+import os
 import re
-import shutil
+import secrets
+import stat
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -12,11 +15,8 @@ from .errors import ContextBudgetError, SafetyError
 from .evidence import EvidenceItem, rank_evidence
 from .file_inspection import content_kind_for_path, summary_for_context
 from .util import (
-    atomic_write_json,
-    atomic_write_text,
     safe_repo_relative,
     sha256_bytes,
-    sha256_file,
     sha256_text,
 )
 
@@ -61,6 +61,138 @@ def _fence(payload: str) -> str:
     return "`" * max(3, (max(runs) + 1) if runs else 3)
 
 
+def _context_descriptor_access_supported() -> bool:
+    return (
+        hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and hasattr(os, "O_NONBLOCK")
+        and os.open in os.supports_dir_fd
+        and os.mkdir in os.supports_dir_fd
+        and os.rename in os.supports_dir_fd
+        and os.rmdir in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
+        and os.unlink in os.supports_dir_fd
+        and os.listdir in os.supports_fd
+    )
+
+
+def _directory_flags() -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK
+    return flags | getattr(os, "O_CLOEXEC", 0)
+
+
+def _open_rooted_directory(path: Path, *, create: bool = False) -> int:
+    if not _context_descriptor_access_supported():
+        raise SafetyError("Context compilation requires descriptor-rooted no-follow access.")
+    current_fd = os.open(path.anchor, _directory_flags())
+    try:
+        for part in path.relative_to(path.anchor).parts:
+            try:
+                child_fd = os.open(part, _directory_flags(), dir_fd=current_fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                try:
+                    os.mkdir(part, mode=0o777, dir_fd=current_fd)
+                except FileExistsError:
+                    pass
+                child_fd = os.open(part, _directory_flags(), dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = child_fd
+        descriptor = current_fd
+        current_fd = -1
+        return descriptor
+    except OSError as exc:
+        raise SafetyError(f"Context root is not a safe real directory: {path}") from exc
+    finally:
+        if current_fd >= 0:
+            os.close(current_fd)
+
+
+def _open_beneath(root_fd: int, relative: str, flags: int) -> int:
+    parts = Path(relative).parts
+    if not parts:
+        raise SafetyError("Context path cannot be empty.")
+    current_fd = os.dup(root_fd)
+    try:
+        for part in parts[:-1]:
+            child_fd = os.open(part, _directory_flags(), dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = child_fd
+        return os.open(parts[-1], flags, dir_fd=current_fd)
+    finally:
+        os.close(current_fd)
+
+
+def _inspection_signature(state: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        state.st_dev,
+        state.st_ino,
+        state.st_mode,
+        state.st_size,
+        state.st_mtime_ns,
+        state.st_ctime_ns,
+    )
+
+
+def _same_filesystem_object(first: os.stat_result, second: os.stat_result) -> bool:
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+
+def _entry_exists(directory_fd: int, name: str) -> bool:
+    try:
+        os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _write_bytes_at(directory_fd: int, name: str, payload: bytes) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(name, flags, 0o600, dir_fd=directory_fd)
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise SafetyError(f"Context packet file is unsafe: {name}")
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("Context packet write made no progress.")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        after = os.fstat(descriptor)
+        current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if (
+            not _same_filesystem_object(before, after)
+            or not _same_filesystem_object(after, current)
+            or after.st_nlink != 1
+        ):
+            raise SafetyError(f"Context packet file changed during write: {name}")
+    finally:
+        os.close(descriptor)
+
+
+def _remove_packet_directory(directory_fd: int, name: str) -> None:
+    try:
+        packet_fd = os.open(name, _directory_flags(), dir_fd=directory_fd)
+    except FileNotFoundError:
+        return
+    try:
+        for child in os.listdir(packet_fd):
+            child_state = os.stat(child, dir_fd=packet_fd, follow_symlinks=False)
+            if not stat.S_ISREG(child_state.st_mode):
+                raise SafetyError(f"Unexpected entry in context packet staging directory: {child}")
+            os.unlink(child, dir_fd=packet_fd)
+        os.fsync(packet_fd)
+    finally:
+        os.close(packet_fd)
+    os.rmdir(name, dir_fd=directory_fd)
+    os.fsync(directory_fd)
+
+
 class ContextCompiler:
     """Build auditable bounded packets whose final serialized prompt fits the declared budget."""
 
@@ -76,10 +208,20 @@ class ContextCompiler:
     ):
         self.repo = repo.resolve()
         self.packet_root = packet_root.expanduser().resolve()
+        self._repo_descriptor = _open_rooted_directory(self.repo)
         self.max_input_tokens = max_input_tokens
         self.reserve_output_tokens = reserve_output_tokens
         self.chars_per_token = chars_per_token
         self.max_single_file_tokens = max_single_file_tokens
+
+    def __del__(self) -> None:
+        descriptor = getattr(self, "_repo_descriptor", -1)
+        if descriptor >= 0:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            self._repo_descriptor = -1
 
     @property
     def usable_tokens(self) -> int:
@@ -96,28 +238,125 @@ class ContextCompiler:
         if not value:
             raise SafetyError("Context packet name cannot be empty.")
         candidate = Path(value)
-        if candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts):
+        if (
+            candidate.is_absolute()
+            or len(candidate.parts) != 1
+            or any(part in {"", ".", ".."} for part in candidate.parts)
+        ):
             raise SafetyError(f"Context packet name is unsafe: {packet_name}")
-        packet = (self.packet_root / candidate).resolve()
+        return self.packet_root / candidate
+
+    def _read_repo_bytes(self, relative: str) -> bytes:
+        path = self.repo / relative
+        if not path.is_file():
+            raise ContextBudgetError(f"Required context file is missing: {relative}")
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+        flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        descriptor: int | None = None
+        verification_fd: int | None = None
         try:
-            packet.relative_to(self.packet_root)
-        except ValueError as exc:
-            raise SafetyError(f"Context packet path escapes packet root: {packet_name}") from exc
-        return packet
+            descriptor = _open_beneath(self._repo_descriptor, relative, flags)
+            before = os.fstat(descriptor)
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                raise SafetyError(f"Context source is not a safe regular file: {relative}")
+            chunks: list[bytes] = []
+            while block := os.read(descriptor, 1024 * 1024):
+                chunks.append(block)
+            after = os.fstat(descriptor)
+            verification_fd = _open_beneath(self._repo_descriptor, relative, flags)
+            current = os.fstat(verification_fd)
+            if (
+                _inspection_signature(before) != _inspection_signature(after)
+                or current.st_nlink != 1
+                or (after.st_dev, after.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise SafetyError(f"Context source changed during read: {relative}")
+            return b"".join(chunks)
+        except SafetyError:
+            raise
+        except OSError as exc:
+            raise SafetyError(f"Context source is not safely beneath the repository: {relative}") from exc
+        finally:
+            if verification_fd is not None:
+                os.close(verification_fd)
+            if descriptor is not None:
+                os.close(descriptor)
+
+    def _publish_packet(self, packet_name: str, prompt: str, manifest: dict) -> None:
+        packet_root_fd = _open_rooted_directory(self.packet_root, create=True)
+        staging_name = ""
+        published = False
+        try:
+            if _entry_exists(packet_root_fd, packet_name):
+                raise FileExistsError(
+                    f"Context packet already exists: {self.packet_root / packet_name}"
+                )
+            for _attempt in range(32):
+                candidate = f".{packet_name}.staging-{secrets.token_hex(8)}"
+                try:
+                    os.mkdir(candidate, mode=0o700, dir_fd=packet_root_fd)
+                except FileExistsError:
+                    continue
+                staging_name = candidate
+                break
+            if not staging_name:
+                raise SafetyError("Could not reserve a unique context packet staging directory.")
+
+            staging_fd = os.open(staging_name, _directory_flags(), dir_fd=packet_root_fd)
+            try:
+                _write_bytes_at(staging_fd, "prompt.md", prompt.encode("utf-8"))
+                manifest_payload = json.dumps(
+                    manifest,
+                    indent=2,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                ).encode("utf-8") + b"\n"
+                _write_bytes_at(staging_fd, "manifest.json", manifest_payload)
+                os.fsync(staging_fd)
+            finally:
+                os.close(staging_fd)
+
+            if _entry_exists(packet_root_fd, packet_name):
+                raise FileExistsError(
+                    f"Context packet already exists: {self.packet_root / packet_name}"
+                )
+            os.rename(
+                staging_name,
+                packet_name,
+                src_dir_fd=packet_root_fd,
+                dst_dir_fd=packet_root_fd,
+            )
+            staging_name = ""
+            published = True
+            os.fsync(packet_root_fd)
+
+            current_root_fd = _open_rooted_directory(self.packet_root)
+            try:
+                if not _same_filesystem_object(
+                    os.fstat(packet_root_fd),
+                    os.fstat(current_root_fd),
+                ):
+                    raise SafetyError("Context packet root changed during publication.")
+            finally:
+                os.close(current_root_fd)
+        except Exception:
+            cleanup_name = packet_name if published else staging_name
+            if cleanup_name:
+                try:
+                    _remove_packet_directory(packet_root_fd, cleanup_name)
+                except Exception:
+                    pass
+            raise
+        finally:
+            os.close(packet_root_fd)
 
     def _excerpt(self, request: ContextRequest) -> tuple[str, int, int, str, str]:
         relative = safe_repo_relative(request.path)
-        path = (self.repo / relative).resolve()
-        try:
-            path.relative_to(self.repo)
-        except ValueError as exc:
-            raise SafetyError(f"Context path escapes repository: {relative}") from exc
-        if not path.is_file():
-            raise ContextBudgetError(f"Required context file is missing: {relative}")
+        path = self.repo / relative
         mode = request.mode or "full"
         if mode not in {"full", "summary"}:
             raise ContextBudgetError(f"Invalid context mode for {relative}: {mode}")
-        source_bytes = path.read_bytes()
+        source_bytes = self._read_repo_bytes(relative)
         source_hash = sha256_bytes(source_bytes)
         if mode == "summary" or content_kind_for_path(path) == "media":
             with tempfile.TemporaryDirectory(prefix=".manageroo-context-") as snapshot_dir:
@@ -252,8 +491,6 @@ class ContextCompiler:
         evidence: Iterable[EvidenceItem] = (),
     ) -> Path:
         packet = self._packet_path(packet_name)
-        if packet.exists():
-            raise FileExistsError(f"Context packet already exists: {packet}")
 
         evidence_items = list(evidence) or self._metadata_evidence(metadata)
         prepared: list[PreparedContext] = []
@@ -351,25 +588,20 @@ class ContextCompiler:
             "prompt_sha256": sha256_text(prompt),
         }
 
-        self.packet_root.mkdir(parents=True, exist_ok=True)
-        temp_dir = Path(tempfile.mkdtemp(prefix=f".{packet.name}.staging-", dir=self.packet_root))
-        try:
-            atomic_write_text(temp_dir / "prompt.md", prompt)
-            atomic_write_json(temp_dir / "manifest.json", manifest)
-            if packet.exists():
-                raise FileExistsError(f"Context packet already exists: {packet}")
-            temp_dir.replace(packet)
-        except Exception:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            raise
+        self._publish_packet(packet.name, prompt, manifest)
         return packet
 
     def validate_freshness(self, manifest: dict) -> None:
         stale: list[str] = []
         for entry in manifest.get("entries", []):
-            path = self.repo / entry["path"]
-            if not path.exists() or sha256_file(path) != entry["source_sha256"]:
-                stale.append(entry["path"])
+            relative = safe_repo_relative(entry["path"])
+            try:
+                source_bytes = self._read_repo_bytes(relative)
+            except ContextBudgetError:
+                stale.append(relative)
+                continue
+            if sha256_bytes(source_bytes) != entry["source_sha256"]:
+                stale.append(relative)
         if stale:
             raise SafetyError("Context packet is stale: " + ", ".join(stale))
 
