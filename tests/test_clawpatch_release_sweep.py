@@ -31,6 +31,7 @@ from manageroo.clawpatch_release import (
     _parse_json_output,
     _platform_command,
     _prepare_fresh_release,
+    _process_finding_until_fixed,
     _publish_final_state,
     _push_and_verify,
     _release_clawpatch_env,
@@ -2410,6 +2411,70 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
                 _revalidate(repo, "fnd_one", env={}, expected_paths=["app.py"])
 
         self.assertEqual(raised.exception.outcome, "revalidation-mutated-source")
+
+    @patch("manageroo.clawpatch_release._execute_fix")
+    def test_revalidation_source_progress_continues_the_same_finding(
+        self, execute_fix
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            original_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+
+            def fix_side_effect(*_args, **_kwargs):
+                if execute_fix.call_count == 1:
+                    source.write_text("revalidation source progress\n", encoding="utf-8")
+                    raise _UnresolvedFinding(
+                        "revalidation changed source",
+                        finding_id="fnd_one",
+                        outcome="revalidation-mutated-source",
+                    )
+                source.write_text("completed repair\n", encoding="utf-8")
+                return (
+                    {
+                        "finding_id": "fnd_one",
+                        "files_changed": ["app.py"],
+                        "revalidation": {"finding": "fnd_one", "outcome": "fixed"},
+                        "commit": "",
+                    },
+                    False,
+                )
+
+            execute_fix.side_effect = fix_side_effect
+            record, pushed, continuations = _process_finding_until_fixed(
+                repo,
+                "fnd_one",
+                inspected={"finding": {"id": "fnd_one", "status": "open"}},
+                env={},
+                push_mode="none",
+                branch=branch,
+                pushed=False,
+                state_root=repo / ".manageroo" / "cache",
+                require_project_gates=False,
+            )
+            final_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            commit_count = subprocess.check_output(
+                ["git", "rev-list", "--count", f"{original_head}..{final_head}"],
+                cwd=repo,
+                text=True,
+            ).strip()
+
+        self.assertEqual(execute_fix.call_count, 2)
+        self.assertEqual(continuations, 1)
+        self.assertFalse(pushed)
+        self.assertEqual(record["commit"], final_head)
+        self.assertEqual(commit_count, "1")
 
     @patch("manageroo.clawpatch_release._run_clawpatch")
     def test_nonfix_clawpatch_timeout_stops_without_a_hidden_retry(self, run_clawpatch):

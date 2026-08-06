@@ -279,7 +279,11 @@ workspace-write revalidation guarded by an exact source fingerprint. If the
 writable Codex sandbox still blocks required host facilities such as Gradle's
 socket-based lock service, the external supervisor makes one final
 child-scoped trusted-host revalidation. These are validation-environment
-transitions, not new source fixes; a result that remains uncertain stops.
+transitions, not new source fixes; a result that remains uncertain stops. If a
+revalidation process nevertheless changes source, Manageroo rejects that
+revalidation outcome, checkpoints only a genuinely new exact source-tree state,
+and reenters the same finding's `fix`. Repeated or original states still stop,
+so the recovery cannot spin on unchanged output.
 If exact revalidation returns `fixed` with unchanged HEAD and no source changes
 because an overlapping earlier finding already supplied the repair, Manageroo
 records no source commit required and continues. It does not treat the absence

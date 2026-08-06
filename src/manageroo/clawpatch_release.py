@@ -2238,7 +2238,10 @@ def _process_finding_until_fixed(
                 finalize=False,
             )
         except _UnresolvedFinding as exc:
-            if exc.outcome != "fix-validation-failed":
+            if exc.outcome not in {
+                "fix-validation-failed",
+                "revalidation-mutated-source",
+            }:
                 _stop_finding_iteration(
                     repo,
                     finding_id=finding_id,
@@ -2296,7 +2299,11 @@ def _process_finding_until_fixed(
                         "total": total,
                         "finding_id": finding_id,
                         "commit": temporary_commit,
-                        "detail": "partial repair preserved locally; continuing same finding",
+                        "detail": (
+                            "revalidation source progress preserved locally; continuing same finding"
+                            if exc.outcome == "revalidation-mutated-source"
+                            else "partial repair preserved locally; continuing same finding"
+                        ),
                     }
                 )
             attempt += 1

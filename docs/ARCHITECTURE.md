@@ -200,8 +200,12 @@ Read-only revalidation that cannot execute targeted tests gets one
 workspace-write validation retry guarded by an exact source-state fingerprint;
 the external supervisor then permits one child-scoped trusted-host pass if the
 writable sandbox still blocks required local sockets or locks. No revalidation
-pass can silently modify the repair. A durable per-finding progress record binds
-the repository, branch, HEAD, finding, phase, and exact owned source paths.
+pass can silently modify the repair. If revalidation does modify source, the
+inner guard reports that mutation instead of accepting its outcome; the outer
+same-finding loop may preserve only a genuinely new exact source-tree state and
+invoke that finding's `fix` again. A repeated or original tree still stops. A
+durable per-finding progress record binds the repository, branch, HEAD, finding,
+phase, and exact owned source paths.
 Final closure also uses ClawPatch's own status-filtered queue transition for
 pre-existing uncertainty: `next --status uncertain`, `show`, then guarded
 exact-finding revalidation. `fixed` closes without a source commit, `open`
