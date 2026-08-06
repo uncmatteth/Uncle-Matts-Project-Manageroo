@@ -132,6 +132,75 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
             )
 
+    def test_checkpoint_restore_quarantines_concurrent_path_creation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "new.txt").write_text("checkpoint data\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            result = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["new.txt"]}]},
+                gate_results=[],
+            )
+            baseline = result["records"][0]["baseline"]
+            checkpoint = result["records"][0]["checkpoint"]
+            report_path = run_root / "artifacts" / "review" / "external-review-repair.json"
+
+            git(fake.workspace, "reset", "--hard", baseline)
+            fake._artifact_json = lambda relative: (
+                read_json(report_path) if relative == "review/external-review-repair.json" else None
+            )
+            real_run = fake.runner.run
+            interleaved = {"done": False}
+
+            def create_before_reset(argv, **kwargs):
+                if (
+                    not interleaved["done"]
+                    and list(argv[:3]) == ["git", "reset", "--hard"]
+                    and list(argv[3:]) == [checkpoint]
+                ):
+                    (fake.workspace / "new.txt").write_text(
+                        "concurrent data\n", encoding="utf-8"
+                    )
+                    interleaved["done"] = True
+                return real_run(argv, **kwargs)
+
+            with patch.object(fake.runner, "run", side_effect=create_before_reset):
+                run_external_review_repair_lanes(
+                    fake,
+                    brief="repair",
+                    plan={"tasks": [{"allowed_paths": ["new.txt"]}]},
+                    gate_results=[],
+                )
+
+            quarantined = list(
+                (
+                    run_root
+                    / "artifacts"
+                    / "review"
+                    / "external-state"
+                    / "workspace-quarantine"
+                ).glob("*/previous-workspace/new.txt")
+            )
+            self.assertTrue(interleaved["done"])
+            self.assertEqual(
+                (fake.workspace / "new.txt").read_text(encoding="utf-8"),
+                "checkpoint data\n",
+            )
+            self.assertEqual(len(quarantined), 1)
+            self.assertEqual(
+                quarantined[0].read_text(encoding="utf-8"), "concurrent data\n"
+            )
+
     def test_persisted_success_with_preexisting_ignored_file(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -295,6 +364,62 @@ class ExternalRepairPolicyTests(unittest.TestCase):
             self.assertFalse((fake.workspace / "untracked.txt").exists())
             self.assertEqual(
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
+            )
+
+    def test_rollback_quarantines_concurrent_cleanup_candidate_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            holder = {}
+
+            def command(**_kwargs):
+                workspace = holder["fake"].workspace
+                (workspace / "untracked.txt").write_text(
+                    "lane residue\n", encoding="utf-8"
+                )
+                raise RuntimeError("command crashed")
+
+            fake, run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            baseline = fake.mirror.head()
+            real_run = fake.runner.run
+            interleaved = {"done": False}
+
+            def replace_before_reset(argv, **kwargs):
+                if (
+                    not interleaved["done"]
+                    and list(argv[:3]) == ["git", "reset", "--hard"]
+                    and list(argv[3:]) == [baseline]
+                ):
+                    (fake.workspace / "untracked.txt").write_text(
+                        "concurrent data\n", encoding="utf-8"
+                    )
+                    interleaved["done"] = True
+                return real_run(argv, **kwargs)
+
+            with patch.object(fake.runner, "run", side_effect=replace_before_reset):
+                with self.assertRaisesRegex(SafetyError, "rollback was verified"):
+                    run_external_review_repair_lanes(
+                        fake,
+                        brief="repair",
+                        plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                        gate_results=[],
+                    )
+
+            quarantined = list(
+                (
+                    run_root
+                    / "artifacts"
+                    / "review"
+                    / "external-state"
+                    / "workspace-quarantine"
+                ).glob("*/previous-workspace/untracked.txt")
+            )
+            self.assertTrue(interleaved["done"])
+            self.assertFalse((fake.workspace / "untracked.txt").exists())
+            self.assertEqual(len(quarantined), 1)
+            self.assertEqual(
+                quarantined[0].read_text(encoding="utf-8"), "concurrent data\n"
             )
 
     def test_command_exception_preserves_preexisting_ignored_file(self):

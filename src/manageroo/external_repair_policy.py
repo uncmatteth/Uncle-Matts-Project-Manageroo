@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
+import shutil
 import stat
+from pathlib import Path
 from typing import Any
 
 from .errors import SafetyError, ValidationError
@@ -81,11 +84,13 @@ def _untracked_paths(orchestrator: Any, *, ignored: bool) -> set[str]:
     return {safe_repo_relative(item) for item in result.stdout.split("\0") if item}
 
 
-def _ignored_entry_state(orchestrator: Any, path: str) -> tuple[str, int, int, int, int, str]:
+def _ignored_entry_state(
+    orchestrator: Any, path: str, *, root: Path | None = None
+) -> tuple[str, int, int, int, int, str]:
     """Fingerprint an ignored entry's type, identity, mode, and content without following links."""
 
     assert orchestrator.workspace is not None
-    entry = orchestrator.workspace / path
+    entry = (root if root is not None else orchestrator.workspace) / path
     try:
         before = entry.lstat()
         if stat.S_ISLNK(before.st_mode):
@@ -214,6 +219,107 @@ def _checkpoint_ignored_collisions(
     return {safe_repo_relative(item) for item in result.stdout.split("\0") if item}
 
 
+def _materialize_checkpoint_workspace(
+    orchestrator: Any,
+    *,
+    checkpoint: str,
+    recovery_root: Path,
+) -> Path:
+    """Build a clean checkpoint workspace without changing the live workspace."""
+
+    assert orchestrator.workspace is not None
+    git_dir = orchestrator.workspace / ".git"
+    if not git_dir.is_dir() or git_dir.is_symlink():
+        raise SafetyError("External repair workspace Git metadata is not a safe directory.")
+    staged = recovery_root / "replacement-workspace"
+    staged.mkdir(mode=0o700)
+    shutil.copytree(git_dir, staged / ".git", symlinks=True)
+    reset = orchestrator.runner.run(
+        ["git", "reset", "--hard", checkpoint],
+        cwd=staged,
+        timeout_seconds=120,
+    )
+    head = orchestrator.runner.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=staged,
+        timeout_seconds=60,
+    )
+    status = orchestrator.runner.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=staged,
+        timeout_seconds=60,
+    )
+    if (
+        not reset.passed
+        or not head.passed
+        or head.stdout.strip() != checkpoint
+        or not status.passed
+        or status.stdout.strip()
+    ):
+        raise SafetyError("Could not materialize the external repair checkpoint safely.")
+    return staged
+
+
+def _replace_workspace_from_checkpoint(
+    orchestrator: Any,
+    *,
+    name: str,
+    checkpoint: str,
+    preserved_ignored_state: dict[str, tuple[str, int, int, int, int, str]],
+) -> Path:
+    """Install a staged checkpoint and retain the displaced workspace for recovery."""
+
+    assert orchestrator.workspace is not None
+    safe_name = "".join(
+        char if char.isalnum() or char in "-_." else "-" for char in name
+    ).strip("-") or "external-repair"
+    quarantine_root = (
+        orchestrator.artifacts.root
+        / "review"
+        / "external-state"
+        / "workspace-quarantine"
+        / f"{safe_name}-{secrets.token_hex(8)}"
+    )
+    quarantine_root.mkdir(parents=True, mode=0o700)
+    staged = _materialize_checkpoint_workspace(
+        orchestrator,
+        checkpoint=checkpoint,
+        recovery_root=quarantine_root,
+    )
+
+    for path, expected in sorted(preserved_ignored_state.items()):
+        if _ignored_entry_state(orchestrator, path) != expected:
+            raise SafetyError(f"Command-owned {name} checkpoint ignored workspace data changed.")
+        source = orchestrator.workspace / path
+        destination = staged / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            destination.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise SafetyError(
+                f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
+            )
+        os.replace(source, destination)
+        if _ignored_entry_state(orchestrator, path, root=staged) != expected:
+            raise SafetyError(f"Command-owned {name} checkpoint ignored workspace data changed.")
+
+    previous = quarantine_root / "previous-workspace"
+    try:
+        os.rename(orchestrator.workspace, previous)
+        if orchestrator.workspace.exists() or orchestrator.workspace.is_symlink():
+            concurrent = quarantine_root / "concurrent-workspace"
+            os.rename(orchestrator.workspace, concurrent)
+        os.rename(staged, orchestrator.workspace)
+    except OSError as exc:
+        raise SafetyError(
+            "External repair workspace replacement failed; recoverable state remains at "
+            f"{quarantine_root}: {exc}"
+        ) from exc
+    return previous
+
+
 def _restore_checkpoint(
     orchestrator: Any,
     *,
@@ -243,13 +349,12 @@ def _restore_checkpoint(
         raise SafetyError(
             f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
         )
-    reset = orchestrator.runner.run(
-        ["git", "reset", "--hard", checkpoint],
-        cwd=orchestrator.workspace,
-        timeout_seconds=120,
+    _replace_workspace_from_checkpoint(
+        orchestrator,
+        name=name,
+        checkpoint=checkpoint,
+        preserved_ignored_state=preserved_ignored_state,
     )
-    if not reset.passed:
-        raise SafetyError(f"Command-owned {name} checkpoint could not be restored exactly.")
     head = orchestrator.runner.run(
         ["git", "rev-parse", "HEAD"],
         cwd=orchestrator.workspace,
@@ -441,38 +546,13 @@ def _rollback_lane(
     """Restore the exact clean pre-command checkpoint and verify rollback before continuation."""
 
     assert orchestrator.workspace is not None
-    reset = orchestrator.runner.run(
-        ["git", "reset", "--hard", baseline],
-        cwd=orchestrator.workspace,
-        timeout_seconds=120,
-    )
-    if not reset.passed:
-        raise SafetyError(
-            f"Command-owned {name} repair lane failed and rollback could not be verified."
-        )
-    unmanaged_paths = _untracked_paths(orchestrator, ignored=False) | _untracked_paths(
-        orchestrator, ignored=True
+    _replace_workspace_from_checkpoint(
+        orchestrator,
+        name=name,
+        checkpoint=baseline,
+        preserved_ignored_state=preserved_ignored_state,
     )
     preserved_ignored_paths = set(preserved_ignored_state)
-    if not preserved_ignored_paths.issubset(unmanaged_paths):
-        raise SafetyError(
-            f"Command-owned {name} repair lane changed pre-existing ignored workspace data."
-        )
-    if _ignored_state(orchestrator, preserved_ignored_paths) != preserved_ignored_state:
-        raise SafetyError(
-            f"Command-owned {name} repair lane changed pre-existing ignored workspace data."
-        )
-    created_paths = sorted(unmanaged_paths - preserved_ignored_paths)
-    if created_paths:
-        clean = orchestrator.runner.run(
-            ["git", "clean", "-fdx", "--", *(f":(literal){path}" for path in created_paths)],
-            cwd=orchestrator.workspace,
-            timeout_seconds=120,
-        )
-        if not clean.passed:
-            raise SafetyError(
-                f"Command-owned {name} repair lane failed and rollback could not be verified."
-            )
     head = orchestrator.runner.run(
         ["git", "rev-parse", "HEAD"],
         cwd=orchestrator.workspace,
