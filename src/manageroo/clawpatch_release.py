@@ -11,7 +11,7 @@ from .errors import SafetyError
 
 SUPERVISOR_EXECUTABLE = "clawpatch-supervise"
 SUPERVISOR_REPOSITORY = "https://github.com/uncmatteth/clawpatch-supervise"
-SUPERVISOR_VERSION = "0.1.1"
+SUPERVISOR_VERSION = "0.1.2"
 TRANSIENT_EXIT_CODE = 75
 
 

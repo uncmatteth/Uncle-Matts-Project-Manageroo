@@ -13,7 +13,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 # Exact versions from the verified supervisor source.
-SUPERVISOR_COMMIT="52fbcd1a2079f0e4b33a8bffb4f5ecad0c55ebda"
+SUPERVISOR_COMMIT="f731f6da56d3ae58d1934b3b723716d54ad82975"
 SUPERVISOR_SOURCE="git+https://github.com/uncmatteth/clawpatch-supervise.git@${SUPERVISOR_COMMIT}"
 CODEX_PACKAGE="@openai/codex@0.144.4"
 CLAWPATCH_PACKAGE="clawpatch@0.7.2"

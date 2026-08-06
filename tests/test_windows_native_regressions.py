@@ -145,7 +145,7 @@ class WindowsNativeRegressionTests(unittest.TestCase):
         ):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("uncmatteth/clawpatch-supervise", text)
-            self.assertIn("52fbcd1a2079f0e4b33a8bffb4f5ecad0c55ebda", text)
+            self.assertIn("f731f6da56d3ae58d1934b3b723716d54ad82975", text)
             self.assertNotIn("Uncle-Matts-Project-Manageroo.git@", text)
 
     def test_release_verifier_allows_the_native_windows_suite_full_watchdog(self):
