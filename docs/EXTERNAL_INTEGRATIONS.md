@@ -272,7 +272,7 @@ validation failed after applying a fix, Manageroo saves only the exact changed
 source paths in one local-only temporary iteration commit and runs the same
 finding again from that clean combined tree. Each further partial state amends
 that commit. Manageroo stops on no source changes, a repeated or original tree,
-history mismatch, or an external failure. It does not stash, triage, skip,
+history mismatch, or an external failure without new source progress. It does not stash, triage, skip,
 remap, advance, hand-repair, or push a temporary iteration. Revalidation
 that is `uncertain` because read-only execution is blocked gets one controlled
 workspace-write revalidation guarded by an exact source fingerprint. If the
@@ -283,9 +283,9 @@ transitions, not new source fixes; a result that remains uncertain stops. If a
 revalidation process nevertheless changes source, Manageroo rejects that
 revalidation outcome, checkpoints only a genuinely new exact source-tree state,
 and reenters the same finding's `fix`. This also applies when the revalidation
-command itself fails after producing source progress, including a Codex provider
-refusal; Manageroo keeps the same provider and finding instead of accepting the
-failed validation or discarding the edit. Repeated or original states still stop,
+command exits `4` after the preceding fix produced source progress, including a
+Codex security-classifier refusal; Manageroo keeps Codex and the same finding
+instead of accepting the failed validation or discarding the edit. Repeated or original states still stop,
 so the recovery cannot spin on unchanged output.
 If exact revalidation returns `fixed` with unchanged HEAD and no source changes
 because an overlapping earlier finding already supplied the repair, Manageroo
@@ -308,7 +308,10 @@ temporary-commit path may fall outside it. ClawPatch must also report a matching
 applied or validation-failed attempt at the current or temporary Git boundary.
 Manageroo then runs gates and resumes that same finding. Revalidation source
 progress that reopens the finding is checkpointed into that same continuation;
-the stopped-attempt wrapper does not discard it. Manageroo does not remap,
+the stopped-attempt wrapper does not discard it. If the stopped checkpoint came
+from Codex revalidation exit `4`, recovery may reenter only that same open or
+uncertain finding's `fix`, and later attempts remain source-progress bounded.
+Manageroo does not remap,
 review, or advance the queue first. Any missing, stale, or ambiguous proof stops
 with the checkpoint and edits unchanged.
 

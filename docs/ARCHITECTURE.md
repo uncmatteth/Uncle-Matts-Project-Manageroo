@@ -112,8 +112,8 @@ Agents are forbidden from committing. The isolated repository contains a failing
 
 Clawpatch release commits use exact source paths owned by the current finding.
 Manageroo stages only those source paths. A validation-failed-after-apply result,
-an `open` revalidation, or a failed revalidation command that produced genuine
-source progress creates or amends one recognizable local-only temporary iteration
+an `open` revalidation, or a Codex revalidation provider failure after a fix
+produced genuine source progress creates or amends one recognizable local-only temporary iteration
 commit, then the same finding's `fix` runs again from the clean combined tree.
 The failed command itself is not accepted as validation success. Only exact
 `fixed` completes the finding and converts changed source into one normal commit
@@ -195,7 +195,7 @@ The human triage template printed by `show` is not treated as executable and
 Manageroo never issues a triage command. There is no arbitrary fix-attempt cap,
 but another attempt is permitted only when ClawPatch produced a genuinely new
 source-tree state. No source changes, a repeated state, a cycle to the original
-tree, temporary-history mismatch, or an external failure stops with combined
+tree, temporary-history mismatch, or an external failure without new source progress stops with combined
 source changes visible at the original HEAD. Manageroo does not stash, triage,
 skip, remap, hand-repair, push temporary work, or advance to another finding.
 Read-only revalidation that cannot execute targeted tests gets one
@@ -234,7 +234,9 @@ never contain a path outside that set. An `open` outcome creates
 the same local-only temporary iteration and continues the same finding without a
 push. If stopped-attempt revalidation itself changes source and reopens the
 finding, that new exact state follows the same local continuation path instead
-of being rejected by the recovery wrapper. Any mismatch or ambiguity refuses continuation and preserves the checkpoint
+of being rejected by the recovery wrapper. A checkpointed fix whose Codex
+revalidation exited `4` may likewise reenter that same open or uncertain finding's
+`fix`; every later continuation still requires another genuinely new tree. Any mismatch or ambiguity refuses continuation and preserves the checkpoint
 and edits. The Manageroo project command's
 explicit `--fresh` requires an exact ownership match before discarding paths.
 An older stopped checkpoint may own zero paths because exact revalidation
@@ -281,8 +283,10 @@ One explicit timeout controls both the child-process watchdog
 and the ClawPatch provider and kills the complete Clawpatch/Codex process group.
 Operator interruption also terminates and reaps that complete child group before
 the supervisor exits.
-Every failed non-fix command stops immediately. Only ClawPatch's source-
-progressing same-finding continuation may invoke `fix` again.
+Every failed non-fix command stops immediately except a revalidation provider
+exit `4` reached after ClawPatch produced a genuinely new fix tree. That failure
+is not accepted as validation; the exact new tree enters the ordinary progress-
+bounded same-finding continuation. An unchanged retry still stops as no progress.
 An explicit fresh run through the Manageroo project command may discard dirty
 source only when durable progress binds the interrupted `fix` to the current
 repository, branch, and compatible HEAD, and the dirty-path set exactly matches

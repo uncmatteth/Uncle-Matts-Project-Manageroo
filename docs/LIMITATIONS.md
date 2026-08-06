@@ -30,8 +30,12 @@
 If revalidation unexpectedly changes source, its reported outcome is rejected.
 The outer same-finding loop may checkpoint that mutation only when it produces a
 genuinely new exact source-tree state, then invokes the same finding's `fix`
-again. A failed revalidation command is handled the same way only when it changed
-source to a genuinely new state; it is never treated as successful validation.
+again. A Codex revalidation provider exit `4` is handled the same way when the
+preceding fix produced a genuinely new source state, even if revalidation itself
+made no edit; it is never treated as successful validation. The continuation
+does not switch providers, and an unchanged or repeated tree still stops.
+A stopped checkpoint created by that provider failure may reenter only the same
+open or uncertain finding's `fix`; it cannot advance the queue or change provider.
 A stopped checkpoint may therefore own more paths than its earlier
 temporary iteration commit, but only when that commit is a nonempty subset of the
 checkpoint's exact fingerprinted dirty set. Repeated, original, missing, or

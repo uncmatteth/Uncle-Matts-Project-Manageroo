@@ -1437,6 +1437,72 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._revalidate")
     @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
     @patch("manageroo.clawpatch_release._show_finding")
+    def test_stopped_revalidation_provider_failure_reenters_same_finding_fix(
+        self,
+        show_finding,
+        _gates,
+        revalidate,
+        push_and_verify,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            source.write_text("checkpointed repair\n", encoding="utf-8")
+            checkpoint = {
+                "finding_id": "fnd_one",
+                "branch": branch,
+                "head_before": head,
+                "phase": "stopped",
+                "owned_paths": ["app.py"],
+            }
+            show_finding.return_value = {
+                "finding": {"id": "fnd_one", "status": "uncertain"},
+                "validation": [],
+                "patchAttempts": [
+                    {
+                        "patchAttemptId": "pat_one",
+                        "status": "applied",
+                        "findingIds": ["fnd_one"],
+                        "filesChanged": ["app.py"],
+                        "git": {"baseSha": head},
+                    }
+                ],
+            }
+            revalidate.side_effect = _UnresolvedFinding(
+                "Codex revalidation provider failed",
+                finding_id="fnd_one",
+                outcome="revalidation-provider-failed",
+            )
+
+            record, pushed = _resume_stopped_attempt(
+                repo,
+                checkpoint,
+                env={},
+                push_mode="none",
+                branch=branch,
+                pushed=False,
+                require_project_gates=False,
+            )
+
+        self.assertEqual(record["revalidation"]["outcome"], "open")
+        self.assertTrue(record["revalidation"]["managerooProviderFailureContinuation"])
+        self.assertFalse(pushed)
+        push_and_verify.assert_not_called()
+
+    @patch("manageroo.clawpatch_release._push_and_verify")
+    @patch("manageroo.clawpatch_release._revalidate")
+    @patch("manageroo.clawpatch_release._run_project_gates", return_value=[])
+    @patch("manageroo.clawpatch_release._show_finding")
     def test_stopped_multi_attempt_chain_resumes_from_checkpoint_owned_combined_repair(
         self,
         show_finding,
@@ -1704,7 +1770,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
     @patch("manageroo.clawpatch_release._show_finding")
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._clawpatch_version", return_value="0.7.2")
-    def test_relaunch_consumes_exact_stopped_attempt_then_reenters_same_open_finding(
+    def test_relaunch_provider_refusal_reenters_same_uncertain_finding_fix(
         self,
         _version,
         _processes,
@@ -1765,12 +1831,16 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             show_finding.side_effect = [
                 inspection,
                 {
-                    "finding": {"id": "fnd_one", "status": "open"},
+                    "finding": {"id": "fnd_one", "status": "uncertain"},
                     "validation": [],
                     "patchAttempts": [inspection["patchAttempts"][0]],
                 },
             ]
-            revalidate.return_value = {"finding": "fnd_one", "outcome": "open"}
+            revalidate.side_effect = _UnresolvedFinding(
+                "Codex revalidation provider failed",
+                finding_id="fnd_one",
+                outcome="revalidation-provider-failed",
+            )
             json_clawpatch.return_value = {
                 "activeLocks": 0,
                 "lockFiles": 0,
@@ -1802,6 +1872,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertTrue(report["continuations"][0]["resumed"])
         self.assertEqual(report["finding_count"], 1)
         self.assertEqual(execute_fix.call_count, 1)
+        self.assertIsNone(show_finding.call_args_list[1].kwargs["required_status"])
         self.assertEqual(next_finding.call_count, 1)
         review_all.assert_not_called()
         self.assertEqual(
@@ -2656,6 +2727,82 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
             raised.exception.outcome,
             "revalidation-command-failed-with-source-progress",
         )
+
+    @patch("manageroo.clawpatch_release._run_clawpatch")
+    def test_codex_revalidation_refusal_is_same_finding_provider_failure(
+        self, run_clawpatch
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            source.write_text("new repair\n", encoding="utf-8")
+            argv = ["clawpatch", "revalidate", "--finding", "fnd_one", "--json"]
+            run_clawpatch.return_value = self.completed(
+                argv,
+                "ERROR: This content was flagged for possible cybersecurity risk.",
+                4,
+            )
+
+            with self.assertRaises(_UnresolvedFinding) as raised:
+                _revalidate(repo, "fnd_one", env={}, expected_paths=["app.py"])
+
+        self.assertEqual(raised.exception.outcome, "revalidation-provider-failed")
+
+    @patch("manageroo.clawpatch_release._execute_fix")
+    def test_revalidation_provider_failure_continues_only_with_new_fix_tree(
+        self, execute_fix
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, text=True
+            ).strip()
+
+            def fix_side_effect(*_args, **_kwargs):
+                if execute_fix.call_count == 1:
+                    source.write_text("new fix tree before refusal\n", encoding="utf-8")
+                    raise _UnresolvedFinding(
+                        "Codex revalidation provider failed",
+                        finding_id="fnd_one",
+                        outcome="revalidation-provider-failed",
+                    )
+                source.write_text("completed repair\n", encoding="utf-8")
+                return (
+                    {
+                        "finding_id": "fnd_one",
+                        "files_changed": ["app.py"],
+                        "revalidation": {"finding": "fnd_one", "outcome": "fixed"},
+                        "commit": "",
+                    },
+                    False,
+                )
+
+            execute_fix.side_effect = fix_side_effect
+            record, pushed, continuations = _process_finding_until_fixed(
+                repo,
+                "fnd_one",
+                inspected={"finding": {"id": "fnd_one", "status": "open"}},
+                env={},
+                push_mode="none",
+                branch=branch,
+                pushed=False,
+                state_root=repo / ".manageroo" / "cache",
+                require_project_gates=False,
+            )
+
+        self.assertEqual(execute_fix.call_count, 2)
+        self.assertEqual(continuations, 1)
+        self.assertFalse(pushed)
+        self.assertEqual(record["revalidation"]["outcome"], "fixed")
 
     @patch("manageroo.clawpatch_release._execute_fix")
     def test_failed_revalidation_source_progress_continues_the_same_finding(

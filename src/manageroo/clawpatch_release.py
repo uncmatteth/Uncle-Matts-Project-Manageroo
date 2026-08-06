@@ -97,6 +97,12 @@ class _UnresolvedFinding(SafetyError):
         self.outcome = outcome
 
 
+class _ClawpatchCommandFailure(SafetyError):
+    def __init__(self, message: str, *, returncode: int) -> None:
+        super().__init__(message)
+        self.returncode = returncode
+
+
 class _MissingFinding(SafetyError):
     def __init__(self, message: str, *, finding_id: str) -> None:
         super().__init__(message)
@@ -626,11 +632,12 @@ def _must_clawpatch(
         if result.returncode == 124
         else "command must exit 0"
     )
-    raise SafetyError(
+    raise _ClawpatchCommandFailure(
         f"phase: Clawpatch command\ncommand: {shlex.join(argv)}\nfinding ID: "
         f"{finding_id or 'N/A'}\nexit code: {result.returncode}\n"
         f"failed requirement: {watchdog}; this command is not retried\n"
-        f"changed source paths: {_source_paths(repo)}\noutput:\n{output[-6000:]}"
+        f"changed source paths: {_source_paths(repo)}\noutput:\n{output[-6000:]}",
+        returncode=result.returncode,
     )
 
 
@@ -997,6 +1004,12 @@ def _revalidate(
         )
     except SafetyError as exc:
         after = _source_state_fingerprint(repo)
+        if isinstance(exc, _ClawpatchCommandFailure) and exc.returncode == 4:
+            raise _UnresolvedFinding(
+                str(exc),
+                finding_id=finding_id,
+                outcome="revalidation-provider-failed",
+            ) from exc
         if after != before:
             raise _UnresolvedFinding(
                 f"{exc}\nfailed requirement: failed revalidation source progress must be "
@@ -2254,6 +2267,7 @@ def _process_finding_until_fixed(
                 "fix-validation-failed",
                 "revalidation-command-failed-with-source-progress",
                 "revalidation-mutated-source",
+                "revalidation-provider-failed",
             }:
                 _stop_finding_iteration(
                     repo,
@@ -2317,6 +2331,7 @@ def _process_finding_until_fixed(
                             if exc.outcome in {
                                 "revalidation-command-failed-with-source-progress",
                                 "revalidation-mutated-source",
+                                "revalidation-provider-failed",
                             }
                             else "partial repair preserved locally; continuing same finding"
                         ),
@@ -2735,20 +2750,27 @@ def _resume_stopped_attempt(
                 progress=progress,
             )
         except _UnresolvedFinding as exc:
-            if exc.outcome != "revalidation-mutated-source":
+            if exc.outcome == "revalidation-provider-failed":
+                validation = {
+                    "finding": finding_id,
+                    "outcome": "open",
+                    "managerooProviderFailureContinuation": True,
+                }
+            elif exc.outcome == "revalidation-mutated-source":
+                reopened = _show_finding(
+                    repo,
+                    finding_id,
+                    env=env,
+                    required_status="open",
+                    progress=progress,
+                )
+                validation = {
+                    "finding": finding_id,
+                    "outcome": str(reopened["finding"]["status"]),
+                    "managerooRevalidationProgress": True,
+                }
+            else:
                 raise
-            reopened = _show_finding(
-                repo,
-                finding_id,
-                env=env,
-                required_status="open",
-                progress=progress,
-            )
-            validation = {
-                "finding": finding_id,
-                "outcome": str(reopened["finding"]["status"]),
-                "managerooRevalidationProgress": True,
-            }
     else:
         validation = {
             "finding": finding_id,
@@ -3658,6 +3680,11 @@ def _release_sweep_locked(
             resumed_outcome = resumed.get("revalidation", {}).get("outcome")
             if resumed_outcome == "open":
                 finding_id = str(resumed["finding_id"])
+                provider_failure_continuation = bool(
+                    resumed.get("revalidation", {}).get(
+                        "managerooProviderFailureContinuation"
+                    )
+                )
                 original_head = str(resumed["head_before"])
                 seen_states = {
                     _git_text(root, ["git", "rev-parse", f"{original_head}^{{tree}}"])
@@ -3677,11 +3704,21 @@ def _release_sweep_locked(
                         root,
                         finding_id,
                         env=env,
-                        required_status="open",
+                        required_status=(
+                            None if provider_failure_continuation else "open"
+                        ),
                         progress=progress,
                         current=1,
                         total="?",
                     )
+                    if (
+                        provider_failure_continuation
+                        and inspected["finding"].get("status") not in {"open", "uncertain"}
+                    ):
+                        raise SafetyError(
+                            "Codex revalidation provider failure can continue only the same "
+                            "open or uncertain finding."
+                        )
                     completed, pushed, additional_continuations = _process_finding_until_fixed(
                         root,
                         finding_id,
