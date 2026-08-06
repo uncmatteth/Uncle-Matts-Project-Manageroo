@@ -2097,7 +2097,7 @@ def _process_finding_until_fixed(
                 finalize=False,
             )
         except _UnresolvedFinding as exc:
-            if exc.outcome != "fix-validation-failed":
+            if exc.outcome not in {"fix-validation-failed", "timeout"}:
                 _stop_finding_iteration(
                     repo,
                     finding_id=finding_id,

@@ -28,6 +28,7 @@ from manageroo.clawpatch_release import (
     _parse_json_output,
     _platform_command,
     _prepare_fresh_release,
+    _process_finding_until_fixed,
     _publish_final_state,
     _push_and_verify,
     _release_clawpatch_env,
@@ -828,7 +829,7 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
 
     @patch("manageroo.clawpatch_release._active_clawpatch_processes", return_value=[])
     @patch("manageroo.clawpatch_release._run")
-    def test_fix_timeout_is_not_retried_and_kills_the_complete_child_group(self, run, _processes):
+    def test_fix_timeout_is_reported_and_kills_the_complete_child_group(self, run, _processes):
         run.return_value = self.completed(
             ["clawpatch", "fix"],
             "partial child output\nTIMEOUT\n",
@@ -841,6 +842,77 @@ class ClawpatchReleaseSweepTests(unittest.TestCase):
         self.assertEqual(raised.exception.outcome, "timeout")
         self.assertTrue(run.call_args.kwargs["kill_process_group"])
         self.assertEqual(run.call_args.kwargs["timeout"], 1740)
+
+    @patch("manageroo.clawpatch_release._execute_fix")
+    def test_timeout_with_source_progress_is_preserved_and_retried(self, execute_fix):
+        progress_events = []
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            self.init_repo(repo)
+            source = repo / "app.py"
+            source.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "source"], cwd=repo, check=True)
+            original_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            calls = 0
+
+            def timeout_then_finish(*_args, **_kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    source.write_text("partial repair\n", encoding="utf-8")
+                    raise _UnresolvedFinding(
+                        "fix child timed out after writing source progress",
+                        finding_id="fnd_one",
+                        outcome="timeout",
+                    )
+                return (
+                    {
+                        "finding_id": "fnd_one",
+                        "files_changed": [],
+                        "revalidation": {"finding": "fnd_one", "outcome": "fixed"},
+                        "commit": "",
+                    },
+                    False,
+                )
+
+            execute_fix.side_effect = timeout_then_finish
+            record, pushed, continuations = _process_finding_until_fixed(
+                repo,
+                "fnd_one",
+                inspected={
+                    "finding": {"id": "fnd_one", "status": "open"},
+                    "validation": [],
+                    "patchAttempts": [],
+                },
+                env={},
+                push_mode="none",
+                branch="master",
+                pushed=False,
+                state_root=repo / ".manageroo" / "cache",
+                progress=progress_events.append,
+                require_project_gates=False,
+            )
+            final_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+            ).strip()
+            parent = subprocess.check_output(
+                ["git", "rev-parse", "HEAD^"], cwd=repo, text=True
+            ).strip()
+
+        self.assertEqual(execute_fix.call_count, 2)
+        self.assertFalse(pushed)
+        self.assertEqual(continuations, 1)
+        self.assertEqual(parent, original_head)
+        self.assertEqual(record["commit"], final_head)
+        self.assertEqual(record["files_changed"], ["app.py"])
+        self.assertEqual(
+            [event["attempt"] for event in progress_events if event["phase"] == "fix"],
+            [1, 2],
+        )
+        self.assertTrue(any(event["phase"] == "continuing" for event in progress_events))
 
     @patch("manageroo.clawpatch_release._json_clawpatch")
     def test_uncertain_read_only_revalidation_escalates_without_rerunning_fix(
