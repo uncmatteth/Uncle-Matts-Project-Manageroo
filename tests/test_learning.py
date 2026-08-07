@@ -1,5 +1,6 @@
 import io
 import json
+import multiprocessing
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _toml_array(items):
     return "[" + ", ".join(json.dumps(item) for item in items) + "]"
+
+
+def _save_repeated_blocker(repo, index, barrier):
+    barrier.wait(timeout=10)
+    result = {
+        "run_id": f"run-{index}",
+        "status": "BLOCKED",
+        "error_type": "ValidationError",
+        "error": "Need a smaller plan.",
+        "evidence_paths": {"run_root": f"evidence-{index}"},
+    }
+    save_pending_learning_cards(repo, generate_learning_cards(repo=repo, result=result))
+
+
+def _apply_card(repo, card_id, barrier, results):
+    barrier.wait(timeout=10)
+    results.put(apply_learning_card(repo, card_id, approve=True)["ok"])
 
 
 class LearningLaneTests(unittest.TestCase):
@@ -110,6 +128,48 @@ class LearningLaneTests(unittest.TestCase):
             self.assertTrue(any(card["id"] == second["id"] for card in saved))
             self.assertEqual(get_learning_card(repo, second["id"])["card"]["status"], "pending")
 
+    def test_concurrent_apply_updates_project_memory_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            cards = generate_learning_cards(repo=repo, result={
+                "run_id": "run-concurrent-apply",
+                "status": "COMPLETE",
+                "product_summary": "Concurrent release.",
+                "files_changed": ["app.py"],
+                "evidence_paths": {"run_root": "concurrent-run-root"},
+            })
+            card_id = next(card["id"] for card in cards if card["destination"] == "project-memory")
+            save_pending_learning_cards(repo, cards)
+            context = multiprocessing.get_context("spawn")
+            worker_count = 8
+            barrier = context.Barrier(worker_count)
+            results = context.Queue()
+            workers = [
+                context.Process(target=_apply_card, args=(repo, card_id, barrier, results))
+                for _ in range(worker_count)
+            ]
+
+            try:
+                for worker in workers:
+                    worker.start()
+                for worker in workers:
+                    worker.join(timeout=15)
+                self.assertTrue(all(not worker.is_alive() for worker in workers))
+                self.assertEqual([worker.exitcode for worker in workers], [0] * worker_count)
+                outcomes = [results.get(timeout=2) for _ in workers]
+            finally:
+                for worker in workers:
+                    if worker.is_alive():
+                        worker.terminate()
+                        worker.join(timeout=2)
+                results.close()
+                results.join_thread()
+
+            self.assertEqual(outcomes.count(True), 1)
+            memory = project_memory_path(repo).read_text(encoding="utf-8")
+            self.assertEqual(memory.count("run run-concurrent-apply completed"), 1)
+            self.assertEqual(get_learning_card(repo, card_id)["card"]["status"], "applied")
+
     def test_repeated_blocker_card_is_bundled_as_recurrence_not_duplicate(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._fixture_repo(Path(temp))
@@ -123,6 +183,45 @@ class LearningLaneTests(unittest.TestCase):
             self.assertEqual(first[0]["id"], second[0]["id"])
             self.assertEqual(second[0]["recurrence_count"], 2)
             self.assertEqual(second[0]["last_seen_run_id"], "run-def")
+
+    def test_concurrent_recurrence_updates_preserve_every_occurrence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            seed = {
+                "run_id": "run-seed",
+                "status": "BLOCKED",
+                "error_type": "ValidationError",
+                "error": "Need a smaller plan.",
+                "evidence_paths": {"run_root": "evidence-seed"},
+            }
+            card_id = save_pending_learning_cards(
+                repo, generate_learning_cards(repo=repo, result=seed)
+            )[0]["id"]
+            context = multiprocessing.get_context("spawn")
+            worker_count = 8
+            barrier = context.Barrier(worker_count)
+            workers = [
+                context.Process(target=_save_repeated_blocker, args=(repo, index, barrier))
+                for index in range(worker_count)
+            ]
+
+            try:
+                for worker in workers:
+                    worker.start()
+                for worker in workers:
+                    worker.join(timeout=15)
+                self.assertTrue(all(not worker.is_alive() for worker in workers))
+                self.assertEqual([worker.exitcode for worker in workers], [0] * worker_count)
+            finally:
+                for worker in workers:
+                    if worker.is_alive():
+                        worker.terminate()
+                        worker.join(timeout=2)
+
+            card = get_learning_card(repo, card_id)["card"]
+            self.assertEqual(card["recurrence_count"], worker_count + 1)
+            for index in range(worker_count):
+                self.assertIn(f"run evidence: evidence-{index}", card["evidence"])
 
     def test_distinct_blockers_create_independent_cards(self):
         with tempfile.TemporaryDirectory() as temp:

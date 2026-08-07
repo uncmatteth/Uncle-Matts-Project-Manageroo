@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
+from .config_lock import config_mutation_lock
 from .project_memory import ensure_project_memory
 from .util import atomic_write_json, read_json, safe_repo_relative, utc_now
 
@@ -210,20 +211,21 @@ def save_pending_learning_cards(repo: Path, cards: list[dict[str, Any]]) -> list
     saved: list[dict[str, Any]] = []
     for card in cards:
         path = root / f"{safe_repo_relative(card['id'])}.json"
-        if path.exists():
-            existing = read_json(path)
-            if existing.get("status") != "pending":
-                continue
-            card = {
-                **existing,
-                "recurrence_count": int(existing.get("recurrence_count", 1)) + 1,
-                "last_seen_run_id": card.get("run_id"),
-                "last_seen_at": utc_now(),
-                "evidence": sorted(set([*existing.get("evidence", []), *card.get("evidence", [])])),
-            }
-        else:
-            card = {**card, "recurrence_count": 1, "last_seen_run_id": card.get("run_id"), "last_seen_at": card.get("created_at")}
-        atomic_write_json(path, card)
+        with config_mutation_lock(path):
+            if path.exists():
+                existing = read_json(path)
+                if existing.get("status") != "pending":
+                    continue
+                card = {
+                    **existing,
+                    "recurrence_count": int(existing.get("recurrence_count", 1)) + 1,
+                    "last_seen_run_id": card.get("run_id"),
+                    "last_seen_at": utc_now(),
+                    "evidence": sorted(set([*existing.get("evidence", []), *card.get("evidence", [])])),
+                }
+            else:
+                card = {**card, "recurrence_count": 1, "last_seen_run_id": card.get("run_id"), "last_seen_at": card.get("created_at")}
+            atomic_write_json(path, card)
         saved.append({**card, "path": str(path)})
     return saved
 
@@ -264,13 +266,21 @@ def apply_learning_card(repo: Path, card_id: str, *, approve: bool = False) -> d
             "recommendation": card.get("recommendation"),
             "next_command": f"{PUBLIC_COMMAND} learning apply {card_id} --approve",
         }
-    if card.get("apply_kind") != "project_memory_note":
-        return {"ok": False, "card_id": card_id, "error": "This learning card is manual-only. No automatic apply is available.", "apply_kind": card.get("apply_kind")}
-    payload = card.get("payload", {})
-    memory_update = ensure_project_memory(repo, notes=payload.get("notes", []), proof=payload.get("proof", []))
-    card = {**card, "status": "applied", "applied_at": utc_now(), "applied_to": memory_update["path"]}
-    atomic_write_json(Path(card["path"]), card)
-    return {"ok": True, "card": card, "project_memory_update": memory_update}
+    path = Path(card["path"])
+    with config_mutation_lock(path):
+        loaded = get_learning_card(repo, card_id)
+        if not loaded["ok"]:
+            return loaded
+        card = loaded["card"]
+        if card.get("status") != "pending":
+            return {"ok": False, "card_id": card_id, "error": f"Card is {card.get('status')}, not pending."}
+        if card.get("apply_kind") != "project_memory_note":
+            return {"ok": False, "card_id": card_id, "error": "This learning card is manual-only. No automatic apply is available.", "apply_kind": card.get("apply_kind")}
+        payload = card.get("payload", {})
+        memory_update = ensure_project_memory(repo, notes=payload.get("notes", []), proof=payload.get("proof", []))
+        card = {**card, "status": "applied", "applied_at": utc_now(), "applied_to": memory_update["path"]}
+        atomic_write_json(path, card)
+        return {"ok": True, "card": card, "project_memory_update": memory_update}
 
 
 def format_learning_cards(cards: list[dict[str, Any]]) -> str:
