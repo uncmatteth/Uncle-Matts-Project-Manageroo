@@ -118,7 +118,7 @@ class BudgetedAdapter(AgentAdapter):
                 f"Manageroo worker-call budget exhausted at {self.calls} calls."
             )
         remaining = self._remaining_runtime_seconds()
-        if remaining is not None and remaining <= 0:
+        if remaining is not None and remaining < 1:
             raise AgentExecutionError(
                 "Manageroo runtime budget exhausted before launching another worker."
             )

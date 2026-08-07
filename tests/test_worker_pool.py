@@ -3,6 +3,7 @@ import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.adapters.budget import BudgetedAdapter
@@ -166,6 +167,17 @@ class WorkerPoolTests(unittest.TestCase):
             self.assertIsNotNone(worker.last_timeout_seconds)
             self.assertGreaterEqual(worker.last_timeout_seconds, 1)
             self.assertLessEqual(worker.last_timeout_seconds, 10)
+
+    def test_subsecond_runtime_budget_rejects_launch_without_consuming_call(self):
+        with tempfile.TemporaryDirectory() as temp:
+            worker = _Worker()
+            with patch("manageroo.adapters.budget.time.monotonic", return_value=100.0):
+                budgeted = BudgetedAdapter(worker, max_runtime_minutes=0.001)
+                with self.assertRaisesRegex(AgentExecutionError, "runtime budget exhausted"):
+                    budgeted.run(_request(Path(temp), timeout_seconds=60))
+
+            self.assertEqual(worker.calls, 0)
+            self.assertEqual(budgeted.calls, 0)
 
 
 if __name__ == "__main__":
