@@ -439,6 +439,32 @@ class ProjectInitializationTests(unittest.TestCase):
                 self.assertFalse((manageroo / "config.toml").exists())
                 self.assertFalse(outside.exists())
 
+    def test_initialization_rejects_existing_external_product_brief_symlink_before_mutating_repo(self):
+        if os.name == "nt":
+            self.skipTest("symlink semantics vary on Windows")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            manageroo = repo / ".manageroo"
+            manageroo.mkdir()
+            outside = root / "outside-brief.md"
+            sentinel = b"external brief must remain unchanged\n"
+            outside.write_bytes(sentinel)
+            (manageroo / "PRODUCT-BRIEF.md").symlink_to(outside)
+
+            with self.assertRaises(ValueError):
+                initialize_project(repo, agent="mock")
+
+            self.assertEqual(outside.read_bytes(), sentinel)
+            self.assertFalse((manageroo / "config.toml").exists())
+            self.assertFalse((manageroo / "PROJECT-MEMORY.md").exists())
+            self.assertFalse((repo / ".agents").exists())
+            self.assertFalse((repo / "AGENTS.md").exists())
+            self.assertFalse((repo / "CONTEXT.md").exists())
+
     def test_initialization_preserves_existing_instruction_context_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
