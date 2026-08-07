@@ -8,5 +8,5 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parents[1] / "src"
 if _SRC.is_dir():
     src_text = str(_SRC)
-    if src_text not in sys.path:
-        sys.path.insert(0, src_text)
+    sys.path[:] = [entry for entry in sys.path if entry != src_text]
+    sys.path.insert(0, src_text)
