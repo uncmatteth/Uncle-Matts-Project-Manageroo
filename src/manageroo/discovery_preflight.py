@@ -78,7 +78,7 @@ TEXT_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".toml", ".yaml",
 SKIP_PARTS = {".git", ".manageroo", "node_modules", ".venv", "dist", "build"}
 _OPEN_SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
 _STAT_SUPPORTS_DIR_FD = os.stat in os.supports_dir_fd
-_LISTDIR_SUPPORTS_FD = os.listdir in os.supports_fd
+_SCANDIR_SUPPORTS_FD = os.scandir in os.supports_fd
 
 
 def _signal_present(corpus: str, term: str) -> bool:
@@ -91,7 +91,7 @@ def _descriptor_scan_supported() -> bool:
     return (
         _OPEN_SUPPORTS_DIR_FD
         and _STAT_SUPPORTS_DIR_FD
-        and _LISTDIR_SUPPORTS_FD
+        and _SCANDIR_SUPPORTS_FD
         and all(hasattr(os, flag) for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK"))
     )
 
@@ -143,14 +143,23 @@ def _read_regular_text(name: str, directory_fd: int, limit: int) -> str | None:
             os.close(descriptor)
 
 
-def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) -> str:
-    """Collect a bounded repository text corpus without opening special files."""
+def _repo_text(
+    repo: Path,
+    *,
+    max_files: int = 250,
+    max_chars: int = 500_000,
+    max_entries: int = 10_000,
+    max_directories: int = 1_000,
+) -> str:
+    """Collect a file-, character-, entry-, and directory-bounded repository corpus."""
     repo = repo.resolve()
-    if not _descriptor_scan_supported():
+    if max_entries <= 0 or max_directories <= 0 or not _descriptor_scan_supported():
         return ""
     chunks: list[str] = []
     consumed = 0
     scanned = 0
+    visited_entries = 0
+    visited_directories = 0
     preferred = {
         "pyproject.toml", "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
         "requirements.txt", "Dockerfile", "docker-compose.yml", "vercel.json", ".env.example", "README.md", "ARCHITECTURE.md",
@@ -166,22 +175,35 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
             if pending is not None:
                 directory_fd, relative_directory = pending
                 pending = None
+                visited_directories += 1
                 try:
-                    names = os.listdir(directory_fd)
+                    entries = os.scandir(directory_fd)
                 except OSError:
-                    names = []
+                    entries = None
                 directories: list[str] = []
                 files: list[str] = []
-                for name in names:
+                entry_budget_reached = visited_entries >= max_entries
+                if entries is not None:
                     try:
-                        entry = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-                    except OSError:
-                        continue
-                    if stat.S_ISDIR(entry.st_mode):
-                        if name not in SKIP_PARTS:
-                            directories.append(name)
-                    elif not stat.S_ISLNK(entry.st_mode):
-                        files.append(name)
+                        while visited_entries < max_entries:
+                            try:
+                                entry = next(entries)
+                            except StopIteration:
+                                break
+                            visited_entries += 1
+                            try:
+                                entry_stat = entry.stat(follow_symlinks=False)
+                            except OSError:
+                                continue
+                            if stat.S_ISDIR(entry_stat.st_mode):
+                                if entry.name not in SKIP_PARTS:
+                                    directories.append(entry.name)
+                            elif not stat.S_ISLNK(entry_stat.st_mode):
+                                files.append(entry.name)
+                        else:
+                            entry_budget_reached = True
+                    finally:
+                        entries.close()
 
                 ordered_files = sorted(files, key=lambda name: (name not in preferred, name))
                 for name in ordered_files:
@@ -199,6 +221,8 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
                     chunks.append(text)
                     if consumed >= max_chars:
                         return "\n".join(chunks).lower()
+                if entry_budget_reached:
+                    return "\n".join(chunks).lower()
                 stack.append((directory_fd, relative_directory, sorted(directories), 0))
                 continue
 
@@ -210,6 +234,8 @@ def _repo_text(repo: Path, *, max_files: int = 250, max_chars: int = 500_000) ->
                 continue
             name = directories[index]
             stack[-1] = (directory_fd, relative_directory, directories, index + 1)
+            if visited_directories >= max_directories:
+                return "\n".join(chunks).lower()
             child_descriptor = _open_directory(name, directory_fd=directory_fd)
             if child_descriptor is not None:
                 open_descriptors.add(child_descriptor)

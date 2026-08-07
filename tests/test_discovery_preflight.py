@@ -85,6 +85,60 @@ class DiscoveryPreflightTests(unittest.TestCase):
             markers = [f"marker-{index}" for index in range(5) if f"marker-{index}" in corpus]
             self.assertEqual(len(markers), 2)
 
+    @unittest.skipUnless(DESCRIPTOR_SCAN_AVAILABLE, "descriptor-relative scans are unavailable")
+    def test_repo_text_stops_at_entry_cap_without_exhausting_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            names = [f"ignored-{index}.bin" for index in range(5)] + ["marker.txt"]
+            for name in names:
+                (repo / name).write_text("marker\n", encoding="utf-8")
+            visited: list[str] = []
+
+            class Entry:
+                def __init__(self, name: str):
+                    self.name = name
+
+                def stat(self, *, follow_symlinks: bool = True):
+                    visited.append(self.name)
+                    return os.stat(repo / self.name, follow_symlinks=follow_symlinks)
+
+            def scan_directory(_descriptor):
+                return (Entry(name) for name in names)
+
+            with patch("manageroo.discovery_preflight.os.scandir", side_effect=scan_directory):
+                corpus = _repo_text(
+                    repo,
+                    max_files=10,
+                    max_chars=100_000,
+                    max_entries=3,
+                )
+
+            self.assertEqual(visited, names[:3])
+            self.assertNotIn("marker.txt", corpus)
+
+    @unittest.skipUnless(DESCRIPTOR_SCAN_AVAILABLE, "descriptor-relative scans are unavailable")
+    def test_repo_text_stops_at_directory_cap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            for index in range(5):
+                directory = repo / f"directory-{index}"
+                directory.mkdir()
+                (directory / "marker.txt").write_text(
+                    f"marker-{index}\n",
+                    encoding="utf-8",
+                )
+
+            corpus = _repo_text(
+                repo,
+                max_files=10,
+                max_chars=100_000,
+                max_entries=100,
+                max_directories=2,
+            )
+
+            markers = [f"marker-{index}" for index in range(5) if f"marker-{index}" in corpus]
+            self.assertEqual(markers, ["marker-0"])
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are not available on this platform")
     @unittest.skipUnless(DESCRIPTOR_SCAN_AVAILABLE, "descriptor-relative scans are unavailable")
     def test_repo_text_skips_fifo_without_opening_it(self):
