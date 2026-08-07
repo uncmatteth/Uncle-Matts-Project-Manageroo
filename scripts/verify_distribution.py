@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -11,11 +12,17 @@ import venv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+PROJECT = PYPROJECT["project"]
+BUILD_REQUIREMENTS_LOCK = ROOT / "build-requirements.lock"
 EXPECTED_VERSION = str(PROJECT["version"])
 EXPECTED_CORE_SKILLS = 22
 EXPECTED_OPTIONAL_SKILLS = 32
 EXPECTED_TOTAL_SKILLS = EXPECTED_CORE_SKILLS + EXPECTED_OPTIONAL_SKILLS
+BUILD_LOCK_ENTRY = re.compile(
+    r"(?P<requirement>[A-Za-z0-9_.-]+==[A-Za-z0-9_.+-]+) "
+    r"--hash=sha256:(?P<digest>[0-9a-f]{64})"
+)
 
 
 def _run(argv: list[str], *, cwd: Path, timeout: int = 300) -> subprocess.CompletedProcess[str]:
@@ -43,7 +50,33 @@ def _run(argv: list[str], *, cwd: Path, timeout: int = 300) -> subprocess.Comple
     return result
 
 
-def _build_wheel(wheel_dir: Path) -> subprocess.CompletedProcess[str]:
+def _locked_build_requirements() -> list[str]:
+    declared = list(PYPROJECT["build-system"]["requires"])
+    locked: list[str] = []
+    for line_number, line in enumerate(
+        BUILD_REQUIREMENTS_LOCK.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = BUILD_LOCK_ENTRY.fullmatch(stripped)
+        if match is None:
+            raise RuntimeError(
+                f"Invalid hash-locked build requirement at "
+                f"{BUILD_REQUIREMENTS_LOCK.name}:{line_number}"
+            )
+        locked.append(match.group("requirement"))
+    if locked != declared:
+        raise RuntimeError(
+            "build-system.requires must exactly match the ordered SHA-256 build lock: "
+            f"declared={declared!r}, locked={locked!r}"
+        )
+    return locked
+
+
+def _download_build_requirements(wheelhouse: Path) -> subprocess.CompletedProcess[str]:
+    _locked_build_requirements()
     return _run(
         [
             sys.executable,
@@ -51,8 +84,60 @@ def _build_wheel(wheel_dir: Path) -> subprocess.CompletedProcess[str]:
             "-m",
             "pip",
             "--isolated",
+            "download",
+            "--disable-pip-version-check",
+            "--require-hashes",
+            "--only-binary=:all:",
+            "--no-deps",
+            "--dest",
+            str(wheelhouse),
+            "--requirement",
+            str(BUILD_REQUIREMENTS_LOCK),
+        ],
+        cwd=ROOT,
+        timeout=600,
+    )
+
+
+def _install_build_requirements(
+    python: Path,
+    wheelhouse: Path,
+    root: Path,
+) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            str(python),
+            "-I",
+            "-m",
+            "pip",
+            "--isolated",
+            "install",
+            "--disable-pip-version-check",
+            "--no-index",
+            "--find-links",
+            str(wheelhouse),
+            "--require-hashes",
+            "--no-deps",
+            "--requirement",
+            str(BUILD_REQUIREMENTS_LOCK),
+        ],
+        cwd=root,
+        timeout=300,
+    )
+
+
+def _build_wheel(python: Path, wheel_dir: Path) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            str(python),
+            "-I",
+            "-m",
+            "pip",
+            "--isolated",
             "wheel",
             "--disable-pip-version-check",
+            "--no-build-isolation",
+            "--no-index",
             "--no-deps",
             "--wheel-dir",
             str(wheel_dir),
@@ -85,7 +170,19 @@ def verify_distribution() -> dict:
         root = Path(temp)
         wheel_dir = root / "wheel"
         wheel_dir.mkdir()
-        build = _build_wheel(wheel_dir)
+        wheelhouse = root / "build-wheelhouse"
+        wheelhouse.mkdir()
+        _download_build_requirements(wheelhouse)
+
+        build_venv = root / "build-venv"
+        venv.EnvBuilder(with_pip=True, clear=True).create(build_venv)
+        build_python = build_venv / (
+            "Scripts/python.exe" if os.name == "nt" else "bin/python"
+        )
+        if not build_python.is_file():
+            raise RuntimeError(f"Distribution build venv Python is missing: {build_python}")
+        _install_build_requirements(build_python, wheelhouse, root)
+        build = _build_wheel(build_python, wheel_dir)
         wheels = sorted(wheel_dir.glob("*.whl"))
         if len(wheels) != 1:
             raise RuntimeError(f"Expected exactly one built wheel, found: {[path.name for path in wheels]}")

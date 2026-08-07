@@ -7,6 +7,7 @@ Deterministic properties:
 - explicit phase transitions;
 - immutable locked artifact hashes;
 - exact source snapshot hashes;
+- exact build-backend versions installed from a SHA-256 lock before offline wheel building;
 - stable repository inventory ordering;
 - fixed context budgets;
 - exact included line ranges;

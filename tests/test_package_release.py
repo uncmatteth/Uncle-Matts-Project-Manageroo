@@ -482,15 +482,53 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("EXPECTED_OPTIONAL_SKILLS = 32", distribution_text)
         self.assertIn("Installed wheel did not create the manageroo console entry point", distribution_text)
 
-    def test_distribution_build_uses_isolated_declared_requirements(self):
+    def test_distribution_build_uses_hash_locked_declared_requirements(self):
+        build_system = tomllib.loads(
+            (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        )["build-system"]
+        self.assertEqual(
+            build_system["requires"],
+            ["setuptools==80.9.0", "wheel==0.45.1"],
+        )
+        self.assertEqual(
+            verify_distribution._locked_build_requirements(),
+            build_system["requires"],
+        )
+
         with tempfile.TemporaryDirectory() as temp:
-            wheel_dir = Path(temp) / "wheel"
+            root = Path(temp)
+            wheelhouse = root / "wheelhouse"
+            build_python = root / "build-venv" / "bin" / "python"
+            wheel_dir = root / "wheel"
             with patch.object(verify_distribution, "_run") as run:
-                verify_distribution._build_wheel(wheel_dir)
+                verify_distribution._download_build_requirements(wheelhouse)
+
+            download_argv = run.call_args.args[0]
+            self.assertIn("--require-hashes", download_argv)
+            self.assertIn("--only-binary=:all:", download_argv)
+            self.assertIn("--no-deps", download_argv)
+            self.assertIn(str(verify_distribution.BUILD_REQUIREMENTS_LOCK), download_argv)
+
+            with patch.object(verify_distribution, "_run") as run:
+                verify_distribution._install_build_requirements(
+                    build_python,
+                    wheelhouse,
+                    root,
+                )
+
+            install_argv = run.call_args.args[0]
+            self.assertIn("--no-index", install_argv)
+            self.assertIn("--find-links", install_argv)
+            self.assertIn("--require-hashes", install_argv)
+
+            with patch.object(verify_distribution, "_run") as run:
+                verify_distribution._build_wheel(build_python, wheel_dir)
 
         argv = run.call_args.args[0]
-        self.assertEqual(argv[1:6], ["-I", "-m", "pip", "--isolated", "wheel"])
-        self.assertNotIn("--no-build-isolation", argv)
+        self.assertEqual(argv[0], str(build_python))
+        self.assertIn("--no-build-isolation", argv)
+        self.assertIn("--no-index", argv)
+        self.assertIn("--no-deps", argv)
         self.assertEqual(run.call_args.kwargs, {"cwd": ROOT, "timeout": 600})
 
     def test_distribution_install_ignores_inherited_pythonpath(self):
