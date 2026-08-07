@@ -86,6 +86,39 @@ class InstallRepairTests(unittest.TestCase):
                 self.assertNotEqual(launcher.stat().st_mode & 0o111, 0)
             self.assertTrue(any(action["name"] == "launcher" for action in result["actions"]))
 
+    def test_apply_does_not_overwrite_file_created_after_missing_launcher_check(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            bin_dir = Path(temp) / "bin"
+            launcher = _launcher_path(bin_dir)
+            prefix.mkdir()
+            bin_dir.mkdir()
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"launcher": str(launcher)}) + "\n",
+                encoding="utf-8",
+            )
+            original_is_symlink = Path.is_symlink
+            launcher_checks = 0
+
+            def create_unowned_launcher_after_validation(path: Path) -> bool:
+                nonlocal launcher_checks
+                if path == launcher:
+                    launcher_checks += 1
+                    if launcher_checks == 2:
+                        launcher.write_text("unrelated launcher\n", encoding="utf-8")
+                        return False
+                return original_is_symlink(path)
+
+            with (
+                patch.object(Path, "is_symlink", create_unowned_launcher_after_validation),
+                patch.dict(os.environ, {"MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills")}),
+            ):
+                result = repair_install(prefix=prefix, bin_dir=bin_dir, apply=True)
+
+            self.assertGreaterEqual(launcher_checks, 2)
+            self.assertEqual(launcher.read_text(encoding="utf-8"), "unrelated launcher\n")
+            self.assertFalse(any(action.get("status") == "recreated" for action in result["actions"]))
+
     @unittest.skipIf(os.name == "nt", "POSIX execute bits do not apply on Windows")
     def test_apply_repairs_existing_non_executable_launcher(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -105,6 +138,46 @@ class InstallRepairTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(os.access(launcher, os.X_OK))
             self.assertTrue(any(action.get("status") == "made executable" for action in result["actions"]))
+
+    @unittest.skipIf(os.name == "nt", "POSIX execute bits do not apply on Windows")
+    def test_apply_does_not_chmod_launcher_replaced_after_ownership_validation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            bin_dir = Path(temp) / "bin"
+            launcher = _launcher_path(bin_dir)
+            prefix.mkdir()
+            bin_dir.mkdir()
+            launcher.write_text(_launcher_text(), encoding="utf-8")
+            launcher.chmod(0o644)
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"launcher": str(launcher)}) + "\n",
+                encoding="utf-8",
+            )
+            launcher_replaced = False
+
+            def replace_after_validation(path: Path) -> bool:
+                nonlocal launcher_replaced
+                owned = launcher_is_manageroo_owned(path)
+                if path == launcher and owned and not launcher_replaced:
+                    launcher.unlink()
+                    launcher.write_text("unrelated launcher\n", encoding="utf-8")
+                    launcher.chmod(0o600)
+                    launcher_replaced = True
+                return owned
+
+            with (
+                patch(
+                    "manageroo.install_repair.launcher_is_manageroo_owned",
+                    side_effect=replace_after_validation,
+                ),
+                patch.dict(os.environ, {"MANAGEROO_SKILLS_DIR": str(Path(temp) / "skills")}),
+            ):
+                result = repair_install(prefix=prefix, bin_dir=bin_dir, apply=True)
+
+            self.assertTrue(launcher_replaced)
+            self.assertEqual(launcher.read_text(encoding="utf-8"), "unrelated launcher\n")
+            self.assertEqual(launcher.stat().st_mode & 0o777, 0o600)
+            self.assertFalse(any(action.get("status") == "made executable" for action in result["actions"]))
 
     def test_no_apply_is_completely_mutation_free(self):
         with tempfile.TemporaryDirectory() as temp:

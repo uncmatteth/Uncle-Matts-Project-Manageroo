@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,30 @@ def _cmd_launcher_is_manageroo_owned(lines: list[str]) -> bool:
     return True
 
 
+def _launcher_text_is_manageroo_owned(name: str, text: str) -> bool:
+    if len(text) > _MAX_LAUNCHER_CHARACTERS or not text.endswith("\n"):
+        return False
+    lines = text.splitlines()
+    if name == PUBLIC_COMMAND:
+        return _posix_launcher_is_manageroo_owned(lines)
+    if name == f"{PUBLIC_COMMAND}.cmd":
+        return _cmd_launcher_is_manageroo_owned(lines)
+    return False
+
+
+def _launcher_descriptor_is_manageroo_owned(descriptor: int, name: str) -> bool:
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            return False
+        with os.fdopen(os.dup(descriptor), "r", encoding="utf-8") as handle:
+            handle.seek(0)
+            text = handle.read(_MAX_LAUNCHER_CHARACTERS + 1)
+    except (OSError, UnicodeError):
+        return False
+    return _launcher_text_is_manageroo_owned(name, text)
+
+
 def launcher_is_manageroo_owned(path: Path) -> bool:
     try:
         if path.is_symlink() or not path.is_file():
@@ -114,14 +139,7 @@ def launcher_is_manageroo_owned(path: Path) -> bool:
             text = handle.read(_MAX_LAUNCHER_CHARACTERS + 1)
     except (OSError, UnicodeError):
         return False
-    if len(text) > _MAX_LAUNCHER_CHARACTERS or not text.endswith("\n"):
-        return False
-    lines = text.splitlines()
-    if path.name == PUBLIC_COMMAND:
-        return _posix_launcher_is_manageroo_owned(lines)
-    if path.name == f"{PUBLIC_COMMAND}.cmd":
-        return _cmd_launcher_is_manageroo_owned(lines)
-    return False
+    return _launcher_text_is_manageroo_owned(path.name, text)
 
 
 def _validate_lock_payload(payload: dict[str, Any]) -> str | None:

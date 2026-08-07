@@ -8,7 +8,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .install_status import LAUNCHER_MARKER, _validated_launcher_value, launcher_is_manageroo_owned
+from .install_status import (
+    LAUNCHER_MARKER,
+    _launcher_descriptor_is_manageroo_owned,
+    _validated_launcher_value,
+    launcher_is_manageroo_owned,
+)
 from .token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, token_mode_skills_dir
 
 
@@ -42,23 +47,48 @@ def _write_launcher(launcher: Path, *, python: Path, app_root: Path, prefix: Pat
         app_text = _safe_launcher_text(app_root)
         prefix_text = _safe_launcher_text(prefix)
         python_text = _safe_launcher_text(python)
-        launcher.write_text(
+        contents = (
             f"@rem {LAUNCHER_MARKER}\n"
             f'@set "PYTHONPATH={app_text}"\n'
             f'@set "MANAGEROO_PREFIX={prefix_text}"\n'
-            f'@"{python_text}" -m manageroo %*\n',
-            encoding="utf-8",
+            f'@"{python_text}" -m manageroo %*\n'
         )
     else:
-        launcher.write_text(
+        contents = (
             "#!/bin/sh\n"
             f"# {LAUNCHER_MARKER}\n"
             f"export PYTHONPATH={shlex.quote(str(app_root))}${{PYTHONPATH:+:$PYTHONPATH}}\n"
             f"export MANAGEROO_PREFIX={shlex.quote(str(prefix))}\n"
-            f"exec {shlex.quote(str(python))} -m manageroo \"$@\"\n",
-            encoding="utf-8",
+            f"exec {shlex.quote(str(python))} -m manageroo \"$@\"\n"
         )
-        launcher.chmod(0o755)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(launcher, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            descriptor = -1
+            handle.write(contents)
+            handle.flush()
+            if os.name != "nt":
+                os.fchmod(handle.fileno(), 0o755)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _make_launcher_executable(launcher: Path) -> None:
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise OSError("safe no-follow launcher permission repair is unavailable")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    descriptor = os.open(launcher, flags)
+    try:
+        if not _launcher_descriptor_is_manageroo_owned(descriptor, launcher.name):
+            raise ValueError("opened launcher is not a verified Manageroo launcher")
+        current_mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
+        os.fchmod(descriptor, current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    finally:
+        os.close(descriptor)
 
 
 def _check(name: str, ok: bool, detail: str, next_command: str = "") -> dict[str, Any]:
@@ -148,10 +178,9 @@ def repair_install(*, prefix: Path | None = None, bin_dir: Path | None = None, a
     elif os.name != "nt" and not os.access(launcher, os.X_OK):
         if apply:
             try:
-                current_mode = stat.S_IMODE(launcher.stat().st_mode)
-                launcher.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                _make_launcher_executable(launcher)
                 actions.append({"name": "launcher", "status": "made executable", "path": str(launcher)})
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 checks.append(_check("launcher-permissions", False, str(exc), "./install.sh"))
                 next_commands.append("./install.sh")
         else:
