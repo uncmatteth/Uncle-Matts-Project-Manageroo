@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import re
+import stat
 from dataclasses import asdict, dataclass, field, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -9,10 +11,64 @@ from typing import Any, Iterable
 
 from .config_lock import config_mutation_lock
 from .errors import SafetyError
-from .util import atomic_write_json, read_json, safe_repo_relative, sha256_file, sha256_json, utc_now
+from .util import (
+    atomic_write_json,
+    read_json,
+    safe_repo_relative,
+    sha256_bytes,
+    sha256_file,
+    sha256_json,
+    utc_now,
+)
 
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _artifact_descriptor_access_supported() -> bool:
+    return (
+        hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and hasattr(os, "O_NONBLOCK")
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
+    )
+
+
+def _artifact_directory_flags() -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK
+    return flags | getattr(os, "O_CLOEXEC", 0)
+
+
+def _open_artifact_descriptor(root: Path, relative: str, flags: int) -> int:
+    if not _artifact_descriptor_access_supported():
+        raise SafetyError(
+            "Completed job artifacts require descriptor-relative no-follow filesystem access."
+        )
+    current_fd = -1
+    try:
+        current_fd = os.open(root, _artifact_directory_flags())
+        root_state = os.fstat(current_fd)
+        current_root = os.stat(root, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(root_state.st_mode)
+            or (root_state.st_dev, root_state.st_ino)
+            != (current_root.st_dev, current_root.st_ino)
+        ):
+            raise SafetyError("Completed job artifact root changed while opening.")
+        parts = Path(relative).parts
+        for part in parts[:-1]:
+            child_fd = os.open(part, _artifact_directory_flags(), dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = child_fd
+        return os.open(parts[-1], flags, dir_fd=current_fd)
+    except SafetyError:
+        raise
+    except OSError as exc:
+        raise SafetyError(f"Completed job artifact is unsafe: {relative}") from exc
+    finally:
+        if current_fd >= 0:
+            os.close(current_fd)
 
 
 class JobStatus(str, Enum):
@@ -114,12 +170,66 @@ class JobStore:
     def _artifact_path(self, output_artifact: str, artifacts_root: Path | None = None) -> tuple[str, Path]:
         relative = safe_repo_relative(output_artifact)
         root = (artifacts_root or self.artifacts_root).expanduser().resolve()
-        candidate = (root / relative).resolve()
+        return relative, root / relative
+
+    @staticmethod
+    def _read_artifact_json(path: Path, root: Path, relative: str) -> tuple[Any, str]:
+        descriptor = -1
+        verification_descriptor = -1
         try:
-            candidate.relative_to(root)
-        except ValueError as exc:
-            raise SafetyError(f"Job artifact escapes artifact root: {output_artifact!r}") from exc
-        return relative, candidate
+            flags = os.O_RDONLY
+            flags |= getattr(os, "O_BINARY", 0)
+            flags |= getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            flags |= getattr(os, "O_NONBLOCK", 0)
+            descriptor = _open_artifact_descriptor(root, relative, flags)
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+            ):
+                raise SafetyError(f"Completed job artifact is unsafe: {relative}")
+            resolved = path.resolve(strict=True)
+            try:
+                resolved.relative_to(root)
+            except ValueError as exc:
+                raise SafetyError(
+                    f"Completed job artifact escapes artifact root: {relative}"
+                ) from exc
+
+            chunks: list[bytes] = []
+            while block := os.read(descriptor, 1024 * 1024):
+                chunks.append(block)
+            after = os.fstat(descriptor)
+            verification_descriptor = _open_artifact_descriptor(root, relative, flags)
+            latest = os.fstat(verification_descriptor)
+            if (
+                (opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino)
+                or opened.st_size != after.st_size
+                or opened.st_mtime_ns != after.st_mtime_ns
+                or opened.st_ctime_ns != after.st_ctime_ns
+                or after.st_nlink != 1
+                or not stat.S_ISREG(latest.st_mode)
+                or latest.st_nlink != 1
+                or (after.st_dev, after.st_ino) != (latest.st_dev, latest.st_ino)
+                or path.resolve(strict=True) != resolved
+            ):
+                raise SafetyError(f"Completed job artifact changed while reading: {relative}")
+            payload = b"".join(chunks)
+        except SafetyError:
+            raise
+        except OSError as exc:
+            raise SafetyError(f"Completed job artifact is unsafe: {relative}") from exc
+        finally:
+            if verification_descriptor >= 0:
+                os.close(verification_descriptor)
+            if descriptor >= 0:
+                os.close(descriptor)
+
+        try:
+            return json.loads(payload.decode("utf-8")), sha256_bytes(payload)
+        except (UnicodeError, ValueError) as exc:
+            raise SafetyError(f"Completed job artifact is not valid JSON: {relative}") from exc
 
     def _spec(
         self,
@@ -405,23 +515,17 @@ class JobStore:
                 relative, expected = self._artifact_path(output_artifact)
                 if artifact_path is None:
                     raise SafetyError(f"Completed job requires a written artifact: {job_id}")
-                try:
-                    actual = artifact_path.expanduser().resolve(strict=True)
-                except OSError as exc:
-                    raise SafetyError(
-                        f"Completed job requires a written artifact: {job_id}"
-                    ) from exc
-                if actual != expected or actual.is_symlink() or not actual.is_file():
+                actual = Path(os.path.abspath(artifact_path.expanduser()))
+                if actual != expected:
                     raise SafetyError(
                         "Completed job artifact path does not match its run-owned "
                         f"artifact reference: {relative}"
                     )
-                try:
-                    artifact_data = read_json(actual)
-                except (OSError, UnicodeError, ValueError) as exc:
-                    raise SafetyError(
-                        f"Completed job artifact is not valid JSON: {relative}"
-                    ) from exc
+                artifact_data, artifact_hash = self._read_artifact_json(
+                    actual,
+                    self.artifacts_root,
+                    relative,
+                )
                 if sha256_json(artifact_data) != result_hash:
                     raise SafetyError(
                         f"Completed job artifact does not match its result: {relative}"
@@ -444,7 +548,7 @@ class JobStore:
                 raise
             job.status = JobStatus.COMPLETE.value
             job.output_artifact = relative
-            job.output_artifact_sha256 = sha256_file(actual)
+            job.output_artifact_sha256 = artifact_hash
             job.result_sha256 = result_hash
             job.failure_type = ""
             job.failure = ""
@@ -485,19 +589,24 @@ class JobStore:
                 self.save_job(job)
                 return None
             relative, path = self._artifact_path(job.output_artifact, artifacts_root)
-            if not path.exists() or path.is_symlink() or not path.is_file():
+            try:
+                data, artifact_hash = self._read_artifact_json(
+                    path,
+                    artifacts_root.expanduser().resolve(),
+                    relative,
+                )
+            except SafetyError:
                 job.status = JobStatus.PENDING.value
                 job.failure_type = "MissingArtifact"
                 job.failure = f"Completed job artifact is missing: {relative}"
                 self.save_job(job)
                 return None
-            if sha256_file(path) != job.output_artifact_sha256:
+            if artifact_hash != job.output_artifact_sha256:
                 job.status = JobStatus.PENDING.value
                 job.failure_type = "StaleArtifact"
                 job.failure = f"Completed job artifact changed: {relative}"
                 self.save_job(job)
                 return None
-            data = read_json(path)
             result_hash = sha256_json(data)
             attempts = self.attempts_for(job_id)
             if result_hash != job.result_sha256 or (

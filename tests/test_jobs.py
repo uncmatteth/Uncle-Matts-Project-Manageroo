@@ -330,6 +330,130 @@ class JobStoreTests(unittest.TestCase):
             self.assertEqual(reloaded.status, JobStatus.PENDING.value)
             self.assertEqual(reloaded.failure_type, "StaleArtifact")
 
+    def test_completed_job_rejects_symlinked_artifact_entry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            shared = run_root / "artifacts" / "shared.json"
+            atomic_write_json(shared, {"ok": True})
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            artifact.parent.mkdir(parents=True)
+            try:
+                artifact.symlink_to(shared)
+            except (OSError, NotImplementedError):
+                self.skipTest("file symlinks are unavailable on this platform")
+
+            with self.assertRaises(SafetyError):
+                store.complete_job(
+                    job.id,
+                    output_artifact="agent/001-product-analyst.json",
+                    data={"ok": True},
+                    artifact_path=artifact,
+                )
+
+            self.assertEqual(shared.read_text(encoding="utf-8"), '{\n  "ok": true\n}\n')
+
+    def test_completed_job_rejects_symlinked_artifact_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            shared = run_root / "artifacts" / "shared"
+            target = shared / "001-product-analyst.json"
+            atomic_write_json(target, {"ok": True})
+            parent = run_root / "artifacts" / "agent"
+            try:
+                parent.symlink_to(shared, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable on this platform")
+            artifact = parent / "001-product-analyst.json"
+
+            with self.assertRaises(SafetyError):
+                store.complete_job(
+                    job.id,
+                    output_artifact="agent/001-product-analyst.json",
+                    data={"ok": True},
+                    artifact_path=artifact,
+                )
+
+            self.assertEqual(target.read_text(encoding="utf-8"), '{\n  "ok": true\n}\n')
+
+    def test_completed_data_rejects_symlinked_artifact_entry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_job(
+                job.id,
+                output_artifact="agent/001-product-analyst.json",
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+            shared = run_root / "artifacts" / "shared.json"
+            atomic_write_json(shared, {"ok": True})
+            artifact.unlink()
+            try:
+                artifact.symlink_to(shared)
+            except (OSError, NotImplementedError):
+                self.skipTest("file symlinks are unavailable on this platform")
+
+            self.assertIsNone(store.completed_data(job.id, run_root / "artifacts"))
+            reloaded = store.load_job(job.id)
+            self.assertEqual(reloaded.status, JobStatus.PENDING.value)
+            self.assertEqual(reloaded.failure_type, "MissingArtifact")
+            self.assertEqual(shared.read_text(encoding="utf-8"), '{\n  "ok": true\n}\n')
+
+    def test_completed_data_rejects_symlinked_artifact_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_job(
+                job.id,
+                output_artifact="agent/001-product-analyst.json",
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+            artifact.parent.rename(run_root / "artifacts" / "original-agent")
+            shared = run_root / "artifacts" / "shared"
+            target = shared / artifact.name
+            atomic_write_json(target, {"ok": True})
+            try:
+                artifact.parent.symlink_to(shared, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable on this platform")
+
+            self.assertIsNone(store.completed_data(job.id, run_root / "artifacts"))
+            reloaded = store.load_job(job.id)
+            self.assertEqual(reloaded.status, JobStatus.PENDING.value)
+            self.assertEqual(reloaded.failure_type, "MissingArtifact")
+            self.assertEqual(target.read_text(encoding="utf-8"), '{\n  "ok": true\n}\n')
+
     def test_completed_data_rejects_artifact_that_conflicts_with_recorded_result(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)

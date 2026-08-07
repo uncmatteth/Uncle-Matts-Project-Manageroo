@@ -79,6 +79,9 @@ Every worker call is represented as a durable job:
 ```
 
 Completed jobs are loaded from recorded artifacts. They are not rerun merely because a chat was compacted or a new worker process starts. A completed job record must include a matching output-artifact SHA-256 hash, and the parsed artifact must match the recorded result hash, or it is treated as stale.
+The lexical artifact entry must also remain a single-link regular file. Manageroo
+hashes and parses bytes from the same validated descriptor so a symlink alias
+cannot be recorded or reused as run-owned output.
 
 `manageroo run --continue <run-id>` replays the Python controller from the saved run folder. The old worker process is not trusted or required. Replay keeps logical job IDs stable so later attempts continue the original job instead of creating shifted duplicate work.
 Product-analysis continuation also reuses the locked system-capacity and
