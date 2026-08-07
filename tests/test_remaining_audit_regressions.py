@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import shlex
 import tempfile
 import unittest
 from pathlib import Path
@@ -131,8 +132,8 @@ class RemainingAuditRegressionTests(unittest.TestCase):
             custom_launcher.write_text(
                 "#!/bin/sh\n"
                 f"# {LAUNCHER_MARKER}\n"
-                "export PYTHONPATH=/tmp/manageroo/app${PYTHONPATH:+:$PYTHONPATH}\n"
-                "export MANAGEROO_PREFIX=/tmp/manageroo\n"
+                f"export PYTHONPATH={shlex.quote(str(prefix / 'app'))}${{PYTHONPATH:+:$PYTHONPATH}}\n"
+                f"export MANAGEROO_PREFIX={shlex.quote(str(prefix))}\n"
                 'exec python3 -m manageroo "$@"\n',
                 encoding="utf-8",
             )

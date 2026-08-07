@@ -107,15 +107,37 @@ def _cmd_launcher_is_manageroo_owned(lines: list[str]) -> bool:
     return True
 
 
-def _launcher_text_is_manageroo_owned(name: str, text: str) -> bool:
+def _launcher_text_is_manageroo_owned(
+    name: str,
+    text: str,
+    *,
+    expected_prefix: Path | None = None,
+) -> bool:
     if len(text) > _MAX_LAUNCHER_CHARACTERS or not text.endswith("\n"):
         return False
     lines = text.splitlines()
     if name == PUBLIC_COMMAND:
-        return _posix_launcher_is_manageroo_owned(lines)
-    if name == f"{PUBLIC_COMMAND}.cmd":
-        return _cmd_launcher_is_manageroo_owned(lines)
-    return False
+        owned = _posix_launcher_is_manageroo_owned(lines)
+        prefix_expression = lines[3][len("export MANAGEROO_PREFIX="):] if owned else ""
+        try:
+            recorded_prefix = shlex.split(prefix_expression, posix=True)[0]
+        except (IndexError, ValueError):
+            recorded_prefix = ""
+    elif name == f"{PUBLIC_COMMAND}.cmd":
+        owned = _cmd_launcher_is_manageroo_owned(lines)
+        recorded_prefix = lines[2][len('@set "MANAGEROO_PREFIX='):-1] if owned else ""
+    else:
+        return False
+    if not owned or expected_prefix is None:
+        return owned
+    try:
+        recorded = Path(recorded_prefix).expanduser()
+        return bool(
+            recorded.is_absolute()
+            and recorded.resolve(strict=False) == expected_prefix.expanduser().resolve(strict=False)
+        )
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def _launcher_descriptor_is_manageroo_owned(descriptor: int, name: str) -> bool:
@@ -131,7 +153,7 @@ def _launcher_descriptor_is_manageroo_owned(descriptor: int, name: str) -> bool:
     return _launcher_text_is_manageroo_owned(name, text)
 
 
-def launcher_is_manageroo_owned(path: Path) -> bool:
+def launcher_is_manageroo_owned(path: Path, *, expected_prefix: Path | None = None) -> bool:
     try:
         if path.is_symlink() or not path.is_file():
             return False
@@ -139,7 +161,11 @@ def launcher_is_manageroo_owned(path: Path) -> bool:
             text = handle.read(_MAX_LAUNCHER_CHARACTERS + 1)
     except (OSError, UnicodeError):
         return False
-    return _launcher_text_is_manageroo_owned(path.name, text)
+    return _launcher_text_is_manageroo_owned(
+        path.name,
+        text,
+        expected_prefix=expected_prefix,
+    )
 
 
 def _validate_lock_payload(payload: dict[str, Any]) -> str | None:
@@ -469,7 +495,7 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
         validated, _ = _validated_launcher_value(recorded)
         if validated:
             candidate = Path(validated)
-            if launcher_is_manageroo_owned(candidate):
+            if launcher_is_manageroo_owned(candidate, expected_prefix=prefix):
                 launchers.append(candidate)
                 for tool in loaded["lock"].get("external_tools", []):
                     if not isinstance(tool, dict) or tool.get("name") != "trufflehog" or not tool.get("manageroo_owned"):
@@ -493,7 +519,7 @@ def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> d
     elif prefix_ownership_known and bin_dir is not None:
         root = bin_dir.expanduser()
         for candidate in (root / PUBLIC_COMMAND, root / f"{PUBLIC_COMMAND}.cmd"):
-            if launcher_is_manageroo_owned(candidate):
+            if launcher_is_manageroo_owned(candidate, expected_prefix=prefix):
                 launchers.append(candidate)
     owned_files = [*launchers, *manageroo_owned_external_paths]
     launcher_commands = [shlex.join(["rm", "-f", *[str(path) for path in owned_files]])] if owned_files else []

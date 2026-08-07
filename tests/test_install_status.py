@@ -20,12 +20,12 @@ from manageroo.install_status import (
 )
 
 
-def _launcher_text() -> str:
+def _launcher_text(prefix: Path = Path("/tmp/manageroo")) -> str:
     return (
         "#!/bin/sh\n"
         f"# {LAUNCHER_MARKER}\n"
-        "export PYTHONPATH=/tmp/manageroo/app${PYTHONPATH:+:$PYTHONPATH}\n"
-        "export MANAGEROO_PREFIX=/tmp/manageroo\n"
+        f"export PYTHONPATH={shlex.quote(str(prefix / 'app'))}${{PYTHONPATH:+:$PYTHONPATH}}\n"
+        f"export MANAGEROO_PREFIX={shlex.quote(str(prefix))}\n"
         'exec python3 -m manageroo "$@"\n'
     )
 
@@ -174,13 +174,35 @@ class InstallStatusTests(unittest.TestCase):
             unrelated_default = Path.home() / ".local" / "bin" / "manageroo"
             prefix.mkdir()
             custom_launcher.parent.mkdir()
-            custom_launcher.write_text(_launcher_text(), encoding="utf-8")
+            custom_launcher.write_text(_launcher_text(prefix), encoding="utf-8")
             _write_owned_lock(prefix, {"launcher": str(custom_launcher), "external_tools": []})
             plan = uninstall_plan(prefix=prefix)
             self.assertFalse(plan["executes_deletions"])
             self.assertIn(str(custom_launcher), plan["core_paths"])
             self.assertNotIn(str(unrelated_default), plan["core_paths"])
             self.assertTrue(plan["launcher_ownership_known"])
+
+    def test_uninstall_plan_excludes_launcher_owned_by_other_installation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            prefix_a = root / "prefix-a"
+            prefix_b = root / "prefix-b"
+            launcher_b = root / "bin-b" / "manageroo"
+            prefix_a.mkdir()
+            prefix_b.mkdir()
+            launcher_b.parent.mkdir()
+            launcher_b.write_text(_launcher_text(prefix_b), encoding="utf-8")
+            _write_owned_lock(
+                prefix_a,
+                {"launcher": str(launcher_b), "external_tools": []},
+            )
+
+            plan = uninstall_plan(prefix=prefix_a)
+
+            self.assertTrue(plan["prefix_ownership_known"])
+            self.assertFalse(plan["launcher_ownership_known"])
+            self.assertNotIn(str(launcher_b), plan["core_paths"])
+            self.assertNotIn(str(launcher_b), "\n".join(plan["core_commands"]))
 
     def test_uninstall_plan_does_not_delete(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -257,7 +279,7 @@ class InstallStatusTests(unittest.TestCase):
             prefix.mkdir()
             bin_dir.mkdir()
             launcher = bin_dir / "manageroo"
-            launcher.write_text(_launcher_text(), encoding="utf-8")
+            launcher.write_text(_launcher_text(prefix), encoding="utf-8")
             trufflehog = bin_dir / "trufflehog"
             trufflehog.write_bytes(b"binary")
             _write_owned_lock(prefix, {
