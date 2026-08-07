@@ -464,6 +464,31 @@ class InstallScriptTests(unittest.TestCase):
         )
         self.assertIn(["git", "rev-parse", "HEAD"], commands)
 
+    def test_pinned_git_checkout_rejects_mismatched_commit(self):
+        install = load_install_script()
+        mismatched_commit = "f" * 40
+
+        class Result:
+            def __init__(self, stdout=""):
+                self.stdout = stdout
+
+        def fake_run(argv, *, cwd, timeout=300):
+            if argv[1:3] == ["rev-parse", "HEAD"]:
+                return Result(mismatched_commit + "\n")
+            return Result()
+
+        with patch.object(install, "_run_checked", side_effect=fake_run):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                f"expected {install.OPENCLAW_AGENT_SKILLS_COMMIT}, received {mismatched_commit}",
+            ):
+                install._checkout_pinned_git_source(
+                    git="git",
+                    repository=install.OPENCLAW_AGENT_SKILLS_REPO,
+                    commit=install.OPENCLAW_AGENT_SKILLS_COMMIT,
+                    destination=Path("/tmp/pinned-agent-skills"),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
