@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
@@ -57,8 +58,22 @@ class GenericAdapter(AgentAdapter):
             + schema_text.rstrip()
             + "\n```\n"
         )
-        protocol_path = request.prompt_path.parent / "protocol-prompt.md"
-        protocol_path.write_text(combined, encoding="utf-8", newline="\n")
+        protocol_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            prefix="protocol-prompt-",
+            suffix=".md",
+            dir=request.prompt_path.parent,
+            delete=False,
+        )
+        protocol_path = Path(protocol_file.name)
+        try:
+            with protocol_file:
+                protocol_file.write(combined)
+        except BaseException:
+            protocol_path.unlink(missing_ok=True)
+            raise
         return combined, protocol_path
 
     def _values(self, request: AgentRequest) -> dict[str, str]:
@@ -75,25 +90,29 @@ class GenericAdapter(AgentAdapter):
             "sandbox": request.sandbox,
         }
 
-    def _render(self, request: AgentRequest) -> tuple[list[str], str | None, bool]:
+    def _render(self, request: AgentRequest) -> tuple[list[str], str | None, bool, Path]:
         sandbox_args = self.sandbox_argv.get(request.sandbox)
         if request.sandbox in PROTECTED_SANDBOX_MODES and not sandbox_args:
             raise ConfigurationError(
                 "Generic adapter has no provider sandbox arguments for protected mode "
                 f"{request.sandbox!r}."
             )
-        values = self._values(request)
         template_text = " ".join(self.argv_template)
-        argv = [item.format(**values) for item in self.argv_template]
-        argv.extend(item.format(**values) for item in (sandbox_args or []))
-        input_text = values["prompt_text"] if self.prompt_transport == "stdin" else None
-
         if self.prompt_transport == "file_path":
             if "{prompt}" not in template_text and "{prompt_path}" not in template_text:
                 raise ConfigurationError("file_path prompt transport requires {prompt} or {prompt_path} in argv_template.")
         elif self.prompt_transport == "argument" and "{prompt_text}" not in template_text:
             raise ConfigurationError("argument prompt transport requires {prompt_text} in argv_template.")
-        return argv, input_text, "{output}" in template_text
+        values = self._values(request)
+        protocol_path = Path(values["prompt_path"])
+        try:
+            argv = [item.format(**values) for item in self.argv_template]
+            argv.extend(item.format(**values) for item in (sandbox_args or []))
+            input_text = values["prompt_text"] if self.prompt_transport == "stdin" else None
+            return argv, input_text, "{output}" in template_text, protocol_path
+        except BaseException:
+            protocol_path.unlink(missing_ok=True)
+            raise
 
     def doctor(self, cwd: Path) -> dict:
         executable = self.argv_template[0]
@@ -150,16 +169,19 @@ class GenericAdapter(AgentAdapter):
         if request.before_launch is not None:
             request = request.before_launch(request, False)
         self._clear_prior_outputs(request)
-        argv, input_text, expects_output_file = self._render(request)
-        if self._before_worker_launch is not None:
-            request = self._before_worker_launch(request)
-        result = self.runner.run(
-            argv,
-            cwd=request.cwd,
-            timeout_seconds=request.timeout_seconds,
-            input_text=input_text,
-            log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}",
-        )
+        argv, input_text, expects_output_file, protocol_path = self._render(request)
+        try:
+            if self._before_worker_launch is not None:
+                request = self._before_worker_launch(request)
+            result = self.runner.run(
+                argv,
+                cwd=request.cwd,
+                timeout_seconds=request.timeout_seconds,
+                input_text=input_text,
+                log_name=f"agent-{request.output_path.parent.name}-{request.output_path.stem}",
+            )
+        finally:
+            protocol_path.unlink(missing_ok=True)
         if not result.passed:
             raise AgentExecutionError(f"Generic role {request.role!r} failed: {result.stderr[-4000:]}")
         if expects_output_file:

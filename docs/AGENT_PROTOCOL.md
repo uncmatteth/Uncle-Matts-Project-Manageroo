@@ -33,7 +33,8 @@ The generic adapter supports three explicit prompt transports:
 
 ### `file_path`
 
-The CLI receives the path to a complete Manageroo protocol packet.
+The CLI receives the path to a complete Manageroo protocol packet. Each request uses a
+distinct temporary packet that Manageroo removes after the worker finishes.
 
 The command template must contain `{prompt}` or `{prompt_path}`.
 

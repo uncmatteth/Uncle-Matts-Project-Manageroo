@@ -1,4 +1,6 @@
+import concurrent.futures
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -32,16 +34,34 @@ class _Runner:
         self.result = result or _Result()
 
     def run(self, argv, *, cwd, timeout_seconds, input_text=None, log_name=None, **kwargs):
-        self.calls.append(
-            {
-                "argv": list(argv),
-                "cwd": cwd,
-                "timeout_seconds": timeout_seconds,
-                "input_text": input_text,
-                "log_name": log_name,
-            }
-        )
+        call = {
+            "argv": list(argv),
+            "cwd": cwd,
+            "timeout_seconds": timeout_seconds,
+            "input_text": input_text,
+            "log_name": log_name,
+        }
+        if "--prompt-file" in argv:
+            prompt_path = Path(argv[argv.index("--prompt-file") + 1])
+            call["prompt_file_text"] = prompt_path.read_text(encoding="utf-8")
+        self.calls.append(call)
         return self.result
+
+
+class _ConcurrentProtocolRunner:
+    def __init__(self):
+        self.barrier = threading.Barrier(2)
+        self.calls = []
+        self._lock = threading.Lock()
+
+    def run(self, argv, *, cwd, timeout_seconds, input_text=None, log_name=None, **kwargs):
+        role = argv[argv.index("--role") + 1]
+        protocol_path = Path(argv[argv.index("--prompt-file") + 1])
+        self.barrier.wait(timeout=5)
+        protocol_text = protocol_path.read_text(encoding="utf-8")
+        with self._lock:
+            self.calls.append((role, protocol_path, protocol_text))
+        return _Result()
 
 
 def _request(root: Path) -> AgentRequest:
@@ -65,6 +85,54 @@ def _request(root: Path) -> AgentRequest:
 
 
 class UniversalAgentAdapterTests(unittest.TestCase):
+    def test_concurrent_file_path_requests_use_distinct_protocol_prompts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            requests = []
+            for name in ("alpha", "beta"):
+                prompt = root / f"prompt-{name}.md"
+                schema = root / f"schema-{name}.json"
+                prompt.write_text(f"DO THE {name.upper()} JOB", encoding="utf-8")
+                schema.write_text(
+                    '{"title":"'
+                    + name.upper()
+                    + '-SCHEMA","type":"object","required":["ok"],'
+                    '"properties":{"ok":{"type":"boolean"}}}',
+                    encoding="utf-8",
+                )
+                requests.append(
+                    AgentRequest(
+                        role=name,
+                        prompt_path=prompt,
+                        schema_path=schema,
+                        output_path=root / f"output-{name}.json",
+                        cwd=root,
+                        sandbox="workspace-write",
+                        timeout_seconds=60,
+                    )
+                )
+            runner = _ConcurrentProtocolRunner()
+            adapter = GenericAdapter(
+                ["any-agent", "--role", "{role}", "--prompt-file", "{prompt}"],
+                runner,
+                prompt_transport="file_path",
+                sandbox_argv=PROTECTED_SANDBOX_ARGV,
+            )
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                responses = list(executor.map(adapter.run, requests))
+
+            self.assertTrue(all(response.data["ok"] for response in responses))
+            self.assertEqual(len({path for _role, path, _text in runner.calls}), 2)
+            captured = {role: text for role, _path, text in runner.calls}
+            self.assertIn("DO THE ALPHA JOB", captured["alpha"])
+            self.assertIn("ALPHA-SCHEMA", captured["alpha"])
+            self.assertNotIn("BETA", captured["alpha"])
+            self.assertIn("DO THE BETA JOB", captured["beta"])
+            self.assertIn("BETA-SCHEMA", captured["beta"])
+            self.assertNotIn("ALPHA", captured["beta"])
+            self.assertTrue(all(not path.exists() for _role, path, _text in runner.calls))
+
     def test_file_path_transport_passes_schema_augmented_prompt_path(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -80,11 +148,12 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             call = runner.calls[0]
             protocol_path = Path(call["argv"][call["argv"].index("--prompt-file") + 1])
             self.assertNotEqual(protocol_path, request.prompt_path)
-            protocol = protocol_path.read_text(encoding="utf-8")
+            protocol = call["prompt_file_text"]
             self.assertIn("DO THE EXACT MANAGEROO JOB", protocol)
             self.assertIn("Required output protocol", protocol)
             self.assertIn('"required":["ok"]', protocol)
             self.assertIsNone(call["input_text"])
+            self.assertFalse(protocol_path.exists())
             self.assertTrue(response.data["ok"])
 
     def test_argument_transport_passes_prompt_and_schema_contents(self):
