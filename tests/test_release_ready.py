@@ -441,6 +441,40 @@ class ReleaseReadyTests(unittest.TestCase):
             head = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, stdout=subprocess.PIPE
             ).stdout.strip()
+            for label, open_findings in (
+                ("null", None),
+                ("nonnumeric string", "invalid"),
+                ("boolean", False),
+                ("object", {"count": 0}),
+            ):
+                with self.subTest(label=label):
+                    atomic_write_json(
+                        external_state / "clawpatch-release-proof.json",
+                        {
+                            "status": "COMPLETE",
+                            "git_head": head,
+                            "open_findings": open_findings,
+                        },
+                    )
+                    helper_patch, gbrain_patch = self._release_patches()
+                    with helper_patch, gbrain_patch, patch(
+                        "manageroo.release_ready.supervisor_state_root",
+                        return_value=external_state,
+                    ):
+                        malformed = release_ready(
+                            repo,
+                            target="manual production deploy",
+                            rollback="revert and redeploy",
+                            approved_by="Operator",
+                            require_clawpatch=True,
+                        )
+                    self.assertEqual(malformed["status"], "NOT READY FOR RELEASE")
+                    item = {value["name"]: value for value in malformed["items"]}[
+                        "Clawpatch release sweep"
+                    ]
+                    self.assertFalse(item["ok"])
+                    self.assertIn("clawpatch-supervise", item["next"])
+
             atomic_write_json(
                 external_state / "clawpatch-release-proof.json",
                 {"status": "COMPLETE", "git_head": head, "open_findings": 0},

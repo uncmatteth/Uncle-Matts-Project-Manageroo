@@ -175,11 +175,14 @@ def _clawpatch_release_proof(repo: Path) -> dict[str, Any]:
     except Exception:
         return {"ok": False, "detail": "Clawpatch release-sweep proof is unreadable", "next": next_command}
     head = _git_output(repo, ["git", "rev-parse", "HEAD"])
+    open_findings = proof.get("open_findings") if isinstance(proof, dict) else None
     ok = (
         isinstance(proof, dict)
         and proof.get("status") == "COMPLETE"
         and proof.get("git_head") == head
-        and int(proof.get("open_findings", -1)) == 0
+        and isinstance(open_findings, int)
+        and not isinstance(open_findings, bool)
+        and open_findings == 0
     )
     detail = (
         f"zero open findings proven at {head}"
