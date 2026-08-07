@@ -1,4 +1,11 @@
+import importlib.util
+import json
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -8,18 +15,175 @@ from manageroo.token_modes import CORE_SKILL_NAMES
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FINALIZE_GITNEXUS = ROOT / "scripts" / "finalize_gitnexus.py"
+
+
+def load_finalize_gitnexus():
+    spec = importlib.util.spec_from_file_location(
+        "manageroo_finalize_gitnexus",
+        FINALIZE_GITNEXUS,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load GitNexus finalizer: {FINALIZE_GITNEXUS}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 class InstallStackContractTests(unittest.TestCase):
-    def test_gitnexus_setup_is_part_of_platform_installers(self):
-        unix = (ROOT / "install.sh").read_text(encoding="utf-8")
-        windows = (ROOT / "install.ps1").read_text(encoding="utf-8")
-        finalizer = (ROOT / "scripts" / "finalize_gitnexus.py").read_text(encoding="utf-8")
-        self.assertIn("scripts/finalize_gitnexus.py", unix)
-        self.assertIn("scripts\\finalize_gitnexus.py", windows)
-        self.assertIn('[str(executable), "setup"]', finalizer)
-        self.assertIn('record["configured"] = configured', finalizer)
-        self.assertIn('lock["stack_summary"] = summarize_external_tools', finalizer)
+    def test_gitnexus_setup_success_is_persisted_in_the_install_lock(self):
+        finalizer = load_finalize_gitnexus()
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            prefix.mkdir()
+            lock_path = prefix / "install-lock.json"
+            lock_path.write_text(
+                json.dumps(
+                    {
+                        "external_tools": [
+                            {
+                                "name": "gitnexus",
+                                "installed": True,
+                                "configured": False,
+                                "path": "/tools/gitnexus",
+                            }
+                        ],
+                        "stack_summary": {"stale": True},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            completed = subprocess.CompletedProcess(
+                ["/tools/gitnexus", "setup"],
+                0,
+                stdout="setup complete\n",
+            )
+            with (
+                patch.object(finalizer.shutil, "which", return_value="/tools/gitnexus"),
+                patch.object(finalizer.subprocess, "run", return_value=completed) as run_setup,
+            ):
+                result = finalizer.finalize(prefix)
+
+            run_setup.assert_called_once_with(
+                ["/tools/gitnexus", "setup"],
+                cwd=str(Path.home()),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                shell=False,
+                timeout=600,
+            )
+            persisted = json.loads(lock_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result["configured"], True)
+        record = persisted["external_tools"][0]
+        self.assertTrue(record["configured"])
+        self.assertEqual(record["next_commands"], [])
+        self.assertEqual(record["setup_result"]["argv"], ["/tools/gitnexus", "setup"])
+        summary = persisted["stack_summary"]
+        self.assertEqual(summary["counts"]["configured"], 1)
+        self.assertFalse(summary["items"][0]["needs_action"])
+
+    def test_windows_installer_executes_gitnexus_finalizer_after_main_install(self):
+        powershell = shutil.which("pwsh") or shutil.which("powershell")
+        if not powershell:
+            self.skipTest("PowerShell is unavailable on this host")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            command_log = root / "python.log"
+            prefix = root / "prefix"
+            harness = root / "run-installer.ps1"
+            harness.write_text(
+                "function global:Record-PythonCall {\n"
+                "  Add-Content -LiteralPath $env:PYTHON_LOG -Value "
+                "(ConvertTo-Json -Compress -InputObject @($args))\n"
+                "  $global:LASTEXITCODE = 0\n"
+                "}\n"
+                "function global:py { Record-PythonCall @args }\n"
+                "function global:python { Record-PythonCall @args }\n"
+                "function global:git { $global:LASTEXITCODE = 0 }\n"
+                "& $env:INSTALL_PS1 -Prefix $env:INSTALL_PREFIX -SkipTests -SkipStack "
+                "-SkipSkillPack -TokenMode off -Agent auto -GBrainLane skip "
+                "-ProjectDiscovery skip -StackDoctor skip -ClawpatchCodexLogin skip "
+                "-NoMusic -NoAnimation\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(harness),
+                ],
+                env={
+                    **os.environ,
+                    "INSTALL_PS1": str(ROOT / "install.ps1"),
+                    "INSTALL_PREFIX": str(prefix),
+                    "PYTHON_LOG": str(command_log),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = [
+                json.loads(line)
+                for line in command_log.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(calls), 3)
+            self.assertIn("-c", calls[0])
+            self.assertIn(str(ROOT / "scripts" / "install.py"), calls[1])
+            finalizer_index = calls[2].index(str(FINALIZE_GITNEXUS))
+            self.assertEqual(calls[2][finalizer_index + 1 :], ["--prefix", str(prefix)])
+
+    def test_gitnexus_setup_failure_is_returned_and_persisted(self):
+        finalizer = load_finalize_gitnexus()
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            prefix.mkdir()
+            lock_path = prefix / "install-lock.json"
+            lock_path.write_text(
+                json.dumps(
+                    {
+                        "external_tools": [
+                            {
+                                "name": "gitnexus",
+                                "installed": True,
+                                "configured": False,
+                                "path": "/tools/gitnexus",
+                            }
+                        ]
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            completed = subprocess.CompletedProcess(
+                ["/tools/gitnexus", "setup"],
+                7,
+                stdout="setup failed\n",
+            )
+            with (
+                patch.object(finalizer.shutil, "which", return_value="/tools/gitnexus"),
+                patch.object(finalizer.subprocess, "run", return_value=completed),
+            ):
+                result = finalizer.finalize(prefix)
+            persisted = json.loads(lock_path.read_text(encoding="utf-8"))
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["exit_code"], 7)
+        record = persisted["external_tools"][0]
+        self.assertFalse(record["configured"])
+        self.assertEqual(record["next_commands"], ["gitnexus setup"])
+        self.assertEqual(record["setup_result"]["exit_code"], 7)
+        self.assertTrue(persisted["stack_summary"]["items"][0]["needs_action"])
 
     def test_public_docs_match_portable_boundary_and_exact_22_skill_core(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

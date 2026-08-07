@@ -1,11 +1,16 @@
 import importlib.util
 import io
+import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from manageroo.install_status import launcher_is_manageroo_owned
@@ -196,11 +201,89 @@ class InstallScriptTests(unittest.TestCase):
         )
 
     def test_existing_agent_is_recorded_as_detected_instead_of_skipped(self):
-        source = INSTALL_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('"detected": True', source)
-        self.assertIn('"name": "coding-agent"', source)
-        self.assertIn("No supported coding-agent CLI was detected or installed", source)
-        self.assertNotIn("Codex is an adapter choice, not a core requirement", source)
+        install = load_install_script()
+        detected = [
+            {
+                "preset": "codex",
+                "name": "Codex",
+                "executable": "codex",
+                "path": "/tools/codex",
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = root / "prefix"
+            bin_dir = root / "bin"
+
+            def create_venv(venv_root):
+                python = Path(venv_root) / "bin" / "python"
+                python.parent.mkdir(parents=True)
+                python.write_text("fixture\n", encoding="utf-8")
+
+            argv = [
+                str(INSTALL_SCRIPT),
+                "--prefix",
+                str(prefix),
+                "--bin-dir",
+                str(bin_dir),
+                "--skip-tests",
+                "--skip-self-test",
+                "--skip-stack",
+                "--skip-skill-pack",
+                "--token-mode",
+                "off",
+                "--agent",
+                "auto",
+                "--stack-doctor",
+                "skip",
+                "--project-discovery",
+                "skip",
+                "--no-music",
+                "--no-animation",
+            ]
+            command_result = SimpleNamespace(stdout="manageroo fixture\n")
+            sandbox = {"configured": True, "next_commands": []}
+            with (
+                patch.object(install.sys, "argv", argv),
+                patch.object(install, "print_banner", return_value=None),
+                patch.object(install, "ThemePlayback", return_value=nullcontext()),
+                patch.object(install, "prepend_tool_paths"),
+                patch.object(install.shutil, "which", return_value="/usr/bin/git"),
+                patch.object(install, "detect_coding_agents", return_value=detected),
+                patch.object(install, "command_version", return_value="codex fixture"),
+                patch.object(
+                    install,
+                    "codex_sandbox_install_status",
+                    return_value=sandbox,
+                ),
+                patch.object(
+                    install,
+                    "set_token_mode",
+                    return_value={"mode": "off"},
+                ),
+                patch.object(install.venv.EnvBuilder, "create", side_effect=create_venv),
+                patch.object(install, "run", return_value=command_result),
+                patch.object(install, "tree_hash", return_value="a" * 64),
+                patch.object(install, "uninstall_plan", return_value={"paths": []}),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(install.main(), 0)
+
+            lock = json.loads((prefix / "install-lock.json").read_text(encoding="utf-8"))
+            self.assertEqual(lock["detected_coding_agents"], detected)
+            self.assertEqual(
+                lock["external_tools"][0],
+                {
+                    "name": "codex",
+                    "display_name": "Codex",
+                    "path": "/tools/codex",
+                    "version": "codex fixture",
+                    "detected": True,
+                    **sandbox,
+                },
+            )
+            self.assertFalse(lock["external_tools"][0].get("skipped", False))
 
     def test_codex_install_status_requires_native_sandbox_preflight(self):
         install = load_install_script()
@@ -218,26 +301,462 @@ class InstallScriptTests(unittest.TestCase):
         self.assertEqual(status["sandbox_preflight"], failed)
         self.assertEqual(status["next_commands"], failed["next_commands"])
 
-    def test_unix_launcher_offers_guided_core_requirement_install(self):
-        launcher = (ROOT / "install.sh").read_text(encoding="utf-8")
-        self.assertIn("install_core_requirements", launcher)
-        self.assertIn("Install the missing requirements now? [Y/n]", launcher)
-        for package_manager in ("brew", "apt-get", "dnf", "yum", "pacman", "zypper"):
-            with self.subTest(package_manager=package_manager):
-                self.assertIn(package_manager, launcher)
-        self.assertIn('"$(uname -s)" = "Darwin"', launcher)
-        self.assertIn("MACOS_PYTHON_URL", launcher)
-        self.assertIn("MACOS_PYTHON_SHA256", launcher)
-        self.assertIn("xcode-select --install", launcher)
+    @unittest.skipIf(os.name == "nt", "POSIX installer behavior")
+    def test_unix_launcher_fails_with_guidance_when_requirements_are_missing_noninteractively(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / "bin"
+            bin_dir.mkdir()
+            dirname = install.shutil.which("dirname")
+            self.assertIsNotNone(dirname)
+            (bin_dir / "dirname").symlink_to(dirname)
 
-    def test_codex_setup_can_install_node_with_common_platform_package_managers(self):
-        source = INSTALL_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("Node.js/npm is missing", source)
-        self.assertIn("NODE_MACOS_PACKAGE_URL", source)
-        self.assertIn("NODE_MACOS_PACKAGE_SHA256", source)
-        for package_manager in ("winget", "brew", "apt-get", "dnf", "yum", "pacman", "zypper"):
+            result = subprocess.run(
+                ["/bin/sh", str(ROOT / "install.sh")],
+                env={"PATH": str(bin_dir)},
+                stdin=subprocess.DEVNULL,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Python 3.11+ and Git", result.stdout)
+        self.assertIn("interactive terminal", result.stderr)
+
+    @unittest.skipIf(os.name == "nt", "POSIX installer behavior")
+    def test_unix_launcher_executes_exact_core_requirement_package_manager_commands(self):
+        import pty
+
+        cases = {
+            "brew": ["install python@3.12 git"],
+            "apt-get": ["update", "install -y python3 git"],
+            "dnf": ["install -y python3 git"],
+            "yum": ["install -y python3 git"],
+            "pacman": ["-Sy --needed --noconfirm python git"],
+            "zypper": ["--non-interactive install python311 git"],
+        }
+
+        for package_manager, expected_commands in cases.items():
             with self.subTest(package_manager=package_manager):
-                self.assertIn(f'shutil.which("{package_manager}")', source)
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    bin_dir = root / "bin"
+                    bin_dir.mkdir()
+                    marker = root / "requirements-installed"
+                    package_log = root / "package.log"
+                    python_log = root / "python.log"
+                    prefix = root / "prefix"
+
+                    dirname = shutil.which("dirname")
+                    self.assertIsNotNone(dirname)
+                    (bin_dir / "dirname").symlink_to(dirname)
+
+                    def write_executable(name, text):
+                        path = bin_dir / name
+                        path.write_text(text, encoding="utf-8")
+                        path.chmod(0o755)
+
+                    write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Linux\n")
+                    write_executable("id", "#!/bin/sh\nprintf '%s\\n' 0\n")
+                    write_executable(
+                        "python3",
+                        "#!/bin/sh\n"
+                        "if [ \"${1-}\" = '-c' ]; then\n"
+                        "  [ -f \"$INSTALL_MARKER\" ]\n"
+                        "  exit\n"
+                        "fi\n"
+                        "printf '%s\\n' \"$*\" >> \"$PYTHON_LOG\"\n",
+                    )
+                    write_executable(
+                        "git",
+                        "#!/bin/sh\n[ -f \"$INSTALL_MARKER\" ]\n",
+                    )
+                    write_executable(
+                        package_manager,
+                        "#!/bin/sh\n"
+                        "printf '%s\\n' \"$*\" >> \"$PACKAGE_LOG\"\n"
+                        "[ \"${PACKAGE_FAIL-}\" != '1' ] || exit 17\n"
+                        ": > \"$INSTALL_MARKER\"\n",
+                    )
+
+                    def run_launcher(**extra_env):
+                        master_fd, slave_fd = pty.openpty()
+                        try:
+                            os.write(master_fd, b"\n")
+                            return subprocess.run(
+                                [
+                                    "/bin/sh",
+                                    str(ROOT / "install.sh"),
+                                    "--prefix",
+                                    str(prefix),
+                                    "--skip-tests",
+                                ],
+                                env={
+                                    **extra_env,
+                                    "HOME": str(root / "home"),
+                                    "PATH": str(bin_dir),
+                                    "INSTALL_MARKER": str(marker),
+                                    "PACKAGE_LOG": str(package_log),
+                                    "PYTHON_LOG": str(python_log),
+                                },
+                                stdin=slave_fd,
+                                text=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                check=False,
+                            )
+                        finally:
+                            os.close(slave_fd)
+                            os.close(master_fd)
+
+                    result = run_launcher()
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        package_log.read_text(encoding="utf-8").splitlines(),
+                        expected_commands,
+                    )
+                    self.assertEqual(
+                        python_log.read_text(encoding="utf-8").splitlines(),
+                        [
+                            f"{ROOT / 'scripts' / 'install.py'} --prefix {prefix} --skip-tests",
+                            f"{ROOT / 'scripts' / 'finalize_gitnexus.py'} --prefix {prefix}",
+                        ],
+                    )
+
+                    marker.unlink()
+                    package_log.unlink()
+                    python_log.unlink()
+                    failed = run_launcher(PACKAGE_FAIL="1")
+                    self.assertEqual(failed.returncode, 2)
+                    self.assertEqual(
+                        package_log.read_text(encoding="utf-8").splitlines(),
+                        expected_commands,
+                    )
+                    self.assertFalse(python_log.exists())
+
+    @unittest.skipIf(os.name == "nt", "POSIX installer behavior")
+    def test_unix_launcher_executes_macos_python_and_git_installers(self):
+        import pty
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            python_marker = root / "python-installed"
+            git_marker = root / "git-installed"
+            command_log = root / "commands.log"
+            python_log = root / "python.log"
+            package_dir = root / "download"
+            prefix = root / "prefix"
+
+            for name in ("awk", "dirname", "rm", "rmdir"):
+                executable = shutil.which(name)
+                self.assertIsNotNone(executable)
+                (bin_dir / name).symlink_to(executable)
+
+            def write_executable(name, text):
+                path = bin_dir / name
+                path.write_text(text, encoding="utf-8")
+                path.chmod(0o755)
+
+            write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Darwin\n")
+            write_executable("id", "#!/bin/sh\nprintf '%s\\n' 0\n")
+            write_executable(
+                "mktemp",
+                "#!/bin/sh\n/bin/mkdir -p \"$MACOS_PACKAGE_DIR\"\nprintf '%s\\n' \"$MACOS_PACKAGE_DIR\"\n",
+            )
+            write_executable(
+                "curl",
+                "#!/bin/sh\nprintf 'curl %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n: > \"$5\"\n",
+            )
+            write_executable(
+                "shasum",
+                "#!/bin/sh\n"
+                "printf 'shasum %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n"
+                "printf '%s  %s\\n' '8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4' \"$3\"\n",
+            )
+            write_executable(
+                "installer",
+                "#!/bin/sh\nprintf 'installer %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n: > \"$PYTHON_MARKER\"\n",
+            )
+            write_executable(
+                "brew",
+                "#!/bin/sh\nprintf 'brew %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n: > \"$GIT_MARKER\"\n",
+            )
+            write_executable(
+                "python3",
+                "#!/bin/sh\n"
+                "if [ \"${1-}\" = '-c' ]; then\n"
+                "  [ -f \"$PYTHON_MARKER\" ]\n"
+                "  exit\n"
+                "fi\n"
+                "printf '%s\\n' \"$*\" >> \"$PYTHON_LOG\"\n",
+            )
+            write_executable("git", "#!/bin/sh\n[ -f \"$GIT_MARKER\" ]\n")
+
+            master_fd, slave_fd = pty.openpty()
+            try:
+                os.write(master_fd, b"\n")
+                result = subprocess.run(
+                    [
+                        "/bin/sh",
+                        str(ROOT / "install.sh"),
+                        "--prefix",
+                        str(prefix),
+                        "--skip-tests",
+                    ],
+                    env={
+                        "HOME": str(root / "home"),
+                        "PATH": str(bin_dir),
+                        "COMMAND_LOG": str(command_log),
+                        "PYTHON_LOG": str(python_log),
+                        "PYTHON_MARKER": str(python_marker),
+                        "GIT_MARKER": str(git_marker),
+                        "MACOS_PACKAGE_DIR": str(package_dir),
+                    },
+                    stdin=slave_fd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+            finally:
+                os.close(slave_fd)
+                os.close(master_fd)
+
+            package = package_dir / "python.pkg"
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                command_log.read_text(encoding="utf-8").splitlines(),
+                [
+                    "curl -fL --retry 2 -o "
+                    f"{package} https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg",
+                    f"shasum -a 256 {package}",
+                    f"installer -pkg {package} -target /",
+                    "brew install git",
+                ],
+            )
+            self.assertEqual(
+                python_log.read_text(encoding="utf-8").splitlines(),
+                [
+                    f"{ROOT / 'scripts' / 'install.py'} --prefix {prefix} --skip-tests",
+                    f"{ROOT / 'scripts' / 'finalize_gitnexus.py'} --prefix {prefix}",
+                ],
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX installer behavior")
+    def test_unix_launcher_uses_macos_command_line_tools_when_homebrew_is_missing(self):
+        import pty
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            command_log = root / "commands.log"
+
+            dirname = shutil.which("dirname")
+            self.assertIsNotNone(dirname)
+            (bin_dir / "dirname").symlink_to(dirname)
+
+            def write_executable(name, text):
+                path = bin_dir / name
+                path.write_text(text, encoding="utf-8")
+                path.chmod(0o755)
+
+            write_executable("uname", "#!/bin/sh\nprintf '%s\\n' Darwin\n")
+            write_executable(
+                "python3",
+                "#!/bin/sh\n[ \"${1-}\" = '-c' ] && exit 0\nexit 91\n",
+            )
+            write_executable("git", "#!/bin/sh\nexit 1\n")
+            write_executable(
+                "xcode-select",
+                "#!/bin/sh\nprintf 'xcode-select %s\\n' \"$*\" >> \"$COMMAND_LOG\"\n",
+            )
+
+            master_fd, slave_fd = pty.openpty()
+            try:
+                os.write(master_fd, b"\n")
+                result = subprocess.run(
+                    ["/bin/sh", str(ROOT / "install.sh")],
+                    env={
+                        "HOME": str(root / "home"),
+                        "PATH": str(bin_dir),
+                        "COMMAND_LOG": str(command_log),
+                    },
+                    stdin=slave_fd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+            finally:
+                os.close(slave_fd)
+                os.close(master_fd)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(command_log.read_text(encoding="utf-8"), "xcode-select --install\n")
+            self.assertIn("Finish the Apple installer, then rerun Manageroo.", result.stdout)
+
+    def test_codex_setup_selects_exact_node_package_manager_commands(self):
+        install = load_install_script()
+        cases = {
+            "brew": [["/tools/brew", "install", "node"]],
+            "apt-get": [
+                ["/tools/apt-get", "update"],
+                ["/tools/apt-get", "install", "-y", "nodejs", "npm"],
+            ],
+            "dnf": [["/tools/dnf", "install", "-y", "nodejs", "npm"]],
+            "yum": [["/tools/yum", "install", "-y", "nodejs", "npm"]],
+            "pacman": [
+                [
+                    "/tools/pacman",
+                    "-Sy",
+                    "--needed",
+                    "--noconfirm",
+                    "nodejs",
+                    "npm",
+                ]
+            ],
+            "zypper": [
+                [
+                    "/tools/zypper",
+                    "--non-interactive",
+                    "install",
+                    "nodejs",
+                    "npm",
+                ]
+            ],
+        }
+
+        for package_manager, expected_commands in cases.items():
+            with self.subTest(package_manager=package_manager):
+                npm_probes = 0
+
+                def which(name):
+                    nonlocal npm_probes
+                    if name == "npm":
+                        npm_probes += 1
+                        return None if npm_probes == 1 else "/tools/npm"
+                    if name == package_manager:
+                        return f"/tools/{name}"
+                    return None
+
+                with (
+                    patch.object(install.os, "name", "posix"),
+                    patch.object(install.os, "geteuid", return_value=0, create=True),
+                    patch.object(install.platform, "system", return_value="Linux"),
+                    patch.object(install.shutil, "which", side_effect=which),
+                    patch.object(install, "prepend_tool_paths"),
+                    patch.object(install, "run") as run_command,
+                ):
+                    self.assertEqual(install._ensure_node_npm(), "/tools/npm")
+
+                self.assertEqual(
+                    [call.args[0] for call in run_command.call_args_list],
+                    expected_commands,
+                )
+
+        npm_probes = 0
+
+        def windows_which(name):
+            nonlocal npm_probes
+            if name == "npm":
+                npm_probes += 1
+                return None if npm_probes == 1 else "/tools/npm.cmd"
+            return "/tools/winget.exe" if name == "winget" else None
+
+        class WindowsPathFixture:
+            def __truediv__(self, _part):
+                return self
+
+            def exists(self):
+                return False
+
+        with (
+            patch.object(install.os, "name", "nt"),
+            patch.object(install, "Path", return_value=WindowsPathFixture()),
+            patch.object(install.shutil, "which", side_effect=windows_which),
+            patch.object(install, "prepend_tool_paths"),
+            patch.object(install, "run") as run_command,
+        ):
+            self.assertEqual(install._ensure_node_npm(), "/tools/npm.cmd")
+
+        self.assertEqual(
+            [call.args[0] for call in run_command.call_args_list],
+            [
+                [
+                    "/tools/winget.exe",
+                    "install",
+                    "--id",
+                    "OpenJS.NodeJS.LTS",
+                    "-e",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
+                ]
+            ],
+        )
+
+    def test_codex_setup_propagates_node_package_manager_failure(self):
+        install = load_install_script()
+
+        def which(name):
+            return "/tools/dnf" if name == "dnf" else None
+
+        with (
+            patch.object(install.os, "name", "posix"),
+            patch.object(install.os, "geteuid", return_value=0, create=True),
+            patch.object(install.platform, "system", return_value="Linux"),
+            patch.object(install.shutil, "which", side_effect=which),
+            patch.object(install, "run", side_effect=RuntimeError("dnf failed")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "dnf failed"):
+                install._ensure_node_npm()
+
+    def test_codex_setup_installs_pinned_macos_node_package_without_homebrew(self):
+        install = load_install_script()
+        package_bytes = b"release-pinned node package fixture"
+        npm_probes = 0
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return package_bytes
+
+        def which(name):
+            nonlocal npm_probes
+            if name == "npm":
+                npm_probes += 1
+                return None if npm_probes == 1 else "/tools/npm"
+            return None
+
+        expected_sha256 = install.hashlib.sha256(package_bytes).hexdigest()
+        with (
+            patch.object(install.os, "name", "posix"),
+            patch.object(install.os, "geteuid", return_value=0, create=True),
+            patch.object(install.platform, "system", return_value="Darwin"),
+            patch.object(install.shutil, "which", side_effect=which),
+            patch.object(install, "NODE_MACOS_PACKAGE_SHA256", expected_sha256),
+            patch.object(install.urllib.request, "urlopen", return_value=Response()) as download,
+            patch.object(install, "prepend_tool_paths"),
+            patch.object(install, "run") as run_command,
+        ):
+            self.assertEqual(install._ensure_node_npm(), "/tools/npm")
+
+        download.assert_called_once_with(install.NODE_MACOS_PACKAGE_URL, timeout=120)
+        command = run_command.call_args.args[0]
+        self.assertEqual(command[0], "/usr/sbin/installer")
+        self.assertEqual(command[1], "-pkg")
+        self.assertEqual(Path(command[2]).name, "node.pkg")
+        self.assertEqual(command[3:], ["-target", "/"])
+        self.assertEqual(run_command.call_args.kwargs, {"cwd": Path.home(), "capture": False})
 
     def test_existing_gitnexus_does_not_bootstrap_node_or_npm(self):
         install = load_install_script()
