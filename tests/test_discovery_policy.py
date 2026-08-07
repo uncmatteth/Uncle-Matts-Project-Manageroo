@@ -155,6 +155,101 @@ class DiscoveryPolicyTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     decisions_fully_resolved(run_root)
 
+    def test_interrupted_decision_claim_is_recovered_on_next_application(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            planning = run_root / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "product-model.json",
+                {
+                    "blocking_decisions": [
+                        {
+                            "id": "DEPLOY-1",
+                            "options": ["Blue", "Green"],
+                            "chosen": None,
+                        }
+                    ]
+                },
+            )
+            resolved_path = planning / "resolved-decisions.json"
+            atomic_write_json(
+                resolved_path,
+                {"answers": [{"id": "DEPLOY-1", "chosen": "Blue"}]},
+            )
+
+            real_claim = discovery_policy._claim_resolved_input
+
+            def interrupt_after_claim(path: Path) -> Path | None:
+                claimed = real_claim(path)
+                self.assertIsNotNone(claimed)
+                raise KeyboardInterrupt
+
+            with patch(
+                "manageroo.discovery_policy._claim_resolved_input",
+                side_effect=interrupt_after_claim,
+            ), self.assertRaises(KeyboardInterrupt):
+                apply_resolved_decisions(run_root)
+
+            self.assertFalse(resolved_path.exists())
+            self.assertEqual(
+                len(list(planning.glob(".resolved-decisions.json.claimed-*.json"))),
+                1,
+            )
+
+            self.assertTrue(apply_resolved_decisions(run_root))
+            product = read_json(planning / "product-model.json")
+            self.assertEqual(product["blocking_decisions"][0]["chosen"], "Blue")
+            self.assertTrue(decisions_fully_resolved(run_root))
+            self.assertEqual(
+                list(planning.glob(".resolved-decisions.json.claimed-*.json")),
+                [],
+            )
+
+    def test_interrupted_claim_conflicts_with_a_new_submission_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            planning = run_root / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            atomic_write_json(
+                planning / "product-model.json",
+                {
+                    "blocking_decisions": [
+                        {
+                            "id": "DEPLOY-1",
+                            "options": ["Blue", "Green"],
+                            "chosen": None,
+                        }
+                    ]
+                },
+            )
+            resolved_path = planning / "resolved-decisions.json"
+            atomic_write_json(
+                resolved_path,
+                {"answers": [{"id": "DEPLOY-1", "chosen": "Blue"}]},
+            )
+            claimed_path = discovery_policy._claim_resolved_input(resolved_path)
+            self.assertIsNotNone(claimed_path)
+            atomic_write_json(
+                resolved_path,
+                {"answers": [{"id": "DEPLOY-1", "chosen": "Green"}]},
+            )
+
+            with self.assertRaisesRegex(
+                ValidationError,
+                "Multiple resolved decision submissions remain",
+            ):
+                apply_resolved_decisions(run_root)
+
+            self.assertEqual(
+                read_json(resolved_path)["answers"],
+                [{"id": "DEPLOY-1", "chosen": "Green"}],
+            )
+            self.assertEqual(
+                read_json(claimed_path)["answers"],
+                [{"id": "DEPLOY-1", "chosen": "Blue"}],
+            )
+
     def test_concurrent_decision_applications_serialize_and_keep_artifacts_consistent(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)

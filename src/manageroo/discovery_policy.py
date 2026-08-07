@@ -95,6 +95,33 @@ def _claim_resolved_input(resolved_path: Path) -> Path | None:
     return claimed
 
 
+def _recover_orphaned_claim(resolved_path: Path) -> None:
+    claimed_paths = sorted(
+        resolved_path.parent.glob(f".{resolved_path.name}.claimed-*.json")
+    )
+    if not claimed_paths:
+        return
+    if resolved_path.exists():
+        if all(path.samefile(resolved_path) for path in claimed_paths):
+            for path in claimed_paths:
+                path.unlink()
+            return
+        raise ValidationError(
+            "Multiple resolved decision submissions remain after an interrupted application."
+        )
+    if len(claimed_paths) != 1:
+        raise ValidationError(
+            "Multiple resolved decision submissions remain after an interrupted application."
+        )
+    try:
+        os.link(claimed_paths[0], resolved_path, follow_symlinks=False)
+    except FileExistsError as exc:
+        raise ValidationError(
+            "Multiple resolved decision submissions remain after an interrupted application."
+        ) from exc
+    claimed_paths[0].unlink()
+
+
 def _finish_claim(claimed_path: Path, markdown_path: Path) -> None:
     if claimed_path.exists():
         claimed_path.unlink()
@@ -158,10 +185,11 @@ def _normalized_product_decisions(product: dict[str, Any]) -> tuple[list[dict[st
 
 def apply_resolved_decisions(run_root: Path, *, artifact_store: Any | None = None) -> bool:
     _, resolved_path, product_path, markdown_path = _decision_paths(run_root)
-    if not resolved_path.is_file():
+    if not resolved_path.parent.is_dir():
         return False
     resolution_path = _resolution_path(run_root)
     with config_mutation_lock(product_path):
+        _recover_orphaned_claim(resolved_path)
         claimed_path = _claim_resolved_input(resolved_path)
         if claimed_path is None:
             return False
