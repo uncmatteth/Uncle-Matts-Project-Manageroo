@@ -39,8 +39,11 @@ After successful delivery:
 2. Manageroo writes `delivery/final-result.json`, `delivery/FINAL-REPORT.md`, and `delivery/final.patch` with `applied_to_source: false`.
 3. Manageroo verifies that every source file still matches the original source manifest.
 4. `git apply --check` verifies the patch.
-5. The controller applies the patch when `--apply` or project policy allows it.
-6. The controller rewrites the final result and report with `applied_to_source: true`.
+5. Manageroo revalidates the source immediately before applying the patch.
+6. The controller applies the patch when `--apply` or project policy allows it.
+7. Manageroo verifies the applied tree against the reviewed workspace; if a concurrent edit is
+   detected, it reverse-checks and reverses only its patch while preserving that edit.
+8. The controller rewrites the final result and report with `applied_to_source: true`.
 
 A concurrent source change blocks application instead of guessing.
 

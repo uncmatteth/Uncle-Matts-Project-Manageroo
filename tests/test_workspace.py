@@ -11,6 +11,26 @@ from manageroo.util import copy_file_preserving_mode
 from manageroo.workspace import WorkspaceMirror
 
 
+class _MutatingApplyRunner(CommandRunner):
+    def __init__(self, target: Path, concurrent_contents: str):
+        super().__init__()
+        self.target = target
+        self.concurrent_contents = concurrent_contents
+        self.mutate_before_apply = False
+
+    def run(self, argv, **kwargs):
+        is_forward_apply = argv[:2] == ["git", "apply"] and "--reverse" not in argv
+        if is_forward_apply and "--check" in argv:
+            result = super().run(argv, **kwargs)
+            if result.passed:
+                self.mutate_before_apply = True
+            return result
+        if is_forward_apply and self.mutate_before_apply:
+            self.mutate_before_apply = False
+            self.target.write_text(self.concurrent_contents, encoding="utf-8")
+        return super().run(argv, **kwargs)
+
+
 class WorkspaceTests(unittest.TestCase):
     def _repo(self, root: Path) -> tuple[Path, CommandRunner]:
         repo = root / "repo"
@@ -87,6 +107,45 @@ class WorkspaceTests(unittest.TestCase):
 
             self.assertEqual((repo / "a.txt").read_bytes(), concurrent_edit)
             self.assertEqual((repo / "b.txt").read_bytes(), original_second_file)
+
+    def test_apply_rejects_source_edit_after_check_and_preserves_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, setup_runner = self._repo(root)
+            original = "before\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n"
+            concurrent = "before\ntwo\nthree\nfour\nfive\nsix\nseven\nconcurrent\n"
+            (repo / "a.txt").write_text(original, encoding="utf-8")
+            self.assertTrue(setup_runner.run(["git", "add", "a.txt"], cwd=repo).passed)
+            self.assertTrue(
+                setup_runner.run(
+                    [
+                        "git",
+                        "-c",
+                        "commit.gpgSign=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "commit",
+                        "-m",
+                        "expand fixture",
+                    ],
+                    cwd=repo,
+                ).passed
+            )
+
+            runner = _MutatingApplyRunner(repo / "a.txt", concurrent)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            (workspace / "a.txt").write_text(
+                original.replace("before\n", "after\n", 1),
+                encoding="utf-8",
+            )
+            mirror.checkpoint("controller")
+            final_patch = mirror.write_patch(root / "final.patch")
+
+            with self.assertRaisesRegex(SafetyError, "changed during patch application"):
+                mirror.apply_patch_to_source(final_patch)
+
+            self.assertEqual((repo / "a.txt").read_text(encoding="utf-8"), concurrent)
 
     def test_second_create_does_not_replace_original_source_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:

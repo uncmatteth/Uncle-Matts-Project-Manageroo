@@ -238,16 +238,65 @@ class WorkspaceMirror:
         if changed:
             raise SafetyError("Source tree changed during run: " + ", ".join(changed))
 
+    def _visible_tree_identity(self, root: Path) -> dict[str, tuple[str, int]]:
+        identities: dict[str, tuple[str, int]] = {}
+        for raw_relative in git_visible_files(root, self.runner):
+            relative = safe_repo_relative(raw_relative)
+            path = root / relative
+            if path.is_symlink() or not path.is_file():
+                raise SafetyError(f"Repository tree contains an unsupported path: {relative}")
+            file_stat = path.stat()
+            identities[relative] = (sha256_file(path), file_stat.st_mode & 0o777)
+        return identities
+
     def apply_patch_to_source(self, patch: Path) -> None:
         self.assert_source_unchanged()
         if not patch.exists() or patch.stat().st_size == 0:
             return
+        expected_source = self._visible_tree_identity(self.workspace)
         check = self.runner.run(["git", "apply", "--check", "--binary", str(patch)], cwd=self.source_repo, timeout_seconds=300)
         if not check.passed:
             raise SafetyError("Final patch no longer applies cleanly to the source tree:\n" + check.stderr)
+        self.assert_source_unchanged()
         applied = self.runner.run(["git", "apply", "--binary", str(patch)], cwd=self.source_repo, timeout_seconds=300)
         if not applied.passed:
             raise SafetyError("Failed to apply validated patch:\n" + applied.stderr)
+        try:
+            actual_source = self._visible_tree_identity(self.source_repo)
+        except SafetyError as exc:
+            mismatch = str(exc)
+        else:
+            changed = sorted(
+                path
+                for path in set(expected_source) | set(actual_source)
+                if expected_source.get(path) != actual_source.get(path)
+            )
+            mismatch = ", ".join(changed)
+        if mismatch:
+            reverse_check = self.runner.run(
+                ["git", "apply", "--reverse", "--check", "--binary", str(patch)],
+                cwd=self.source_repo,
+                timeout_seconds=300,
+            )
+            if not reverse_check.passed:
+                raise SafetyError(
+                    "Source tree changed during patch application, and Manageroo could not "
+                    "safely reverse its patch:\n" + reverse_check.stderr
+                )
+            reversed_patch = self.runner.run(
+                ["git", "apply", "--reverse", "--binary", str(patch)],
+                cwd=self.source_repo,
+                timeout_seconds=300,
+            )
+            if not reversed_patch.passed:
+                raise SafetyError(
+                    "Source tree changed during patch application, and Manageroo failed to "
+                    "reverse its validated patch:\n" + reversed_patch.stderr
+                )
+            raise SafetyError(
+                "Source tree changed during patch application. Manageroo reversed only its "
+                f"validated patch; concurrent source changes were preserved: {mismatch}"
+            )
 
     def patch_already_applied_to_source(self, patch: Path) -> bool:
         if not patch.exists() or patch.stat().st_size == 0:
