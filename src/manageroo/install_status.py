@@ -265,6 +265,29 @@ def _find_skill(skill: str) -> str | None:
     return None
 
 
+def _probe_summary_executable(item: dict[str, Any]) -> str | None:
+    recorded_path = item.get("path")
+    if isinstance(recorded_path, str) and recorded_path:
+        try:
+            path = Path(recorded_path).expanduser()
+            if path.is_absolute() and (resolved := shutil.which(str(path))):
+                return resolved
+        except (OSError, ValueError):
+            pass
+    name = item.get("name")
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in {".", ".."}
+        or any(separator in name for separator in ("/", "\\"))
+    ):
+        return None
+    try:
+        return shutil.which(name)
+    except (OSError, ValueError):
+        return None
+
+
 def _reconcile_summary(summary: dict[str, Any], probes: dict[str, str | None]) -> dict[str, Any]:
     items = []
     counts = {"installed": 0, "configured": 0, "skipped": 0, "needs_action": 0}
@@ -275,6 +298,7 @@ def _reconcile_summary(summary: dict[str, Any], probes: dict[str, str | None]) -
         name = str(item.get("name") or "unknown")
         live_path = probes.get(name)
         if name in probes and not live_path:
+            item["path"] = None
             item["installed"] = False
             item["configured"] = False
             item["needs_action"] = True
@@ -305,11 +329,15 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
         return loaded
     lock = loaded["lock"]
     summary = summarize_external_tools(lock.get("external_tools", []))
+    cached_summary = lock.get("stack_summary") or summary
     probes: dict[str, str | None] = {name: shutil.which(name) for name in ("codex", "gbrain", "gitnexus", "trufflehog", "clawpatch", "obsidian")}
     probes["autoreview"] = _find_skill("autoreview")
     for skill in CORE_HELPER_SKILLS:
         probes[skill] = _find_skill(skill)
-    cached_summary = lock.get("stack_summary") or summary
+    for item in cached_summary.get("items", []):
+        name = str(item.get("name") or "unknown")
+        if name not in probes:
+            probes[name] = _probe_summary_executable(item)
     live_summary = _reconcile_summary(cached_summary, probes)
     return {
         "ok": True, "lock_path": loaded["lock_path"], "installed_at": lock.get("installed_at"),

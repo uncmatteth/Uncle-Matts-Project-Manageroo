@@ -166,6 +166,29 @@ class InstallStatusTests(unittest.TestCase):
             self.assertTrue(item["needs_action"])
             self.assertIn("ACTION codex", format_stack_status(report))
 
+    def test_live_probe_reconciles_unlisted_external_tool(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lock = Path(temp) / "install-lock.json"
+            missing_node = Path(temp).resolve() / "bin" / "node"
+            lock.write_text(json.dumps({
+                "external_tools": [{
+                    "name": "node",
+                    "installed": True,
+                    "configured": True,
+                    "path": str(missing_node),
+                }],
+            }), encoding="utf-8")
+            with (
+                patch("manageroo.install_status.shutil.which", return_value=None),
+                patch("manageroo.install_status._find_skill", return_value=None),
+            ):
+                report = stack_status(lock)
+            self.assertTrue(report["ok"])
+            item = report["stack_summary"]["items"][0]
+            self.assertFalse(item["installed"])
+            self.assertIsNone(item["path"])
+            self.assertTrue(item["needs_action"])
+
     def test_uninstall_plan_uses_recorded_custom_launcher_not_default_bin(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
