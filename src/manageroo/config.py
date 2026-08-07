@@ -160,15 +160,44 @@ def _agent_block(preset_name: str, timeout_seconds: int | None = None) -> str:
 
 
 def replace_agent_block(text: str, preset_name: str) -> str:
+    try:
+        original = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigurationError(f"Cannot replace agent preset in invalid TOML: {exc}") from exc
+
     lines = text.splitlines()
-    start = next((index for index, line in enumerate(lines) if line.strip() == "[agent]"), None)
-    if start is None:
-        return _agent_block(preset_name) + "\n\n" + text.rstrip() + "\n"
-    end = start + 1
-    while end < len(lines) and not lines[end].lstrip().startswith("["):
-        end += 1
     replacement = _agent_block(preset_name).splitlines()
-    return "\n".join([*lines[:start], *replacement, "", *lines[end:]]).rstrip() + "\n"
+    starts = [index for index, line in enumerate(lines) if line.strip() == "[agent]"]
+    if not starts:
+        updated = "\n".join([*replacement, "", *lines]).rstrip() + "\n"
+        try:
+            tomllib.loads(updated)
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigurationError(f"Agent preset would produce invalid TOML: {exc}") from exc
+        return updated
+
+    expected_agent = agent_preset(preset_name)
+    original_without_agent = {key: value for key, value in original.items() if key != "agent"}
+    for start in starts:
+        for end in range(start + 1, len(lines) + 1):
+            if end < len(lines) and not lines[end].lstrip().startswith("["):
+                continue
+            updated = "\n".join(
+                [*lines[:start], *replacement, "", *lines[end:]]
+            ).rstrip() + "\n"
+            try:
+                parsed = tomllib.loads(updated)
+            except tomllib.TOMLDecodeError:
+                continue
+            if parsed.get("agent") != expected_agent:
+                continue
+            parsed_without_agent = {
+                key: value for key, value in parsed.items() if key != "agent"
+            }
+            if parsed_without_agent == original_without_agent:
+                return updated
+
+    raise ConfigurationError("Could not safely locate the complete [agent] TOML table")
 
 
 def config_template(agent: str, gates: list[dict[str, Any]]) -> str:

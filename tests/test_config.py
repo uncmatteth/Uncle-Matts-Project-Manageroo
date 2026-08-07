@@ -183,6 +183,40 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config["integrations"]["custom_tool_command"], ["custom", "--flag"])
             self.assertEqual(config["verification"]["gates"][0]["id"], "custom-smoke")
 
+    def test_apply_agent_preset_handles_multiline_agent_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            config_path = repo / ".manageroo" / "config.toml"
+            config_path.parent.mkdir()
+            text = config_template("codex", []).replace(
+                'model = ""\n',
+                '''model = ""
+notes = """
+[literal]
+"""
+nested = [
+    [
+        "old-agent-only",
+    ],
+]
+''',
+            )
+            config_path.write_text(text, encoding="utf-8")
+            before = tomllib.loads(text)
+
+            apply_agent_preset(repo, "gemini")
+            updated_text = config_path.read_text(encoding="utf-8")
+            config = tomllib.loads(updated_text)
+
+            self.assertEqual(config["agent"]["executable"], "gemini")
+            self.assertNotIn("notes", config["agent"])
+            self.assertNotIn("nested", config["agent"])
+            self.assertNotIn("old-agent-only", updated_text)
+            self.assertEqual(
+                {key: value for key, value in config.items() if key != "agent"},
+                {key: value for key, value in before.items() if key != "agent"},
+            )
+
     def test_directly_imported_apply_agent_preset_acquires_mutation_lock(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
