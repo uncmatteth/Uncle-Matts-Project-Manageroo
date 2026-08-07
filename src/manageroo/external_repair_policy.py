@@ -694,10 +694,14 @@ def _existing_checkpoint_chain(
                 f"Command-owned {name} checkpoint chain is not contiguous in configured order."
             )
         recorded_index = payload.get("lane_index")
-        if recorded_index is not None and recorded_index != lane_index:
+        if type(recorded_index) is not int or recorded_index != lane_index:
             raise SafetyError(f"Command-owned {name} checkpoint lane order has changed.")
-        recorded_fingerprint = str(payload.get("input_fingerprint") or "")
-        if recorded_fingerprint and recorded_fingerprint != input_fingerprint:
+        recorded_fingerprint = payload.get("input_fingerprint")
+        if (
+            not isinstance(recorded_fingerprint, str)
+            or not recorded_fingerprint
+            or recorded_fingerprint != input_fingerprint
+        ):
             raise SafetyError(f"Command-owned {name} checkpoint inputs have changed.")
         baseline = str(payload.get("baseline") or "").strip()
         if not baseline:
