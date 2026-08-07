@@ -129,6 +129,7 @@ def _open_safe_directory_chain(
     relative: str,
 ) -> int:
     current_fd = os.dup(root_fd)
+    keep_open = False
     try:
         _require_owner_only_mutable_directory(current_fd)
         for part in Path(relative).parts:
@@ -136,12 +137,15 @@ def _open_safe_directory_chain(
             os.close(current_fd)
             current_fd = child_fd
             _require_owner_only_mutable_directory(current_fd)
+        keep_open = True
         return current_fd
     except OSError as exc:
-        os.close(current_fd)
         raise SafetyError(
             f"Obsidian export directory is not a safe real directory: {relative!r}"
         ) from exc
+    finally:
+        if not keep_open:
+            os.close(current_fd)
 
 
 def _same_filesystem_object(first: os.stat_result, second: os.stat_result) -> bool:

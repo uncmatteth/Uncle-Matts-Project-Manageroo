@@ -159,6 +159,25 @@ class IntegrationTests(unittest.TestCase):
                 integration.export("notes/report.md", "safe\n")
             self.assertFalse((parent / "report.md").exists())
 
+    def test_obsidian_export_rejected_directory_does_not_leak_descriptors(self):
+        descriptor_root = Path("/proc/self/fd")
+        if not descriptor_root.is_dir():
+            self.skipTest("process descriptor counts are unavailable on this platform")
+
+        with tempfile.TemporaryDirectory() as temp:
+            vault = Path(temp) / "vault"
+            parent = vault / "exports" / "notes"
+            parent.mkdir(parents=True)
+            parent.chmod(0o777)
+            integration = ObsidianIntegration(str(vault), "exports")
+            descriptors_before = len(list(descriptor_root.iterdir()))
+
+            for _ in range(20):
+                with self.assertRaises(SafetyError):
+                    integration.export("notes/report.md", "safe\n")
+
+            self.assertEqual(len(list(descriptor_root.iterdir())), descriptors_before)
+
 
 if __name__ == "__main__":
     unittest.main()
