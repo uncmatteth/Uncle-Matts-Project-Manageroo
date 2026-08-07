@@ -8,6 +8,8 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+import manageroo.capability_router as capability_router_module
+
 from tests.support import symlink_or_skip
 
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
@@ -455,6 +457,78 @@ class CapabilityRouterTests(unittest.TestCase):
                 first["selected"][0]["tree_sha256"],
                 second["selected"][0]["tree_sha256"],
             )
+
+    def test_entrypoint_swap_cannot_mix_external_content_with_restored_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "skills"
+            skill = self._skill(root, "diagnose", "Use for confusing failures.", "ORIGINAL")
+            original = skill.read_bytes()
+            outside = Path(temp) / "outside-skill.md"
+            outside.write_text(
+                "---\nname: diagnose\ndescription: Use for confusing failures.\n---\n"
+                "EXTERNAL-CONTENT\n",
+                encoding="utf-8",
+            )
+            real_catalog = capability_router_module._catalog
+            real_digest = capability_router_module._skill_tree_digest
+
+            def swap_before_catalog(*args, **kwargs):
+                skill.unlink()
+                symlink_or_skip(self, outside, skill)
+                return real_catalog(*args, **kwargs)
+
+            def restore_before_digest(*args, **kwargs):
+                skill.unlink()
+                skill.write_bytes(original)
+                return real_digest(*args, **kwargs)
+
+            with (
+                patch(
+                    "manageroo.capability_router._catalog",
+                    side_effect=swap_before_catalog,
+                ),
+                patch(
+                    "manageroo.capability_router._skill_tree_digest",
+                    side_effect=restore_before_digest,
+                ),
+            ):
+                route = route_capabilities("Diagnose this confusing failure.", roots=[root])
+
+            self.assertEqual(route["selected"], [])
+            self.assertNotIn("EXTERNAL-CONTENT", repr(route))
+
+    def test_support_file_swap_to_external_symlink_is_rejected_at_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "skills"
+            skill = self._skill(root, "diagnose", "Use for confusing failures.")
+            reference = skill.parent / "REFERENCE.md"
+            reference.write_text("ORIGINAL-SUPPORT\n", encoding="utf-8")
+            outside = Path(temp) / "outside-support.md"
+            outside.write_text("EXTERNAL-SUPPORT\n", encoding="utf-8")
+            real_open = capability_router_module._open_capability_file
+            swapped = False
+
+            def swap_before_open(name, directory_fd):
+                nonlocal swapped
+                if name == "REFERENCE.md" and not swapped:
+                    swapped = True
+                    reference.unlink()
+                    symlink_or_skip(self, outside, reference)
+                return real_open(name, directory_fd)
+
+            with patch(
+                "manageroo.capability_router._open_capability_file",
+                side_effect=swap_before_open,
+            ):
+                route = route_capabilities("Diagnose this confusing failure.", roots=[root])
+
+            self.assertTrue(swapped)
+            self.assertEqual(route["selected"], [])
+            self.assertNotIn("EXTERNAL-SUPPORT", repr(route))
+            self.assertTrue(any(
+                item["reason"].startswith("support-file-open:")
+                for item in route["ignored"]
+            ))
 
     def test_enabled_codex_plugins_are_indexed_without_loading_disabled_or_stale_versions(self):
         with tempfile.TemporaryDirectory() as temp:

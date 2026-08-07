@@ -6,9 +6,11 @@ import math
 import os
 import re
 import shutil
+import stat
 import threading
 import tomllib
 from collections import Counter
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -290,10 +292,66 @@ def _frontmatter(text: str) -> tuple[str, str, list[str], dict[str, Any]]:
     return name, description, triggers, policy
 
 
+@dataclass(frozen=True)
+class _CapabilityFile:
+    root: Path
+    relative: Path
+    root_device: int
+    root_inode: int
+
+    @property
+    def path(self) -> Path:
+        return self.root / self.relative
+
+
+def _inspection_signature(state: os.stat_result) -> tuple[int, int, int, int, int, int, int]:
+    return (
+        state.st_dev,
+        state.st_ino,
+        state.st_mode,
+        state.st_nlink,
+        state.st_size,
+        state.st_mtime_ns,
+        state.st_ctime_ns,
+    )
+
+
+def _descriptor_capability_access_supported() -> bool:
+    return (
+        hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and hasattr(os, "O_NONBLOCK")
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
+        and os.listdir in os.supports_fd
+    )
+
+
+def _open_capability_directory(path: str | Path, *, directory_fd: int | None = None) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK
+    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags, dir_fd=directory_fd)
+    try:
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+    os.close(descriptor)
+    raise ValueError(f"capability-directory-not-regular:{path}")
+
+
+def _open_capability_file(name: str, directory_fd: int) -> int:
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    return os.open(name, flags, dir_fd=directory_fd)
+
+
 def _scan_capability_roots(
     roots: list[Path],
-) -> tuple[list[Path], tuple[tuple[str, int, int, int, int], ...], list[dict[str, Any]]]:
-    found: list[Path] = []
+) -> tuple[list[_CapabilityFile], tuple[tuple[str, int, int, int, int], ...], list[dict[str, Any]]]:
+    found: list[_CapabilityFile] = []
     signature: list[tuple[str, int, int, int, int]] = []
     ignored: list[dict[str, Any]] = []
     scanned_entries = 0
@@ -303,74 +361,126 @@ def _scan_capability_roots(
             root_stat = root.lstat()
         except OSError:
             continue
+        is_root_symlink = stat.S_ISLNK(root_stat.st_mode)
         signature.append((
             str(root.absolute()),
             root_stat.st_size,
             root_stat.st_mtime_ns,
             root_stat.st_ctime_ns,
-            4 if root.is_symlink() else 5,
+            4 if is_root_symlink else 5,
         ))
-        if root.is_symlink():
+        if is_root_symlink:
             ignored.append({
                 "name": "",
                 "path": str(root.absolute()),
                 "reason": "capability-root-symlink",
             })
             continue
-        if not root.is_dir():
+        if not stat.S_ISDIR(root_stat.st_mode):
             continue
-        resolved = root.resolve()
-        for current, directory_names, file_names in os.walk(resolved, followlinks=False):
-            directory_names.sort()
-            file_names.sort()
-            safe_directories: list[str] = []
-            for name in directory_names:
-                path = Path(current) / name
-                scanned_entries += 1
-                if scanned_entries > MAX_CAPABILITY_DISCOVERY_ENTRIES:
-                    return [], tuple(sorted(signature)), [{
-                        "name": "",
-                        "path": str(resolved),
-                        "reason": "capability-discovery-entry-limit",
-                    }]
-                try:
-                    stat = path.lstat()
-                except OSError:
-                    continue
-                signature.append((str(path.absolute()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, 1 if path.is_symlink() else 2))
-                if path.is_symlink():
-                    ignored.append({
-                        "name": name,
-                        "path": str((path / "SKILL.md").absolute()),
-                        "reason": "symlinked-skill-directory",
-                    })
-                else:
-                    safe_directories.append(name)
-            directory_names[:] = safe_directories
-            for name in file_names:
-                path = Path(current) / name
-                scanned_entries += 1
-                if scanned_entries > MAX_CAPABILITY_DISCOVERY_ENTRIES:
-                    return [], tuple(sorted(signature)), [{
-                        "name": "",
-                        "path": str(resolved),
-                        "reason": "capability-discovery-entry-limit",
-                    }]
-                try:
-                    stat = path.lstat()
-                except OSError:
-                    continue
-                is_symlink = path.is_symlink()
-                signature.append((str(path.absolute()), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, 1 if is_symlink else 0))
-                if name == "SKILL.md" and is_symlink:
-                    ignored.append({
-                        "name": path.parent.name,
-                        "path": str(path.absolute()),
-                        "reason": "symlinked-skill-entrypoint",
-                    })
-                if name == "SKILL.md" and not is_symlink and path.is_file():
-                    found.append(path)
-    return sorted(found), tuple(sorted(signature)), ignored
+        root = root.absolute()
+        if not _descriptor_capability_access_supported():
+            return [], tuple(sorted(signature)), [{
+                "name": "",
+                "path": str(root),
+                "reason": "capability-descriptor-access-unavailable",
+            }]
+
+        root_fd: int | None = None
+        try:
+            root_fd = _open_capability_directory(root)
+            opened_root = os.fstat(root_fd)
+            current_root = os.stat(root, follow_symlinks=False)
+            if (
+                (opened_root.st_dev, opened_root.st_ino)
+                != (root_stat.st_dev, root_stat.st_ino)
+                or (opened_root.st_dev, opened_root.st_ino)
+                != (current_root.st_dev, current_root.st_ino)
+            ):
+                raise ValueError("capability-root-changed-during-scan")
+
+            def visit(directory_fd: int, relative_directory: Path) -> None:
+                nonlocal scanned_entries
+                before = os.fstat(directory_fd)
+                directory_entries: list[tuple[str, Path, os.stat_result]] = []
+                for name in sorted(os.listdir(directory_fd)):
+                    scanned_entries += 1
+                    if scanned_entries > MAX_CAPABILITY_DISCOVERY_ENTRIES:
+                        raise ValueError("capability-discovery-entry-limit")
+                    relative = relative_directory / name
+                    path = root / relative
+                    try:
+                        state = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                    except OSError as exc:
+                        raise ValueError("capability-root-changed-during-scan") from exc
+                    is_symlink = stat.S_ISLNK(state.st_mode)
+                    is_directory = stat.S_ISDIR(state.st_mode)
+                    signature.append((
+                        str(path),
+                        state.st_size,
+                        state.st_mtime_ns,
+                        state.st_ctime_ns,
+                        1 if is_symlink else 2 if is_directory else 0,
+                    ))
+                    if is_symlink:
+                        symlinked_directory = name != "SKILL.md" and not Path(name).suffix
+                        ignored.append({
+                            "name": name if symlinked_directory else path.parent.name,
+                            "path": str(path / "SKILL.md" if symlinked_directory else path),
+                            "reason": (
+                                "symlinked-skill-directory"
+                                if symlinked_directory
+                                else "symlinked-skill-entrypoint"
+                                if name == "SKILL.md"
+                                else "symlinked-support-file"
+                            ),
+                        })
+                        continue
+                    if is_directory:
+                        directory_entries.append((name, relative, state))
+                    elif name == "SKILL.md" and stat.S_ISREG(state.st_mode):
+                        found.append(_CapabilityFile(
+                            root=root,
+                            relative=relative,
+                            root_device=opened_root.st_dev,
+                            root_inode=opened_root.st_ino,
+                        ))
+
+                for name, relative, observed in directory_entries:
+                    child_fd = _open_capability_directory(name, directory_fd=directory_fd)
+                    try:
+                        opened = os.fstat(child_fd)
+                        if (opened.st_dev, opened.st_ino) != (observed.st_dev, observed.st_ino):
+                            raise ValueError("capability-root-changed-during-scan")
+                        visit(child_fd, relative)
+                    finally:
+                        os.close(child_fd)
+                if _inspection_signature(before) != _inspection_signature(os.fstat(directory_fd)):
+                    raise ValueError("capability-root-changed-during-scan")
+
+            visit(root_fd, Path())
+            final_root = os.stat(root, follow_symlinks=False)
+            if (
+                (opened_root.st_dev, opened_root.st_ino)
+                != (final_root.st_dev, final_root.st_ino)
+            ):
+                raise ValueError("capability-root-changed-during-scan")
+        except (OSError, ValueError) as exc:
+            reason = str(exc) or "capability-root-changed-during-scan"
+            if reason == "capability-discovery-entry-limit":
+                reason_path = str(root)
+            else:
+                reason = "capability-root-changed-during-scan"
+                reason_path = str(root)
+            return [], tuple(sorted(signature)), [{
+                "name": "",
+                "path": reason_path,
+                "reason": reason,
+            }]
+        finally:
+            if root_fd is not None:
+                os.close(root_fd)
+    return sorted(found, key=lambda item: str(item.path)), tuple(sorted(signature)), ignored
 
 
 def _recognized_binary_support(content: bytes) -> bool:
@@ -383,80 +493,180 @@ def _recognized_binary_support(content: bytes) -> bool:
     )
 
 
-def _skill_tree_digest(
-    entrypoint: Path,
-) -> tuple[str, list[dict[str, Any]], int, bool, bool]:
-    skill_root = entrypoint.parent.resolve()
+def _snapshot_skill_tree(
+    candidate: _CapabilityFile,
+) -> tuple[bytes, str, list[dict[str, Any]], int, bool, bool]:
+    if not _descriptor_capability_access_supported():
+        raise ValueError("capability-descriptor-access-unavailable")
+    entrypoint = candidate.path
+    skill_root = entrypoint.parent
     digest = hashlib.sha256()
     files: list[dict[str, Any]] = []
     total_bytes = 0
     scanned_entries = 0
     tree_has_interactive = False
     tree_has_external_actions = False
-    for current, directory_names, file_names in os.walk(skill_root, followlinks=False):
-        directory_names.sort()
-        file_names.sort()
-        scanned_entries += len(directory_names) + len(file_names)
-        if scanned_entries > MAX_SKILL_TREE_ENTRIES:
-            raise ValueError("skill-tree-entry-limit")
-        safe_directories: list[str] = []
-        for name in directory_names:
-            directory = Path(current) / name
-            if directory.is_symlink():
-                raise ValueError(f"symlinked-support-file:{directory}")
-            safe_directories.append(name)
-        directory_names[:] = safe_directories
-        for name in file_names:
-            path = Path(current) / name
-            if path.is_symlink():
-                raise ValueError(f"symlinked-support-file:{path}")
-            if not path.is_file():
-                continue
-            if len(files) >= MAX_SKILL_TREE_FILES:
-                raise ValueError("skill-tree-file-limit")
+    raw_entrypoint: bytes | None = None
+    root_fd: int | None = None
+    opened_directories: list[int] = []
+
+    try:
+        root_fd = _open_capability_directory(candidate.root)
+        root_before = os.fstat(root_fd)
+        if (
+            root_before.st_dev != candidate.root_device
+            or root_before.st_ino != candidate.root_inode
+        ):
+            raise ValueError("capability-root-changed-before-ingestion")
+
+        skill_fd = root_fd
+        for component in candidate.relative.parent.parts:
+            if component in {"", ".", ".."}:
+                raise ValueError("unsafe-capability-relative-path")
+            observed = os.stat(component, dir_fd=skill_fd, follow_symlinks=False)
+            component_count = len(opened_directories) + 1
+            component_path = candidate.root / Path(
+                *candidate.relative.parent.parts[:component_count]
+            )
+            if stat.S_ISLNK(observed.st_mode):
+                raise ValueError(f"symlinked-support-file:{component_path}")
+            if not stat.S_ISDIR(observed.st_mode):
+                raise ValueError(f"support-directory-not-regular:{component_path}")
+            child_fd = _open_capability_directory(component, directory_fd=skill_fd)
             try:
-                relative = path.relative_to(skill_root).as_posix()
-                size = path.stat().st_size
-            except (OSError, ValueError) as exc:
-                raise ValueError(f"support-file-stat:{path}") from exc
-            if size < 0 or total_bytes + size > MAX_SKILL_TREE_BYTES:
-                raise ValueError("skill-tree-byte-limit")
-            encoded_name = relative.encode("utf-8", errors="strict")
-            digest.update(len(encoded_name).to_bytes(8, "big"))
-            digest.update(encoded_name)
-            digest.update(size.to_bytes(8, "big"))
-            file_digest = hashlib.sha256()
-            read_bytes = 0
-            file_content = bytearray()
-            with path.open("rb") as handle:
-                while True:
-                    chunk = handle.read(65_536)
-                    if not chunk:
-                        break
-                    read_bytes += len(chunk)
-                    if total_bytes + read_bytes > MAX_SKILL_TREE_BYTES:
-                        raise ValueError("skill-tree-byte-limit")
-                    digest.update(chunk)
-                    file_digest.update(chunk)
-                    file_content.extend(chunk)
-            if read_bytes != size:
-                raise ValueError(f"support-file-changed-during-read:{path}")
-            total_bytes += read_bytes
-            files.append({"path": relative, "bytes": read_bytes, "sha256": file_digest.hexdigest()})
-            if relative != "SKILL.md":
+                opened = os.fstat(child_fd)
+                if (opened.st_dev, opened.st_ino) == (observed.st_dev, observed.st_ino):
+                    opened_directories.append(child_fd)
+                    skill_fd = child_fd
+                    continue
+            except BaseException:
+                os.close(child_fd)
+                raise
+            os.close(child_fd)
+            raise ValueError("capability-root-changed-before-ingestion")
+
+        def visit(directory_fd: int, relative_directory: Path) -> None:
+            nonlocal scanned_entries
+            nonlocal total_bytes
+            nonlocal tree_has_interactive
+            nonlocal tree_has_external_actions
+            nonlocal raw_entrypoint
+
+            directory_before = os.fstat(directory_fd)
+            directories: list[tuple[str, Path, os.stat_result]] = []
+            regular_files: list[tuple[str, Path, os.stat_result]] = []
+            names = sorted(os.listdir(directory_fd))
+            scanned_entries += len(names)
+            if scanned_entries > MAX_SKILL_TREE_ENTRIES:
+                raise ValueError("skill-tree-entry-limit")
+            for name in names:
+                relative_path = relative_directory / name
+                display_path = skill_root / relative_path
                 try:
-                    support_text = bytes(file_content).decode("utf-8", errors="strict")
-                except UnicodeDecodeError as exc:
-                    if not _recognized_binary_support(bytes(file_content)):
-                        raise ValueError(f"invalid-utf8-support-file:{path}") from exc
-                    support_text = ""
-                tree_has_interactive = tree_has_interactive or _has_non_negated_match(
-                    _INTERACTIVE_LANGUAGE, support_text
-                )
-                tree_has_external_actions = tree_has_external_actions or _has_non_negated_match(
-                    _EXTERNAL_ACTION_LANGUAGE, support_text
-                )
+                    observed = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                except OSError as exc:
+                    raise ValueError(f"support-file-stat:{display_path}") from exc
+                if stat.S_ISLNK(observed.st_mode):
+                    raise ValueError(f"symlinked-support-file:{display_path}")
+                if stat.S_ISDIR(observed.st_mode):
+                    directories.append((name, relative_path, observed))
+                elif stat.S_ISREG(observed.st_mode):
+                    regular_files.append((name, relative_path, observed))
+
+            for name, relative_path, observed in regular_files:
+                if len(files) >= MAX_SKILL_TREE_FILES:
+                    raise ValueError("skill-tree-file-limit")
+                path = skill_root / relative_path
+                descriptor: int | None = None
+                try:
+                    descriptor = _open_capability_file(name, directory_fd)
+                    before = os.fstat(descriptor)
+                    if (
+                        not stat.S_ISREG(before.st_mode)
+                        or _inspection_signature(before) != _inspection_signature(observed)
+                    ):
+                        raise ValueError(f"support-file-changed-before-read:{path}")
+                    size = before.st_size
+                    if size < 0 or total_bytes + size > MAX_SKILL_TREE_BYTES:
+                        raise ValueError("skill-tree-byte-limit")
+                    file_content = bytearray()
+                    while chunk := os.read(descriptor, 65_536):
+                        file_content.extend(chunk)
+                        if total_bytes + len(file_content) > MAX_SKILL_TREE_BYTES:
+                            raise ValueError("skill-tree-byte-limit")
+                    after = os.fstat(descriptor)
+                    current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                    if (
+                        _inspection_signature(before) != _inspection_signature(after)
+                        or _inspection_signature(after) != _inspection_signature(current)
+                        or len(file_content) != size
+                    ):
+                        raise ValueError(f"support-file-changed-during-read:{path}")
+                except OSError as exc:
+                    raise ValueError(f"support-file-open:{path}") from exc
+                finally:
+                    if descriptor is not None:
+                        os.close(descriptor)
+
+                content_bytes = bytes(file_content)
+                relative = relative_path.as_posix()
+                encoded_name = relative.encode("utf-8", errors="strict")
+                digest.update(len(encoded_name).to_bytes(8, "big"))
+                digest.update(encoded_name)
+                digest.update(size.to_bytes(8, "big"))
+                digest.update(content_bytes)
+                file_sha256 = hashlib.sha256(content_bytes).hexdigest()
+                total_bytes += size
+                files.append({"path": relative, "bytes": size, "sha256": file_sha256})
+                if relative == "SKILL.md":
+                    raw_entrypoint = content_bytes
+                else:
+                    try:
+                        support_text = content_bytes.decode("utf-8", errors="strict")
+                    except UnicodeDecodeError as exc:
+                        if not _recognized_binary_support(content_bytes):
+                            raise ValueError(f"invalid-utf8-support-file:{path}") from exc
+                        support_text = ""
+                    tree_has_interactive = tree_has_interactive or _has_non_negated_match(
+                        _INTERACTIVE_LANGUAGE, support_text
+                    )
+                    tree_has_external_actions = tree_has_external_actions or _has_non_negated_match(
+                        _EXTERNAL_ACTION_LANGUAGE, support_text
+                    )
+
+            for name, relative_path, observed in directories:
+                child_fd = _open_capability_directory(name, directory_fd=directory_fd)
+                try:
+                    opened = os.fstat(child_fd)
+                    if (opened.st_dev, opened.st_ino) != (observed.st_dev, observed.st_ino):
+                        raise ValueError(f"support-directory-changed:{skill_root / relative_path}")
+                    visit(child_fd, relative_path)
+                finally:
+                    os.close(child_fd)
+            if _inspection_signature(directory_before) != _inspection_signature(
+                os.fstat(directory_fd)
+            ):
+                raise ValueError(f"support-directory-changed:{skill_root / relative_directory}")
+
+        visit(skill_fd, Path())
+        root_after = os.fstat(root_fd)
+        current_root = os.stat(candidate.root, follow_symlinks=False)
+        if (
+            _inspection_signature(root_before) != _inspection_signature(root_after)
+            or (root_after.st_dev, root_after.st_ino)
+            != (current_root.st_dev, current_root.st_ino)
+        ):
+            raise ValueError("capability-root-changed-during-ingestion")
+    finally:
+        for descriptor in reversed(opened_directories):
+            os.close(descriptor)
+        if root_fd is not None:
+            os.close(root_fd)
+
+    if raw_entrypoint is None:
+        raise ValueError(f"entrypoint-missing:{entrypoint}")
     return (
+        raw_entrypoint,
         digest.hexdigest(),
         files,
         total_bytes,
@@ -465,28 +675,64 @@ def _skill_tree_digest(
     )
 
 
+def _skill_tree_digest(
+    entrypoint: Path,
+) -> tuple[str, list[dict[str, Any]], int, bool, bool]:
+    entrypoint = entrypoint.expanduser().absolute()
+    root = entrypoint.parent
+    root_fd = _open_capability_directory(root)
+    try:
+        root_state = os.fstat(root_fd)
+    finally:
+        os.close(root_fd)
+    snapshot = _snapshot_skill_tree(_CapabilityFile(
+        root=root,
+        relative=Path(entrypoint.name),
+        root_device=root_state.st_dev,
+        root_inode=root_state.st_ino,
+    ))
+    return snapshot[1:]
+
+
 def _catalog(
-    skill_files: list[Path],
+    skill_files: list[_CapabilityFile],
     disabled_paths: set[Path],
     disabled_names: set[str],
     source_repo: Path | None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     by_name: dict[str, list[dict[str, Any]]] = {}
     ignored: list[dict[str, Any]] = []
-    for path in skill_files:
-        if path.resolve() in disabled_paths:
-            ignored.append({"name": path.parent.name, "path": str(path.resolve()), "reason": "disabled-by-host"})
+    for candidate in skill_files:
+        path = candidate.path
+        if path in disabled_paths:
+            ignored.append({
+                "name": path.parent.name,
+                "path": str(path),
+                "reason": "disabled-by-host",
+            })
             continue
         try:
-            if path.stat().st_size > MAX_SKILL_BYTES:
-                ignored.append({"name": path.parent.name, "path": str(path), "reason": "entrypoint-too-large"})
-                continue
-            with path.open("rb") as handle:
-                raw_content = handle.read(MAX_SKILL_BYTES + 1)
-        except OSError:
+            (
+                raw_content,
+                tree_sha256,
+                tree_files,
+                tree_bytes,
+                tree_has_interactive,
+                tree_has_external_actions,
+            ) = _snapshot_skill_tree(candidate)
+        except (OSError, ValueError) as exc:
+            ignored.append({
+                "name": path.parent.name,
+                "path": str(path),
+                "reason": str(exc) or type(exc).__name__,
+            })
             continue
         if len(raw_content) > MAX_SKILL_BYTES:
-            ignored.append({"name": path.parent.name, "path": str(path), "reason": "entrypoint-too-large"})
+            ignored.append({
+                "name": path.parent.name,
+                "path": str(path),
+                "reason": "entrypoint-too-large",
+            })
             continue
         try:
             content = raw_content.decode("utf-8", errors="strict")
@@ -500,23 +746,8 @@ def _catalog(
         if name.casefold() in disabled_names:
             ignored.append({
                 "name": name,
-                "path": str(path.resolve()),
+                "path": str(path),
                 "reason": "disabled-by-host-name",
-            })
-            continue
-        try:
-            (
-                tree_sha256,
-                tree_files,
-                tree_bytes,
-                tree_has_interactive,
-                tree_has_external_actions,
-            ) = _skill_tree_digest(path)
-        except (OSError, ValueError) as exc:
-            ignored.append({
-                "name": name,
-                "path": str(path.resolve()),
-                "reason": str(exc) or type(exc).__name__,
             })
             continue
         instruction_content = content if content.endswith("\n") else content + "\n"
@@ -524,15 +755,15 @@ def _catalog(
         if source_repo is not None:
             repository_skill_root = source_repo / ".agents" / "skills"
             try:
-                path.resolve().relative_to(repository_skill_root.resolve())
+                path.relative_to(repository_skill_root.resolve())
                 source_kind = "repository"
             except ValueError:
                 pass
-        if source_kind == "host" and "plugins/cache" in path.resolve().as_posix():
+        if source_kind == "host" and "plugins/cache" in path.as_posix():
             source_kind = "plugin"
         by_name.setdefault(name.casefold(), []).append({
             "name": name,
-            "path": str(path.resolve()),
+            "path": str(path),
             "description": description,
             "triggers": triggers,
             "policy": policy,
@@ -651,6 +882,8 @@ class CapabilityIndex:
                 fatal_discovery = any(
                     item.get("reason") in {
                         "capability-discovery-entry-limit",
+                        "capability-descriptor-access-unavailable",
+                        "capability-root-changed-during-scan",
                         "capability-root-symlink",
                     }
                     for item in discovery_ignored
@@ -825,7 +1058,11 @@ def route_capabilities(
         reason for reasons in ignored_by_name.values() for reason in reasons
     } or any(item.get("reason") == "capability-discovery-entry-limit" for item in ignored):
         blocking_errors.append("capability-catalog-overflow")
-    if any(item.get("reason") == "capability-root-symlink" for item in ignored):
+    if any(item.get("reason") in {
+        "capability-descriptor-access-unavailable",
+        "capability-root-changed-during-scan",
+        "capability-root-symlink",
+    } for item in ignored):
         blocking_errors.append("capability-catalog-unsafe-root")
     if any(
         item.get("reason") in {"symlinked-skill-directory", "symlinked-skill-entrypoint"}

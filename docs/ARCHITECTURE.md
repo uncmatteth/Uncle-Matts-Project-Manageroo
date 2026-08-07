@@ -190,6 +190,10 @@ model context. It selects from controller-owned normal-language intent (never
 rendered packets or repository evidence), applies role/sandbox/interaction
 compatibility policy, injects only complete selected entrypoints within a hard
 budget, and records raw entrypoint plus full-tree digests as controller evidence.
+Discovery and ingestion pin each capability root and directory with no-follow
+descriptors, then derive entrypoint instructions and every tree hash from the
+same regular-file descriptor snapshots. Identity or metadata changes reject the
+capability instead of allowing content and audit metadata from different states.
 Generated task text can only rerank candidates already made eligible by the
 operator's original brief; it cannot activate or explicitly request another skill.
 The selected trees are rehashed immediately before every concrete provider
