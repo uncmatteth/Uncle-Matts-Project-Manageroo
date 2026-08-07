@@ -26,6 +26,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Stack update mutates the supervisor virtual environment while its queue is active | Cross-platform advisory lock keyed to the resolved supervisor executable and held across the complete queue or update lifetime; process inspection is supplemental only | Preventive for Manageroo-managed execution and updates |
 | Push begins from an unsynchronized branch | Compare local HEAD with live `origin/<branch>` before creating a repair branch or starting queue work | Preventive |
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
+| Concurrent project-memory updates discard one writer's entries | Cross-platform interprocess lock held across destination revalidation, existence detection, read, merge, atomic replacement, and final read | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change, including through an in-root symlink alias | Symlink-free artifact paths plus artifact hash ledger | Preventive and detective, blocks next phase |

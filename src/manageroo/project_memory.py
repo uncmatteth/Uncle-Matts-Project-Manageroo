@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .branding import PROJECT_DIR
+from .config_lock import config_mutation_lock
 from .errors import SafetyError
 from .util import atomic_write_text, utc_now
 
@@ -165,36 +166,53 @@ def ensure_project_memory(
     notes: list[str] | None = None,
 ) -> dict[str, Any]:
     path = _safe_repo_write_destination(repo, project_memory_path(repo))
-    created = not path.exists()
-    updated_sections: list[str] = []
-    if created:
-        markdown = build_project_memory(repo, project_summary=project_summary, shipped=shipped, must_not=must_not, proof=proof, notes=notes)
-        atomic_write_text(path, markdown)
-        updated_sections = ["What This Project Is", "What Has Shipped", "What Must Not Break", "Current Proof", "Operator Notes"]
-    else:
-        markdown = _read_utf8(path, repo=repo)
-        updates = [
-            ("What This Project Is", [project_summary] if _clean(project_summary) else []),
-            ("What Has Shipped", shipped or []),
-            ("What Must Not Break", must_not or []),
-            ("Current Proof", proof or []),
-            ("Operator Notes", notes or []),
-        ]
-        changed = False
-        for heading, values in updates:
-            markdown, section_changed = _append_items(markdown, heading, values)
-            if section_changed:
-                updated_sections.append(heading)
-                changed = True
-        if changed:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with config_mutation_lock(path):
+        path = _safe_repo_write_destination(repo, project_memory_path(repo))
+        created = not path.exists()
+        updated_sections: list[str] = []
+        if created:
+            markdown = build_project_memory(
+                repo,
+                project_summary=project_summary,
+                shipped=shipped,
+                must_not=must_not,
+                proof=proof,
+                notes=notes,
+            )
             atomic_write_text(path, markdown)
-    return {
-        "ok": True,
-        "path": str(path),
-        "created": created,
-        "updated_sections": updated_sections,
-        "content": _read_utf8(path, repo=repo),
-    }
+            updated_sections = [
+                "What This Project Is",
+                "What Has Shipped",
+                "What Must Not Break",
+                "Current Proof",
+                "Operator Notes",
+            ]
+        else:
+            markdown = _read_utf8(path, repo=repo)
+            updates = [
+                ("What This Project Is", [project_summary] if _clean(project_summary) else []),
+                ("What Has Shipped", shipped or []),
+                ("What Must Not Break", must_not or []),
+                ("Current Proof", proof or []),
+                ("Operator Notes", notes or []),
+            ]
+            changed = False
+            for heading, values in updates:
+                markdown, section_changed = _append_items(markdown, heading, values)
+                if section_changed:
+                    updated_sections.append(heading)
+                    changed = True
+            if changed:
+                atomic_write_text(path, markdown)
+        content = _read_utf8(path, repo=repo)
+        return {
+            "ok": True,
+            "path": str(path),
+            "created": created,
+            "updated_sections": updated_sections,
+            "content": content,
+        }
 
 
 def read_project_memory(repo: Path) -> dict[str, Any]:

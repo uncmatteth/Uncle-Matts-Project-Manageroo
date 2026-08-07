@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import subprocess
 import tempfile
@@ -9,6 +10,41 @@ import manageroo.project as project_module
 from manageroo.errors import SafetyError
 from manageroo.project import create_project_repo, initialize_project
 from manageroo.project_memory import ensure_project_memory
+
+
+def _update_project_memory_after_synchronized_read(
+    repo: str,
+    field: str,
+    value: str,
+    read_reached,
+    release_read,
+    finished,
+    results,
+) -> None:
+    import manageroo.project_memory as project_memory_module
+
+    original_read = project_memory_module._read_utf8
+    first_read = True
+
+    def synchronized_read(*args, **kwargs):
+        nonlocal first_read
+        content = original_read(*args, **kwargs)
+        if first_read:
+            first_read = False
+            read_reached.set()
+            if release_read is not None and not release_read.wait(timeout=5):
+                raise RuntimeError("timed out waiting to release project-memory read")
+        return content
+
+    project_memory_module._read_utf8 = synchronized_read
+    try:
+        ensure_project_memory(Path(repo), **{field: [value]})
+    except Exception as exc:
+        results.put(f"{type(exc).__name__}: {exc}")
+    else:
+        results.put("ok")
+    finally:
+        finished.set()
 
 
 class ProjectInitializationTests(unittest.TestCase):
@@ -70,6 +106,73 @@ class ProjectInitializationTests(unittest.TestCase):
                 "Add the commands or manual checks that prove the current state.",
             ):
                 self.assertNotIn(placeholder, text)
+
+    def test_concurrent_project_memory_updates_preserve_all_entries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            ensure_project_memory(repo)
+            context = multiprocessing.get_context("spawn")
+            first_read = context.Event()
+            release_first_read = context.Event()
+            first_finished = context.Event()
+            second_read = context.Event()
+            second_finished = context.Event()
+            results = context.Queue()
+            first = context.Process(
+                target=_update_project_memory_after_synchronized_read,
+                args=(
+                    str(repo),
+                    "shipped",
+                    "Concurrent shipped item.",
+                    first_read,
+                    release_first_read,
+                    first_finished,
+                    results,
+                ),
+            )
+            second = context.Process(
+                target=_update_project_memory_after_synchronized_read,
+                args=(
+                    str(repo),
+                    "notes",
+                    "Concurrent operator note.",
+                    second_read,
+                    None,
+                    second_finished,
+                    results,
+                ),
+            )
+
+            try:
+                first.start()
+                self.assertTrue(first_read.wait(timeout=5))
+                second.start()
+                if second_read.wait(timeout=0.5):
+                    self.assertTrue(second_finished.wait(timeout=5))
+                release_first_read.set()
+                first.join(timeout=5)
+                second.join(timeout=5)
+
+                self.assertFalse(first.is_alive())
+                self.assertFalse(second.is_alive())
+                self.assertEqual(first.exitcode, 0)
+                self.assertEqual(second.exitcode, 0)
+                self.assertEqual(
+                    [results.get(timeout=2) for _ in range(2)], ["ok", "ok"]
+                )
+                text = (repo / ".manageroo" / "PROJECT-MEMORY.md").read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn("Concurrent shipped item.", text)
+                self.assertIn("Concurrent operator note.", text)
+            finally:
+                release_first_read.set()
+                for process in (first, second):
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
 
     def test_project_memory_refuses_symlinked_manageroo_parent_without_external_write(self):
         if os.name == "nt":
