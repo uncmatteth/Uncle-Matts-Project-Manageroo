@@ -234,6 +234,32 @@ class TransactionalAdapterHardeningTests(unittest.TestCase):
                     self.assertTrue((adapter.trusted_root / lock_path.name).is_file())
                     self.assertFalse(lock_path.exists())
 
+    def test_repository_lock_open_failure_preserves_safety_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lock_path = Path(temp) / "transaction.lock"
+            adapter = TransactionalAdapter(FailingWorker(), CommandRunner())
+
+            with mock.patch.object(
+                adapter,
+                "_repository_lock_path",
+                return_value=lock_path,
+            ), mock.patch.object(
+                adapter,
+                "_open_repository_lock_directory",
+                return_value=None,
+            ), mock.patch(
+                "manageroo.adapters.transactional.os.open",
+                side_effect=PermissionError("denied"),
+            ):
+                with self.assertRaisesRegex(
+                    SafetyError,
+                    "could not open the repository transaction lock",
+                ) as raised:
+                    with adapter._repository_transaction_lock(Path(temp)):
+                        self.fail("unopenable repository lock was acquired")
+
+            self.assertIsInstance(raised.exception.__cause__, PermissionError)
+
     def test_controller_truth_restoration_does_not_follow_symlinked_parent(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

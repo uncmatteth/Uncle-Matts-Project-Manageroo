@@ -241,6 +241,7 @@ class TransactionalAdapter(AgentAdapter):
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         descriptor: int | None = None
+        acquired = False
         try:
             try:
                 if directory_descriptor is None:
@@ -256,7 +257,6 @@ class TransactionalAdapter(AgentAdapter):
                 raise SafetyError(
                     f"Manageroo could not open the repository transaction lock: {lock_path}: {exc}"
                 ) from exc
-            acquired = False
             lock_state = os.fstat(descriptor)
             self._validate_repository_lock_entry(lock_path, lock_state, directory=False)
             if lock_state.st_size == 0:
