@@ -269,8 +269,9 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
 def write_config(repo: Path, agent: str, gates: list[dict[str, Any]]) -> Path:
     path = repo / PROJECT_DIR / "config.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        atomic_write_text(path, config_template(agent, gates))
+    with config_mutation_lock(path):
+        if not path.exists():
+            atomic_write_text(path, config_template(agent, gates))
     return path
 
 

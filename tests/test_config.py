@@ -42,6 +42,34 @@ def _enter_config_lock(config_path, lock_opened, entered) -> None:
         entered.set()
 
 
+def _write_config_while_pausing_write(repo, write_started, release) -> None:
+    import manageroo.config as config
+
+    original_write = config.atomic_write_text
+
+    def delayed_write(path, text):
+        write_started.set()
+        if not release.wait(timeout=5):
+            raise TimeoutError("test did not release initial config write")
+        original_write(path, text)
+
+    config.atomic_write_text = delayed_write
+    config.write_config(Path(repo), "codex", [])
+
+
+def _write_config_and_record_write(repo, write_attempted) -> None:
+    import manageroo.config as config
+
+    original_write = config.atomic_write_text
+
+    def observed_write(path, text):
+        write_attempted.set()
+        original_write(path, text)
+
+    config.atomic_write_text = observed_write
+    config.write_config(Path(repo), "gemini", [])
+
+
 class ConfigTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX directory permissions")
     def test_config_lock_rejects_writable_existing_cache_before_creating_lock(self):
@@ -228,6 +256,47 @@ nested = [
                 apply_agent_preset(repo, "gemini")
 
             lock.assert_called_once_with(config_path)
+
+    def test_concurrent_write_config_preserves_first_configuration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            config_path = repo / ".manageroo" / "config.toml"
+            context = multiprocessing.get_context("spawn")
+            write_started = context.Event()
+            release = context.Event()
+            contender_write_attempted = context.Event()
+            owner = context.Process(
+                target=_write_config_while_pausing_write,
+                args=(repo, write_started, release),
+            )
+            contender = context.Process(
+                target=_write_config_and_record_write,
+                args=(repo, contender_write_attempted),
+            )
+
+            try:
+                owner.start()
+                self.assertTrue(write_started.wait(timeout=5))
+                contender.start()
+                self.assertFalse(contender_write_attempted.wait(timeout=0.3))
+                release.set()
+                owner.join(timeout=5)
+                contender.join(timeout=5)
+                self.assertEqual(owner.exitcode, 0)
+                self.assertEqual(contender.exitcode, 0)
+                self.assertFalse(contender_write_attempted.is_set())
+                self.assertEqual(
+                    tomllib.loads(config_path.read_text(encoding="utf-8"))["agent"]["adapter"],
+                    "codex",
+                )
+            finally:
+                release.set()
+                for process in (owner, contender):
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
 
 
 if __name__ == "__main__":
