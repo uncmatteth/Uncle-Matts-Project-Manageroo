@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_PROOF_TIMEOUT_SECONDS = 14_400
 PACKAGE_TIMEOUT_SECONDS = 7_200
 PROCESS_TREE_GRACE_SECONDS = 5
+PACKAGE_RESULT_PREFIX = "MANAGEROO_PACKAGE_RESULT="
 
 
 def _timeout_output(value: str | bytes | None) -> str:
@@ -111,6 +112,25 @@ def run(argv: list[str], *, timeout: int) -> dict:
         return {"argv": argv, "exit_code": 124, "output": output + "\nTIMEOUT"}
 
 
+def _package_result(output: str) -> dict | None:
+    for line in reversed(output.splitlines()):
+        if not line.startswith(PACKAGE_RESULT_PREFIX):
+            continue
+        try:
+            payload = json.loads(line.removeprefix(PACKAGE_RESULT_PREFIX))
+        except json.JSONDecodeError:
+            return None
+        if (
+            isinstance(payload, dict)
+            and isinstance(payload.get("release_created"), bool)
+            and isinstance(payload.get("warnings"), list)
+            and all(isinstance(item, str) for item in payload["warnings"])
+        ):
+            return payload
+        return None
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -156,12 +176,20 @@ def main() -> int:
         [sys.executable, "scripts/package_release.py"],
         timeout=PACKAGE_TIMEOUT_SECONDS,
     )
+    publication = _package_result(package["output"])
+    release_created = bool(publication and publication["release_created"])
+    package_ok = package["exit_code"] == 0 and release_created
+    if package_ok:
+        stage = "complete-with-warnings" if publication["warnings"] else "complete"
+    else:
+        stage = "post-publication" if release_created else "packaging"
     report = {
-        "ok": package["exit_code"] == 0,
-        "stage": "complete" if package["exit_code"] == 0 else "packaging",
+        "ok": package_ok,
+        "stage": stage,
         "proof": proof_payload,
         "package": package,
-        "release_created": package["exit_code"] == 0,
+        "publication": publication,
+        "release_created": release_created,
     }
     if args.json:
         print(json.dumps(report, indent=2))

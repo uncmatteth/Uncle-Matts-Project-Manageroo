@@ -580,6 +580,7 @@ class PackageReleaseTests(unittest.TestCase):
                     captured["checksums"] = archive.read(
                         f"{package_release.ARCHIVE_ROOT}/SHA256SUMS.txt"
                     ).decode()
+                return {"release_created": True, "warnings": []}
 
             with (
                 patch.object(package_release, "ROOT", root),
@@ -701,6 +702,69 @@ class PackageReleaseTests(unittest.TestCase):
                 },
                 drop_before,
             )
+
+    def test_post_publication_cleanup_failure_warns_and_retry_reconciles_backups(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "release.zip"
+            source_output = root / "release-source.zip"
+            candidate_output = root / "candidate-release.zip"
+            candidate_source = root / "candidate-source.zip"
+            drop = root / "drop"
+            output.write_bytes(b"old-end-user")
+            source_output.write_bytes(b"old-source")
+            candidate_output.write_bytes(b"new-end-user")
+            candidate_source.write_bytes(b"new-source")
+            drop.mkdir()
+            (drop / package_release.INSTALLER_ZIP).write_bytes(b"old-end-user")
+            (drop / package_release.SOURCE_ZIP).write_bytes(b"old-source")
+            path_type = type(output)
+            original_unlink = path_type.unlink
+
+            def drop_copies(end_user_archive, source_archive):
+                return {
+                    package_release.INSTALLER_ZIP: end_user_archive,
+                    package_release.SOURCE_ZIP: source_archive,
+                }
+
+            def fail_output_backup_cleanup(path, *args, **kwargs):
+                if path == root / "release.zip.manageroo-previous":
+                    raise OSError("simulated cleanup failure")
+                return original_unlink(path, *args, **kwargs)
+
+            with (
+                patch.object(package_release, "OUTPUT", output),
+                patch.object(package_release, "SOURCE_OUTPUT", source_output),
+                patch.object(package_release, "_drop_copies", side_effect=drop_copies),
+                patch.object(path_type, "unlink", autospec=True, side_effect=fail_output_backup_cleanup),
+            ):
+                result = package_release._publish_release(candidate_output, candidate_source, drop)
+
+            self.assertTrue(result["release_created"])
+            self.assertEqual(len(result["warnings"]), 1)
+            self.assertIn("simulated cleanup failure", result["warnings"][0])
+            self.assertEqual(output.read_bytes(), b"new-end-user")
+            self.assertEqual(source_output.read_bytes(), b"new-source")
+            self.assertEqual(
+                (drop / package_release.INSTALLER_ZIP).read_bytes(), b"new-end-user"
+            )
+            self.assertEqual((drop / package_release.SOURCE_ZIP).read_bytes(), b"new-source")
+            self.assertTrue((root / "release.zip.manageroo-previous").is_file())
+
+            retry_output = root / "retry-release.zip"
+            retry_source = root / "retry-source.zip"
+            retry_output.write_bytes(b"new-end-user")
+            retry_source.write_bytes(b"new-source")
+            with (
+                patch.object(package_release, "OUTPUT", output),
+                patch.object(package_release, "SOURCE_OUTPUT", source_output),
+                patch.object(package_release, "_drop_copies", side_effect=drop_copies),
+            ):
+                retry = package_release._publish_release(retry_output, retry_source, drop)
+
+            self.assertTrue(retry["release_created"])
+            self.assertEqual(retry["warnings"], [])
+            self.assertEqual(list(root.glob("*.manageroo-previous")), [])
 
     def test_drop_refresh_preserves_interrupted_transaction_backup(self):
         with tempfile.TemporaryDirectory() as temp:

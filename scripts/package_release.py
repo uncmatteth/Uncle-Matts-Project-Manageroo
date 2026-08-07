@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -49,6 +50,7 @@ END_USER_EXCLUDED = {
     "scripts/package_release.py", "tests/test_package_release.py",
 }
 RELEASE_FILE_LIST_ENV = "MANAGEROO_RELEASE_FILE_LIST"
+PACKAGE_RESULT_PREFIX = "MANAGEROO_PACKAGE_RESULT="
 
 
 def _strict_relative_path(path: Path, root: Path) -> Path | None:
@@ -427,12 +429,83 @@ def _release_lock_target() -> Path:
     return output_parent / ".manageroo-release-locks" / OUTPUT.name
 
 
-def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: Path) -> None:
+def _files_match(first: Path, second: Path) -> bool:
+    if (
+        first.is_symlink()
+        or second.is_symlink()
+        or not first.is_file()
+        or not second.is_file()
+        or first.stat().st_size != second.stat().st_size
+    ):
+        return False
+    return hashlib.sha256(first.read_bytes()).digest() == hashlib.sha256(second.read_bytes()).digest()
+
+
+def _publication_backups(drop_dir: Path) -> tuple[Path, Path, Path]:
+    return (
+        OUTPUT.with_name(OUTPUT.name + ".manageroo-previous"),
+        SOURCE_OUTPUT.with_name(SOURCE_OUTPUT.name + ".manageroo-previous"),
+        drop_dir.with_name(drop_dir.name + ".manageroo-previous"),
+    )
+
+
+def _cleanup_publication_backups(drop_dir: Path) -> list[str]:
+    warnings: list[str] = []
+    output_backup, source_backup, drop_backup = _publication_backups(drop_dir)
+    for backup in (output_backup, source_backup):
+        if not backup.exists() and not backup.is_symlink():
+            continue
+        try:
+            if backup.is_symlink() or not backup.is_file():
+                raise OSError("backup is not a regular file")
+            backup.unlink()
+        except OSError as exc:
+            warnings.append(f"Could not remove published-release backup {backup}: {exc}")
+    if drop_backup.exists() or drop_backup.is_symlink():
+        try:
+            if drop_backup.is_symlink() or not drop_backup.is_dir():
+                raise OSError("backup is not a real directory")
+            shutil.rmtree(drop_backup)
+        except OSError as exc:
+            warnings.append(f"Could not remove published-release backup {drop_backup}: {exc}")
+    return warnings
+
+
+def _reconcile_publication_backups(
+    candidate_output: Path,
+    candidate_source: Path,
+    drop_dir: Path,
+) -> None:
+    backups = [
+        backup
+        for backup in _publication_backups(drop_dir)
+        if backup.exists() or backup.is_symlink()
+    ]
+    if not backups:
+        return
+    copies = _drop_copies(OUTPUT, SOURCE_OUTPUT)
+    publication_matches = (
+        _files_match(candidate_output, OUTPUT)
+        and _files_match(candidate_source, SOURCE_OUTPUT)
+        and all(_files_match(drop_dir / name, source) for name, source in copies.items())
+    )
+    if not publication_matches:
+        raise RuntimeError(
+            "Interrupted release transaction does not match the current candidate; "
+            "refusing to discard recovery data: " + ", ".join(str(path) for path in backups)
+        )
+    warnings = _cleanup_publication_backups(drop_dir)
+    if warnings:
+        raise RuntimeError("Could not reconcile published-release backups: " + "; ".join(warnings))
+
+
+def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: Path) -> dict:
     release_lock_target = _release_lock_target()
     release_lock_target.parent.mkdir(mode=0o700, exist_ok=True)
     if release_lock_target.parent.is_symlink() or not release_lock_target.parent.is_dir():
         raise RuntimeError(f"Release lock directory is unsafe: {release_lock_target.parent}")
     with config_mutation_lock(release_lock_target, timeout_seconds=600.0):
+        _reconcile_publication_backups(candidate_output, candidate_source, drop_dir)
         _publish_archive_pair(
             candidate_output,
             candidate_source,
@@ -451,13 +524,10 @@ def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: P
                     f"archive rollback also failed: {'; '.join(rollback_errors)}"
                 ) from exc
             raise
-        for published in (OUTPUT, SOURCE_OUTPUT):
-            backup = published.with_name(published.name + ".manageroo-previous")
-            if backup.exists():
-                backup.unlink()
-        drop_backup = drop_dir.with_name(drop_dir.name + ".manageroo-previous")
-        if drop_backup.exists():
-            shutil.rmtree(drop_backup)
+        return {
+            "release_created": True,
+            "warnings": _cleanup_publication_backups(drop_dir),
+        }
 
 
 def main() -> int:
@@ -513,10 +583,13 @@ def main() -> int:
             if smoke.returncode:
                 return smoke.returncode
             _assert_release_fingerprint(archive_source, "smoke testing", exclude=set())
-            _publish_release(candidate_output, candidate_source, DEFAULT_DROP_DIR)
+            publication = _publish_release(candidate_output, candidate_source, DEFAULT_DROP_DIR)
+    for warning in publication["warnings"]:
+        print(f"WARNING: {warning}", file=sys.stderr)
     print(OUTPUT)
     print(SOURCE_OUTPUT)
     print(DEFAULT_DROP_DIR)
+    print(PACKAGE_RESULT_PREFIX + json.dumps(publication, sort_keys=True))
     return 0
 
 

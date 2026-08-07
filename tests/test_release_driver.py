@@ -150,7 +150,10 @@ class ReleaseDriverTests(unittest.TestCase):
         package = {
             "argv": [sys.executable, "scripts/package_release.py"],
             "exit_code": 0,
-            "output": "release paths\n",
+            "output": (
+                "release paths\n"
+                f'{release.PACKAGE_RESULT_PREFIX}{{"release_created": true, "warnings": []}}\n'
+            ),
         }
         output = io.StringIO()
         with patch.object(sys, "argv", ["release.py", "--json"]), patch.object(
@@ -197,13 +200,47 @@ class ReleaseDriverTests(unittest.TestCase):
         self.assertEqual(payload["stage"], "packaging")
         self.assertEqual(payload["package"]["exit_code"], 1)
 
+    def test_cleanup_warning_reports_created_release_without_failure(self):
+        proof = {
+            "argv": [],
+            "exit_code": 0,
+            "output": json.dumps({"ok": True, "status": "COMPLETE"}),
+        }
+        package = {
+            "argv": [],
+            "exit_code": 0,
+            "output": (
+                "WARNING: retained backup\n"
+                f'{release.PACKAGE_RESULT_PREFIX}'
+                '{"release_created": true, "warnings": ["retained backup"]}\n'
+            ),
+        }
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["release.py", "--json"]), patch.object(
+            release, "run", side_effect=[proof, package]
+        ), redirect_stdout(output):
+            code = release.main()
+
+        self.assertEqual(code, 0)
+        payload = json.loads(output.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["release_created"])
+        self.assertEqual(payload["stage"], "complete-with-warnings")
+        self.assertEqual(payload["publication"]["warnings"], ["retained backup"])
+
     def test_live_agent_is_forwarded_only_to_product_proof(self):
         proof = {
             "argv": [],
             "exit_code": 0,
             "output": json.dumps({"ok": True, "status": "COMPLETE"}),
         }
-        package = {"argv": [], "exit_code": 0, "output": "ok\n"}
+        package = {
+            "argv": [],
+            "exit_code": 0,
+            "output": (
+                f'{release.PACKAGE_RESULT_PREFIX}{{"release_created": true, "warnings": []}}\n'
+            ),
+        }
         with patch.object(
             sys, "argv", ["release.py", "--json", "--live-agent", "codex"]
         ), patch.object(release, "run", side_effect=[proof, package]) as run, redirect_stdout(io.StringIO()):
