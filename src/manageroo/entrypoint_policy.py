@@ -17,12 +17,24 @@ def install_entrypoint_policy(entrypoint_module: Any) -> None:
         if entrypoint_module.decisions_fully_resolved(run_root):
             return []
         path = planning / "blocking-decisions.json"
-        if not path.is_file():
-            return []
         try:
-            payload = entrypoint_module.read_json(path)
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise SafetyError(f"Blocking decision artifact is unreadable: {path}: {exc}") from exc
+            planning.lstat()
+        except FileNotFoundError:
+            return []
+        with entrypoint_module._pinned_planning_directory(run_root) as pinned:
+            planning_descriptor = pinned[1]
+            try:
+                payload = entrypoint_module._read_json_at(
+                    planning_descriptor,
+                    path.name,
+                    path,
+                )
+            except FileNotFoundError:
+                return []
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise SafetyError(
+                    f"Blocking decision artifact is unreadable: {path}: {exc}"
+                ) from exc
         if not isinstance(payload, dict):
             raise SafetyError(f"Blocking decision artifact must contain a JSON object: {path}")
         decisions = payload.get("decisions", [])

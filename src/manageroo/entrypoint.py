@@ -506,7 +506,10 @@ def _read_json_at(directory_descriptor: int, name: str, path: Path) -> Any:
     try:
         descriptor = os.open(name, flags, dir_fd=directory_descriptor)
         opened = os.fstat(descriptor)
-        current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        try:
+            current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        except FileNotFoundError as exc:
+            raise SafetyError(f"Blocking decision artifact changed while opening: {path}") from exc
         if (
             not stat.S_ISREG(opened.st_mode)
             or not stat.S_ISREG(current.st_mode)
@@ -518,7 +521,10 @@ def _read_json_at(directory_descriptor: int, name: str, path: Path) -> Any:
         with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
             descriptor = -1
             payload = json.load(handle)
-        latest = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        try:
+            latest = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        except FileNotFoundError as exc:
+            raise SafetyError(f"Blocking decision artifact changed while reading: {path}") from exc
         if (latest.st_dev, latest.st_ino) != (opened.st_dev, opened.st_ino):
             raise SafetyError(f"Blocking decision artifact changed while reading: {path}")
         return payload

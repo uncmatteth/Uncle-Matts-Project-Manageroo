@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -40,6 +41,121 @@ class DecisionRegressionTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("Cannot read blocking decisions", stderr.getvalue())
             self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_show_rejects_symlinked_blocking_decisions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            run_id = "symlinked-blocking-decisions"
+            planning = repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            external = root / "external.json"
+            atomic_write_json(
+                external,
+                {
+                    "decisions": [
+                        {"id": "external", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            try:
+                (planning / "blocking-decisions.json").symlink_to(external)
+            except OSError as exc:
+                self.skipTest(f"Symlink creation is unavailable: {exc}")
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = _decisions_main(["show", run_id, "--repo", str(repo), "--json"])
+
+            self.assertEqual(code, 2)
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["ok"], False)
+            self.assertIn("Cannot read blocking decisions", payload["error"])
+            self.assertNotIn("external", output.getvalue())
+
+    def test_show_rejects_blocking_decisions_replaced_after_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "replaced-blocking-decisions"
+            planning = repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            replacement = planning / ".replacement.json"
+            atomic_write_json(
+                blocking,
+                {
+                    "decisions": [
+                        {"id": "original", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            atomic_write_json(
+                replacement,
+                {
+                    "decisions": [
+                        {"id": "replacement", "question": "Choose", "options": ["two"]}
+                    ]
+                },
+            )
+            original_fstat = os.fstat
+            replaced = False
+
+            def fstat_then_replace(descriptor):
+                nonlocal replaced
+                state = original_fstat(descriptor)
+                if stat.S_ISREG(state.st_mode) and not replaced:
+                    replacement.replace(blocking)
+                    replaced = True
+                return state
+
+            output = io.StringIO()
+            with patch("manageroo.entrypoint.os.fstat", side_effect=fstat_then_replace):
+                with redirect_stdout(output):
+                    code = _decisions_main(["show", run_id, "--repo", str(repo), "--json"])
+
+            self.assertTrue(replaced)
+            self.assertEqual(code, 2)
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["ok"], False)
+            self.assertIn("unsafe", payload["error"])
+            self.assertNotIn('"id"', output.getvalue())
+
+    def test_show_rejects_blocking_decisions_removed_after_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            run_id = "removed-blocking-decisions"
+            planning = repo / ".manageroo" / "runs" / run_id / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            atomic_write_json(
+                blocking,
+                {
+                    "decisions": [
+                        {"id": "original", "question": "Choose", "options": ["one"]}
+                    ]
+                },
+            )
+            original_fstat = os.fstat
+            removed = False
+
+            def fstat_then_remove(descriptor):
+                nonlocal removed
+                state = original_fstat(descriptor)
+                if stat.S_ISREG(state.st_mode) and not removed:
+                    blocking.unlink()
+                    removed = True
+                return state
+
+            output = io.StringIO()
+            with patch("manageroo.entrypoint.os.fstat", side_effect=fstat_then_remove):
+                with redirect_stdout(output):
+                    code = _decisions_main(["show", run_id, "--repo", str(repo), "--json"])
+
+            self.assertTrue(removed)
+            self.assertEqual(code, 2)
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["ok"], False)
+            self.assertIn("changed", payload["error"])
 
     def test_console_main_converts_eof_during_decision_answer_to_exit_two(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -799,7 +915,7 @@ class DecisionRegressionTests(unittest.TestCase):
                 nonlocal read_calls
                 payload = original_read(*args, **kwargs)
                 read_calls += 1
-                if read_calls == 5:
+                if read_calls == 6:
                     atomic_write_json(blocking, replacement)
                 return payload
 
@@ -811,7 +927,7 @@ class DecisionRegressionTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
                     code = _decisions_main(["answer", run_id, "--repo", str(repo)])
 
-            self.assertGreaterEqual(read_calls, 5)
+            self.assertGreaterEqual(read_calls, 6)
             self.assertEqual(code, 2)
             self.assertIn("changed", stderr.getvalue())
             self.assertEqual(read_json(blocking), replacement)
