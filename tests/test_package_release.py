@@ -462,25 +462,56 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertNotIn("icon_small:", metadata)
             self.assertNotIn("icon_large:", metadata)
 
-    def test_package_release_requires_distribution_and_end_user_smoke_proofs(self):
-        project_version = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
-        package_text = (ROOT / "scripts" / "package_release.py").read_text(encoding="utf-8")
-        distribution_text = (ROOT / "scripts" / "verify_distribution.py").read_text(encoding="utf-8")
-        smoke_text = (ROOT / "scripts" / "smoke_release_install.py").read_text(encoding="utf-8")
-        self.assertIn("scripts/verify_distribution.py", package_text)
-        self.assertIn("scripts/smoke_release_install.py", package_text)
-        self.assertIn("--skip-install-tests", package_text)
-        self.assertIn('PROJECT_VERSION = str(tomllib.loads(', package_text)
-        self.assertIn('EXPECTED_VERSION = str(tomllib.loads(', smoke_text)
-        self.assertEqual(package_release.PROJECT_VERSION, project_version)
-        self.assertIn("if version != EXPECTED_VERSION", smoke_text)
-        self.assertIn("EXPECTED_SKILL_COUNT = 22", smoke_text)
-        self.assertIn('"domain-modeling" / "ADR-FORMAT.md"', smoke_text)
-        self.assertIn('"domain-modeling" / "CONTEXT-FORMAT.md"', smoke_text)
-        self.assertNotIn('"grill-with-docs" / "ADR-FORMAT.md"', smoke_text)
-        self.assertIn("EXPECTED_CORE_SKILLS = 22", distribution_text)
-        self.assertIn("EXPECTED_OPTIONAL_SKILLS = 32", distribution_text)
-        self.assertIn("Installed wheel did not create the manageroo console entry point", distribution_text)
+    @unittest.skipIf(os.name == "nt", "Unix installer fixture")
+    def test_release_smoke_rejects_installed_version_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "release.zip"
+            with zipfile.ZipFile(archive, "w") as release:
+                release.writestr(
+                    f"{smoke_release_install.ARCHIVE_ROOT}/install.sh",
+                    "#!/bin/sh\n"
+                    'mkdir -p "$HOME/.local/bin"\n'
+                    'cat > "$HOME/.local/bin/manageroo" <<\'EOF\'\n'
+                    "#!/bin/sh\n"
+                    "printf '%s\\n' 'wrong-version'\n"
+                    "EOF\n"
+                    'chmod +x "$HOME/.local/bin/manageroo"\n',
+                )
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Installed Manageroo version mismatch.*wrong-version",
+            ):
+                smoke_release_install.smoke(archive, skip_install_tests=True)
+
+    def test_distribution_verifier_rejects_missing_console_entry_point(self):
+        class FakeEnvBuilder:
+            def __init__(self, **_kwargs):
+                pass
+
+            def create(self, root):
+                executable = Path(root) / (
+                    "Scripts/python.exe" if os.name == "nt" else "bin/python"
+                )
+                executable.parent.mkdir(parents=True)
+                executable.write_bytes(b"")
+
+        def fake_build(_python, wheel_dir):
+            (wheel_dir / "manageroo.whl").write_bytes(b"")
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+        with (
+            patch.object(verify_distribution.venv, "EnvBuilder", FakeEnvBuilder),
+            patch.object(verify_distribution, "_download_build_requirements"),
+            patch.object(verify_distribution, "_install_build_requirements"),
+            patch.object(verify_distribution, "_build_wheel", side_effect=fake_build),
+            patch.object(verify_distribution, "_install_wheel"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Installed wheel did not create the manageroo console entry point",
+            ):
+                verify_distribution.verify_distribution()
 
     def test_distribution_build_uses_hash_locked_declared_requirements(self):
         build_system = tomllib.loads(
