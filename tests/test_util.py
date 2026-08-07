@@ -39,6 +39,39 @@ class RedactTextTests(unittest.TestCase):
             "request failed: Bearer <REDACTED> password=<REDACTED>",
         )
 
+    def test_uri_userinfo_passwords_are_redacted_across_log_surfaces(self):
+        self.assertEqual(
+            redact_text(
+                "TEST_DATABASE_URL=postgresql://manageroo:s3cr3t@example/db"
+            ),
+            "TEST_DATABASE_URL=postgresql://manageroo:<REDACTED>@example/db",
+        )
+        self.assertEqual(
+            redact_argv(
+                [
+                    "pip",
+                    "--index-url",
+                    "https://builder:p%40ss%2Fword@packages.example/simple",
+                ]
+            ),
+            [
+                "pip",
+                "--index-url",
+                "https://builder:<REDACTED>@packages.example/simple",
+            ],
+        )
+
+        payload = {
+            "database": {
+                "url": "postgresql+psycopg://user:p%3Ass@database.example/app"
+            }
+        }
+        redacted = json.loads(redact_text(json.dumps(payload)))
+        self.assertEqual(
+            redacted["database"]["url"],
+            "postgresql+psycopg://user:<REDACTED>@database.example/app",
+        )
+
     def test_authorization_schemes_redact_the_complete_credentials(self):
         for scheme, credential in (
             ("Basic", "dXNlcjpwYXNz"),

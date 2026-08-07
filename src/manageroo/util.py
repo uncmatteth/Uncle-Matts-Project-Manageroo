@@ -24,6 +24,11 @@ _SECRET_KEY_RE = re.compile(
 )
 _CAMEL_CASE_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _BEARER_RE = re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]+")
+_URI_USERINFO_PASSWORD_RE = re.compile(
+    r"(?P<prefix>[A-Za-z][A-Za-z0-9+.-]*://"
+    r"(?:[A-Za-z0-9._~!$&'()*+,;=-]|%[0-9A-Fa-f]{2})+:)"
+    r"(?:[A-Za-z0-9._~!$&'()*+,;=:-]|%[0-9A-Fa-f]{2})*@"
+)
 _AUTHORIZATION_SCHEME_RE = re.compile(
     rf'''(?ix)
     (?P<prefix>["']?(?:[a-z0-9_-]*[_-])?authorization(?:[_-][a-z0-9_-]*)?["']?\s*[:=]\s*)
@@ -61,6 +66,10 @@ _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:/")
 
 def _redact_scalar_text(text: str) -> str:
     redacted = _PEM_PRIVATE_KEY_RE.sub("<REDACTED>", text)
+    redacted = _URI_USERINFO_PASSWORD_RE.sub(
+        lambda match: f"{match.group('prefix')}<REDACTED>@",
+        redacted,
+    )
     redacted = _AUTHORIZATION_SCHEME_RE.sub(
         lambda match: (
             f"{match.group('prefix')}{match.group('scheme')}"
