@@ -134,6 +134,28 @@ class ReadinessTests(unittest.TestCase):
             self.assertIn("document_analysis_command", lane["next"])
             self.assertIn("ACTION document/prose lane", format_readiness(report))
 
+    def test_plural_document_requests_require_document_lane(self):
+        for term in ("images", "screenshots", "photos", "videos", "books", "chapters"):
+            with self.subTest(term=term), tempfile.TemporaryDirectory() as temp:
+                repo = self._ready_repo(
+                    Path(temp),
+                    f"# Product brief\n\nReview these {term}.\n",
+                )
+                with patch(
+                    "manageroo.readiness.helper_skill_items",
+                    return_value=[],
+                ), patch(
+                    "manageroo.readiness.gbrain_setup_status",
+                    return_value={"ok": False, "status": {"source_count": 0}},
+                ):
+                    report = readiness(repo)
+                lanes = [
+                    item for item in report["items"] if item["name"] == "document/prose lane"
+                ]
+                self.assertEqual(len(lanes), 1)
+                self.assertFalse(lanes[0]["ok"])
+                self.assertTrue(lanes[0]["required"])
+
     def test_repo_media_without_explicit_request_warns_without_blocking(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._ready_repo(Path(temp), "# Product brief\n\nMake the app work.\n")
