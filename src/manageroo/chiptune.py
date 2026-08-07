@@ -249,19 +249,26 @@ class ThemePlayback:
             raise
 
     def stop(self) -> None:
-        if self._process and self._process.poll() is None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=1.5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
+        process = self._process
         temp_directory = self._temp_directory
-        self._path = None
-        self._temp_root = None
-        self._temp_directory = None
-        self._process = None
-        if temp_directory:
-            temp_directory.cleanup()
+        try:
+            if process and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=1.5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    try:
+                        process.wait(timeout=1.5)
+                    except (subprocess.TimeoutExpired, OSError):
+                        pass
+        finally:
+            self._path = None
+            self._temp_root = None
+            self._temp_directory = None
+            self._process = None
+            if temp_directory:
+                temp_directory.cleanup()
 
     def __enter__(self) -> "ThemePlayback":
         self.start()
@@ -273,10 +280,11 @@ class ThemePlayback:
 
 def play_once(*, cue: str = "install", variant: int = 0) -> bool:
     playback = ThemePlayback(cue=_validate_cue(cue), enabled=True, variant=variant)
-    if not playback.start():
+    try:
+        if not playback.start():
+            return False
+        if playback.process:
+            playback.process.wait()
+        return True
+    finally:
         playback.stop()
-        return False
-    if playback.process:
-        playback.process.wait()
-    playback.stop()
-    return True

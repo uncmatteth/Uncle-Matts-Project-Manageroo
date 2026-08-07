@@ -1,9 +1,11 @@
 import struct
+import subprocess
 import tempfile
 import unittest
 import wave
 from pathlib import Path
-from unittest.mock import Mock, patch
+from types import SimpleNamespace
+from unittest.mock import Mock, call, patch
 
 from manageroo.chiptune import (
     FADE_SECONDS,
@@ -12,11 +14,26 @@ from manageroo.chiptune import (
     ThemePlayback,
     generate_theme,
     note_frequency,
+    play_once,
     theme_duration_seconds,
 )
+from manageroo.chiptune_policy import install_chiptune_policy
 
 
 class ChiptuneTests(unittest.TestCase):
+    def test_install_policy_keeps_canonical_playback_implementations(self):
+        stop = Mock()
+        play_once = Mock()
+        module = SimpleNamespace(
+            ThemePlayback=SimpleNamespace(stop=stop),
+            play_once=play_once,
+        )
+
+        install_chiptune_policy(module)
+
+        self.assertIs(module.ThemePlayback.stop, stop)
+        self.assertIs(module.play_once, play_once)
+
     def test_note_frequency(self):
         self.assertAlmostEqual(note_frequency("A4"), 440.0, places=4)
 
@@ -96,6 +113,43 @@ class ChiptuneTests(unittest.TestCase):
             playback.stop()
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
             self.assertTrue(victim.is_dir())
+
+    def test_stop_reaps_process_after_terminate_timeout(self):
+        process = Mock()
+        process.poll.return_value = None
+        process.wait.side_effect = [subprocess.TimeoutExpired("player", 1.5), None]
+        playback = ThemePlayback(cue="success")
+        playback._process = process
+
+        playback.stop()
+
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        self.assertEqual(
+            process.wait.call_args_list,
+            [call(timeout=1.5), call(timeout=1.5)],
+        )
+
+    def test_play_once_cleans_up_when_process_wait_raises(self):
+        with tempfile.TemporaryDirectory() as temp:
+            owned = Path(temp) / "manageroo-owned"
+            owned.mkdir()
+            process = Mock()
+            process.poll.return_value = None
+            process.wait.side_effect = [OSError("wait failed"), None]
+            with (
+                patch("manageroo.chiptune.sys.stdout.isatty", return_value=True),
+                patch("manageroo.chiptune.tempfile.mkdtemp", return_value=str(owned)),
+                patch("manageroo.chiptune.generate_theme", side_effect=lambda path, **_: path),
+                patch("manageroo.chiptune._player_command", return_value=["player"]),
+                patch("manageroo.chiptune.subprocess.Popen", return_value=process),
+            ):
+                with self.assertRaisesRegex(OSError, "wait failed"):
+                    play_once(cue="success")
+
+            process.terminate.assert_called_once_with()
+            self.assertEqual(process.wait.call_args_list, [call(), call(timeout=1.5)])
+            self.assertFalse(owned.exists())
 
     def test_start_twice_preserves_first_playback_until_stop(self):
         with tempfile.TemporaryDirectory() as temp:
