@@ -123,6 +123,19 @@ class SkillPackImportTests(unittest.TestCase):
             report = reconcile_skill_pack(skills_dir=target, apply=True, scan_default_roots=False)
             self.assertTrue(report["ok"]); self.assertTrue(report["applied"]); self.assertEqual(report["missing_bundled"], []); self.assertEqual(report["bundled_skill_count"], len(CORE_HELPER_SKILLS)); self.assertEqual(report["bundled_skill_count"], 22); self.assertTrue((target / "pimp-my-prompt" / "SKILL.md").exists()); self.assertTrue((target / "uncle-matts-project-manageroo" / "SKILL.md").exists()); self.assertFalse((target / "playwright" / "SKILL.md").exists())
 
+    def test_reconcile_dry_run_reports_missing_bundled_skills(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "skills"
+            target.mkdir()
+
+            report = reconcile_skill_pack(skills_dir=target, apply=False, scan_default_roots=False)
+            output = format_skill_reconcile(report)
+
+            self.assertFalse(report["ok"])
+            self.assertEqual(report["missing_bundled"], sorted(CORE_HELPER_SKILLS))
+            self.assertIn("ACTION missing bundled skills:", output)
+            self.assertNotIn("OK bundled skills have one active target copy", output)
+
     def test_reconcile_reports_duplicate_skill_names_across_roots(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); target = root / "target"; source = root / "source"; target.mkdir(); source.mkdir(); _skill(target, "dupe-skill", "target\n"); _skill(source, "dupe-skill", "source\n")

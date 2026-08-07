@@ -470,9 +470,13 @@ def reconcile_skill_pack(
         for name in sorted(CORE_HELPER_SKILLS)
         if not str(installed.get(name, "")).strip()
         or not Path(installed[name]).is_file()
-    ] if apply else []
+    ] if apply else [
+        name
+        for name in sorted(CORE_HELPER_SKILLS)
+        if not (target_root / name / "SKILL.md").is_file()
+    ]
     return {
-        "ok": not missing_bundled if apply else True,
+        "ok": not missing_bundled,
         "applied": apply,
         "skills_dir": str(target_root),
         "source_roots": [str(root) for root in source_roots],
