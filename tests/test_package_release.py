@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import multiprocessing
+import os
 import subprocess
 import sys
 import tempfile
@@ -41,6 +42,13 @@ FINALIZE_SPEC = importlib.util.spec_from_file_location(
 assert FINALIZE_SPEC and FINALIZE_SPEC.loader
 finalize_gitnexus = importlib.util.module_from_spec(FINALIZE_SPEC)
 FINALIZE_SPEC.loader.exec_module(finalize_gitnexus)
+SMOKE_SPEC = importlib.util.spec_from_file_location(
+    "smoke_release_install",
+    ROOT / "scripts" / "smoke_release_install.py",
+)
+assert SMOKE_SPEC and SMOKE_SPEC.loader
+smoke_release_install = importlib.util.module_from_spec(SMOKE_SPEC)
+SMOKE_SPEC.loader.exec_module(smoke_release_install)
 
 
 def _fixture(codes: list[int]) -> str:
@@ -104,6 +112,46 @@ def _finalize_gitnexus_fixture(prefix_value, marker, setup_started, release_setu
 
 
 class PackageReleaseTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "Unix launcher provenance fixture")
+    def test_smoke_requires_temporary_launcher_and_sanitizes_pythonpath(self):
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = Path(temp)
+            archive = fixture / "release.zip"
+            env_capture = fixture / "pythonpath.txt"
+            fake_marker = fixture / "fake-manageroo-ran.txt"
+            fake_bin = fixture / "fake-bin"
+            fake_bin.mkdir()
+            fake_manageroo = fake_bin / "manageroo"
+            fake_manageroo.write_text(
+                "#!/bin/sh\n"
+                'printf invoked > "$SMOKE_FAKE_MARKER"\n'
+                f"printf '%s\\n' {smoke_release_install.EXPECTED_VERSION!r}\n",
+                encoding="utf-8",
+            )
+            fake_manageroo.chmod(0o755)
+            with zipfile.ZipFile(archive, "w") as release:
+                release.writestr(
+                    f"{smoke_release_install.ARCHIVE_ROOT}/install.sh",
+                    "#!/bin/sh\n"
+                    'printf "%s" "${PYTHONPATH-unset}" > "$SMOKE_ENV_CAPTURE"\n',
+                )
+
+            smoke_env = {
+                "PATH": f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+                "PYTHONPATH": str(ROOT / "src"),
+                "SMOKE_ENV_CAPTURE": str(env_capture),
+                "SMOKE_FAKE_MARKER": str(fake_marker),
+            }
+            with patch.dict(smoke_release_install.os.environ, smoke_env, clear=False):
+                with self.assertRaisesRegex(RuntimeError, "launcher.*missing"):
+                    smoke_release_install.smoke(
+                        archive,
+                        skip_install_tests=True,
+                    )
+
+            self.assertEqual(env_capture.read_text(encoding="utf-8"), "unset")
+            self.assertFalse(fake_marker.exists())
+
     def test_matt_pocock_skill_subset_is_pinned_licensed_and_codex_ready(self):
         imported = {
             "codebase-design",

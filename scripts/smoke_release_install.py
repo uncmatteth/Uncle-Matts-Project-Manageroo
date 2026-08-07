@@ -143,6 +143,14 @@ def installer_command(extracted: Path, home: Path, *, skip_install_tests: bool) 
     return argv
 
 
+def manageroo_command(launcher: Path, *args: str) -> list[str]:
+    argv = [str(launcher), *args]
+    if os.name != "nt":
+        return argv
+    comspec = os.environ.get("COMSPEC") or "cmd.exe"
+    return [comspec, "/d", "/s", "/c", subprocess.list2cmdline(argv)]
+
+
 def smoke(
     archive: Path,
     *,
@@ -165,7 +173,11 @@ def smoke(
         if not extracted.is_dir():
             raise RuntimeError(f"Archive did not contain {ARCHIVE_ROOT}/")
 
-        env = os.environ.copy()
+        env = {
+            name: value
+            for name, value in os.environ.items()
+            if name not in {"PYTHONHOME", "PYTHONPATH"} and not name.startswith("MANAGEROO_")
+        }
         env["HOME"] = str(home)
         if os.name == "nt":
             env["USERPROFILE"] = str(home)
@@ -178,16 +190,34 @@ def smoke(
         )
         install = run(install_args, cwd=extracted, env=env, timeout=240)
 
-        version = run(["manageroo", "--version"], cwd=extracted, env=env).stdout.strip()
+        launcher = home / ".local" / "bin" / (
+            "manageroo.cmd" if os.name == "nt" else "manageroo"
+        )
+        if launcher.is_symlink() or not launcher.is_file():
+            raise RuntimeError(f"Installed Manageroo launcher is missing or unsafe: {launcher}")
+
+        version = run(
+            manageroo_command(launcher, "--version"),
+            cwd=extracted,
+            env=env,
+        ).stdout.strip()
         if version != EXPECTED_VERSION:
             raise RuntimeError(
                 f"Installed Manageroo version mismatch: expected {EXPECTED_VERSION!r}, received {version!r}"
             )
-        self_test = parse_json_command(["manageroo", "self-test"], cwd=extracted, env=env)
+        self_test = parse_json_command(
+            manageroo_command(launcher, "self-test"),
+            cwd=extracted,
+            env=env,
+        )
         if self_test.get("ok") is not True or self_test.get("status") != "COMPLETE":
             raise RuntimeError(f"self-test did not complete: {self_test}")
 
-        skills = parse_json_command(["manageroo", "skills", "list"], cwd=extracted, env=env)
+        skills = parse_json_command(
+            manageroo_command(launcher, "skills", "list"),
+            cwd=extracted,
+            env=env,
+        )
         bundled = skills.get("bundled_skills", [])
         if len(bundled) != EXPECTED_SKILL_COUNT or len(bundled) != len(set(bundled)):
             raise RuntimeError(f"Unexpected core skill list: {bundled}")
@@ -200,7 +230,7 @@ def smoke(
             raise RuntimeError(f"Missing installed core skill support files: {missing_support}")
 
         host_skills = parse_json_command(
-            ["manageroo", "host-skills", "--json"],
+            manageroo_command(launcher, "host-skills", "--json"),
             cwd=extracted,
             env=env,
         )
@@ -208,7 +238,7 @@ def smoke(
             raise RuntimeError(f"Installed core not visible to host inventory: {host_skills}")
 
         capacity = parse_json_command(
-            ["manageroo", "capacity", "--json"],
+            manageroo_command(launcher, "capacity", "--json"),
             cwd=extracted,
             env=env,
         )
@@ -220,8 +250,8 @@ def smoke(
 
         reconcile_target = temp_root / "reconciled-skills"
         reconcile = parse_json_command(
-            [
-                "manageroo",
+            manageroo_command(
+                launcher,
                 "skills",
                 "reconcile",
                 "--skills-dir",
@@ -229,7 +259,7 @@ def smoke(
                 "--apply",
                 "--no-default-roots",
                 "--json",
-            ],
+            ),
             cwd=extracted,
             env=env,
         )
@@ -238,8 +268,8 @@ def smoke(
 
         product = temp_root / "product"
         solo = parse_json_command(
-            [
-                "manageroo",
+            manageroo_command(
+                launcher,
                 "solo",
                 str(product),
                 "--create",
@@ -259,7 +289,7 @@ def smoke(
                 "off",
                 "--no-apply",
                 "--json",
-            ],
+            ),
             cwd=extracted,
             env=env,
         )
@@ -267,7 +297,7 @@ def smoke(
             raise RuntimeError(f"Solo first-run setup failed: {solo}")
 
         ready = parse_json_command(
-            ["manageroo", "ready", str(product), "--json"],
+            manageroo_command(launcher, "ready", str(product), "--json"),
             cwd=extracted,
             env=env,
         )
@@ -275,8 +305,8 @@ def smoke(
             raise RuntimeError(f"Initialized project is not ready: {ready}")
 
         run_result = parse_json_command(
-            [
-                "manageroo",
+            manageroo_command(
+                launcher,
                 "run",
                 "--repo",
                 str(product),
@@ -285,7 +315,7 @@ def smoke(
                 "--mode",
                 "build",
                 "--no-apply",
-            ],
+            ),
             cwd=product,
             env=env,
             timeout=180,
