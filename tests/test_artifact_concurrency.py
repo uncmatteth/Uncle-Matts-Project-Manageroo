@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -175,40 +176,32 @@ class ArtifactConcurrencyTests(unittest.TestCase):
             stale_time = time.time() - 10
             os.utime(lock_path, (stale_time, stale_time))
 
-            real_remove_tree = ArtifactStore._remove_tree_at
-            removal_guard = process_context.Lock()
-            removal_count = process_context.Value("i", 0)
-            second_reclaimer_ready = process_context.Event()
-            stale_lock_removed = process_context.Event()
+            real_reclaim = ArtifactStore._reclaim_abandoned_lock
+            reclaimer_guard = process_context.Lock()
+            reclaimer_count = process_context.Value("i", 0)
+            reclaimers_ready = process_context.Event()
+            release_reclaimers = process_context.Event()
             first_critical_section = process_context.Event()
             release_first = process_context.Event()
-            race_window_closed = process_context.Event()
             active_guard = process_context.Lock()
             active = process_context.Value("i", 0)
             overlap = process_context.Event()
 
-            def coordinated_remove_tree(store, parent_fd, name, *args, **kwargs):
-                if name != lock_path.name or race_window_closed.is_set():
-                    return real_remove_tree(store, parent_fd, name, *args, **kwargs)
-                with removal_guard:
-                    removal_count.value += 1
-                    removal_number = removal_count.value
-                if removal_number == 1:
-                    if not second_reclaimer_ready.wait(timeout=0.5):
-                        race_window_closed.set()
-                        return real_remove_tree(store, parent_fd, name, *args, **kwargs)
-                    result = real_remove_tree(store, parent_fd, name, *args, **kwargs)
-                    stale_lock_removed.set()
-                    return result
-                if removal_number == 2:
-                    second_reclaimer_ready.set()
-                    if not stale_lock_removed.wait(timeout=5):
-                        raise TimeoutError("first reclaimer did not remove the stale lock")
-                    if not first_critical_section.wait(timeout=5):
-                        raise TimeoutError("first contender did not acquire the replacement lock")
-                    race_window_closed.set()
-                    return real_remove_tree(store, parent_fd, name, *args, **kwargs)
-                return real_remove_tree(store, parent_fd, name, *args, **kwargs)
+            @contextmanager
+            def bypass_advisory_lock(store, *, timeout_seconds):
+                yield
+
+            def coordinated_reclaim(store):
+                coordinated = False
+                with reclaimer_guard:
+                    if not reclaimers_ready.is_set():
+                        reclaimer_count.value += 1
+                        coordinated = True
+                        if reclaimer_count.value == 2:
+                            reclaimers_ready.set()
+                if coordinated and not release_reclaimers.wait(timeout=5):
+                    raise TimeoutError("test did not release competing reclaimers")
+                return real_reclaim(store)
 
             def coordinated_write(path: Path, text: str) -> None:
                 with active_guard:
@@ -237,8 +230,13 @@ class ArtifactConcurrencyTests(unittest.TestCase):
                 with (
                     mock.patch.object(
                         ArtifactStore,
-                        "_remove_tree_at",
-                        new=coordinated_remove_tree,
+                        "_advisory_transaction_lock",
+                        new=bypass_advisory_lock,
+                    ),
+                    mock.patch.object(
+                        ArtifactStore,
+                        "_reclaim_abandoned_lock",
+                        new=coordinated_reclaim,
                     ),
                     mock.patch(
                         "manageroo.artifacts.atomic_write_text",
@@ -247,15 +245,23 @@ class ArtifactConcurrencyTests(unittest.TestCase):
                 ):
                     for process in processes:
                         process.start()
+                    self.assertTrue(reclaimers_ready.wait(timeout=5))
+                    self.assertEqual(reclaimer_count.value, 2)
+                    release_reclaimers.set()
+                    self.assertTrue(first_critical_section.wait(timeout=5))
+                    self.assertFalse(overlap.wait(timeout=0.2))
+                    release_first.set()
                     for process in processes:
                         process.join(timeout=10)
 
                 self.assertTrue(all(not process.is_alive() for process in processes))
                 self.assertEqual([process.exitcode for process in processes], [0, 0])
+                self.assertEqual(reclaimer_count.value, 2)
                 self.assertFalse(overlap.is_set())
                 ledger = json.loads((root / "artifact-ledger.json").read_text(encoding="utf-8"))
                 self.assertEqual(set(ledger["artifacts"]), {"first.txt", "second.txt"})
             finally:
+                release_reclaimers.set()
                 release_first.set()
                 for process in processes:
                     if process.pid is not None:
