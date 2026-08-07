@@ -151,6 +151,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(items[0].content_sha256)
         self.assertTrue(items[0].retrieved_at)
 
+    def test_json_provider_limit_counts_only_valid_items(self):
+        payload = json.dumps({
+            "items": [
+                *({"source": f"malformed-{index}"} for index in range(12)),
+                {"content": "Valid evidence after malformed rows."},
+            ]
+        })
+
+        items = normalize_external_payload(
+            provider="external-provider",
+            payload=payload,
+            limit=12,
+        )
+
+        self.assertEqual([item.content for item in items], ["Valid evidence after malformed rows."])
+
     def test_external_command_provider_keeps_ranking_classification_controller_owned(self):
         payload = json.dumps({
             "items": [{

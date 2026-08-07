@@ -301,14 +301,16 @@ class RunArtifactEvidenceProvider:
             else None
         )
         candidates: list[tuple[int, float, Path, str]] = []
-        eligible_seen = 0
-        eligible_cap = max(limit * 20, 100)
+        verified_seen = 0
+        verified_cap = max(limit * 20, 100)
+        read_seen = 0
+        read_cap = verified_cap * 2
         for current, dirs, files in os.walk(resolved_artifact_root, topdown=True, followlinks=False):
             dirs[:] = sorted(
                 name for name in dirs if not (Path(current) / name).is_symlink()
             )
             for name in sorted(files):
-                if eligible_seen >= eligible_cap:
+                if read_seen >= read_cap or verified_seen >= verified_cap:
                     break
                 lexical = Path(current) / name
                 location = lexical.relative_to(self.run_root).as_posix()
@@ -318,7 +320,7 @@ class RunArtifactEvidenceProvider:
                     continue
                 if _is_derived_run_artifact(self.run_root, lexical):
                     continue
-                eligible_seen += 1
+                read_seen += 1
                 path = _safe_contained_file(resolved_artifact_root, lexical)
                 if path is None:
                     continue
@@ -326,12 +328,15 @@ class RunArtifactEvidenceProvider:
                 if record is None:
                     continue
                 text, mtime = record
+                if not text.strip():
+                    continue
                 lowered = (path.as_posix() + "\n" + text).lower()
                 relevance = sum(lowered.count(term) for term in terms)
                 if terms and relevance == 0:
                     continue
+                verified_seen += 1
                 candidates.append((relevance, mtime, path, text))
-            if eligible_seen >= eligible_cap:
+            if read_seen >= read_cap or verified_seen >= verified_cap:
                 break
         candidates.sort(key=lambda row: (row[0], row[1], row[2].as_posix()), reverse=True)
         items: list[EvidenceItem] = []
@@ -464,7 +469,9 @@ def normalize_external_payload(
         ]
 
     items: list[EvidenceItem] = []
-    for row in rows[:limit]:
+    for row in rows:
+        if len(items) >= limit:
+            break
         content = str(row.get("content") or row.get("text") or row.get("excerpt") or "").strip()
         if not content:
             continue

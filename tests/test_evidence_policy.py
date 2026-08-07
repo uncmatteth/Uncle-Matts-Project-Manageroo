@@ -14,6 +14,7 @@ from manageroo.evidence_artifact_guard import (
     _validate_existing_evidence,
     install_evidence_artifact_guard,
 )
+from manageroo.evidence import RunArtifactEvidenceProvider
 from manageroo.evidence_policy import _bundle_from_discovery, install_evidence_policy
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
@@ -365,6 +366,19 @@ class EvidencePolicyTests(unittest.TestCase):
                 [item.location for item in bundle.items],
                 ["artifacts/intake/brief.md"],
             )
+
+    def test_run_artifact_limit_counts_only_valid_candidates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp) / "run"
+            artifacts = run_root / "artifacts"
+            artifacts.mkdir(parents=True)
+            for index in range(100):
+                (artifacts / f"invalid-{index:03d}.txt").write_bytes(b"\xff")
+            (artifacts / "valid.txt").write_text("target evidence\n", encoding="utf-8")
+
+            items = RunArtifactEvidenceProvider(run_root).retrieve("target evidence", limit=1)
+
+            self.assertEqual([item.location for item in items], ["artifacts/valid.txt"])
 
     def test_repeated_discovery_replaces_stale_repository_evidence(self):
         with tempfile.TemporaryDirectory() as temp:

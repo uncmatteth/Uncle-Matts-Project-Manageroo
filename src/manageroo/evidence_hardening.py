@@ -200,12 +200,14 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
             try:
                 terms = evidence_module._query_terms(query)
                 candidates: list[tuple[int, float, Path, str]] = []
-                eligible_seen = 0
-                eligible_cap = max(limit * 20, 100)
+                verified_seen = 0
+                verified_cap = max(limit * 20, 100)
+                read_seen = 0
+                read_cap = verified_cap * 2
                 walker = _walk_descriptor(artifact_fd)
                 try:
                     for directory_fd, name, relative in walker:
-                        if eligible_seen >= eligible_cap:
+                        if read_seen >= read_cap or verified_seen >= verified_cap:
                             break
                         lexical = Path("artifacts") / relative
                         location = lexical.as_posix()
@@ -220,7 +222,7 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                             self.run_root / lexical,
                         ):
                             continue
-                        eligible_seen += 1
+                        read_seen += 1
                         record = _verified_bounded_text(
                             directory_fd,
                             name,
@@ -235,6 +237,7 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                         relevance = sum(lowered.count(term) for term in terms)
                         if terms and relevance == 0:
                             continue
+                        verified_seen += 1
                         candidates.append((relevance, mtime, lexical, text))
                 finally:
                     walker.close()
