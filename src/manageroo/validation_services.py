@@ -571,6 +571,7 @@ def _provision_postgres_test_environment(
     )
     container_id = result.stdout.strip()
     valid_container_id = _CONTAINER_ID.fullmatch(container_id) is not None
+    cleanup_target = container_id if valid_container_id else container_name
     body_error: BaseException | None = None
     try:
         if not valid_container_id:
@@ -624,25 +625,24 @@ def _provision_postgres_test_environment(
         body_error = exc
         raise
     finally:
-        if valid_container_id:
-            try:
-                _remove_container(root, container_id, run=run)
-            except SafetyError as cleanup_error:
-                if body_error is None:
-                    raise
-                body_error.add_note(
-                    f"Disposable PostgreSQL cleanup also failed: {cleanup_error}"
+        try:
+            _remove_container(root, cleanup_target, run=run)
+        except SafetyError as cleanup_error:
+            if body_error is None:
+                raise
+            body_error.add_note(
+                f"Disposable PostgreSQL cleanup also failed: {cleanup_error}"
+            )
+        else:
+            if progress is not None:
+                progress(
+                    {
+                        "phase": "validation-service-cleanup",
+                        "current": "?",
+                        "total": "?",
+                        "detail": "owned disposable PostgreSQL validation database removed",
+                    }
                 )
-            else:
-                if progress is not None:
-                    progress(
-                        {
-                            "phase": "validation-service-cleanup",
-                            "current": "?",
-                            "total": "?",
-                            "detail": "owned disposable PostgreSQL validation database removed",
-                        }
-                    )
 
 
 @contextmanager
