@@ -10,7 +10,12 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from manageroo.cli import main
-from manageroo.skill_pack import import_skill_folder, reconcile_skill_pack, scan_skill_folder
+from manageroo.skill_pack import (
+    format_skill_reconcile,
+    import_skill_folder,
+    reconcile_skill_pack,
+    scan_skill_folder,
+)
 from manageroo.token_modes import CORE_HELPER_SKILLS
 
 
@@ -123,6 +128,30 @@ class SkillPackImportTests(unittest.TestCase):
             root = Path(temp); target = root / "target"; source = root / "source"; target.mkdir(); source.mkdir(); _skill(target, "dupe-skill", "target\n"); _skill(source, "dupe-skill", "source\n")
             report = reconcile_skill_pack(sources=[source], skills_dir=target, apply=False, scan_default_roots=False)
             self.assertEqual(report["duplicate_count"], 1); self.assertIn("dupe-skill", report["duplicates"])
+
+    def test_reconcile_formatter_treats_nonpositive_limits_as_unlimited(self):
+        report = {
+            "skills_dir": "/skills",
+            "bundled_skill_count": 3,
+            "applied": True,
+            "missing_bundled": ["first-skill", "second-skill", "third-skill"],
+            "duplicates": {},
+            "external_imports": [],
+            "next_command": "",
+            "note": "test note",
+        }
+
+        for limit in (0, -1):
+            with self.subTest(limit=limit):
+                output = format_skill_reconcile(report, limit=limit)
+                self.assertIn(
+                    "ACTION missing bundled skills: first-skill, second-skill, third-skill",
+                    output,
+                )
+
+        limited_output = format_skill_reconcile(report, limit=1)
+        self.assertIn("ACTION missing bundled skills: first-skill\n", limited_output)
+        self.assertNotIn("second-skill", limited_output)
 
     def test_reconcile_can_import_external_source_when_explicitly_enabled(self):
         with tempfile.TemporaryDirectory() as temp:

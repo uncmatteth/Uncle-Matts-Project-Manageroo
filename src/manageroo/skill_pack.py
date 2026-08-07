@@ -571,7 +571,8 @@ def format_skill_reconcile(report: dict[str, Any], *, limit: int = 80) -> str:
         f"Applied: {str(report['applied']).lower()}",
     ]
     if report.get("missing_bundled"):
-        lines.append("ACTION missing bundled skills: " + ", ".join(report["missing_bundled"][:limit]))
+        missing = report["missing_bundled"] if limit <= 0 else report["missing_bundled"][:limit]
+        lines.append("ACTION missing bundled skills: " + ", ".join(missing))
     else:
         lines.append("OK bundled skills have one active target copy")
     duplicates = report.get("duplicates", {})
