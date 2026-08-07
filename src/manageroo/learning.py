@@ -28,10 +28,20 @@ def _fingerprint(*parts: str) -> str:
     return digest.hexdigest()[:16]
 
 
+def _blocker_signature(result: dict[str, Any]) -> str:
+    error_type = " ".join(str(result.get("error_type") or "Error").split()).casefold()
+    error = " ".join(str(result.get("error") or "").split()).casefold()
+    return _fingerprint(error_type, error)
+
+
 def _card_id(card: dict[str, Any]) -> str:
     identity = [card["title"], card["destination"], card["recommendation"]]
     if card.get("category") == "project-memory" and card.get("apply_kind") == "project_memory_note":
         identity.append(str(card.get("run_id") or "unknown-run"))
+    if card.get("category") == "blocker":
+        payload = card.get("payload", {})
+        if isinstance(payload, dict) and payload.get("blocker_signature"):
+            identity.append(str(payload["blocker_signature"]))
     return f"{card['category']}-{_fingerprint(*identity)}"
 
 
@@ -122,6 +132,7 @@ def generate_learning_cards(
             priority=90,
             apply_policy="manual_only",
             apply_kind="none",
+            payload={"blocker_signature": _blocker_signature(result)},
         ))
 
     risks = result.get("risks", [])

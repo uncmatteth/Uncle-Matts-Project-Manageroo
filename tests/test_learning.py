@@ -116,11 +116,32 @@ class LearningLaneTests(unittest.TestCase):
             result = {"run_id": "run-abc", "status": "BLOCKED", "error_type": "ValidationError", "error": "Need a smaller plan.", "evidence_paths": {"run_root": "first-run"}}
             first = save_pending_learning_cards(repo, generate_learning_cards(repo=repo, result=result))
             result["run_id"] = "run-def"
+            result["error_type"] = " validationerror "
+            result["error"] = "  need   a smaller plan. "
             result["evidence_paths"] = {"run_root": "second-run"}
             second = save_pending_learning_cards(repo, generate_learning_cards(repo=repo, result=result))
             self.assertEqual(first[0]["id"], second[0]["id"])
             self.assertEqual(second[0]["recurrence_count"], 2)
             self.assertEqual(second[0]["last_seen_run_id"], "run-def")
+
+    def test_distinct_blockers_create_independent_cards(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            first = save_pending_learning_cards(repo, generate_learning_cards(repo=repo, result={
+                "run_id": "run-validation", "status": "BLOCKED",
+                "error_type": "ValidationError", "error": "Need a smaller plan.",
+                "evidence_paths": {"run_root": "validation-run"},
+            }))[0]
+            second = save_pending_learning_cards(repo, generate_learning_cards(repo=repo, result={
+                "run_id": "run-gate", "status": "BLOCKED",
+                "error_type": "GateFailure", "error": "Unit tests failed.",
+                "evidence_paths": {"run_root": "gate-run"},
+            }))[0]
+
+            self.assertNotEqual(first["id"], second["id"])
+            self.assertNotEqual(first["path"], second["path"])
+            self.assertEqual(first["recurrence_count"], 1)
+            self.assertEqual(second["recurrence_count"], 1)
 
     def test_cli_lists_shows_and_requires_approval_for_apply(self):
         with tempfile.TemporaryDirectory() as temp:
