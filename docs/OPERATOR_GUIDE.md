@@ -22,6 +22,8 @@ runnable.
 
 ## A useful product brief
 
+A product brief must contain a real, non-whitespace request and must not remain the starter template.
+
 Bad:
 
 > Build a modern dashboard.

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from manageroo.next_action import next_action
 from manageroo.project import initialize_project
 from manageroo.readiness import format_readiness, readiness
 
@@ -111,6 +112,26 @@ class ReadinessTests(unittest.TestCase):
             self.assertEqual(report["status"], "NOT READY")
             self.assertFalse(product_brief["ok"])
             self.assertIn(product_brief["next"], report["next_commands"])
+
+    def test_blank_product_briefs_require_a_brief(self):
+        for brief in ("", " \n\t"):
+            with self.subTest(brief=repr(brief)), tempfile.TemporaryDirectory() as temp:
+                repo = self._ready_repo(Path(temp), brief)
+                with patch(
+                    "manageroo.readiness.helper_skill_items",
+                    return_value=[],
+                ), patch(
+                    "manageroo.readiness.gbrain_setup_status",
+                    return_value={"ok": False, "status": {"source_count": 0}},
+                ):
+                    report = readiness(repo)
+                    action = next_action(repo)
+                product_brief = [
+                    item for item in report["items"] if item["name"] == "product brief"
+                ][0]
+                self.assertFalse(report["ok"])
+                self.assertFalse(product_brief["ok"])
+                self.assertEqual(action["stage"], "needs-brief")
 
     def test_explicit_document_request_blocks_when_document_lane_is_unconfigured(self):
         with tempfile.TemporaryDirectory() as temp:

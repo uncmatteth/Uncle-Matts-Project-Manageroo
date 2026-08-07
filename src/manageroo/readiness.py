@@ -259,6 +259,14 @@ def brief_is_template(path: Path) -> bool:
     return current.strip() == template
 
 
+def brief_is_valid(path: Path) -> bool:
+    current = _read_text_if_present(path).strip()
+    if not current:
+        return False
+    template = asset_path("templates/PRODUCT-BRIEF.md").read_text(encoding="utf-8").strip()
+    return current != template
+
+
 def _selected_agent_item(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
     adapter_name = str(config["agent"]["adapter"])
     next_command = (
@@ -366,11 +374,12 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
                 config = load_config(repo)
             except Exception as exc:
                 items.append(_item("config parse", False, str(exc), "Fix .manageroo/config.toml"))
+        brief_valid = brief_is_valid(brief_path)
         items.append(
             _item(
                 "product brief",
-                brief_path.is_file() and not brief_is_template(brief_path),
-                "ready" if brief_path.exists() and not brief_is_template(brief_path) else "missing or still template",
+                brief_valid,
+                "ready" if brief_valid else "missing, blank, or still template",
                 "manageroo brief --want \"Describe the result\" --force",
             )
         )

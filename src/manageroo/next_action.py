@@ -7,7 +7,7 @@ from typing import Any
 from .branding import PROJECT_DIR, PUBLIC_COMMAND
 from .errors import ConfigurationError
 from .project import git_root
-from .readiness import brief_is_template, readiness
+from .readiness import brief_is_valid, readiness
 
 
 DEFAULT_WANT = "Describe the first useful version"
@@ -81,12 +81,12 @@ def next_action(
             "reason": "This is a Git repo, but MANAGEROO has not set up its project files yet.",
             "command": _solo_setup_command(repo),
         }
-    if not brief_path.is_file() or brief_is_template(brief_path):
+    if not brief_is_valid(brief_path):
         return {
             "ok": True,
             "stage": "needs-brief",
             "repo": str(repo),
-            "reason": "The product brief is missing or still the starter template.",
+            "reason": "The product brief is missing, blank, or still the starter template.",
             "command": _solo_setup_command(repo, force=True),
         }
     if not memory_path.is_file():
