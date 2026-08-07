@@ -2,6 +2,8 @@ import importlib.util
 import io
 import json
 import os
+import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -25,44 +27,94 @@ class ReleaseDriverTests(unittest.TestCase):
             root = Path(temp)
             marker = root / "descendant-survived.txt"
             pid_file = root / "descendant.pid"
+            ready_file = root / "descendant.ready"
             descendant = (
                 "import signal, time; from pathlib import Path; "
                 "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-                f"Path({str(pid_file)!r}).write_text(str(__import__('os').getpid()), encoding='utf-8'); "
-                f"time.sleep(1); Path({str(marker)!r}).write_text('survived', encoding='utf-8'); "
+                f"Path({str(ready_file)!r}).write_text('ready', encoding='utf-8'); "
+                f"time.sleep(2); Path({str(marker)!r}).write_text('survived', encoding='utf-8'); "
                 "time.sleep(10)"
             )
             parent = (
-                "import subprocess, sys, time; "
-                f"subprocess.Popen([sys.executable, '-c', {descendant!r}], "
+                "import subprocess, sys, time; from pathlib import Path; "
+                f"child = subprocess.Popen([sys.executable, '-c', {descendant!r}], "
                 "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+                f"Path({str(pid_file)!r}).write_text(str(child.pid), encoding='utf-8'); "
                 "time.sleep(10)"
             )
-            with patch.object(release, "PROCESS_TREE_GRACE_SECONDS", 0.1):
-                result = release.run([sys.executable, "-c", parent], timeout=0.2)
+            launched_process = None
+            descendant_pid = None
+            real_popen = subprocess.Popen
 
-            self.assertEqual(result["exit_code"], 124)
-            self.assertIn("TIMEOUT", result["output"])
-            self.assertTrue(pid_file.is_file())
-            descendant_pid = int(pid_file.read_text(encoding="utf-8"))
-            time.sleep(1)
-            self.assertFalse(marker.exists())
-            try:
-                os.kill(descendant_pid, 0)
-            except ProcessLookupError:
-                descendant_running = False
-            else:
-                descendant_running = True
-                if Path("/proc").is_dir():
+            def process_is_running(pid):
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return False
+                proc_stat = Path(f"/proc/{pid}/stat")
+                if proc_stat.is_file():
                     try:
-                        state = Path(f"/proc/{descendant_pid}/stat").read_text(
+                        state = proc_stat.read_text(
                             encoding="utf-8", errors="replace"
                         ).split()[2]
                     except FileNotFoundError:
-                        descendant_running = False
-                    else:
-                        descendant_running = state != "Z"
-            self.assertFalse(descendant_running)
+                        return False
+                    return state != "Z"
+                status = subprocess.run(
+                    ["ps", "-o", "stat=", "-p", str(pid)],
+                    check=False,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                return status.returncode == 0 and not status.stdout.lstrip().startswith("Z")
+
+            def popen_after_descendant_ready(*args, **kwargs):
+                nonlocal launched_process
+                launched_process = real_popen(*args, **kwargs)
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if pid_file.is_file() and ready_file.is_file():
+                        break
+                    time.sleep(0.01)
+                return launched_process
+
+            try:
+                with patch.object(
+                    release.subprocess, "Popen", side_effect=popen_after_descendant_ready
+                ), patch.object(release, "PROCESS_TREE_GRACE_SECONDS", 0.1):
+                    result = release.run([sys.executable, "-c", parent], timeout=0.5)
+
+                self.assertEqual(result["exit_code"], 124)
+                self.assertIn("TIMEOUT", result["output"])
+                self.assertTrue(pid_file.is_file())
+                self.assertTrue(ready_file.is_file())
+                descendant_pid = int(pid_file.read_text(encoding="utf-8"))
+                deadline = time.monotonic() + 3
+                while process_is_running(descendant_pid) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertFalse(marker.exists())
+                self.assertFalse(process_is_running(descendant_pid))
+            finally:
+                if launched_process is not None and launched_process.poll() is None:
+                    try:
+                        os.killpg(launched_process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        launched_process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        pass
+                if descendant_pid is None and pid_file.is_file():
+                    try:
+                        descendant_pid = int(pid_file.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        pass
+                if descendant_pid is not None and process_is_running(descendant_pid):
+                    try:
+                        os.kill(descendant_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
 
     def test_failed_product_proof_never_runs_packaging(self):
         proof = {
