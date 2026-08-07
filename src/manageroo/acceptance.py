@@ -85,12 +85,23 @@ def _bindings(demonstration: dict) -> dict[str, list[dict[str, Any]]]:
         if not isinstance(item, dict):
             continue
         outcome = _normalized(item.get("outcome"))
-        gate_ids = [str(value).strip() for value in item.get("gate_ids", []) if str(value).strip()]
-        if not outcome or not gate_ids:
+        raw_gate_ids = item.get("gate_ids")
+        invalid_reason = ""
+        if (
+            not isinstance(raw_gate_ids, list)
+            or not raw_gate_ids
+            or any(not isinstance(value, str) or not value.strip() for value in raw_gate_ids)
+        ):
+            gate_ids: list[str] = []
+            invalid_reason = "Proof binding gate_ids must be a list of non-empty strings."
+        else:
+            gate_ids = [value.strip() for value in raw_gate_ids]
+        if not outcome:
             continue
-        grouped.setdefault(outcome, []).append(
-            {"outcome": str(item.get("outcome") or ""), "gate_ids": gate_ids}
-        )
+        binding = {"outcome": str(item.get("outcome") or ""), "gate_ids": gate_ids}
+        if invalid_reason:
+            binding["invalid_reason"] = invalid_reason
+        grouped.setdefault(outcome, []).append(binding)
     return grouped
 
 
@@ -133,6 +144,18 @@ def build_acceptance_evidence(
                         if not matches
                         else "Outcome has duplicate proof bindings and is therefore ambiguous."
                     ),
+                }
+            )
+            continue
+
+        invalid_binding_reason = matches[0].get("invalid_reason")
+        if invalid_binding_reason:
+            rows.append(
+                {
+                    "description": description,
+                    "status": "failed",
+                    "evidence": [],
+                    "reason": invalid_binding_reason,
                 }
             )
             continue

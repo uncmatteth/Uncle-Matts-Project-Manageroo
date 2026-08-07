@@ -69,6 +69,36 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                 self.assertEqual(rows[0]["status"], "failed")
                 self.assertIn("smoke", rows[0]["reason"])
 
+    def test_malformed_gate_id_bindings_fail_closed(self):
+        malformed_gate_ids = {
+            "null": None,
+            "integer": 1,
+            "boolean": True,
+            "string": "smoke",
+            "dictionary": {"gate": "smoke"},
+            "empty-list": [],
+            "mixed-list": ["smoke", 1],
+        }
+        outcome = "Configured verification gates pass."
+        for label, gate_ids in malformed_gate_ids.items():
+            with self.subTest(gate_ids=label):
+                rows = build_acceptance_evidence(
+                    product={"acceptance_outcomes": [outcome]},
+                    gate_results=[
+                        {"gate": {"id": "smoke"}, "result": {"exit_code": 0}},
+                    ],
+                    demonstration={
+                        "gates": [],
+                        "product_evidence": [
+                            {"outcome": outcome, "gate_ids": gate_ids},
+                        ],
+                    },
+                    review={"status": "approved", "findings": []},
+                )
+                self.assertEqual(rows[0]["status"], "failed")
+                self.assertEqual(rows[0]["evidence"], [])
+                self.assertIn("list of non-empty strings", rows[0]["reason"])
+
     def test_existing_but_failing_bound_gate_fails_only_its_outcome(self):
         rows = build_acceptance_evidence(
             product={"acceptance_outcomes": ["Export remains correct.", "Import remains correct."]},
