@@ -1,6 +1,9 @@
 import io
 import json
+import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -19,6 +22,52 @@ def _skill(path: Path, name: str, body: str = "Use when testing.\n") -> Path:
 
 
 class SkillPackImportTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are not available on this platform")
+    def test_scan_rejects_fifo_skill_entrypoint_without_blocking(self):
+        script = "\n".join([
+            "import os",
+            "import sys",
+            "import tempfile",
+            "from pathlib import Path",
+            "from manageroo.skill_pack import scan_skill_folder",
+            "with tempfile.TemporaryDirectory() as temp:",
+            "    root = Path(temp)",
+            "    source = root / 'source'",
+            "    target = root / 'target'",
+            "    skill = source / 'fifo-skill'",
+            "    skill.mkdir(parents=True)",
+            "    target.mkdir()",
+            "    os.mkfifo(skill / 'SKILL.md')",
+            "    try:",
+            "        scan_skill_folder(source, skills_dir=target)",
+            "    except ValueError:",
+            "        sys.exit(0)",
+            "    sys.exit(1)",
+        ])
+
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            check=False,
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+            timeout=2,
+        )
+
+        self.assertEqual(completed.returncode, 0)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are not available on this platform")
+    def test_scan_rejects_fifo_in_skill_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "SKILLS"
+            target = root / "target"
+            source.mkdir()
+            target.mkdir()
+            skill_dir = _skill(source, "fifo-skill")
+            os.mkfifo(skill_dir / "payload")
+
+            with self.assertRaisesRegex(ValueError, "Unsupported skill source entry"):
+                scan_skill_folder(source, skills_dir=target)
+
     def test_scan_classifies_importable_duplicate_and_existing_conflict(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root / "SKILLS"; target = root / "target"; source.mkdir(); target.mkdir()

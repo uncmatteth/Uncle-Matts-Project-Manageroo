@@ -35,11 +35,16 @@ class _ValidatedSourceFile:
 def _iter_skill_candidate_paths(root: Path) -> Iterator[Path]:
     for path in sorted(root.rglob("SKILL.md")):
         directory_names = (root.name, *path.parent.relative_to(root).parts)
-        if path.is_symlink() or any(
+        if any(
             ".manageroo-backup-" in name or ".manageroo-stage" in name
             for name in directory_names
         ):
             continue
+        status = path.lstat()
+        if stat.S_ISLNK(status.st_mode):
+            continue
+        if not stat.S_ISREG(status.st_mode):
+            raise ValueError(f"Skill entrypoint must be a regular file: {path}")
         yield path
 
 
@@ -119,6 +124,8 @@ def _validate_source_tree(source_dir: Path) -> list[_ValidatedSourceFile]:
                 ctime_ns=status.st_ctime_ns,
                 atime_ns=status.st_atime_ns,
             ))
+        elif not stat.S_ISDIR(status.st_mode):
+            raise ValueError(f"Unsupported skill source entry (must be a file or directory): {path}")
     return files
 
 
