@@ -49,8 +49,11 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
         self.assertEqual(result, 75)
 
     def test_dry_run_is_a_read_only_standalone_plan(self):
+        def run(*_args, **_kwargs):
+            self.fail("plan mode must not start the standalone supervisor")
+
         with tempfile.TemporaryDirectory() as temp:
-            report = release_sweep(Path(temp), branch="current", timeout_minutes=60)
+            report = release_sweep(Path(temp), branch="current", timeout_minutes=60, run=run)
 
         self.assertTrue(report["ok"])
         self.assertFalse(report["apply"])
@@ -58,6 +61,39 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
         self.assertIn("--fresh", report["command"])
         self.assertIn("--timeout-minutes", report["command"])
         self.assertIn("CLAWPATCH SUPERVISOR: PLAN", format_release_sweep(report))
+
+    def test_supervisor_argv_forwards_every_release_option(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            resolved_repo = repo.resolve()
+            argv = supervisor_argv(
+                repo,
+                branch="release/test",
+                push_mode="final",
+                publish_clawpatch_state=True,
+                trusted_host_codex_sandbox_bypass=True,
+                fresh=False,
+                timeout_minutes=42,
+                executable="/opt/clawpatch-supervise",
+            )
+
+        self.assertEqual(
+            argv,
+            [
+                "/opt/clawpatch-supervise",
+                "--repo",
+                str(resolved_repo),
+                "--branch",
+                "release/test",
+                "--push",
+                "final",
+                "--timeout-minutes",
+                "42",
+                "--resume-stopped",
+                "--publish-clawpatch-state",
+                "--trusted-host-codex-sandbox-bypass",
+            ],
+        )
 
     def test_adapter_forwards_exact_argv_without_a_shell(self):
         calls = []
@@ -106,12 +142,45 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
             with patch(
                 "manageroo.clawpatch_release._supervisor_path",
                 return_value=str(executable),
+            ), patch(
+                "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
+                return_value=True,
             ):
                 report = release_sweep(Path(temp), apply=True, run=run)
 
         self.assertFalse(report["ok"])
         self.assertTrue(report["transient"])
         self.assertEqual(report["exit_code"], 75)
+
+    def test_terminal_exit_code_is_preserved(self):
+        def run(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 2)
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value="/opt/clawpatch-supervise",
+        ), patch(
+            "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
+            return_value=True,
+        ):
+            report = release_sweep(Path(temp), apply=True, run=run)
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["transient"])
+        self.assertEqual(report["exit_code"], 2)
+
+    def test_process_start_error_becomes_safety_error(self):
+        def run(_argv, **_kwargs):
+            raise OSError("not executable")
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value="/opt/clawpatch-supervise",
+        ), patch(
+            "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
+            return_value=True,
+        ), self.assertRaisesRegex(SafetyError, "Could not start.*not executable"):
+            release_sweep(Path(temp), apply=True, run=run)
 
     def test_state_root_is_queried_from_standalone_tool(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -144,6 +213,58 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
             ), self.assertRaises(SafetyError):
                 supervisor_state_root(repo, run=run)
 
+    def test_state_root_rejects_failed_malformed_and_unsafe_results(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            invalid_results = {
+                "nonzero": subprocess.CompletedProcess([], 2, "", "query failed"),
+                "multiline": subprocess.CompletedProcess([], 0, "/state/one\n/state/two\n", ""),
+                "relative": subprocess.CompletedProcess([], 0, "relative/state\n", ""),
+                "equal to repo": subprocess.CompletedProcess([], 0, str(repo) + "\n", ""),
+                "inside repo": subprocess.CompletedProcess([], 0, str(repo / "state") + "\n", ""),
+            }
+
+            with patch(
+                "manageroo.clawpatch_release._supervisor_path",
+                return_value="/opt/clawpatch-supervise",
+            ):
+                for label, result in invalid_results.items():
+                    with self.subTest(label=label), self.assertRaises(SafetyError):
+                        supervisor_state_root(repo, run=lambda *_args, **_kwargs: result)
+
+    def test_state_root_timeout_becomes_safety_error(self):
+        def run(argv, **_kwargs):
+            raise subprocess.TimeoutExpired(argv, 30)
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value="/opt/clawpatch-supervise",
+        ), self.assertRaisesRegex(SafetyError, "Could not query.*timed out"):
+            supervisor_state_root(Path(temp), run=run)
+
+    def test_format_release_sweep_distinguishes_every_outcome(self):
+        self.assertEqual(
+            format_release_sweep({"apply": True, "ok": True}),
+            "CLAWPATCH SUPERVISOR: COMPLETE\n",
+        )
+        self.assertEqual(
+            format_release_sweep(
+                {"apply": True, "ok": False, "transient": True, "exit_code": 75}
+            ),
+            "CLAWPATCH SUPERVISOR: RETRYABLE STOP\nexit code: 75\n",
+        )
+        self.assertEqual(
+            format_release_sweep(
+                {"apply": True, "ok": False, "transient": False, "exit_code": 2}
+            ),
+            "CLAWPATCH SUPERVISOR: STOPPED\nexit code: 2\n",
+        )
+
     def test_supervisor_argv_rejects_invalid_timeout(self):
         with self.assertRaises(SafetyError):
             supervisor_argv(Path("."), timeout_minutes=0)
+
+    def test_supervisor_argv_rejects_invalid_push_mode(self):
+        with self.assertRaises(SafetyError):
+            supervisor_argv(Path("."), push_mode="sometimes")
