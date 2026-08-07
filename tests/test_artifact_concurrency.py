@@ -233,27 +233,36 @@ class ArtifactConcurrencyTests(unittest.TestCase):
                 process_context.Process(target=contender, args=(first, "first.txt")),
                 process_context.Process(target=contender, args=(second, "second.txt")),
             ]
-            with (
-                mock.patch.object(
-                    ArtifactStore,
-                    "_remove_tree_at",
-                    new=coordinated_remove_tree,
-                ),
-                mock.patch(
-                    "manageroo.artifacts.atomic_write_text",
-                    side_effect=coordinated_write,
-                ),
-            ):
-                for process in processes:
-                    process.start()
-                for process in processes:
-                    process.join(timeout=10)
+            try:
+                with (
+                    mock.patch.object(
+                        ArtifactStore,
+                        "_remove_tree_at",
+                        new=coordinated_remove_tree,
+                    ),
+                    mock.patch(
+                        "manageroo.artifacts.atomic_write_text",
+                        side_effect=coordinated_write,
+                    ),
+                ):
+                    for process in processes:
+                        process.start()
+                    for process in processes:
+                        process.join(timeout=10)
 
-            self.assertTrue(all(not process.is_alive() for process in processes))
-            self.assertEqual([process.exitcode for process in processes], [0, 0])
-            self.assertFalse(overlap.is_set())
-            ledger = json.loads((root / "artifact-ledger.json").read_text(encoding="utf-8"))
-            self.assertEqual(set(ledger["artifacts"]), {"first.txt", "second.txt"})
+                self.assertTrue(all(not process.is_alive() for process in processes))
+                self.assertEqual([process.exitcode for process in processes], [0, 0])
+                self.assertFalse(overlap.is_set())
+                ledger = json.loads((root / "artifact-ledger.json").read_text(encoding="utf-8"))
+                self.assertEqual(set(ledger["artifacts"]), {"first.txt", "second.txt"})
+            finally:
+                release_first.set()
+                for process in processes:
+                    if process.pid is not None:
+                        process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=1)
 
     def test_distinct_store_instances_serialize_complete_write_and_ledger_transactions(self):
         with tempfile.TemporaryDirectory() as temp:
