@@ -17,6 +17,45 @@ from manageroo.runner import _platform_argv
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SUPERVISOR_REPOSITORY = "uncmatteth/clawpatch-supervise"
+SUPERVISOR_COMMIT = "f731f6da56d3ae58d1934b3b723716d54ad82975"
+SUPERVISOR_SOURCE = (
+    f"git+https://github.com/{SUPERVISOR_REPOSITORY}.git@{SUPERVISOR_COMMIT}"
+)
+
+
+def _active_supervisor_source(text: str, installer_name: str) -> str | None:
+    powershell = installer_name.endswith(".ps1")
+    if powershell:
+        commit_prefix = '$SupervisorCommit = "'
+        source_prefix = '$SupervisorSource = "'
+        install_prefix = "& $VenvPython -m pip install "
+        source_argument = "$SupervisorSource"
+        commit_reference = "$SupervisorCommit"
+    else:
+        commit_prefix = 'SUPERVISOR_COMMIT="'
+        source_prefix = 'SUPERVISOR_SOURCE="'
+        install_prefix = '"${VENV_PYTHON}" -m pip install '
+        source_argument = '"${SUPERVISOR_SOURCE}"'
+        commit_reference = "${SUPERVISOR_COMMIT}"
+
+    commit = ""
+    source = ""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(commit_prefix) and line.endswith('"'):
+            commit = line[len(commit_prefix) : -1]
+            continue
+        if line.startswith(source_prefix) and line.endswith('"'):
+            source = line[len(source_prefix) : -1]
+            continue
+        if line.startswith(install_prefix):
+            if not line.endswith(source_argument):
+                return None
+            return source.replace(commit_reference, commit)
+    return None
 
 
 class _RecordingBinaryInput:
@@ -143,10 +182,31 @@ class WindowsNativeRegressionTests(unittest.TestCase):
             "Install-ClawPatch-Supervisor-Windows.ps1",
             "Install-ClawPatch-Supervisor-macOS.sh",
         ):
-            text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("uncmatteth/clawpatch-supervise", text)
-            self.assertIn("f731f6da56d3ae58d1934b3b723716d54ad82975", text)
-            self.assertNotIn("Uncle-Matts-Project-Manageroo.git@", text)
+            with self.subTest(installer=name):
+                text = (ROOT / name).read_text(encoding="utf-8")
+                self.assertEqual(_active_supervisor_source(text, name), SUPERVISOR_SOURCE)
+
+    def test_native_supervisor_installer_pin_validation_rejects_comment_only_pins(self):
+        fixtures = {
+            "Install-ClawPatch-Supervisor-Windows.ps1": (
+                f"# {SUPERVISOR_SOURCE}\n"
+                '$SupervisorCommit = "main"\n'
+                f'$SupervisorSource = "git+https://github.com/{SUPERVISOR_REPOSITORY}.git@'
+                '$SupervisorCommit"\n'
+                "& $VenvPython -m pip install --upgrade $SupervisorSource\n"
+            ),
+            "Install-ClawPatch-Supervisor-macOS.sh": (
+                f"# {SUPERVISOR_SOURCE}\n"
+                'SUPERVISOR_COMMIT="main"\n'
+                f'SUPERVISOR_SOURCE="git+https://github.com/{SUPERVISOR_REPOSITORY}.git@'
+                '${SUPERVISOR_COMMIT}"\n'
+                '"${VENV_PYTHON}" -m pip install --upgrade "${SUPERVISOR_SOURCE}"\n'
+            ),
+        }
+
+        for name, text in fixtures.items():
+            with self.subTest(installer=name):
+                self.assertNotEqual(_active_supervisor_source(text, name), SUPERVISOR_SOURCE)
 
     def test_release_verifier_allows_the_native_windows_suite_full_watchdog(self):
         spec = importlib.util.spec_from_file_location(
