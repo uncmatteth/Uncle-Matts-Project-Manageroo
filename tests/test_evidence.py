@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from manageroo import evidence_hardening
@@ -208,6 +209,58 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0].authority, "project_memory")
             self.assertEqual(items[0].location, ".manageroo/PROJECT-MEMORY.md")
+
+    def test_hardening_install_preserves_local_providers_without_descriptor_traversal(self):
+        class PortableProjectMemoryProvider:
+            def __init__(self, repo: Path):
+                self.repo = repo
+
+            def retrieve(self, query: str, *, limit: int = 12):
+                content = (self.repo / ".manageroo" / "PROJECT-MEMORY.md").read_text(
+                    encoding="utf-8"
+                )
+                return [content] if query.lower() in content.lower() else []
+
+        class PortableRunArtifactProvider:
+            def __init__(self, run_root: Path):
+                self.run_root = run_root
+
+            def retrieve(self, query: str, *, limit: int = 12, allowed_location_prefixes=None):
+                content = (self.run_root / "artifacts" / "evidence.txt").read_text(
+                    encoding="utf-8"
+                )
+                return [content] if query.lower() in content.lower() else []
+
+        isolated_evidence = SimpleNamespace(
+            PROJECT_DIR=".manageroo",
+            ProjectMemoryEvidenceProvider=PortableProjectMemoryProvider,
+            RunArtifactEvidenceProvider=PortableRunArtifactProvider,
+            normalize_external_payload=lambda **kwargs: ["normalized"],
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            memory = root / ".manageroo" / "PROJECT-MEMORY.md"
+            artifact = root / "run" / "artifacts" / "evidence.txt"
+            memory.parent.mkdir(parents=True)
+            artifact.parent.mkdir(parents=True)
+            memory.write_text("portable project memory\n", encoding="utf-8")
+            artifact.write_text("portable run artifact\n", encoding="utf-8")
+
+            with patch.object(
+                evidence_hardening,
+                "_descriptor_traversal_supported",
+                return_value=False,
+            ):
+                evidence_hardening.install_evidence_hardening(isolated_evidence)
+                self.assertEqual(
+                    PortableProjectMemoryProvider(root).retrieve("project memory"),
+                    ["portable project memory\n"],
+                )
+                self.assertEqual(
+                    PortableRunArtifactProvider(root / "run").retrieve("run artifact"),
+                    ["portable run artifact\n"],
+                )
 
     def test_project_memory_rejects_symlink_escape(self):
         with tempfile.TemporaryDirectory() as temp:
