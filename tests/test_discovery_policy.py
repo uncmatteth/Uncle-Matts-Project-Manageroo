@@ -155,6 +155,36 @@ class DiscoveryPolicyTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     decisions_fully_resolved(run_root)
 
+    def test_prepopulated_choice_outside_options_is_never_resolved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp)
+            planning = run_root / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            product = {
+                "blocking_decisions": [
+                    {
+                        "id": "COLOR-1",
+                        "options": ["Blue", "Green"],
+                        "chosen": "Red",
+                    }
+                ]
+            }
+            atomic_write_json(planning / "product-model.json", product)
+            answer = {"answers": [{"id": "COLOR-1", "chosen": "Red"}]}
+            atomic_write_json(planning / "resolved-decisions.json", answer)
+
+            with self.assertRaisesRegex(ValidationError, "not one of the allowed options"):
+                apply_resolved_decisions(run_root)
+
+            atomic_write_json(
+                planning / "decision-resolution.json",
+                {
+                    **answer,
+                    "product_model_sha256": sha256_json(product),
+                },
+            )
+            self.assertFalse(decisions_fully_resolved(run_root))
+
     def test_interrupted_decision_claim_is_recovered_on_next_application(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)

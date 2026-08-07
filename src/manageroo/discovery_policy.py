@@ -27,6 +27,15 @@ def _resolution_path(run_root: Path) -> Path:
     return run_root / "artifacts" / "planning" / "decision-resolution.json"
 
 
+def _validate_chosen_option(decision: dict[str, Any], chosen: str) -> None:
+    options = [str(item) for item in decision.get("options", [])]
+    if chosen not in options:
+        raise ValidationError(
+            f"Resolved decision {decision['id']!r} chose {chosen!r}, "
+            f"which is not one of the allowed options: {options}"
+        )
+
+
 def decisions_fully_resolved(run_root: Path) -> bool:
     _, _, product_path, _ = _decision_paths(run_root)
     resolution_path = _resolution_path(run_root)
@@ -45,11 +54,19 @@ def decisions_fully_resolved(run_root: Path) -> bool:
         answers = _validated_answers(resolution, decision_ids)
     except ValidationError:
         return False
-    return bool(decisions) and all(
-        bool(chosen := str(item.get("chosen") or "").strip())
-        and answers.get(str(item["id"])) == chosen
-        for item in decisions
-    )
+    if not decisions:
+        return False
+    for item in decisions:
+        chosen = str(item.get("chosen") or "").strip()
+        if not chosen:
+            return False
+        try:
+            _validate_chosen_option(item, chosen)
+        except ValidationError:
+            return False
+        if answers.get(str(item["id"])) != chosen:
+            return False
+    return True
 
 
 def render_blocking_questions(run_root: Path) -> Path | None:
@@ -213,6 +230,7 @@ def apply_resolved_decisions(run_root: Path, *, artifact_store: Any | None = Non
                 existing = str(decision.get("chosen") or "").strip()
                 chosen = answers.get(decision_id)
                 if existing:
+                    _validate_chosen_option(decision, existing)
                     if chosen and chosen != existing:
                         raise ValidationError(
                             f"Resolved decision {decision_id!r} conflicts with the already-applied choice {existing!r}."
@@ -222,11 +240,7 @@ def apply_resolved_decisions(run_root: Path, *, artifact_store: Any | None = Non
                 if not chosen:
                     unresolved.append(decision_id)
                     continue
-                options = [str(item) for item in decision.get("options", [])]
-                if chosen not in options:
-                    raise ValidationError(
-                        f"Resolved decision {decision_id!r} chose {chosen!r}, which is not one of the allowed options: {options}"
-                    )
+                _validate_chosen_option(decision, chosen)
                 decision["chosen"] = chosen
                 decision["resolution_source"] = "operator answer via manageroo decisions"
                 product_changed = True
