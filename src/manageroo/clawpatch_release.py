@@ -56,6 +56,41 @@ def _supervisor_path(*, which: Callable[[str], str | None] = shutil.which) -> st
     )
 
 
+def _verify_supervisor_version(
+    executable: str,
+    *,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> None:
+    try:
+        result = run(
+            [executable, "--version"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SafetyError(f"Could not verify standalone clawpatch-supervise version: {exc}") from exc
+    stdout = result.stdout if isinstance(result.stdout, str) else ""
+    stderr = result.stderr if isinstance(result.stderr, str) else ""
+    reported = stdout.strip()
+    fields = reported.split()
+    if result.returncode == 0 and len(fields) == 2:
+        program, version = fields
+        if program.casefold() in {
+            SUPERVISOR_EXECUTABLE.casefold(),
+            f"{SUPERVISOR_EXECUTABLE}.exe".casefold(),
+        } and version == SUPERVISOR_VERSION:
+            return
+    detail = stderr.strip() or reported or f"exit {result.returncode}"
+    raise SafetyError(
+        f"Standalone clawpatch-supervise requires version {SUPERVISOR_VERSION}; "
+        f"the installed command reported {detail!r}."
+    )
+
+
 def supervisor_argv(
     repo: Path,
     *,
@@ -101,6 +136,7 @@ def release_sweep(
     fresh: bool = True,
     timeout_minutes: int = 15,
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    version_run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
     """Plan or invoke the separately installed ClawPatch supervisor."""
     executable = _supervisor_path() if apply else SUPERVISOR_EXECUTABLE
@@ -125,6 +161,8 @@ def release_sweep(
     }
     if not apply:
         return report
+
+    _verify_supervisor_version(executable, run=version_run)
 
     def invoke() -> subprocess.CompletedProcess[str]:
         try:

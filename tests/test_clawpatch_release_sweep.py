@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from manageroo.clawpatch_release import (
     SUPERVISOR_REPOSITORY,
+    SUPERVISOR_VERSION,
     TRANSIENT_EXIT_CODE,
     format_release_sweep,
     release_sweep,
@@ -21,6 +22,15 @@ from manageroo.errors import SafetyError
 from manageroo.entrypoint import _clawpatch_main
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def matching_version_run(argv, **_kwargs):
+    return subprocess.CompletedProcess(
+        argv,
+        0,
+        f"clawpatch-supervise {SUPERVISOR_VERSION}\n",
+        "",
+    )
 
 
 class StandaloneClawpatchAdapterTests(unittest.TestCase):
@@ -122,6 +132,7 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
                     fresh=False,
                     timeout_minutes=60,
                     run=run,
+                    version_run=matching_version_run,
                 )
 
         self.assertTrue(report["ok"])
@@ -131,6 +142,54 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
         self.assertEqual(kwargs["shell"], False)
         self.assertEqual(kwargs["check"], False)
         runtime_lock.assert_not_called()
+
+    def test_apply_accepts_required_supervisor_version(self):
+        def run(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 0)
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value="/opt/clawpatch-supervise",
+        ), patch(
+            "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
+            return_value=True,
+        ):
+            report = release_sweep(
+                Path(temp),
+                apply=True,
+                run=run,
+                version_run=matching_version_run,
+            )
+
+        self.assertTrue(report["ok"])
+
+    def test_apply_rejects_incompatible_supervisor_version(self):
+        def run(*_args, **_kwargs):
+            self.fail("release command must not run with an incompatible supervisor")
+
+        def version_run(argv, **kwargs):
+            self.assertEqual(argv[-1], "--version")
+            self.assertEqual(kwargs["shell"], False)
+            return subprocess.CompletedProcess(argv, 0, "clawpatch-supervise 0.1.1\n", "")
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value="/opt/clawpatch-supervise",
+        ), self.assertRaisesRegex(SafetyError, SUPERVISOR_VERSION):
+            release_sweep(Path(temp), apply=True, run=run, version_run=version_run)
+
+    def test_apply_rejects_unreadable_supervisor_version(self):
+        def run(*_args, **_kwargs):
+            self.fail("release command must not run with an unreadable supervisor version")
+
+        def version_run(argv, **_kwargs):
+            return subprocess.CompletedProcess(argv, 0, "unknown build\n", "")
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value="/opt/clawpatch-supervise",
+        ), self.assertRaisesRegex(SafetyError, "unknown build"):
+            release_sweep(Path(temp), apply=True, run=run, version_run=version_run)
 
     def test_transient_exit_code_is_preserved_for_service_policy(self):
         def run(argv, **_kwargs):
@@ -146,7 +205,12 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
                 "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
                 return_value=True,
             ):
-                report = release_sweep(Path(temp), apply=True, run=run)
+                report = release_sweep(
+                    Path(temp),
+                    apply=True,
+                    run=run,
+                    version_run=matching_version_run,
+                )
 
         self.assertFalse(report["ok"])
         self.assertTrue(report["transient"])
@@ -163,7 +227,12 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
             "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
             return_value=True,
         ):
-            report = release_sweep(Path(temp), apply=True, run=run)
+            report = release_sweep(
+                Path(temp),
+                apply=True,
+                run=run,
+                version_run=matching_version_run,
+            )
 
         self.assertFalse(report["ok"])
         self.assertFalse(report["transient"])
@@ -180,7 +249,12 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
             "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
             return_value=True,
         ), self.assertRaisesRegex(SafetyError, "Could not start.*not executable"):
-            release_sweep(Path(temp), apply=True, run=run)
+            release_sweep(
+                Path(temp),
+                apply=True,
+                run=run,
+                version_run=matching_version_run,
+            )
 
     def test_state_root_is_queried_from_standalone_tool(self):
         with tempfile.TemporaryDirectory() as temp:
