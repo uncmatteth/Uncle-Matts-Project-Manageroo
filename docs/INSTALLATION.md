@@ -51,6 +51,8 @@ Windows PowerShell:
 The launchers install the same Manageroo product.
 On Windows, paths written into the generated command launcher cannot contain `%`, which batch files interpret as variable expansion.
 
+If Manageroo is already cloned, rerun the platform installer from that existing folder. Do not run the clone command from inside the clone; that creates a nested repository copy.
+
 An AI or IDE agent can assist, but it should surface meaningful installer choices before selecting them on the user's behalf.
 
 ## Hardware profile
@@ -191,25 +193,28 @@ Common options include:
 ./install.sh --skip-stack
 ./install.sh --skill-pack install
 ./install.sh --skill-pack skip
-./install.sh --project-discovery add
-./install.sh --project-discovery pick
-./install.sh --project-discovery skip
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
 ./install.sh --skip-tests
+./install.sh --run-developer-tests
 ```
 
 PowerShell exposes equivalent parameters.
 
-## First project
+A normal install runs the short source compile check and the installed product self-test. It does not run Manageroo's complete developer test suite. `--run-developer-tests` is the explicit contributor and release-validation option; `--skip-tests` skips the source compile check as well.
 
-Discover existing Git projects:
+## First request
 
-```bash
-manageroo projects --add
+The interactive installer finishes by discovering projects read-only and opening Manageroo:
+
+```text
+Hi! I'm Manageroo! Let's do!
+>
 ```
 
-Start Manageroo in an existing repo:
+Type the work you want done. Manageroo matches the request to discovered projects and asks which project only when necessary. Installation never initializes every discovered repository.
+
+To bypass automatic matching and name an existing repository explicitly:
 
 ```bash
 manageroo solo /absolute/path/to/product

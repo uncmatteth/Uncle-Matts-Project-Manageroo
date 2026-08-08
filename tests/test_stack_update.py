@@ -83,7 +83,7 @@ class StackUpdateTests(unittest.TestCase):
         tool = plan["tools"][0]
         self.assertEqual(tool["pinned_commit"], CLAWPATCH_SUPERVISOR_COMMIT)
         self.assertEqual(tool["commands"][0][-1], CLAWPATCH_SUPERVISOR_SOURCE)
-        self.assertEqual(tool["commands"][1], [str(executable), "--version"])
+        self.assertEqual(tool["commands"][1], [str(executable.resolve()), "--version"])
 
     def test_plan_does_not_update_an_unowned_supervisor_path(self):
         with tempfile.TemporaryDirectory() as temp:

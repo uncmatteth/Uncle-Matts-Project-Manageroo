@@ -236,7 +236,7 @@ class DisposableValidationServiceTests(unittest.TestCase):
             ) -> subprocess.CompletedProcess[str]:
                 nonlocal created_environment
                 del timeout
-                self.assertEqual(cwd, repo)
+                self.assertEqual(cwd, repo.resolve())
                 calls.append(list(argv))
                 if argv[:3] == [sys.executable, "-m", "venv"]:
                     created_environment = Path(argv[3])

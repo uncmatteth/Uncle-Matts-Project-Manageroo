@@ -16,7 +16,7 @@ from .file_inspection import (
     media_summary,
     text_summary,
 )
-from .integrations import _open_beneath, _openat2_syscall_number
+from .integrations import _descriptor_relative_open_supported, _open_beneath
 from .runner import CommandRunner
 from .util import atomic_write_json, read_json, safe_repo_relative, sha256_file
 
@@ -122,11 +122,10 @@ def _inspection_signature(state: os.stat_result) -> tuple[int, int, int, int, in
 
 def _descriptor_inventory_supported() -> bool:
     return (
-        _openat2_syscall_number() is not None
+        _descriptor_relative_open_supported()
         and hasattr(os, "O_DIRECTORY")
         and hasattr(os, "O_NOFOLLOW")
         and hasattr(os, "O_NONBLOCK")
-        and os.open in os.supports_dir_fd
         and os.stat in os.supports_dir_fd
         and os.stat in os.supports_follow_symlinks
     )

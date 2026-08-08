@@ -40,6 +40,28 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_normal_install_runs_short_compile_check_not_843_developer_tests(self):
+        install = load_install_script()
+        with patch.object(install, "run") as run_command:
+            install.run_source_install_checks({}, run_developer_tests=False)
+
+        self.assertEqual(run_command.call_count, 1)
+        self.assertEqual(
+            run_command.call_args.args[0],
+            [install.sys.executable, "-m", "compileall", "-q", "src"],
+        )
+
+    def test_developer_suite_requires_explicit_installer_flag(self):
+        install = load_install_script()
+        with patch.object(install, "run") as run_command:
+            install.run_source_install_checks({}, run_developer_tests=True)
+
+        self.assertEqual(run_command.call_count, 2)
+        self.assertEqual(
+            run_command.call_args_list[1].args[0],
+            [install.sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+        )
+
     def test_autoreview_install_refuses_incomplete_existing_directory_without_backup(self):
         install = load_install_script()
         with tempfile.TemporaryDirectory() as temp:
@@ -307,24 +329,36 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("AUTOREVIEW and Clawpatch", text)
         self.assertIn("Host skills", text)
 
-    def test_next_commands_offer_guided_project_setup(self):
+    def test_next_commands_offer_the_plain_language_front_door(self):
         install = load_install_script()
         output = io.StringIO()
         with redirect_stdout(output):
             install.print_next_commands()
         text = output.getvalue()
-        self.assertIn("manageroo projects --add", text)
+        self.assertIn("  manageroo\n", text)
         self.assertIn("manageroo stack-doctor", text)
         self.assertIn("manageroo repair-install --no-apply", text)
         self.assertIn("manageroo next", text)
         self.assertNotIn("cd /path/to/project && manageroo solo", text)
 
-    def test_project_discovery_prompt_defaults_to_add_selected_projects(self):
+    def test_installer_finishes_in_manageroo_instead_of_asking_for_a_project(self):
         install = load_install_script()
         with patch.object(install.sys.stdin, "isatty", return_value=True):
-            with patch("builtins.input", return_value=""):
-                with redirect_stdout(io.StringIO()):
-                    self.assertEqual(install.choose_project_discovery_mode("ask"), "add")
+            with patch.object(install, "run") as run_command:
+                install.launch_manageroo_front_door(
+                    Path("/installed/python"),
+                    {"PYTHONPATH": "/installed/app"},
+                )
+
+        run_command.assert_called_once_with(
+            ["/installed/python", "-m", "manageroo"],
+            cwd=Path.home(),
+            env={"PYTHONPATH": "/installed/app"},
+            capture=False,
+        )
+        source = INSTALL_SCRIPT.read_text(encoding="utf-8")
+        self.assertNotIn("Run guided project setup now?", source)
+        self.assertNotIn('"projects",\n                "--add"', source)
 
     def test_stack_doctor_prompt_defaults_to_run_when_interactive(self):
         install = load_install_script()
@@ -343,7 +377,6 @@ class InstallScriptTests(unittest.TestCase):
             "SkillPack": "--skill-pack",
             "Stack": "--stack",
             "GBrainLane": "--gbrain-lane",
-            "ProjectDiscovery": "--project-discovery",
             "StackDoctor": "--stack-doctor",
             "ClawpatchCodexLogin": "--clawpatch-codex-login",
             "ObsidianMethod": "--obsidian-method",

@@ -1103,18 +1103,6 @@ def choose_gbrain_lane(selection: str) -> str:
     return {"2": "official", "3": "skip"}.get(input("Choose 1, 2, or 3 [1]: ").strip(), "local")
 
 
-def choose_project_discovery_mode(selection: str) -> str:
-    if selection != "ask":
-        return selection
-    if not sys.stdin.isatty():
-        return "skip"
-    return (
-        "skip"
-        if input("Run guided project setup now? [Y/n]: ").strip().lower() in {"n", "no", "skip"}
-        else "add"
-    )
-
-
 def choose_stack_doctor_mode(selection: str) -> str:
     if selection != "ask":
         return selection
@@ -1137,7 +1125,7 @@ def print_next_commands() -> None:
         "manageroo stack-status",
         "manageroo stack-doctor",
         "manageroo repair-install --no-apply",
-        "manageroo projects --add",
+        "manageroo",
         "manageroo next",
     ]:
         print(f"  {command}")
@@ -1150,6 +1138,29 @@ def print_lane_explainer() -> None:
     print("  - GBrain is an external durable knowledge lane when explicitly relevant.")
     print("  - AUTOREVIEW and Clawpatch are command-owned review/repair lanes, not freehand AI repair prompts.")
     print("  - Host skills may be used when relevant but remain host-owned unless they are in Manageroo's portable core.")
+
+
+def launch_manageroo_front_door(python: Path, installed_env: dict[str, str]) -> None:
+    if not sys.stdin.isatty():
+        print("\nRun `manageroo` in an interactive terminal when you are ready to start.")
+        return
+    run(
+        [str(python), "-m", "manageroo"],
+        cwd=Path.home(),
+        env=installed_env,
+        capture=False,
+    )
+
+
+def run_source_install_checks(
+    source_env: dict[str, str], *, run_developer_tests: bool
+) -> None:
+    run([sys.executable, "-m", "compileall", "-q", "src"], env=source_env)
+    if run_developer_tests:
+        run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+            env=source_env,
+        )
 
 
 def _assert_download_sources_immutable(downloads: list[dict]) -> None:
@@ -1171,6 +1182,11 @@ def main() -> int:
     parser.add_argument("--prefix", type=Path, default=Path.home() / ".local" / "share" / "manageroo")
     parser.add_argument("--bin-dir", type=Path, default=Path.home() / ".local" / "bin")
     parser.add_argument("--skip-tests", action="store_true")
+    parser.add_argument(
+        "--run-developer-tests",
+        action="store_true",
+        help="Run Manageroo's complete developer suite before installation.",
+    )
     parser.add_argument("--skip-self-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--install-codex", action="store_true")
     parser.add_argument("--skip-codex", action="store_true", help=argparse.SUPPRESS)
@@ -1191,7 +1207,6 @@ def main() -> int:
     parser.add_argument("--gbrain-lane", choices=["ask", "local", "official", "skip"], default="ask")
     parser.add_argument("--clawpatch-codex-login", choices=["ask", "run", "skip"], default="ask")
     parser.add_argument("--token-mode", choices=["ask", "off", "caveman", "curse"], default="ask")
-    parser.add_argument("--project-discovery", choices=["ask", "pick", "add", "skip"], default="ask")
     parser.add_argument("--stack-doctor", choices=["ask", "run", "skip"], default="ask")
     parser.add_argument("--skill-pack", choices=["ask", "install", "skip"], default="ask")
     parser.add_argument("--skip-skill-pack", action="store_true")
@@ -1234,8 +1249,10 @@ def main() -> int:
         token_mode = choose_token_mode(args.token_mode)
         source_env = {"PYTHONPATH": str(ROOT / "src")}
         if not args.skip_tests:
-            run([sys.executable, "-m", "compileall", "-q", "src"], env=source_env)
-            run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"], env=source_env)
+            run_source_install_checks(
+                source_env,
+                run_developer_tests=args.run_developer_tests,
+            )
 
         token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
         skill_pack_mode = choose_skill_pack_mode(args.skill_pack, args.skip_skill_pack)
@@ -1382,27 +1399,10 @@ def main() -> int:
             cwd=Path.home(),
             env=installed_env,
         )
-    project_mode = choose_project_discovery_mode(args.project_discovery)
-    if project_mode in {"pick", "add"}:
-        optional_run(
-            [
-                str(python),
-                "-m",
-                "manageroo",
-                "projects",
-                "--add" if project_mode == "add" else "--pick",
-                "--agent",
-                str(agent_setup["preference"]),
-            ],
-            downloads,
-            "project-discovery",
-            "manageroo-local-installed-code",
-            cwd=Path.home(),
-            env=installed_env,
-        )
     print_next_commands()
     print_lane_explainer()
     print("\n" + format_special_thanks())
+    launch_manageroo_front_door(python, installed_env)
     return 0
 
 

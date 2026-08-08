@@ -5,6 +5,7 @@ param(
     [switch]$InstallStack,
     [switch]$SkipStack,
     [switch]$SkipTests,
+    [switch]$RunDeveloperTests,
     [switch]$SkipSkillPack,
     [switch]$NoMusic,
     [switch]$NoAnimation,
@@ -20,8 +21,6 @@ param(
     [string]$Stack = "ask",
     [ValidateSet("ask", "local", "official", "skip")]
     [string]$GBrainLane = "ask",
-    [ValidateSet("ask", "pick", "add", "skip")]
-    [string]$ProjectDiscovery = "ask",
     [ValidateSet("ask", "run", "skip")]
     [string]$StackDoctor = "ask",
     [ValidateSet("ask", "run", "skip")]
@@ -92,6 +91,7 @@ if ($InstallCodex) { $InstallArgs += "--install-codex" }
 if ($InstallStack) { $InstallArgs += "--install-stack" }
 if ($SkipStack) { $InstallArgs += "--skip-stack" }
 if ($SkipTests) { $InstallArgs += "--skip-tests" }
+if ($RunDeveloperTests) { $InstallArgs += "--run-developer-tests" }
 if ($SkipSkillPack) { $InstallArgs += "--skip-skill-pack" }
 if ($Prefix) { $InstallArgs += @("--prefix", $Prefix) }
 if ($BinDir) { $InstallArgs += @("--bin-dir", $BinDir) }
@@ -100,7 +100,6 @@ if ($Agent) { $InstallArgs += @("--agent", $Agent) }
 if ($SkillPack) { $InstallArgs += @("--skill-pack", $SkillPack) }
 if ($Stack) { $InstallArgs += @("--stack", $Stack) }
 if ($GBrainLane) { $InstallArgs += @("--gbrain-lane", $GBrainLane) }
-if ($ProjectDiscovery) { $InstallArgs += @("--project-discovery", $ProjectDiscovery) }
 if ($StackDoctor) { $InstallArgs += @("--stack-doctor", $StackDoctor) }
 if ($ClawpatchCodexLogin) { $InstallArgs += @("--clawpatch-codex-login", $ClawpatchCodexLogin) }
 if ($ObsidianMethod) { $InstallArgs += @("--obsidian-method", $ObsidianMethod) }

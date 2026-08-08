@@ -171,7 +171,7 @@ def _autoreview_installation_error(
     approved_root = Path(installation["approved_root"]).expanduser()
     target = Path(installation["resolved_path"]).expanduser()
     if destination != target:
-        return "mutation target does not match the planned resolved destination"
+        return "mutation target identity does not match the planned resolved destination"
     if target.name != "autoreview" or target.parent != approved_root:
         return "planned target is not directly beneath its approved skill root"
     try:

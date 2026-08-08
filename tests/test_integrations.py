@@ -8,6 +8,17 @@ from manageroo.integrations import ObsidianIntegration
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_obsidian_export_uses_safe_portable_descriptor_walk_without_linux_openat2(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = Path(temp) / "vault"
+            (vault / "exports" / "notes").mkdir(parents=True)
+            integration = ObsidianIntegration(str(vault), "exports")
+
+            with patch("manageroo.integrations._openat2_syscall_number", return_value=None):
+                destination = integration.export("notes/report.md", "# Portable\n")
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), "# Portable\n")
+
     def test_obsidian_export_stays_inside_configured_export_root(self):
         with tempfile.TemporaryDirectory() as temp:
             vault = Path(temp) / "vault"

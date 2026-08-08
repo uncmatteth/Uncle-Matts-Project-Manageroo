@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,16 +40,21 @@ class ContextTests(unittest.TestCase):
         original_read_text = Path.read_text
         original_read_bytes = Path.read_bytes
 
+        def replace_source():
+            replacement = source.with_name("a.txt.replacement")
+            replacement.write_bytes(version_b)
+            os.replace(replacement, source)
+
         def read_text_then_replace(path, *args, **kwargs):
             text = original_read_text(path, *args, **kwargs)
             if path == source:
-                source.write_bytes(version_b)
+                replace_source()
             return text
 
         def read_bytes_then_replace(path):
             data = original_read_bytes(path)
             if path == source:
-                source.write_bytes(version_b)
+                replace_source()
             return data
 
         with (

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -21,6 +22,7 @@ from .config_lock import config_mutation_lock
 from .discovery_policy import decisions_fully_resolved, render_blocking_questions
 from .errors import SafetyError
 from .host_skills import format_host_skills, inspect_host_skills
+from .projects import discover_projects
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
 from .stack_update import STACK_TOOL_NAMES, apply_stack_updates, format_stack_update, stack_update_plan
 from .system_capacity import format_capacity, host_capacity
@@ -1109,11 +1111,108 @@ def _root_help() -> str:
     )
 
 
+_PROJECT_WORDS_TO_IGNORE = frozenset(
+    {"a", "an", "and", "for", "in", "matts", "of", "on", "project", "repo", "repository", "the", "uncle"}
+)
+
+
+def _project_words(value: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+", value.casefold())
+        if word not in _PROJECT_WORDS_TO_IGNORE
+    }
+
+
+def _project_for_request(projects: list[dict[str, Any]], request: str) -> dict[str, Any] | None:
+    if len(projects) == 1:
+        return projects[0]
+    request_text = request.casefold()
+    exact = [
+        project
+        for project in projects
+        if str(project.get("name") or "").casefold() in request_text
+        or str(project.get("path") or "").casefold() in request_text
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    request_words = _project_words(request)
+    scored = [
+        (len(request_words & _project_words(str(project.get("name") or ""))), project)
+        for project in projects
+    ]
+    best = max((score for score, _project in scored), default=0)
+    matches = [project for score, project in scored if score == best and score > 0]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _choose_request_project(
+    projects: list[dict[str, Any]],
+    request: str,
+) -> tuple[Path, bool] | None:
+    matched = _project_for_request(projects, request)
+    if matched is not None:
+        return Path(str(matched["path"])).expanduser().resolve(), False
+
+    if projects:
+        print("\nI found these projects. Which one does that request belong to?")
+        for index, project in enumerate(projects, start=1):
+            print(f"  {index}) {project['name']} — {project['path']}")
+        answer = input("> ").strip()
+        if answer.isdigit() and 1 <= int(answer) <= len(projects):
+            selected = projects[int(answer) - 1]
+            return Path(str(selected["path"])).expanduser().resolve(), False
+    else:
+        print("\nI did not find a Git project in the usual project folders.")
+        answer = input("Project folder path: ").strip()
+
+    if not answer:
+        return None
+    selected_path = Path(answer).expanduser().resolve()
+    return selected_path, not (selected_path / ".git").exists()
+
+
+def _welcome_main() -> int:
+    discovery = discover_projects(limit=0, agent="auto")
+    projects = list(discovery.get("projects", []) or [])
+    print("Hi! I'm Manageroo! Let's do!")
+    try:
+        request = input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nOkay — nothing started.")
+        return 0
+    if not request or request.casefold() in {"exit", "quit"}:
+        return 0
+    selected = _choose_request_project(projects, request)
+    if selected is None:
+        print("No project selected; nothing was changed.")
+        return 0
+    repo, create = selected
+    argv = [
+        "solo",
+        str(repo),
+        "--agent",
+        "auto",
+        "--want",
+        request,
+        "--run",
+    ]
+    if create:
+        argv.append("--create")
+    return cli_main(argv)
+
+
 def main() -> int:
     from .entrypoint_policy import install_entrypoint_policy
 
     install_entrypoint_policy(sys.modules[__name__])
     argv = sys.argv[1:]
+    if not argv:
+        if not sys.stdin.isatty():
+            print("Hi! I'm Manageroo! Let's do!")
+            print("Open an interactive terminal and run `manageroo` to tell me what you want done.")
+            return 0
+        return _welcome_main()
     if argv and argv[0] == "prove":
         return _prove_main(argv[1:])
     if argv and argv[0] == "capacity":

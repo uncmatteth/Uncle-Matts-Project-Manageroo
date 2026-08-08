@@ -23,21 +23,24 @@ A local project controller for AI coding agents: one brief in, repo-aware build 
 > git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
 > ```
 >
+> Already cloned it? Stay in that existing folder and rerun `./install.sh` or `.\install.ps1`. Do not run the clone command from inside the clone; that creates a nested copy.
+>
 > If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
 >
 > **2. Follow the guided setup**
 >
-> Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, optional supporting tools, token style, project discovery, and a read-only stack check.
+> Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, supporting tools, token style, and a read-only stack check.
 >
-> **3. Point Manageroo at a project**
+> At the end, Manageroo scans the usual project folders read-only. It does not make you select one project during installation.
 >
-> Open a new terminal and run:
+> **3. Tell Manageroo what you want**
 >
-> ```bash
-> manageroo solo /absolute/path/to/your-project
+> ```text
+> Hi! I'm Manageroo! Let's do!
+> >
 > ```
 >
-> Answer the questions in plain English: what you want built or fixed, who it is for, what must not change, and what proof should count. If you are ever unsure what comes next, run `manageroo next`.
+> Type what you want built or fixed. Manageroo matches the request to the projects it found and asks which project only when the request is ambiguous. Run `manageroo` later to reopen the same front door.
 >
 > **Manageroo for beginners:** Think of Manageroo as the project foreman above your coding agent. You describe the result you want; Manageroo records the mission, maps the repository, gives the coding agent bounded jobs in an isolated workspace, runs the project's checks, performs separate review, and produces evidence and a patch. It does not treat the worker saying “done” as proof. Use `manageroo run --apply` when you want a successfully verified patch applied to your project. Use `manageroo status RUN_ID --repo .` to check a run and `manageroo report RUN_ID --repo .` to read what happened.
 
