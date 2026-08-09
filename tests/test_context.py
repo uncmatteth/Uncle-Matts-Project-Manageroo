@@ -13,7 +13,7 @@ from manageroo.util import read_json
 class ContextTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.repo = self.root / "repo"
         self.repo.mkdir()
         (self.repo / "a.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
@@ -42,7 +42,9 @@ class ContextTests(unittest.TestCase):
         def read_bytes_then_replace(compiler, relative):
             data = original_read_repo_bytes(compiler, relative)
             if relative == "a.txt":
-                source.write_bytes(version_b)
+                replacement = source.with_name("a.txt.replacement")
+                replacement.write_bytes(version_b)
+                os.replace(replacement, source)
             return data
 
         with mock.patch.object(ContextCompiler, "_read_repo_bytes", read_bytes_then_replace):

@@ -293,11 +293,8 @@ class TransactionalAdapterHardeningTests(unittest.TestCase):
                 external_before,
             )
 
-    def test_repository_transactions_are_serialized_across_processes(self):
-        try:
-            process_context = multiprocessing.get_context("fork")
-        except ValueError:
-            self.skipTest("coordinated repository-lock test requires fork")
+    def test_repository_transactions_are_serialized_across_spawned_processes(self):
+        process_context = multiprocessing.get_context("spawn")
         with tempfile.TemporaryDirectory() as temp:
             repo = make_repo(Path(temp))
             first_entered = process_context.Event()

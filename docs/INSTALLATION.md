@@ -8,7 +8,7 @@ Manageroo core uses:
 - Git;
 - a normal terminal or PowerShell environment.
 
-The platform launcher checks these requirements and, in an interactive terminal, offers to install missing ones using a normal platform path. Windows uses winget. Linux supports Homebrew, apt, dnf, yum, pacman, and zypper. macOS uses an integrity-checked, release-pinned Python installer; if Git is missing, it uses Homebrew when available or opens Apple's Command Line Tools installer and tells the operator to rerun after Apple finishes.
+The platform launcher checks these requirements and, in an interactive terminal, offers to install missing ones using a normal platform path. Windows uses winget. Linux supports Homebrew, apt, dnf, yum, pacman, and zypper. On macOS, the launcher first recognizes Homebrew in its standard Apple Silicon and Intel locations even when the current shell omits Homebrew from `PATH`. If Python is still missing, macOS uses an integrity-checked, release-pinned Python installer; if Git is missing, it uses Homebrew when available or opens Apple's Command Line Tools installer and tells the operator to rerun after Apple finishes.
 
 For real AI work, at least one compatible agent path must also be available, such as Codex, Claude Code, Gemini, or a configured generic CLI. The installer detects the three built-in CLI paths. One detected tool requires no question; several detected tools produce a short preference choice; no detected tool produces an optional Codex install offer. Installing Codex also installs Node.js/npm through a supported platform package path when needed.
 
@@ -50,6 +50,8 @@ Windows PowerShell:
 
 The launchers install the same Manageroo product.
 On Windows, paths written into the generated command launcher cannot contain `%`, which batch files interpret as variable expansion.
+
+If Manageroo is already cloned, rerun the platform installer from that existing folder. Do not run the clone command from inside the clone; that creates a nested repository copy.
 
 An AI or IDE agent can assist, but it should surface meaningful installer choices before selecting them on the user's behalf.
 
@@ -194,25 +196,28 @@ Common options include:
 ./install.sh --skip-stack
 ./install.sh --skill-pack install
 ./install.sh --skill-pack skip
-./install.sh --project-discovery add
-./install.sh --project-discovery pick
-./install.sh --project-discovery skip
 ./install.sh --token-mode caveman
 ./install.sh --token-mode curse
 ./install.sh --skip-tests
+./install.sh --run-developer-tests
 ```
 
 PowerShell exposes equivalent parameters.
 
-## First project
+A normal install runs the short source compile check and the installed product self-test. It does not run Manageroo's complete developer test suite. `--run-developer-tests` is the explicit contributor and release-validation option; `--skip-tests` skips the source compile check as well.
 
-Discover existing Git projects:
+## First request
 
-```bash
-manageroo projects --add
+The interactive installer finishes by discovering projects read-only and opening Manageroo:
+
+```text
+Hi! I'm Manageroo! Let's do!
+>
 ```
 
-Start Manageroo in an existing repo:
+Type the work you want done. Manageroo matches the request to discovered projects and asks which project only when necessary. Installation never initializes every discovered repository.
+
+To bypass automatic matching and name an existing repository explicitly:
 
 ```bash
 manageroo solo /absolute/path/to/product
@@ -257,7 +262,7 @@ matches the complete generated POSIX or Windows launcher structure.
 
 ## Release proof
 
-The repository intentionally does not use GitHub Actions. The fail-closed release command is:
+This repository does not use GitHub Actions. The fail-closed release command is:
 
 ```bash
 python3 scripts/release.py

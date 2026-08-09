@@ -15,84 +15,123 @@ from manageroo.errors import SafetyError
 from manageroo.util import atomic_write_text
 
 
+def _hold_artifact_lock_with_delayed_owner(
+    root: str,
+    owner_write_started,
+    resume_owner_write,
+    first_entered,
+    release_first,
+) -> None:
+    store = ArtifactStore(Path(root))
+    real_write_owner = ArtifactStore._write_owner_at
+
+    def delayed_owner_write(active_store, directory_fd: int, token: str):
+        if not owner_write_started.is_set():
+            owner_write_started.set()
+            if not resume_owner_write.wait(timeout=15):
+                raise TimeoutError("test did not resume first owner publication")
+        return real_write_owner(active_store, directory_fd, token)
+
+    with mock.patch.object(ArtifactStore, "_write_owner_at", new=delayed_owner_write):
+        with store._transaction_lock():
+            first_entered.set()
+            if not release_first.wait(timeout=15):
+                raise TimeoutError("test did not release first transaction lock")
+
+
+def _acquire_artifact_lock_after_owner(
+    root: str,
+    lock_path: str,
+    initialized,
+    start_attempt,
+    reclaimer_ready,
+    resume_reclaimer,
+    second_entered,
+) -> None:
+    real_rename = os.rename
+    store = ArtifactStore(Path(root))
+    initialized.set()
+    if not start_attempt.wait(timeout=15):
+        raise TimeoutError("test did not start second lock attempt")
+
+    def delayed_reclaim_rename(source, destination, *args, **kwargs):
+        if Path(source) == Path(lock_path) and ".reclaimed-" in Path(destination).name:
+            reclaimer_ready.set()
+            if not resume_reclaimer.wait(timeout=15):
+                raise TimeoutError("test did not resume abandoned-lock rename")
+        return real_rename(source, destination, *args, **kwargs)
+
+    with mock.patch("manageroo.artifacts.os.rename", side_effect=delayed_reclaim_rename):
+        with store._transaction_lock():
+            second_entered.set()
+
+
 class ArtifactConcurrencyTests(unittest.TestCase):
     def test_delayed_owner_publication_cannot_be_reclaimed_while_writer_is_active(self):
-        try:
-            process_context = multiprocessing.get_context("fork")
-        except ValueError:
-            self.skipTest("coordinated lock-publication test requires fork")
+        process_context = multiprocessing.get_context("spawn")
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "artifacts"
-            first = ArtifactStore(root)
-            second = ArtifactStore(root)
             lock_path = root / ".artifact-ledger.lock"
             owner_write_started = process_context.Event()
             resume_owner_write = process_context.Event()
             reclaimer_ready = process_context.Event()
             resume_reclaimer = process_context.Event()
+            second_initialized = process_context.Event()
+            start_second = process_context.Event()
             first_entered = process_context.Event()
             release_first = process_context.Event()
             second_entered = process_context.Event()
 
-            def delayed_first_owner_write(store, directory_fd: int, token: str):
-                if not owner_write_started.is_set():
-                    owner_write_started.set()
-                    if not resume_owner_write.wait(timeout=5):
-                        raise TimeoutError("test did not resume first owner publication")
-                return real_write_owner(store, directory_fd, token)
-
-            def delayed_reclaim_rename(source, destination, *args, **kwargs):
-                if Path(source) == lock_path and ".reclaimed-" in Path(destination).name:
-                    reclaimer_ready.set()
-                    if not resume_reclaimer.wait(timeout=5):
-                        raise TimeoutError("test did not resume abandoned-lock rename")
-                return real_rename(source, destination, *args, **kwargs)
-
-            def hold_first_lock() -> None:
-                with mock.patch.object(
-                    ArtifactStore,
-                    "_write_owner_at",
-                    new=delayed_first_owner_write,
-                ):
-                    with first._transaction_lock():
-                        first_entered.set()
-                        if not release_first.wait(timeout=5):
-                            raise TimeoutError("test did not release first transaction lock")
-
-            def acquire_second_lock() -> None:
-                with mock.patch("manageroo.artifacts.os.rename", side_effect=delayed_reclaim_rename):
-                    with second._transaction_lock():
-                        second_entered.set()
-
-            real_write_owner = ArtifactStore._write_owner_at
-            real_rename = os.rename
-            first_process = process_context.Process(target=hold_first_lock)
-            second_process = process_context.Process(target=acquire_second_lock)
+            first_process = process_context.Process(
+                target=_hold_artifact_lock_with_delayed_owner,
+                args=(
+                    str(root),
+                    owner_write_started,
+                    resume_owner_write,
+                    first_entered,
+                    release_first,
+                ),
+            )
+            second_process = process_context.Process(
+                target=_acquire_artifact_lock_after_owner,
+                args=(
+                    str(root),
+                    str(lock_path),
+                    second_initialized,
+                    start_second,
+                    reclaimer_ready,
+                    resume_reclaimer,
+                    second_entered,
+                ),
+            )
             try:
+                second_process.start()
+                self.assertTrue(second_initialized.wait(timeout=15))
                 first_process.start()
-                self.assertTrue(owner_write_started.wait(timeout=5))
+                self.assertTrue(owner_write_started.wait(timeout=15))
                 stale_time = time.time() - 10
                 os.utime(lock_path, (stale_time, stale_time))
-                second_process.start()
+                start_second.set()
 
                 # Vulnerable implementations reach the final rename after deciding
                 # the still-unpublished owner is abandoned. A real advisory lock keeps
                 # the contender outside directory reclamation entirely.
                 reclaimer_ready.wait(timeout=0.5)
                 resume_owner_write.set()
-                self.assertTrue(first_entered.wait(timeout=5))
+                self.assertTrue(first_entered.wait(timeout=15))
                 resume_reclaimer.set()
                 self.assertFalse(second_entered.wait(timeout=0.2))
 
                 release_first.set()
-                self.assertTrue(second_entered.wait(timeout=5))
-                first_process.join(timeout=5)
-                second_process.join(timeout=5)
+                self.assertTrue(second_entered.wait(timeout=15))
+                first_process.join(timeout=15)
+                second_process.join(timeout=15)
                 self.assertEqual(first_process.exitcode, 0)
                 self.assertEqual(second_process.exitcode, 0)
             finally:
                 resume_owner_write.set()
                 resume_reclaimer.set()
+                start_second.set()
                 release_first.set()
                 for process in (first_process, second_process):
                     if process.pid is not None:

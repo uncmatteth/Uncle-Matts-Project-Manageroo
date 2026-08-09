@@ -6,11 +6,12 @@ import os
 import shutil
 import stat
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..errors import SafetyError
@@ -37,6 +38,52 @@ class TransactionalAdapter(AgentAdapter):
     def __init__(self, inner: AgentAdapter, runner: CommandRunner):
         self.inner = inner
         self.runner = runner
+        self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
+        self._inner_launch_hook_installed = False
+        self._launch_state = threading.local()
+
+    def __getstate__(self) -> dict:
+        state = dict(self.__dict__)
+        state.pop("_launch_state", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._launch_state = threading.local()
+
+    def set_before_worker_launch(
+        self, callback: Callable[[AgentRequest], AgentRequest]
+    ) -> None:
+        """Keep controller-owned pre-launch writes outside the worker-tamper window."""
+        self._before_worker_launch = callback
+        setter = getattr(self.inner, "set_before_worker_launch", None)
+        if callable(setter):
+            setter(self._run_controller_launch_hook)
+            self._inner_launch_hook_installed = True
+
+    def _run_controller_launch_hook(self, request: AgentRequest) -> AgentRequest:
+        if self._before_worker_launch is None:
+            return request
+        bounded_request = self._before_worker_launch(request)
+        state = getattr(self._launch_state, "value", None)
+        if state is not None:
+            state["snapshot"] = self._snapshot_controller_truth(bounded_request)
+        return bounded_request
+
+    @contextmanager
+    def _controller_launch_window(
+        self, snapshot: _ControllerTruthSnapshot
+    ) -> Iterator[dict[str, _ControllerTruthSnapshot]]:
+        previous = getattr(self._launch_state, "value", None)
+        state = {"snapshot": snapshot}
+        self._launch_state.value = state
+        try:
+            yield state
+        finally:
+            if previous is None:
+                del self._launch_state.value
+            else:
+                self._launch_state.value = previous
 
     @property
     def requires_host_capability_catalog(self) -> bool:
@@ -821,19 +868,27 @@ class TransactionalAdapter(AgentAdapter):
         refs = self._refs(request.cwd)
         git_snapshot = self._snapshot_git_metadata(request.cwd)
         truth_snapshot = self._snapshot_controller_truth(request)
-        try:
-            response = self.inner.run(request)
-        except Exception as exc:
-            changed_git_metadata = self._restore_git_metadata(git_snapshot)
-            changed_truth = self._restore_controller_truth(truth_snapshot)
-            self._rollback_failed_attempt(request, head, refs, head_state, git_snapshot)
-            if changed_git_metadata:
-                raise SafetyError("Worker modified protected Git metadata; changes were restored.") from exc
-            if changed_truth:
-                raise SafetyError(
-                    "Worker modified critical Manageroo controller truth; changes were restored: " + ", ".join(changed_truth)
-                ) from exc
-            raise
+        with self._controller_launch_window(truth_snapshot) as launch_state:
+            try:
+                if (
+                    self._before_worker_launch is not None
+                    and not self._inner_launch_hook_installed
+                ):
+                    request = self._run_controller_launch_hook(request)
+                response = self.inner.run(request)
+            except Exception as exc:
+                truth_snapshot = launch_state["snapshot"]
+                changed_git_metadata = self._restore_git_metadata(git_snapshot)
+                changed_truth = self._restore_controller_truth(truth_snapshot)
+                self._rollback_failed_attempt(request, head, refs, head_state, git_snapshot)
+                if changed_git_metadata:
+                    raise SafetyError("Worker modified protected Git metadata; changes were restored.") from exc
+                if changed_truth:
+                    raise SafetyError(
+                        "Worker modified critical Manageroo controller truth; changes were restored: " + ", ".join(changed_truth)
+                    ) from exc
+                raise
+            truth_snapshot = launch_state["snapshot"]
 
         changed_git_metadata = self._restore_git_metadata(git_snapshot)
         changed_truth = self._restore_controller_truth(truth_snapshot)

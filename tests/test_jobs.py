@@ -7,9 +7,37 @@ from manageroo.context import ContextRequest
 from manageroo.errors import SafetyError
 from manageroo.jobs import AttemptStatus, JobStatus, JobStore
 from manageroo.util import atomic_write_json, sha256_file
+from tests.support import symlink_or_skip
 
 
 class JobStoreTests(unittest.TestCase):
+    def test_completed_job_accepts_run_root_beneath_a_canonical_ancestor_alias(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            actual = base / "actual"
+            alias = base / "alias"
+            actual.mkdir()
+            symlink_or_skip(self, actual, alias, target_is_directory=True)
+            run_root = alias / "run"
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            artifact = run_root / "artifacts" / "agent" / "001-product-analyst.json"
+            atomic_write_json(artifact, {"ok": True})
+
+            completed = store.complete_job(
+                job.id,
+                output_artifact="agent/001-product-analyst.json",
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+
+            self.assertEqual(completed.status, JobStatus.COMPLETE.value)
+
     def test_running_attempt_rejects_sequential_second_begin(self):
         with tempfile.TemporaryDirectory() as temp:
             store = JobStore(Path(temp))

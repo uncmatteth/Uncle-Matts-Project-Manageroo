@@ -188,6 +188,67 @@ def _extract_check_repo_arg(argv: list[str], repo: str) -> tuple[str, list[str]]
     return selected_repo, cleaned + suffix
 
 
+def _plain_failure_explanation(detail: str) -> str:
+    if "modified critical Manageroo controller truth" in detail:
+        return (
+            "One of Manageroo's protected run records changed while the worker "
+            "was running. Manageroo put the record back and stopped."
+        )
+    return "Manageroo could not finish this run, so it stopped."
+
+
+def _format_plain_run_summary(data: dict, *, run_id: str, repo: Path) -> str:
+    status = str(data.get("status") or data.get("phase") or "UNKNOWN").upper()
+    if status == "COMPLETE":
+        happened = "The requested work passed Manageroo's required checks and review."
+        if data.get("applied_to_source"):
+            meaning = "The verified changes were applied to the project."
+            next_step = "Review the finished result in the project."
+        else:
+            meaning = "The verified changes are ready, but were not applied to the project."
+            next_step = "Apply the verified result when you are ready."
+        heading = "Manageroo finished the run."
+    elif status == "WAITING_FOR_PRODUCT_DECISION":
+        happened = "Manageroo needs a decision that it cannot safely make for you."
+        meaning = "No further work was accepted while that decision is unanswered."
+        next_step = f"Run `{PUBLIC_COMMAND} decisions show {shlex.quote(run_id)} --repo {shlex.quote(str(repo))}`."
+        heading = "Manageroo is waiting for your decision."
+    else:
+        error_detail = str(data.get("error") or "")
+        happened = _plain_failure_explanation(error_detail)
+        meaning = "The work was not marked complete, and the failed worker result was not accepted."
+        retry_command = shlex.join(
+            [
+                PUBLIC_COMMAND,
+                "run",
+                "--continue",
+                run_id,
+                "--repo",
+                str(repo),
+                "--apply",
+            ]
+        )
+        if "modified critical Manageroo controller truth" in error_detail:
+            next_step = f"Run `{retry_command}` to continue from the saved work."
+        else:
+            next_step = f"Fix the reported problem, then run `{retry_command}`."
+        heading = "Manageroo stopped safely."
+    return "\n".join(
+        [
+            heading,
+            f"What happened: {happened}",
+            f"What this means: {meaning}",
+            f"What to do next: {next_step}",
+        ]
+    ) + "\n"
+
+
+def _format_plain_run_failure(exc: BaseException, *, run_id: str, repo: Path) -> str:
+    return _format_plain_run_summary(
+        {"status": "BLOCKED", "error": str(exc)}, run_id=run_id, repo=repo
+    )
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog=PUBLIC_COMMAND,
@@ -441,6 +502,11 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--brief")
     run.add_argument("--mode", choices=["build", "repair"], default="build")
     run.add_argument(
+        "--json",
+        action="store_true",
+        help="Show the technical machine-readable result instead of the plain-English summary.",
+    )
+    run.add_argument(
         "--continue",
         dest="continue_run_id",
         help="Continue a durable run's saved worker job queue from disk.",
@@ -452,10 +518,18 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Show durable state for a run.")
     status.add_argument("run_id")
     status.add_argument("--repo", default=".")
+    status.add_argument("--json", action="store_true")
 
     report = sub.add_parser("report", help="Print the product-level final report.")
     report.add_argument("run_id")
     report.add_argument("--repo", default=".")
+    report_output = report.add_mutually_exclusive_group()
+    report_output.add_argument("--json", action="store_true")
+    report_output.add_argument(
+        "--full",
+        action="store_true",
+        help="Show the complete technical report instead of the plain-English summary.",
+    )
 
     idea = sub.add_parser("idea", help="Capture or list evolving product ideas.")
     idea_sub = idea.add_subparsers(dest="idea_command", required=True)
@@ -1094,16 +1168,53 @@ def main(argv: list[str] | None = None) -> int:
                 if args.brief
                 else repo / PROJECT_DIR / "PRODUCT-BRIEF.md"
             )
-            result = Orchestrator(
+            controller = Orchestrator(
                 repo,
                 run_id=args.continue_run_id,
                 continue_existing=bool(args.continue_run_id),
-            ).run(
-                brief_path=brief_path,
-                mode=args.mode,
-                apply_on_success=apply_override,
             )
-            print(json.dumps(result, indent=2))
+            try:
+                result = controller.run(
+                    brief_path=brief_path,
+                    mode=args.mode,
+                    apply_on_success=apply_override,
+                )
+            except (MANAGEROOError, OSError, ValueError, RuntimeError) as exc:
+                if args.json:
+                    print(
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "status": "BLOCKED",
+                                "run_id": controller.run_id,
+                                "error_type": type(exc).__name__,
+                                "error": str(exc),
+                            },
+                            indent=2,
+                        )
+                    )
+                else:
+                    print(
+                        _format_plain_run_failure(
+                            exc, run_id=controller.run_id, repo=repo
+                        ),
+                        file=sys.stderr,
+                        end="",
+                    )
+                return 1
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(
+                    "Manageroo finished the run.\n"
+                    "What happened: The requested work passed Manageroo's required checks and review.\n"
+                    + (
+                        "What this means: The verified changes were applied to the project.\n"
+                        if result.get("applied_to_source")
+                        else "What this means: The verified changes are ready, but were not applied to the project.\n"
+                    )
+                    + f"What to do next: Run `{PUBLIC_COMMAND} report {controller.run_id} --repo {shlex.quote(str(repo))}` for the plain run summary."
+                )
             return 0
 
         if args.command == "status":
@@ -1121,13 +1232,36 @@ def main(argv: list[str] | None = None) -> int:
                 "next_action": jobs["next_action"],
                 "blocking_reason": jobs["blocking_reason"],
             }
-            print(json.dumps(payload, indent=2))
+            if args.json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print(
+                    _format_plain_run_summary(
+                        payload, run_id=args.run_id, repo=repo
+                    ),
+                    end="",
+                )
             return 0
 
         if args.command == "report":
             repo = _repo(args.repo)
-            path = repo / PROJECT_DIR / "runs" / args.run_id / "delivery" / "FINAL-REPORT.md"
-            print(path.read_text(encoding="utf-8"))
+            delivery = repo / PROJECT_DIR / "runs" / args.run_id / "delivery"
+            if args.full:
+                print((delivery / "FINAL-REPORT.md").read_text(encoding="utf-8"))
+                return 0
+            result_path = delivery / "final-result.json"
+            if not result_path.is_file():
+                result_path = delivery / "failure.json"
+            result = read_json(result_path)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(
+                    _format_plain_run_summary(
+                        result, run_id=args.run_id, repo=repo
+                    ),
+                    end="",
+                )
             return 0
 
         if args.command == "idea":

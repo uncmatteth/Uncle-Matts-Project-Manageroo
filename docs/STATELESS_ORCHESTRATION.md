@@ -99,5 +99,6 @@ Inspect a run with:
 manageroo status <run-id>
 ```
 
-Status shows the phase, current job, completed job count, failed attempts,
-blocking reason, and the next action.
+Status explains what happened, what it means, and what to do next in plain
+English. Use `--json` when you explicitly need the phase, current job, completed
+job count, failed attempts, blocking reason, and other machine-readable details.

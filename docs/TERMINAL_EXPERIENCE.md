@@ -12,6 +12,14 @@ Full incredibly super serious acronym:
 
 > **MANAGEROO**
 
+## Plain-English results
+
+Normal Manageroo results and agent handoffs explain what happened, what it means
+for the requested work, and what to do next in plain everyday English. They do
+not lead with process IDs, internal role names, state-file paths, hashes, stack
+traces, or implementation jargon. Those details stay in saved evidence unless
+the operator explicitly asks for them or requests diagnostic or JSON output.
+
 ## Animation
 
 The installer and `manageroo banner` use hand-authored MANAGEROO ANSI artwork. No font package or terminal graphics dependency is installed.

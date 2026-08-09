@@ -79,7 +79,9 @@ class OrchestratorJobCliTests(unittest.TestCase):
 
             stdout = io.StringIO()
             with redirect_stdout(stdout):
-                code = main(["status", result["run_id"], "--repo", str(repo)])
+                code = main(
+                    ["status", result["run_id"], "--repo", str(repo), "--json"]
+                )
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
             self.assertEqual(payload["phase"], "COMPLETE")

@@ -122,6 +122,7 @@ def config_mutation_lock(
         raise SafetyError(
             f"Could not create config lock directory: {lock_directory}: {exc}"
         ) from exc
+    lock_directory = lock_directory.parent.resolve(strict=True) / lock_directory.name
     directory_descriptor = None
     if os.name == "nt":
         _validate_lock_directory(None, lock_directory)
@@ -143,19 +144,25 @@ def config_mutation_lock(
             raise
 
     lock_path = lock_directory / (config_path.name + ".manageroo.lock")
-    flags = os.O_CREAT | os.O_RDWR
+    flags = os.O_RDWR
     flags |= getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
-    try:
+
+    def open_lock_file(open_flags: int) -> int:
         if directory_descriptor is None:
-            descriptor = os.open(lock_path, flags, 0o600)
-        else:
-            descriptor = os.open(
-                lock_path.name,
-                flags,
-                0o600,
-                dir_fd=directory_descriptor,
-            )
+            return os.open(lock_path, open_flags, 0o600)
+        return os.open(
+            lock_path.name,
+            open_flags,
+            0o600,
+            dir_fd=directory_descriptor,
+        )
+
+    try:
+        try:
+            descriptor = open_lock_file(flags | os.O_CREAT | os.O_EXCL)
+        except FileExistsError:
+            descriptor = open_lock_file(flags)
     except OSError as exc:
         if directory_descriptor is not None:
             os.close(directory_descriptor)

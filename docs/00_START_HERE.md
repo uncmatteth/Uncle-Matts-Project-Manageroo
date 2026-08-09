@@ -29,6 +29,8 @@ git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd 
 git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
 ```
 
+If the repository is already cloned, rerun the platform installer from that existing folder. Do not run the clone command from inside the clone; that creates a nested copy.
+
 The installer checks Python 3.11+ and Git and offers platform-appropriate setup when either is missing. It also detects Codex, Claude Code, and Gemini CLI, uses a single detected tool automatically, asks for a preference only when several are present, and offers Codex setup when none is found.
 
 Useful checks after installation:
@@ -173,10 +175,10 @@ manageroo stack-update --apply
 ## Existing projects on your machine
 
 ```bash
-manageroo projects --add
+manageroo
 ```
 
-This discovers Git repositories and lets Manageroo register projects you already have.
+Manageroo discovers Git repositories in the usual project folders, asks what you want done, and matches the request to a project. It asks you to choose only when the request is ambiguous.
 
 ## One existing repository
 
@@ -241,6 +243,10 @@ For the fuller explanation, results, and evidence:
 ```bash
 manageroo report RUN_ID --repo .
 ```
+
+`run`, `status`, and `report` use plain everyday English by default. Technical
+details stay in the saved evidence unless you explicitly request `--json`, or
+use `manageroo report RUN_ID --repo . --full` for the complete report.
 
 `--repo .` means the repository in the current directory. Replace `.` with an absolute path when running the command somewhere else.
 

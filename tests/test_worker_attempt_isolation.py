@@ -1,9 +1,11 @@
+import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
+from manageroo.adapters.budget import BudgetedAdapter
 from manageroo.adapters.transactional import TransactionalAdapter
 from manageroo.errors import AgentExecutionError, SafetyError
 from manageroo.jobs import JobStore
@@ -45,6 +47,40 @@ class _IgnoredSuccess(AgentAdapter):
         ignored.parent.mkdir()
         ignored.write_text("hidden mutation\n", encoding="utf-8")
         return AgentResponse(role=request.role, data={"ok": True}, raw_text='{"ok": true}', command=["ignored-worker"])
+
+
+class _LaunchHookSuccess(AgentAdapter):
+    def __init__(self):
+        self.before_launch = None
+
+    def set_before_worker_launch(self, callback):
+        self.before_launch = callback
+
+    def doctor(self, cwd: Path):
+        return {"ok": True}
+
+    def run(self, request: AgentRequest):
+        if self.before_launch is not None:
+            request = self.before_launch(request)
+        return AgentResponse(
+            role=request.role,
+            data={"ok": True},
+            raw_text='{"ok": true}',
+            command=["hook-aware-worker"],
+        )
+
+
+class _BudgetTamperingWorker(_LaunchHookSuccess):
+    def __init__(self, budget_path: Path):
+        super().__init__()
+        self.budget_path = budget_path
+
+    def run(self, request: AgentRequest):
+        response = super().run(request)
+        payload = json.loads(self.budget_path.read_text(encoding="utf-8"))
+        payload["worker_calls_consumed"] = 999
+        atomic_write_json(self.budget_path, payload)
+        return response
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -114,6 +150,78 @@ def _record_completed_write_job(run_root: Path) -> str:
 
 
 class WorkerAttemptIsolationTests(unittest.TestCase):
+    def test_controller_budget_update_is_not_mistaken_for_worker_tampering(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = _git_repo(root)
+            run_root = root / "run" / "budget-guard-test"
+            run_root.mkdir(parents=True)
+            workspace = WorkspaceMirror(source, run_root, CommandRunner()).create()
+            request = _run_request(run_root, workspace)
+            budget_path = run_root / "controller" / "budget.json"
+            budget_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(
+                budget_path,
+                {
+                    "worker_calls_consumed": 0,
+                    "max_total_worker_calls": 5,
+                    "updated_at": "before",
+                },
+            )
+            adapter = BudgetedAdapter(
+                TransactionalAdapter(_LaunchHookSuccess(), CommandRunner()),
+                max_total_worker_calls=5,
+                state_path=budget_path,
+            )
+
+            response = adapter.run(request)
+
+            self.assertTrue(response.data["ok"])
+            self.assertEqual(
+                json.loads(budget_path.read_text(encoding="utf-8"))[
+                    "worker_calls_consumed"
+                ],
+                1,
+            )
+
+    def test_worker_budget_tampering_is_still_restored_and_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = _git_repo(root)
+            run_root = root / "run" / "budget-tamper-test"
+            run_root.mkdir(parents=True)
+            workspace = WorkspaceMirror(source, run_root, CommandRunner()).create()
+            request = _run_request(run_root, workspace)
+            budget_path = run_root / "controller" / "budget.json"
+            budget_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(
+                budget_path,
+                {
+                    "worker_calls_consumed": 0,
+                    "max_total_worker_calls": 5,
+                    "updated_at": "before",
+                },
+            )
+            adapter = BudgetedAdapter(
+                TransactionalAdapter(
+                    _BudgetTamperingWorker(budget_path), CommandRunner()
+                ),
+                max_total_worker_calls=5,
+                state_path=budget_path,
+            )
+
+            with self.assertRaisesRegex(
+                SafetyError, "Worker modified critical Manageroo controller truth"
+            ):
+                adapter.run(request)
+
+            self.assertEqual(
+                json.loads(budget_path.read_text(encoding="utf-8"))[
+                    "worker_calls_consumed"
+                ],
+                1,
+            )
+
     def test_failed_transactional_worker_cannot_poison_next_attempt(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _git_repo(Path(temp))

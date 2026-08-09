@@ -107,7 +107,7 @@ max_total_worker_calls = 80
 max_runtime_minutes = 240
 ```
 
-The logical worker-call counter is persisted in the run controller directory before each launch, so consumed calls survive `run --continue`. The runtime budget clamps each worker timeout to the remaining process budget. Provider fallback subprocesses currently share the enclosing logical Manageroo call count, and elapsed runtime is not accumulated across a stopped process and later continuation.
+The worker-call counter is persisted in the run controller directory before each real provider launch, so consumed calls survive `run --continue` and provider fallbacks cannot hide extra launches. Manageroo refreshes its protected controller snapshot after writing that reservation and before starting the provider, so it does not mistake its own update for worker tampering. The runtime budget clamps each worker timeout to the remaining process budget. Elapsed runtime is not accumulated across a stopped process and later continuation.
 
 Exhausting a configured controller budget blocks further worker launches. Provider-specific budget controls can be layered on later but do not replace the Manageroo budget.
 

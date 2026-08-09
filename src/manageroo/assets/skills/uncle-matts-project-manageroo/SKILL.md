@@ -35,6 +35,14 @@ manageroo compact audit --summary SUMMARY.md
 
 Do not call a plan best, perfect, ready, or 100% complete unless current evidence proves that exact claim.
 
+## Operator communication
+
+Report to the operator in plain everyday English by default. Say what happened,
+what it means for the requested work, and what to do next. Do not lead with
+process IDs, internal role names, state-file paths, hashes, stack traces, or
+implementation jargon. Keep technical details in saved evidence unless the
+operator explicitly asks for them or requests diagnostic or JSON output.
+
 ## First-install request policy
 
 Manageroo's first installation is intentionally human-first because the installer presents meaningful choices about the local setup.
@@ -60,7 +68,9 @@ Windows PowerShell:
 .\install.ps1
 ```
 
-Meaningful choices include the recommended surrounding stack, GBrain lane, core skill installation, token-reduction mode, project discovery, stack doctor, Clawpatch/Codex login assistance, music, and animation.
+Meaningful choices include the recommended surrounding stack, GBrain lane, core skill installation, token-reduction mode, stack doctor, Clawpatch/Codex login assistance, music, and animation.
+
+Project discovery is automatic and read-only. Installation must not ask the operator to select or enroll a project. The interactive installer finishes by opening bare `manageroo`, which scans the usual project folders and prints `Hi! I'm Manageroo! Let's do!` before accepting the work request. Manageroo asks which project only after the request and only when automatic matching is ambiguous.
 
 Do not invent selections or bypass explicit choices.
 

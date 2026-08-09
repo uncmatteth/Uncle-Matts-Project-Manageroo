@@ -185,8 +185,12 @@ def _autoreview_installation_error(
     candidate = Path(installation["candidate_path"]).expanduser()
     approved_root = Path(installation["approved_root"]).expanduser()
     target = Path(installation["resolved_path"]).expanduser()
-    if destination != target:
-        return "mutation target does not match the planned resolved destination"
+    try:
+        canonical_destination = destination.expanduser().parent.resolve(strict=True) / destination.name
+    except OSError as exc:
+        return f"mutation target can no longer be verified: {exc}"
+    if canonical_destination != target:
+        return "mutation target identity does not match the planned resolved destination"
     if target.name != "autoreview" or target.parent != approved_root:
         return "planned target is not directly beneath its approved skill root"
     try:

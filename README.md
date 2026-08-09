@@ -17,6 +17,8 @@
 > git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
 > ```
 >
+> Already cloned it? Stay in that existing folder and rerun `./install.sh` or `.\install.ps1`. Do not run the clone command from inside the clone; that creates a nested copy.
+>
 > If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
 
 When Codex is selected, setup also verifies Codex's own native sandbox before
@@ -27,19 +29,20 @@ silently turn the sandbox off.
 >
 > **2. Follow the guided setup**
 >
-> Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, optional supporting tools, token style, project discovery, and a read-only stack check.
+> Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, supporting tools, token style, and a read-only stack check.
 >
-> Project discovery itself is read-only. Manageroo shows what it found and asks which projects to enroll. Only selected projects receive the context bundle; everything else is left alone.
+> At the end, Manageroo automatically scans the usual project folders for Git repositories. That discovery is read-only: installation does not ask you to choose a project or write Manageroo files into every repository.
 >
-> **3. Point Manageroo at a project**
+> **3. Tell Manageroo what you want**
 >
-> Open a new terminal and run:
+> The installer finishes at:
 >
-> ```bash
-> manageroo solo /absolute/path/to/your-project
+> ```text
+> Hi! I'm Manageroo! Let's do!
+> >
 > ```
 >
-> Answer the questions in plain English: what you want built or fixed, who it is for, what must not change, and what proof should count. If you are ever unsure what comes next, run `manageroo next`.
+> Type what you want built or fixed. Manageroo matches the request to the discovered projects. If the request could belong to more than one project, it asks only then. Later, run `manageroo` again from any normal terminal to return to the same front door.
 >
 > You do **not** have to create or fill agent context files yourself. `solo` safely creates or updates `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, the current intent lock, Manageroo configuration, and the repo-local Manageroo skill. Existing human-written `AGENTS.md` and `CONTEXT.md` content is preserved.
 >
@@ -196,15 +199,17 @@ Claims that require observable evidence remain unproven until matching affirmati
 
 # How to actually use Manageroo
 
-## 1. Point Manageroo at a project
+## 1. Tell Manageroo what you want
 
-Discover Git repositories on your machine and add them to Manageroo's project list:
+Run the plain-language front door:
 
 ```bash
-manageroo projects --add
+manageroo
 ```
 
-For one specific existing repository:
+Manageroo discovers Git repositories in the usual project folders, accepts the request first, and selects the matching project. It asks which project only when the request is ambiguous.
+
+To target one specific existing repository explicitly:
 
 ```bash
 manageroo solo /absolute/path/to/product
@@ -264,7 +269,7 @@ See the current state of a run:
 manageroo status RUN_ID --repo .
 ```
 
-Use `status` for the concise operational view: where the run is, whether it is blocked, whether it failed, and what state it currently holds.
+Use `status` for a concise plain-English explanation of what happened, what it means, and what to do next. Use `manageroo status RUN_ID --repo . --json` only when you explicitly want the complete machine-readable details.
 
 See the fuller human-readable result and evidence:
 
@@ -272,7 +277,7 @@ See the fuller human-readable result and evidence:
 manageroo report RUN_ID --repo .
 ```
 
-Use `report` when you want the explanation of what Manageroo did, what changed, what passed, what failed, what evidence was collected, and what still needs attention.
+Use `report` for the plain-English run summary. Use `--full` for the complete technical report or `--json` for machine-readable details.
 
 `--repo .` means "use the repository in my current directory." Replace `.` with an absolute repository path when running the command from somewhere else.
 

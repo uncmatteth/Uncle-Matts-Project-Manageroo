@@ -137,7 +137,7 @@ class StackUpdateTests(unittest.TestCase):
         self.assertEqual(tool["pinned_commit"], CLAWPATCH_SUPERVISOR_COMMIT)
         self.assertEqual(Path(tool["commands"][0][-1]).name, "supervisor_gate")
         self.assertEqual(tool["commands"][1][-1], CLAWPATCH_SUPERVISOR_SOURCE)
-        self.assertEqual(tool["commands"][2], [str(executable), "--version"])
+        self.assertEqual(tool["commands"][2], [str(executable.resolve()), "--version"])
 
     def test_plan_does_not_update_an_unowned_supervisor_path(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -459,7 +459,11 @@ class StackUpdateTests(unittest.TestCase):
 
     def test_plan_parses_package_manager_stdout_when_stderr_warns(self):
         with tempfile.TemporaryDirectory() as temp:
-            prefix = Path(temp) / "npm-prefix"
+            actual = Path(temp) / "actual"
+            alias = Path(temp) / "alias"
+            actual.mkdir()
+            symlink_or_skip(self, actual, alias, target_is_directory=True)
+            prefix = alias / "npm-prefix"
             npm_bin = prefix / "bin"
             package_root = prefix / "lib" / "node_modules"
             package = package_root / "gitnexus"
@@ -1062,7 +1066,10 @@ class StackUpdateTests(unittest.TestCase):
 
     def test_autoreview_substitution_after_final_check_is_restored_and_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp)
+            actual_home = Path(temp) / "actual-home"
+            home = Path(temp) / "home-alias"
+            actual_home.mkdir()
+            symlink_or_skip(self, actual_home, home, target_is_directory=True)
             destination = home / ".codex" / "skills" / "autoreview"
             destination.mkdir(parents=True)
             original_skill = "---\nname: autoreview\n---\nold\n"

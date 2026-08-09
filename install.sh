@@ -4,6 +4,23 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MACOS_PYTHON_URL='https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg'
 MACOS_PYTHON_SHA256='8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4'
 
+prepend_macos_tool_paths() {
+  [ "$(uname -s)" = "Darwin" ] || return 0
+  command -v brew >/dev/null 2>&1 && return 0
+  for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [ -x "$candidate" ]; then
+      case ":$PATH:" in
+        *":${candidate%/*}:"*) ;;
+        *) PATH="${candidate%/*}:$PATH" ;;
+      esac
+      export PATH
+      return 0
+    fi
+  done
+}
+
+prepend_macos_tool_paths
+
 find_python() {
   for candidate in python3.13 python3.12 python3.11 python3; do
     if command -v "$candidate" >/dev/null 2>&1; then

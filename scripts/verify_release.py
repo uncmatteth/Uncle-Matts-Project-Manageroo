@@ -314,7 +314,10 @@ def structural_checks() -> list[dict]:
         },
         {
             "name": "no-github-actions-workflows",
-            "ok": not any(_relative(path).as_posix().startswith(".github/workflows/") for path in selected),
+            "ok": not any(
+                _relative(path).as_posix().startswith(".github/workflows/")
+                for path in selected
+            ),
         },
     ])
     return checks

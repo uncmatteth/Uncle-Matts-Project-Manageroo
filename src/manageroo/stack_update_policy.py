@@ -210,7 +210,10 @@ def _regular_shim_references(tool: Path, target: Path) -> bool:
         if len(payload) > 64 * 1024:
             return False
         shim = payload.decode("utf-8").replace("\\", "/").casefold()
-        relative_target = os.path.relpath(target, tool.parent).replace("\\", "/").casefold()
+        relative_target = os.path.relpath(
+            target,
+            tool.parent.resolve(strict=False),
+        ).replace("\\", "/").casefold()
     except (OSError, UnicodeError, ValueError):
         return False
     absolute_target = str(target).replace("\\", "/").casefold()

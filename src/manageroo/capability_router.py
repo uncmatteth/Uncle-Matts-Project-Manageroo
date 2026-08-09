@@ -378,7 +378,7 @@ def _scan_capability_roots(
             continue
         if not stat.S_ISDIR(root_stat.st_mode):
             continue
-        root = root.absolute()
+        root = root.resolve()
         if not _descriptor_capability_access_supported():
             return [], tuple(sorted(signature)), [{
                 "name": "",

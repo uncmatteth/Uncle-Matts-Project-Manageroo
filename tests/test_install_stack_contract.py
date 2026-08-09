@@ -107,7 +107,7 @@ class InstallStackContractTests(unittest.TestCase):
                 "function global:git { $global:LASTEXITCODE = 0 }\n"
                 "& $env:INSTALL_PS1 -Prefix $env:INSTALL_PREFIX -SkipTests -SkipStack "
                 "-SkipSkillPack -TokenMode off -Agent auto -GBrainLane skip "
-                "-ProjectDiscovery skip -StackDoctor skip -ClawpatchCodexLogin skip "
+                "-StackDoctor skip -ClawpatchCodexLogin skip "
                 "-NoMusic -NoAnimation\n",
                 encoding="utf-8",
             )

@@ -66,6 +66,9 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn(".manageroo/PROJECT-MEMORY.md", agents_text)
             self.assertIn("host-owned", agents_text)
             self.assertIn("portable core", agents_text)
+            self.assertIn("plain everyday English", agents_text)
+            self.assertIn("what happened, what it means, and what to do next", agents_text)
+            self.assertIn("unless the operator explicitly asks", agents_text)
             self.assertIn(".manageroo/PROJECT-MEMORY.md", context_text)
             self.assertIn("document/prose lane", context_text)
             self.assertTrue(

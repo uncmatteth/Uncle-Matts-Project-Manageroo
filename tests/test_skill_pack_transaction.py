@@ -1,8 +1,9 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from tests.support import symlink_or_skip
 
 from manageroo.skill_pack import import_skill_folder
 
@@ -68,7 +69,6 @@ class SkillPackTransactionTests(unittest.TestCase):
             self.assertEqual(snapshot(target), before)
             self.assertFalse((skills / ".demo-skill.manageroo-stage").exists())
 
-    @unittest.skipUnless(hasattr(os, "O_NOFOLLOW"), "requires no-follow file opening")
     def test_source_symlink_swap_after_validation_preserves_active_destination(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()
@@ -98,7 +98,7 @@ class SkillPackTransactionTests(unittest.TestCase):
             def swap_before_open(source_file, destination):
                 if source_file.path == payload:
                     payload.unlink()
-                    payload.symlink_to(linked_secret)
+                    symlink_or_skip(self, linked_secret, payload)
                 return original_copy(source_file, destination)
 
             with patch.object(

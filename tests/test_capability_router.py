@@ -170,6 +170,26 @@ class CapabilityRouterTests(unittest.TestCase):
             self.assertNotIn("should i use", prompt.lower())
             self.assertNotIn("?", prompt)
 
+    def test_capability_paths_are_canonical_beneath_a_symlinked_ancestor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            actual = base / "actual"
+            alias = base / "alias"
+            actual.mkdir()
+            symlink_or_skip(self, actual, alias, target_is_directory=True)
+            skill = self._skill(
+                alias / "skills",
+                "diagnose",
+                "Use when a confusing failure needs diagnosis.",
+            )
+
+            route = route_capabilities(
+                "Diagnose this confusing failure.",
+                roots=[alias / "skills"],
+            )
+
+            self.assertEqual(route["selected"][0]["path"], str(skill.resolve()))
+
     def test_token_mode_skills_remain_installer_preferences_not_task_routes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "skills"

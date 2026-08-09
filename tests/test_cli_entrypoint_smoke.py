@@ -51,6 +51,51 @@ class CliEntrypointSmokeTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("usage: manageroo", output.getvalue().lower())
 
+    def test_bare_manageroo_discovers_projects_then_accepts_a_plain_english_request(self):
+        project = Path("/projects/Uncle-Matts-Randomifier-Hood")
+        discovery = {
+            "ok": True,
+            "projects": [
+                {
+                    "name": "Swipeys-NFT-Contract",
+                    "path": "/projects/Swipeys-NFT-Contract",
+                    "status": "initialized",
+                },
+                {
+                    "name": project.name,
+                    "path": str(project),
+                    "status": "git repo",
+                }
+            ],
+            "count": 1,
+        }
+        output = io.StringIO()
+        request = "fix the checkout bug in randomifier hood"
+        with (
+            patch.object(sys, "argv", ["manageroo"]),
+            patch.object(sys.stdin, "isatty", return_value=True),
+            patch("manageroo.entrypoint.discover_projects", return_value=discovery) as discover,
+            patch("manageroo.entrypoint.cli_main", return_value=0) as routed,
+            patch("builtins.input", return_value=request),
+            contextlib.redirect_stdout(output),
+        ):
+            code = entrypoint_main()
+
+        self.assertEqual(code, 0)
+        self.assertIn("Hi! I'm Manageroo! Let's do!", output.getvalue())
+        discover.assert_called_once_with(limit=0, agent="auto")
+        routed.assert_called_once_with(
+            [
+                "solo",
+                str(project),
+                "--agent",
+                "auto",
+                "--want",
+                request,
+                "--run",
+            ]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

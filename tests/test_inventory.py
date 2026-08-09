@@ -39,6 +39,38 @@ class _CountingReader:
 
 
 class InventoryTests(unittest.TestCase):
+    def test_inventory_uses_safe_portable_descriptor_walk_without_linux_openat2(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "docs").mkdir()
+            (repo / "docs" / "guide.md").write_text("# Portable\n", encoding="utf-8")
+
+            with patch("manageroo.integrations._openat2_syscall_number", return_value=None):
+                files = build_inventory(repo, CommandRunner())
+
+            self.assertIn("docs/guide.md", {item.path for item in files})
+
+    def test_portable_descriptor_walk_rejects_symlinked_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "guide.md").write_text("EXTERNAL SECRET\n", encoding="utf-8")
+            try:
+                (repo / "docs").symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable on this platform")
+
+            with patch("manageroo.integrations._openat2_syscall_number", return_value=None):
+                files = build_inventory(repo, CommandRunner())
+
+            self.assertNotIn("docs/guide.md", {item.path for item in files})
+            self.assertNotIn("EXTERNAL SECRET", "\n".join(item.summary for item in files))
+
     def test_inventory_record_stays_consistent_when_file_changes_during_inspection(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

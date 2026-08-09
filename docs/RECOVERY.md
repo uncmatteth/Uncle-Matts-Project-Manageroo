@@ -9,6 +9,9 @@ manageroo status <run-id>
 manageroo report <run-id>
 ```
 
+Both commands use plain English by default. Add `--json` for machine-readable
+details, or add `--full` to `report` for the complete technical report.
+
 The run directory preserves:
 
 ```text

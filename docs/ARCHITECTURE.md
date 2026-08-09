@@ -207,6 +207,11 @@ global and repository catalog by canonical name and source path from model-visib
 context for that process. This is a deep module
 behind one automatic interface; workers and users do not implement routing at
 each call site.
+Capability source paths are canonicalized after the requested root itself passes
+the no-symlink check, so macOS aliases such as `/var` and `/private/var` cannot
+split disabled-path matching, selection records, and isolation records.
+Job artifacts and stack-tool destinations canonicalize ancestor directories while
+preserving the final path entry for independent link and executable-name checks.
 
 Controller policies and saved prose preferences are not ordinary task
 capabilities. In particular, `use-installed-skills-first` is native Manageroo
@@ -215,6 +220,16 @@ Skill-pack and token-mode installation is serialized with a permanent advisory
 file lock, so another process cannot enter while owner diagnostics are still
 being published. Existing lock inodes must be private regular files and are
 never truncated or rewritten.
+
+Project-config mutation locks first attempt exclusive file creation. A contender
+that observes an existing lock reopens it without creation, avoiding the macOS
+concurrent-creation race while retaining the existing inode and link checks.
+
+The durable worker budget is updated by Manageroo immediately before each real
+provider launch. The worker-transaction guard then refreshes its expected
+controller record before the provider process starts. Manageroo therefore does
+not blame a worker for the controller's own budget update, while any later worker
+change to that record is still restored and rejected.
 
 `release-ready` executes configured verification gates in a disposable local
 clone checked out at the exact candidate commit. After every gate, Manageroo

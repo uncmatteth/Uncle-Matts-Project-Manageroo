@@ -515,7 +515,8 @@ class JobStore:
                 relative, expected = self._artifact_path(output_artifact)
                 if artifact_path is None:
                     raise SafetyError(f"Completed job requires a written artifact: {job_id}")
-                actual = Path(os.path.abspath(artifact_path.expanduser()))
+                expanded_artifact = artifact_path.expanduser()
+                actual = expanded_artifact.parent.resolve() / expanded_artifact.name
                 if actual != expected:
                     raise SafetyError(
                         "Completed job artifact path does not match its run-owned "

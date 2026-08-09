@@ -108,6 +108,35 @@ class ConfigTests(unittest.TestCase):
 
             self.assertEqual(target.read_text(encoding="utf-8"), "keep me\n")
 
+    def test_existing_config_lock_is_opened_without_a_second_create_attempt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config_path = root / "config.toml"
+            cache = root / "cache"
+            cache.mkdir()
+            cache.chmod(0o700)
+            lock_path = cache / "config.toml.manageroo.lock"
+            lock_path.write_text("owner\n", encoding="utf-8")
+            lock_path.chmod(0o600)
+
+            with mock.patch(
+                "manageroo.config_lock.os.open",
+                wraps=os.open,
+            ) as open_file:
+                with config_mutation_lock(config_path):
+                    pass
+
+            lock_calls = [
+                call
+                for call in open_file.call_args_list
+                if call.args and call.args[0] in {lock_path, lock_path.name}
+            ]
+            self.assertGreaterEqual(len(lock_calls), 2)
+            self.assertTrue(lock_calls[0].args[1] & os.O_CREAT)
+            self.assertTrue(lock_calls[0].args[1] & os.O_EXCL)
+            self.assertFalse(lock_calls[1].args[1] & os.O_CREAT)
+            self.assertFalse(lock_calls[1].args[1] & os.O_EXCL)
+
     def test_contender_waits_while_owner_metadata_is_unpublished(self):
         with tempfile.TemporaryDirectory() as temp:
             config_path = Path(temp) / "config.toml"

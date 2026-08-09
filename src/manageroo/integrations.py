@@ -6,7 +6,7 @@ import os
 import platform
 import re
 import stat
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 from .errors import SafetyError
@@ -34,13 +34,20 @@ def _terms(query: str) -> set[str]:
 
 def _descriptor_export_supported() -> bool:
     return (
-        _openat2_syscall_number() is not None
+        _descriptor_relative_open_supported()
         and hasattr(os, "O_DIRECTORY")
         and hasattr(os, "O_NOFOLLOW")
-        and os.open in os.supports_dir_fd
         and os.stat in os.supports_dir_fd
         and os.stat in os.supports_follow_symlinks
         and os.unlink in os.supports_dir_fd
+    )
+
+
+def _descriptor_relative_open_supported() -> bool:
+    return (
+        hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and os.open in os.supports_dir_fd
     )
 
 
@@ -66,7 +73,29 @@ def _openat2_syscall_number() -> int | None:
 def _open_beneath(root_fd: int, relative: str, flags: int, mode: int = 0) -> int:
     syscall_number = _openat2_syscall_number()
     if syscall_number is None:
-        raise OSError(errno.ENOSYS, "openat2 is unavailable")
+        if not _descriptor_relative_open_supported():
+            raise OSError(errno.ENOSYS, "descriptor-relative open is unavailable")
+        safe_relative = safe_repo_relative(relative)
+        parts = PurePosixPath(safe_relative).parts
+        current_fd = os.dup(root_fd)
+        try:
+            directory_flags = (
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | os.O_NOFOLLOW
+                | getattr(os, "O_CLOEXEC", 0)
+            )
+            for part in parts[:-1]:
+                child_fd = os.open(part, directory_flags, dir_fd=current_fd)
+                child_state = os.fstat(child_fd)
+                if not stat.S_ISDIR(child_state.st_mode):
+                    os.close(child_fd)
+                    raise OSError(errno.ENOTDIR, "path component is not a directory", part)
+                os.close(current_fd)
+                current_fd = child_fd
+            return os.open(parts[-1], flags, mode, dir_fd=current_fd)
+        finally:
+            os.close(current_fd)
     how = _OpenHow(
         flags=flags,
         mode=mode,
