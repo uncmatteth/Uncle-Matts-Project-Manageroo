@@ -59,6 +59,49 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(state["messages"][0]["relation"], "replacement")
             self.assertEqual(state["generation"], 2)
 
+    def test_natural_correction_replaces_stale_scope_immediately(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Edit only /opt/old-project.",
+                },
+                state_root=root,
+            )
+            corrected = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "prompt": "No, use /opt/new-project. That is the repository.",
+                },
+                state_root=root,
+            )
+            context = corrected["hookSpecificOutput"]["additionalContext"]
+            self.assertNotIn("/opt/old-project", context)
+            self.assertIn("/opt/new-project", context)
+
+            stale_write = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "touch /opt/old-project/STALE.txt"},
+                },
+                state_root=root,
+            )
+            self.assertEqual(
+                stale_write["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
     def test_bare_stop_is_an_explicit_replacement(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

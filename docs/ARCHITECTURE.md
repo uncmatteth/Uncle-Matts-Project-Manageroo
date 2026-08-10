@@ -28,8 +28,8 @@ CLI
 Manageroo uses two distinct control layers. Codex continuity hooks preserve the
 operator-facing agent's unfinished objective across follow-up messages,
 resumption, and compaction. `UserPromptSubmit` adds the current message without
-ever blocking it; explicit cancel/replace language alone supersedes unfinished
-work. `PreToolUse` leaves reads and ordinary temporary evidence alone and
+ever blocking it; explicit cancel/replace language and an unambiguous natural
+correction such as `No, use this instead` supersede unfinished work. `PreToolUse` leaves reads and ordinary temporary evidence alone and
 rejects only a clearly unrelated or explicitly excluded agent mutation. Shell
 redirection binds only its output target; it does not turn other absolute paths
 read by the same command into mutation targets, and the platform null sink is

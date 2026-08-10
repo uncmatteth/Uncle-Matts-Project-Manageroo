@@ -4,7 +4,7 @@ Not every control is equally strong. This document distinguishes prevention from
 
 | Requirement | Mechanism | Strength |
 |---|---|---|
-| Manageroo blocks the operator's current request or requires repeated authorization phrases | `UserPromptSubmit` records and injects the request but never denies it; a newer request is accepted automatically; the installer removes the legacy permission firewall while preserving unrelated hooks | Preventive by hook contract |
+| Manageroo blocks the operator's current request or requires repeated authorization phrases | `UserPromptSubmit` records and injects the request but never denies it; a newer request or unambiguous natural correction such as `No, use this instead` is accepted automatically; the installer removes the legacy permission firewall while preserving unrelated hooks | Preventive by hook contract |
 | The operator-facing agent drifts into a different repository or explicitly excluded target | `PreToolUse` compares supported local mutations with the active objective, current repository, named paths, and exclusions; reads and bounded temporary evidence remain available; shell redirection classifies only its output target and ignores the platform null sink | Preventive for supported local tools |
 | The operator-facing agent stops after answering only a side question | `Stop` returns the complete active objective as a continuation until verified completion or one concrete external blocker is recorded | Preventive for the active Codex session |
 | A controlled worker edits outside its task | Immutable worker packet, isolated mirror, exact task-owned paths, post-role Git diff, and scope policy | Preventive and detective inside the run |

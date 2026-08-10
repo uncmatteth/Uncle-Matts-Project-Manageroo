@@ -29,6 +29,12 @@ _REPLACE_REQUEST = re.compile(
     r"^\s*(?:stop|cancel)(?:[.!]+)?\s*$",
     re.IGNORECASE,
 )
+_NATURAL_CORRECTION = re.compile(
+    r"^\s*(?:no(?:pe)?|actually|wrong|correction)\b\s*(?:[,. ;:\u2014-]\s*)?"
+    r"(?:please\s+)?(?:i\s+mean\s+)?(?:use|switch\s+to|work\s+(?:in|on|from)|edit|"
+    r"(?:the\s+)?(?:repo(?:sitory)?|path|file|source|target|method)\s+(?:is|should\s+be))\b",
+    re.IGNORECASE,
+)
 _ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9_])(/[A-Za-z0-9._~+@%:,=/-]+)")
 _NEGATION_NEAR_PATH = re.compile(
     r"\b(?:do\s+not|don't|never|must\s+not|mustn't|without|leave)\b",
@@ -130,7 +136,10 @@ def capture_current_request(
     if internal and existing is not None:
         return existing
 
-    replace = bool(_REPLACE_REQUEST.search(prompt))
+    natural_correction = bool(
+        not prompt.rstrip().endswith("?") and _NATURAL_CORRECTION.search(prompt)
+    )
+    replace = bool(_REPLACE_REQUEST.search(prompt)) or natural_correction
     if existing is None or existing.get("status") == "complete" or replace:
         messages = [_message(prompt, turn_id, "root" if not replace else "replacement")]
         created_at = utc_now()
