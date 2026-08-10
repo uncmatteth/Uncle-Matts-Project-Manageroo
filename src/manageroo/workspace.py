@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -51,30 +52,54 @@ class WorkspaceMirror:
         if self.workspace.exists() or self.snapshot_path.exists():
             raise SafetyError("Run workspace or source snapshot already exists; creation is immutable for an existing run.")
         self.run_root.mkdir(parents=True, exist_ok=True)
-        records = self.capture_source()
-        self.workspace.mkdir(parents=True)
-        for record in records:
-            destination = self.workspace / record.path
-            copy_file_preserving_mode(self.source_repo / record.path, destination)
-            copied_stat = destination.stat()
-            if (
-                copied_stat.st_size != record.bytes
-                or (copied_stat.st_mode & 0o777) != record.mode
-                or sha256_file(destination) != record.sha256
-            ):
-                raise SafetyError(
-                    f"Copied workspace file does not match source snapshot: {record.path}"
+        snapshot_created = False
+        workspace_created = False
+        try:
+            records = self.capture_source()
+            snapshot_created = True
+            self.workspace.mkdir(parents=True)
+            workspace_created = True
+            for record in records:
+                destination = self.workspace / record.path
+                copy_file_preserving_mode(self.source_repo / record.path, destination)
+                copied_stat = destination.stat()
+                if (
+                    copied_stat.st_size != record.bytes
+                    or (copied_stat.st_mode & 0o777) != record.mode
+                    or sha256_file(destination) != record.sha256
+                ):
+                    raise SafetyError(
+                        f"Copied workspace file does not match source snapshot: {record.path}"
+                    )
+            self._git(["init", "-b", "manageroo-internal"])
+            self._git(["config", "user.name", "MANAGEROO Controller"])
+            self._git(["config", "user.email", "manageroo@local.invalid"])
+            self._git(["add", "-A"])
+            self._git(["commit", "-m", "MANAGEROO isolated baseline"], hooks=False)
+            self.baseline_commit = self.head()
+            hook = self.workspace / ".git" / "hooks" / "pre-commit"
+            hook.write_text("#!/bin/sh\necho 'Agent commits are forbidden. The MANAGEROO controller owns checkpoints.' >&2\nexit 73\n", encoding="utf-8")
+            hook.chmod(0o755)
+            return self.workspace
+        except BaseException as exc:
+            self.baseline_commit = ""
+            cleanup_errors: list[str] = []
+            if workspace_created:
+                try:
+                    shutil.rmtree(self.workspace)
+                except OSError as cleanup_error:
+                    cleanup_errors.append(str(cleanup_error))
+            if snapshot_created:
+                try:
+                    self.snapshot_path.unlink()
+                except OSError as cleanup_error:
+                    cleanup_errors.append(str(cleanup_error))
+            if cleanup_errors:
+                exc.add_note(
+                    "Manageroo could not fully remove its failed workspace creation: "
+                    + "; ".join(cleanup_errors)
                 )
-        self._git(["init", "-b", "manageroo-internal"])
-        self._git(["config", "user.name", "MANAGEROO Controller"])
-        self._git(["config", "user.email", "manageroo@local.invalid"])
-        self._git(["add", "-A"])
-        self._git(["commit", "-m", "MANAGEROO isolated baseline"], hooks=False)
-        self.baseline_commit = self.head()
-        hook = self.workspace / ".git" / "hooks" / "pre-commit"
-        hook.write_text("#!/bin/sh\necho 'Agent commits are forbidden. The MANAGEROO controller owns checkpoints.' >&2\nexit 73\n", encoding="utf-8")
-        hook.chmod(0o755)
-        return self.workspace
+            raise
 
     def _clear_pending_validation_marker(self) -> None:
         try:

@@ -180,7 +180,13 @@ class WorkspaceTests(unittest.TestCase):
                     mirror.create()
 
             self.assertEqual((repo / "a.txt").read_text(encoding="utf-8"), "before\n")
-            self.assertFalse((mirror.workspace / ".git").exists())
+            self.assertFalse(mirror.snapshot_path.exists())
+            self.assertFalse(mirror.workspace.exists())
+
+            workspace = mirror.create()
+            self.assertTrue(mirror.snapshot_path.is_file())
+            self.assertTrue((workspace / ".git").is_dir())
+            self.assertEqual(mirror.load_existing(), workspace)
 
     def test_capture_source_revalidates_inventory_paths(self):
         with tempfile.TemporaryDirectory() as temp:
