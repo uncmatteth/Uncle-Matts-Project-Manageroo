@@ -31,6 +31,7 @@ from manageroo.install_status import (  # noqa: E402
     summarize_external_tools,
     uninstall_plan,
 )
+from manageroo.operator_scope import install_codex_operator_hooks  # noqa: E402
 from manageroo.runner import CommandRunner  # noqa: E402
 from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
 from manageroo.trufflehog import (  # noqa: E402
@@ -141,6 +142,25 @@ def codex_sandbox_install_status(executable: str) -> dict:
         "sandbox_preflight": preflight,
         "next_commands": list(preflight.get("next_commands", [])),
     }
+
+
+def install_codex_operator_scope(
+    launcher: Path, *, codex_home: Path | None = None
+) -> dict:
+    if shutil.which("codex") is None:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "Codex is not installed; operator-scope hooks were not configured.",
+        }
+    selected_home = (
+        codex_home
+        or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    ).expanduser().resolve(strict=False)
+    return install_codex_operator_hooks(
+        codex_home=selected_home,
+        manageroo_command=launcher,
+    )
 
 
 def _safe_cmd_value(path: Path) -> str:
@@ -1333,6 +1353,12 @@ def main() -> int:
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")
         launcher = install_launcher(bin_dir, python, app_root, prefix)
+        codex_operator_scope = install_codex_operator_scope(launcher)
+        if codex_operator_scope.get("trust_required"):
+            print(
+                "  ACTION codex operator scope: open `/hooks` once to review and trust "
+                "the new Manageroo pre-action hooks."
+            )
         installed_env = {"PYTHONPATH": str(app_root)}
         version = run([str(python), "-m", "manageroo", "--version"], cwd=prefix, env=installed_env)
         self_test_output = (
@@ -1368,6 +1394,7 @@ def main() -> int:
             "agent_preference": agent_setup["preference"],
             "detected_coding_agents": detect_coding_agents(),
             "helper_skills": helper_skills_record,
+            "codex_operator_scope": codex_operator_scope,
             "external_tools": external_tools,
             "stack_summary": stack_summary,
             "installation_ownership": {

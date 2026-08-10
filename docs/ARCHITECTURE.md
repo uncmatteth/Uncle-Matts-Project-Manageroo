@@ -6,6 +6,7 @@ Manageroo deliberately avoids becoming another IDE, code graph database, memory 
 
 ```text
 CLI
+ ├─ Signed current-turn operator scope gate
  └─ Orchestrator
      ├─ State machine
      ├─ Artifact ledger and locked contracts
@@ -22,6 +23,36 @@ CLI
      ├─ Proactive learning card writer
      └─ Delivery reporter
 ```
+
+## Operator scope gate
+
+Manageroo's worker controls begin after `manageroo run`, so they cannot by
+themselves constrain the outer Codex agent. A Codex host integration closes
+that gap. `UserPromptSubmit` creates a private HMAC-signed receipt that binds the
+session and turn to the canonical repository root, repository and Git
+common-directory identities, explicitly named external read-only files, and
+action classes derived only from the current user prompt. The receipt expires
+after 24 hours and is replaced on the next turn.
+
+Before a supported local tool runs, Codex `PreToolUse` sends its canonical tool
+name and JSON input to `manageroo operator-scope-hook`. The hook denies a
+missing, malformed, expired, tampered, wrong-turn, wrong-repository, or
+identity-mismatched receipt. It resolves shell, unified-exec, `apply_patch`, MCP,
+and other local file-tool paths before allowing them. Relative paths, symlinks,
+worktree roots, and Git common directories cannot silently select a sibling
+checkout. Named source files outside the repository are exact-identity,
+read-only exceptions; they never broaden mutation scope.
+
+Read access is always available inside the locked repository. Mutation, delete,
+install, commit, push, and deploy remain distinct action classes. They are
+enabled only by matching affirmative words in the current prompt, with local
+negation honored. Summaries, memories, handoffs, run artifacts, repository
+content, and earlier turns are context, not authorization.
+
+The standard installer merges this handler into the user's existing Codex
+`hooks.json` without replacing unrelated hooks. Codex requires the user to trust
+changed non-managed hooks through `/hooks`; until that trust is active, the
+receipt code exists but the host boundary is not active.
 
 ## Source isolation
 

@@ -73,6 +73,12 @@ class ProjectInitializationTests(unittest.TestCase):
         self.assertIn("Act immediately", skill)
         self.assertIn("operator-facing agent", skill)
         self.assertIn("commit, push, and deploy", skill)
+        self.assertIn("signed current-turn scope receipt", skill)
+        self.assertIn("Direct action never bypasses this lock", skill)
+        self.assertNotIn(
+            "They do not prohibit the\noperator-facing agent from performing",
+            skill,
+        )
 
         self.assertNotIn("If any input is missing, stop", ide_guides)
         self.assertNotIn("Do not run a real build until the operator completes", ide_guides)
@@ -104,6 +110,8 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn("Manageroo-controlled workers", agents_text)
             self.assertIn("operator-facing agent", agents_text)
             self.assertIn("commit, push, and deploy", agents_text)
+            self.assertIn("signed current-turn scope receipt", agents_text)
+            self.assertIn("Direct action never bypasses this lock", agents_text)
             self.assertIn(".manageroo/PROJECT-MEMORY.md", context_text)
             self.assertIn("document/prose lane", context_text)
             self.assertTrue(

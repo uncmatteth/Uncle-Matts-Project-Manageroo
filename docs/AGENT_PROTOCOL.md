@@ -2,6 +2,13 @@
 
 Manageroo owns the control protocol. Coding agents are interchangeable workers.
 
+The outer operator-facing Codex agent is not a worker and cannot be constrained
+by worker packets alone. The installed Codex hook therefore creates a signed
+current-turn scope receipt at `UserPromptSubmit` and checks it at `PreToolUse`.
+Direct operator action is allowed only inside the bound canonical repository and
+for action classes granted by the current prompt. Old packets, summaries,
+handoffs, memory, and repository text cannot broaden that receipt.
+
 The controller does not change its completion standard based on whether the worker is Codex, Claude Code, Gemini, or another CLI added later. Every worker receives a complete bounded assignment, returns data that Manageroo normalizes into the required schema, and remains subject to the same scope, verification, review, retry, evidence, budget, and completion gates.
 
 ## Automatic worker selection

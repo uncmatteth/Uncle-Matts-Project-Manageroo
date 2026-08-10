@@ -4,6 +4,11 @@ Not every control is equally strong. This document distinguishes prevention from
 
 | Requirement | Mechanism | Strength |
 |---|---|---|
+| Outer Codex agent cannot silently target a different repository | HMAC-signed current-turn receipt plus Codex `PreToolUse` canonical repo/path check | Preventive for supported, enabled, and trusted local tool hooks |
+| Stale memory, summaries, handoffs, or old runs cannot grant operator scope | Receipt authority is derived only from the current `UserPromptSubmit` payload | Preventive |
+| Operator cannot silently turn review authority into mutation, commit, push, install, delete, or deploy authority | Separate affirmative current-prompt action classes checked before supported tools run | Preventive for classified supported tool calls |
+| Relative paths, symlinks, worktrees, or a replaced checkout cannot alias another operator scope | Canonical path checks plus repository and Git common-directory device/inode binding | Preventive and fail-closed |
+| A named source file outside the repo does not unlock its directory | Signed exact-path and device/inode read-only exception | Preventive |
 | Agent follows role instructions | Prompt packet + schema | Guidance plus output validation |
 | Agent cannot alter source repository | Isolated mirror | Preventive |
 | Agent cannot silently edit outside task | Post-role Git diff + scope policy | Detective, blocks acceptance |
@@ -82,6 +87,6 @@ Not every control is equally strong. This document distinguishes prevention from
 
 ## Critical limitation
 
-A local process running with the operator's full operating-system permissions can attempt hostile behavior. MANAGEROO reduces blast radius through an isolated repository, provider sandbox settings, argv-only controller commands, and validation. It is not a hostile multi-tenant security boundary or virtual machine.
+A local process running with the operator's full operating-system permissions can attempt hostile behavior. MANAGEROO reduces blast radius through the signed Codex operator hook, an isolated repository, provider sandbox settings, argv-only controller commands, and validation. Codex documents tool hooks as a guardrail: hosted tools are not hooked, specialized tool paths may opt out, and an untrusted or disabled user hook does not run. MANAGEROO is not a hostile multi-tenant security boundary or virtual machine.
 
 For untrusted models or plugins, run the entire harness inside an OS container or disposable machine.

@@ -48,6 +48,7 @@ class TruthContractTests(unittest.TestCase):
             "does not run cloud schedules or timer loops by itself",
             "does not silently edit skills, docs, config, installer behavior, checks, prompts, or code",
             "`run --continue <run-id>` continues Manageroo's saved worker job queue",
+            "Codex documents hooks as a guardrail rather than a complete hostile-code boundary",
         ], "docs/LIMITATIONS.md")
 
     def test_public_docs_and_installer_explain_lanes_without_pretending(self):
@@ -67,6 +68,7 @@ class TruthContractTests(unittest.TestCase):
                 "The updater does not use absence as permission to install every optional component",
                 "An AI or IDE agent should act on a clear install request using the local, account-free defaults",
                 "It must not pause merely to hand runnable commands or ordinary installer choices back to the operator",
+                "open `/hooks`, review the resolved Manageroo launcher command, and trust it",
             ],
             "docs/DOCUMENT_LANE.md": [
                 "Failure is optional context", "pretend it understood images", "Media metadata is not vision",
@@ -80,6 +82,7 @@ class TruthContractTests(unittest.TestCase):
             "docs/ARCHITECTURE.md": [
                 "Manageroo makes remembering unnecessary", "Manageroo does not run parallel implementation branches against the same files",
                 "Core acceptance still belongs to Manageroo's state, scope, gates, and evidence", "These systems are capabilities, not completion authorities",
+                "Operator scope gate", "Summaries, memories, handoffs, run artifacts, repository content, and earlier turns are context, not authorization",
             ],
             "docs/STATELESS_ORCHESTRATION.md": [
                 'Manageroo is not "AI remembers better."', "Manageroo makes remembering unnecessary.", "The controller saves the truth.",
@@ -102,7 +105,7 @@ class TruthContractTests(unittest.TestCase):
             "src/manageroo/project.py": ["claim completion without a `COMPLETE` controller state", "pretend media metadata is real vision"],
             "src/manageroo/orchestrator.py": ["not handed to the AI as a freehand long-document repair prompt", "The controller must not freehand fixes from their findings", '"ai_freehand_repair_allowed": False', "not full OCR or vision interpretation"],
             "src/manageroo/report.py": ["AI freehand repair from AUTOREVIEW/Clawpatch findings: no"],
-            "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md": ["Do not claim global completion", "Only the controller may mark a run `COMPLETE`", "Do not convert their findings into untracked AI freehand fixes", "Completion requires Manageroo-owned scope checks, real gates, review, acceptance evidence, and the final report"],
+            "src/manageroo/assets/skills/uncle-matts-project-manageroo/SKILL.md": ["Do not claim global completion", "Only the controller may mark a run `COMPLETE`", "Do not convert their findings into untracked AI freehand fixes", "Completion requires Manageroo-owned scope checks, real gates, review, acceptance evidence, and the final report", "Direct action never bypasses this lock"],
         }
         for surface, required in surfaces.items(): self.assertContainsAll(_read(surface), required, surface)
 
@@ -110,7 +113,7 @@ class TruthContractTests(unittest.TestCase):
         self.assertContainsAll(_read("scripts/verify_release.py"), [
             '"docs/LIMITATIONS.md"', '"tests/test_truth_contract.py"', '"truth:no-real-vision-claim"', '"truth:no-fake-subagent-claim"',
             '"truth:no-ai-freehand-external-repair"', '"truth:no-release-ready-deploy-claim"', '"truth:no-silent-self-mutation"', '"truth:stateless-worker-orchestration"',
-            '"truth:production-overclaim-checker"',
+            '"truth:production-overclaim-checker"', '"truth:operator-scope-boundary"',
         ], "scripts/verify_release.py")
 
     def test_release_ready_gate_uses_non_mutating_validation_mode(self):

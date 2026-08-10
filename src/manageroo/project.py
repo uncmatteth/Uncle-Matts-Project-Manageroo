@@ -33,12 +33,20 @@ Manageroo-controlled workers must never:
 - weaken acceptance tests to obtain a passing result;
 - claim completion without a `COMPLETE` controller state.
 
-Those worker restrictions do not block the operator-facing agent from finishing
-the job after Manageroo returns verified `COMPLETE`. When the operator asked to
-finish, ship, publish, or make it live, that agent must preserve unrelated work,
-then commit, push, and deploy through the repository's proven delivery path and
-verify the resulting Git SHA and live target. Ask only when a real missing
-credential, destructive choice, or unresolved target makes safe action impossible.
+Every operator tool action in a Git repository is subject to Manageroo's signed current-turn scope receipt.
+It binds the current request to the canonical repo,
+explicitly named read-only source files, and allowed action classes. Missing,
+stale, malformed, expired, or mismatched receipts deny the action before a
+supported local tool runs. Direct action never bypasses this lock; summaries,
+memory, handoffs, old runs, and dirty sibling repos cannot broaden it.
+
+Those worker restrictions do not block authorized operator delivery after
+Manageroo returns verified `COMPLETE`. When the current receipt authorizes
+finish, ship, publish, or make it live, the operator-facing agent must preserve
+unrelated work, then commit, push, and deploy through the repository's proven
+delivery path and verify the resulting Git SHA and live target. Ask only when a
+real missing credential, destructive choice, or unresolved target makes safe
+action impossible.
 
 Capture newly discovered product ideas with `manageroo idea add "..."` rather than
 silently broadening the current task.

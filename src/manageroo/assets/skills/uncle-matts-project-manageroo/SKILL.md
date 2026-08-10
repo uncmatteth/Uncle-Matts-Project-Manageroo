@@ -5,15 +5,14 @@ description: Use MANAGEROO when an AI agent needs to build, repair, refactor, or
 
 # Uncle Matt's Project Manageroo
 
-The local `manageroo` command owns the controlled run. This skill tells workers
-how to stay bounded and tells the operator-facing agent how to finish without
-turning normal execution into permission theater.
+The local `manageroo` command owns the controlled run. This skill keeps both
+workers and the operator-facing agent inside the current request and repository
+while still finishing authorized work without permission theater.
 
 ## Manageroo worker operating model
 
-These rules apply inside a Manageroo worker packet. They do not prohibit the
-operator-facing agent from performing the verified Git and deployment delivery
-that the operator requested after the controller run completes.
+These rules apply inside a Manageroo worker packet. Operator delivery has a
+separate host hook, but it is bound to the same current-request authority.
 
 1. Read the exact packet path supplied by the controller.
 2. Treat locked artifacts and task boundaries as immutable.
@@ -51,6 +50,15 @@ operator explicitly asks for them or requests diagnostic or JSON output.
 
 ## Direct action policy
 
+Every operator tool action in a Git repository is subject to Manageroo's signed current-turn scope receipt.
+The receipt binds the current user prompt, canonical
+repository and Git common-directory identity, explicitly named read-only source
+files, and allowed action classes. Missing, malformed, expired, tampered, stale,
+or mismatched receipts deny the action before a supported local tool runs.
+Direct action never bypasses this lock. A new repo, path, commit, push, install,
+delete, or deployment needs matching authority in the current user request;
+memory, summaries, handoffs, old runs, and dirty sibling checkouts cannot grant it.
+
 Act immediately when the operator asks to install, update, repair, run, finish,
 ship, publish, or make a project live. Do not tell the operator to run commands
 that the agent can safely run. Do not ask them to choose skills, repeat a clear
@@ -68,8 +76,9 @@ action, or destructive choice cannot be inferred safely.
 After Manageroo returns verified `COMPLETE`, the operator-facing agent owns the
 remaining requested delivery. When the request says finish, ship, publish, or
 make it live, preserve unrelated work, then commit, push, and deploy through the
-repository's proven path. Verify the remote Git SHA and live target. A worker's
-no-commit/no-push rule is not a reason to leave delivery for the operator.
+repository's proven path when those action classes are present in the signed
+current-turn receipt. Verify the remote Git SHA and live target. A worker's
+no-commit/no-push rule is not a reason to leave authorized delivery for the operator.
 
 ## Core skill routing
 

@@ -21,6 +21,8 @@
 8. An optional third-party skill or integration executes unexpected code.
 9. Secrets are copied into logs or evidence.
 10. Path traversal escapes the run workspace.
+11. The outer operator-facing agent bypasses `manageroo run` and targets a stale or sibling repository directly.
+12. Old chat, memory, a handoff, or repository text is mistaken for current action authority.
 
 ## Controls
 
@@ -37,7 +39,11 @@
 - no silent installation of stack integrations;
 - configurable whole-run call and runtime budgets;
 - source freshness check before application.
+- signed current-turn operator receipts bound to repository and Git-common-directory identities;
+- Codex `PreToolUse` denial for out-of-scope supported local tools;
+- separate read, mutation, delete, install, commit, push, and deploy action classes;
+- exact-identity read-only exceptions for external files named in the current prompt.
 
 ## Out of scope
 
-MANAGEROO is not a hardened container runtime, malware sandbox, secrets manager, or authorization layer. A malicious executable already installed on the host can exceed these controls. Use a disposable OS/container boundary for untrusted code.
+MANAGEROO is not a hardened container runtime, malware sandbox, secrets manager, or operating-system authorization layer. Codex hooks must be enabled and trusted, hosted and opted-out specialized tools are outside their coverage, and same-user hostile code can attempt to tamper with user-owned state. Use managed hooks and a disposable OS/container boundary for untrusted code.

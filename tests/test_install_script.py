@@ -45,6 +45,39 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_codex_install_adds_operator_scope_hooks_for_manageroo_launcher(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            launcher = root / "bin" / "manageroo"
+            codex_home = root / ".codex"
+            expected = {
+                "ok": True,
+                "path": str(codex_home / "hooks.json"),
+                "changed": True,
+                "trust_required": True,
+                "next": "/hooks",
+            }
+            with patch.object(
+                install.shutil,
+                "which",
+                side_effect=lambda name: "/tools/codex" if name == "codex" else None,
+            ), patch.object(
+                install,
+                "install_codex_operator_hooks",
+                return_value=expected,
+            ) as install_hooks:
+                result = install.install_codex_operator_scope(
+                    launcher,
+                    codex_home=codex_home,
+                )
+
+            self.assertEqual(result, expected)
+            install_hooks.assert_called_once_with(
+                codex_home=codex_home,
+                manageroo_command=launcher,
+            )
+
     def test_normal_install_runs_short_compile_check_not_843_developer_tests(self):
         install = load_install_script()
         with patch.object(install, "run") as run_command:
@@ -271,6 +304,11 @@ class InstallScriptTests(unittest.TestCase):
                 patch.object(install, "prepend_tool_paths"),
                 patch.object(install.shutil, "which", return_value="/usr/bin/git"),
                 patch.object(install, "detect_coding_agents", return_value=detected),
+                patch.object(
+                    install,
+                    "install_codex_operator_scope",
+                    return_value={"ok": True, "changed": False},
+                ),
                 patch.object(install, "command_version", return_value="codex fixture"),
                 patch.object(
                     install,

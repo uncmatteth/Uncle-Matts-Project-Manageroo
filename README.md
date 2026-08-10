@@ -58,6 +58,13 @@ The problem is simple: one giant AI chat should not be expected to remember an e
 
 Manageroo puts a controller above the workers.
 
+For Codex, Manageroo also closes the gap outside a controlled run. Its installed
+host hook turns the current user prompt into a signed repository-and-action
+receipt, then checks supported shell, file, patch, and MCP calls before they run.
+A stale summary or sibling checkout cannot silently redirect that receipt.
+Codex must show the hook as trusted and active; this guardrail does not replace
+an operating-system sandbox for hostile code.
+
 ```text
 YOU DESCRIBE WHAT YOU WANT
         ↓
