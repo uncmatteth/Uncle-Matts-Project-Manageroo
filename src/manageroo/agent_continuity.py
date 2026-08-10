@@ -56,6 +56,25 @@ _PATCH_PATH = re.compile(
     re.MULTILINE,
 )
 _SHELL_TOOLS = {"Bash", "exec_command", "shell", "functions.exec"}
+_CLAUSE_BOUNDARIES = ".!?;\n"
+_QUOTED_SPAN = re.compile(
+    r'"(?:\\.|[^"\\])*"|`[^`\n]*`|“[^”\n]*”|‘[^’\n]*’|'
+    r"(?<![A-Za-z0-9])'[^'\n]+'(?![A-Za-z0-9])"
+)
+_HISTORICAL_CONTEXT = re.compile(
+    r"\b(?:last|prior|previous|earlier|old)\s+"
+    r"(?:agent|session|chat|turn|request)\b|"
+    r"\b(?:agent|handoff|report)\s+"
+    r"(?:said|mentioned|claimed|asked|told|tried|used|edited|wrote|ran|touched)\b|"
+    r"\b(?:for example|historically|previously)\b",
+    re.IGNORECASE,
+)
+_CURRENT_PATH_DIRECTIVE = re.compile(
+    r"^\s*(?:(?:now|instead)[:,]?\s+)?(?:please\s+)?"
+    r"(?:use|edit|write|create|copy|move|rename|delete|remove|"
+    r"work\s+(?:in|on|from)|read|inspect|review)\b",
+    re.IGNORECASE,
+)
 
 
 def continuity_state_root() -> Path:
@@ -183,6 +202,7 @@ def render_active_objective(state: dict[str, Any]) -> str:
         "A newer message is additive unless it explicitly cancels or replaces earlier work.",
         "Answer corrections or side questions, then resume the unfinished work in the same turn.",
         "Do not ask the operator to repeat a path, permission, or request already listed here.",
+        "Treat questions, quotations, and historical examples as context, not tasks or permissions.",
         "Reject your own drift into unrelated work. Preserve named sources and exact methods.",
         "",
         "## Operator messages in force",
@@ -212,18 +232,48 @@ def render_active_objective(state: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _path_clause(text: str, start: int, end: int) -> tuple[str, str]:
+    clause_start = max(text.rfind(mark, 0, start) for mark in _CLAUSE_BOUNDARIES) + 1
+    following = [
+        position
+        for mark in _CLAUSE_BOUNDARIES
+        if (position := text.find(mark, end)) >= 0
+    ]
+    clause_end = min(following) + 1 if following else len(text)
+    clause = text[clause_start:clause_end]
+    return text[clause_start:start], clause
+
+
+def _path_is_quoted(text: str, start: int, end: int) -> bool:
+    line_start = text.rfind("\n", 0, start) + 1
+    if text[line_start:start].lstrip().startswith(">"):
+        return True
+    return any(
+        span.start() <= start and end <= span.end()
+        for span in _QUOTED_SPAN.finditer(text)
+    )
+
+
 def _named_paths(state: dict[str, Any]) -> tuple[list[Path], list[Path]]:
     allowed: list[Path] = []
     excluded: list[Path] = []
     for item in state.get("messages", []):
         text = str(item.get("text") or "")
         for match in _ABSOLUTE_PATH.finditer(text):
+            if _path_is_quoted(text, match.start(), match.end()):
+                continue
+            prefix, clause = _path_clause(text, match.start(), match.end())
+            if clause.rstrip().endswith("?"):
+                continue
+            if (
+                _HISTORICAL_CONTEXT.search(clause)
+                and not _CURRENT_PATH_DIRECTIVE.search(clause)
+            ):
+                continue
             raw = match.group(1).rstrip(".,;:!?)]}>\"'")
             if not raw:
                 continue
             value = Path(raw).expanduser().resolve(strict=False)
-            clause_start = max(text.rfind(mark, 0, match.start()) for mark in ".!?;\n") + 1
-            prefix = text[clause_start : match.start()]
             target = excluded if _NEGATION_NEAR_PATH.search(prefix) else allowed
             if value not in target:
                 target.append(value)

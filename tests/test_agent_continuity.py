@@ -102,6 +102,144 @@ class AgentContinuityTests(unittest.TestCase):
                 "deny",
             )
 
+    def test_question_path_does_not_authorize_an_external_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Repair scope control in this repository only.",
+                },
+                state_root=root / "state",
+            )
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "prompt": "Are you going to edit /opt/question-only-project?",
+                },
+                state_root=root / "state",
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": "touch /opt/question-only-project/UNASKED.txt"
+                    },
+                },
+                state_root=root / "state",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_quoted_path_does_not_authorize_an_external_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Repair scope control in this repository only.",
+                },
+                state_root=root / "state",
+            )
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "prompt": (
+                        'The last agent said "edit /opt/quoted-history-repo". '
+                        "Why did it say that?"
+                    ),
+                },
+                state_root=root / "state",
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": "touch /opt/quoted-history-repo/UNASKED.txt"
+                    },
+                },
+                state_root=root / "state",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_historical_path_does_not_authorize_an_external_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Repair scope control in this repository only.",
+                },
+                state_root=root / "state",
+            )
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "prompt": (
+                        "The prior agent edited /opt/historical-project during "
+                        "the earlier session."
+                    ),
+                },
+                state_root=root / "state",
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": "touch /opt/historical-project/UNASKED.txt"
+                    },
+                },
+                state_root=root / "state",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
     def test_bare_stop_is_an_explicit_replacement(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
