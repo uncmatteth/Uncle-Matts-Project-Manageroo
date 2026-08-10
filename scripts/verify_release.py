@@ -263,11 +263,6 @@ def structural_checks() -> list[dict]:
     project = (ROOT / "src" / "manageroo" / "project.py").read_text(encoding="utf-8")
     selected = source_files()
     selected_relative = {_relative(path).as_posix() for path in selected}
-    selected_workflows = {
-        relative
-        for relative in selected_relative
-        if relative.startswith(".github/workflows/")
-    }
     overclaims = public_truth_overclaim_violations()
     checks.extend([
         {"name": "release-source-not-empty", "ok": len(selected) > 20},
@@ -318,9 +313,11 @@ def structural_checks() -> list[dict]:
             and contains_compact(evidence, "None of them can mark a run `COMPLETE`"),
         },
         {
-            "name": "github-actions-workflows-are-bounded",
-            "ok": selected_workflows
-            == {".github/workflows/windows-transactional-tests.yml"},
+            "name": "no-github-actions-workflows",
+            "ok": not any(
+                _relative(path).as_posix().startswith(".github/workflows/")
+                for path in selected
+            ),
         },
     ])
     return checks

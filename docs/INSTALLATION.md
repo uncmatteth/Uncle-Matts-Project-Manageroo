@@ -268,7 +268,7 @@ matches the complete generated POSIX or Windows launcher structure.
 
 ## Release proof
 
-GitHub Actions runs only the focused Windows transactional regression tests. It does not build or publish releases. The fail-closed release command is:
+This repository does not use GitHub Actions. The fail-closed release command is:
 
 ```bash
 python3 scripts/release.py
