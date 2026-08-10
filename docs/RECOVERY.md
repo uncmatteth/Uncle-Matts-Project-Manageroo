@@ -53,7 +53,11 @@ MANAGEROO blocks before the controller checkpoint. The isolated mirror contains 
 
 ## A gate repeatedly fails
 
-After the bounded repair count, the run becomes `BLOCKED`. This is evidence that the task, acceptance oracle, environment, or architecture needs a product/technical decision. Increasing the loop count is not the default remedy.
+Manageroo keeps using fresh repair and review attempts while failures remain
+recoverable. It stops only at a configured whole-run budget, a concrete
+non-retryable failure, or an explicitly configured phase cap. The failure report
+must name which of those boundaries was reached; a hard-coded two-attempt stop is
+not a valid blocker.
 
 ## Reviewer disagreement
 

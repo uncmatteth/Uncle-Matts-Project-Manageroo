@@ -48,6 +48,38 @@ def _update_project_memory_after_synchronized_read(
 
 
 class ProjectInitializationTests(unittest.TestCase):
+    def test_operator_facing_manageroo_guidance_acts_without_permission_theater(self):
+        root = Path(__file__).resolve().parents[1]
+        skill = (
+            root
+            / "src"
+            / "manageroo"
+            / "assets"
+            / "skills"
+            / "uncle-matts-project-manageroo"
+            / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        ide_guides = "\n".join(
+            (root / relative).read_text(encoding="utf-8")
+            for relative in (
+                "GIVE-THIS-TO-YOUR-IDE-AGENT.md",
+                "docs/IDE_AGENT_INSTALL_INSTRUCTIONS.md",
+            )
+        )
+
+        self.assertNotIn("First-install request policy", skill)
+        self.assertNotIn("the user should preferably run the installer", skill)
+        self.assertNotIn("gather their selections instead of guessing", skill)
+        self.assertIn("Act immediately", skill)
+        self.assertIn("operator-facing agent", skill)
+        self.assertIn("commit, push, and deploy", skill)
+
+        self.assertNotIn("If any input is missing, stop", ide_guides)
+        self.assertNotIn("Do not run a real build until the operator completes", ide_guides)
+        self.assertNotIn("Stop if `ready.ok` is false", ide_guides)
+        self.assertIn("infer every value that current files and the operator request make clear", ide_guides)
+        self.assertIn("execute the safe next action", ide_guides)
+
     def test_initialization_is_editor_independent(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -69,6 +101,9 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn("plain everyday English", agents_text)
             self.assertIn("what happened, what it means, and what to do next", agents_text)
             self.assertIn("unless the operator explicitly asks", agents_text)
+            self.assertIn("Manageroo-controlled workers", agents_text)
+            self.assertIn("operator-facing agent", agents_text)
+            self.assertIn("commit, push, and deploy", agents_text)
             self.assertIn(".manageroo/PROJECT-MEMORY.md", context_text)
             self.assertIn("document/prose lane", context_text)
             self.assertTrue(

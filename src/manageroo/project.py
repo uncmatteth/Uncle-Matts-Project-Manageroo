@@ -27,11 +27,18 @@ process IDs, internal role names, state-file paths, hashes, stack traces, or
 implementation jargon. Keep those details in the saved evidence unless the operator explicitly asks
 for them or requests diagnostic or JSON output.
 
-Agents must never:
+Manageroo-controlled workers must never:
 - edit `.manageroo/config.toml` or locked run artifacts;
 - commit, push, switch branches, or modify `.git`;
 - weaken acceptance tests to obtain a passing result;
 - claim completion without a `COMPLETE` controller state.
+
+Those worker restrictions do not block the operator-facing agent from finishing
+the job after Manageroo returns verified `COMPLETE`. When the operator asked to
+finish, ship, publish, or make it live, that agent must preserve unrelated work,
+then commit, push, and deploy through the repository's proven delivery path and
+verify the resulting Git SHA and live target. Ask only when a real missing
+credential, destructive choice, or unresolved target makes safe action impossible.
 
 Capture newly discovered product ideas with `manageroo idea add "..."` rather than
 silently broadening the current task.

@@ -32,9 +32,13 @@ Manageroo detects coding-agent command-line tools, not the person's subscription
 
 Manageroo does **not** require a particular GPU, VRAM amount, CPU tier, or RAM class. A selected target project or explicitly chosen local AI tool may have separate requirements.
 
-## Human-first first install
+## First install
 
-The recommended first install is interactive and human-run. This lets the operator see what Manageroo is doing and make intentional choices about optional components.
+People can use the interactive installer when they want to choose optional
+components. An AI or IDE agent should act on a clear install request using the
+local, account-free defaults and existing machine configuration. It must not
+pause merely to hand runnable commands or ordinary installer choices back to the
+operator.
 
 Unix-like systems:
 
@@ -53,7 +57,9 @@ On Windows, paths written into the generated command launcher cannot contain `%`
 
 If Manageroo is already cloned, rerun the platform installer from that existing folder. Do not run the clone command from inside the clone; that creates a nested repository copy.
 
-An AI or IDE agent can assist, but it should surface meaningful installer choices before selecting them on the user's behalf.
+An agent asks only when an optional choice would add a paid or hosted service,
+an account login, a credential, or another irreversible external commitment that
+the operator did not request.
 
 ## Hardware profile
 
@@ -262,7 +268,7 @@ matches the complete generated POSIX or Windows launcher structure.
 
 ## Release proof
 
-This repository does not use GitHub Actions. The fail-closed release command is:
+GitHub Actions runs only the focused Windows transactional regression tests. It does not build or publish releases. The fail-closed release command is:
 
 ```bash
 python3 scripts/release.py

@@ -30,7 +30,11 @@ class SoloExplicitArgumentTests(unittest.TestCase):
         self.assertEqual(answers["repo"], Path("/tmp/project"))
         self.assertEqual(answers["want"], "Repair login")
         self.assertEqual(answers["audience"], "The people or systems that use this repo.")
-        self.assertEqual(answers["stop"], "Stop after two failed repair passes and report the blocker.")
+        self.assertEqual(
+            answers["stop"],
+            "Continue through recoverable failures until proof passes, the configured "
+            "whole-run budget is exhausted, or a concrete non-retryable failure occurs.",
+        )
         self.assertFalse(answers["run"])
 
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from .brief_builder import DEFAULT_STOP_RULE
+
 InputFn = Callable[[str], str]
 OutputFn = Callable[[str], None]
 
@@ -142,7 +144,7 @@ def collect_solo_answers(
             "outcomes": selected_outcomes,
             "must_not": selected_must_not,
             "proof": selected_proof,
-            "stop": stop or "Stop after two failed repair passes and report the blocker.",
+            "stop": stop or DEFAULT_STOP_RULE,
             "later": list(later),
             "mode": mode,
             "run": bool(run),
@@ -203,7 +205,7 @@ def collect_solo_answers(
             selected_proof.append(answer)
     selected_stop = stop or _ask_text(
         "When should the agent stop instead of guessing?",
-        default="Stop after two failed repair passes and report the blocker.",
+        default=DEFAULT_STOP_RULE,
         input_fn=input_fn,
         output_fn=output_fn,
     )

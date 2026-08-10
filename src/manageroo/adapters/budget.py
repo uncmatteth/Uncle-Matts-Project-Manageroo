@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import replace
@@ -8,8 +9,8 @@ from typing import Any
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..config_lock import config_mutation_lock
-from ..errors import AgentExecutionError, SafetyError
-from ..util import atomic_write_json, read_json, utc_now
+from ..errors import BudgetExhaustedError, SafetyError
+from ..util import atomic_write_text, read_json, utc_now
 
 
 class BudgetedAdapter(AgentAdapter):
@@ -35,6 +36,11 @@ class BudgetedAdapter(AgentAdapter):
         self.state_path = state_path
         self._lock = threading.RLock()
         self.calls = self._load_calls()
+        self._authoritative_state_bytes = (
+            self.state_path.read_bytes()
+            if self.state_path is not None and self.state_path.is_file()
+            else None
+        )
         self._concrete_launch_hook_installed = self._install_launch_hook(inner)
 
     @property
@@ -50,6 +56,11 @@ class BudgetedAdapter(AgentAdapter):
         setter = getattr(adapter, "set_before_worker_launch", None)
         if callable(setter):
             setter(self._reserve_and_bound)
+            authority_setter = getattr(
+                adapter, "set_controller_truth_authority", None
+            )
+            if callable(authority_setter):
+                authority_setter(self._controller_truth_authority)
             return True
         nested = getattr(adapter, "inner", None)
         if nested is not None:
@@ -71,14 +82,23 @@ class BudgetedAdapter(AgentAdapter):
         if self.state_path is None:
             return
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(
-            self.state_path,
-            {
-                "worker_calls_consumed": self.calls,
-                "max_total_worker_calls": self.max_total_worker_calls,
-                "updated_at": utc_now(),
-            },
-        )
+        payload = {
+            "worker_calls_consumed": self.calls,
+            "max_total_worker_calls": self.max_total_worker_calls,
+            "updated_at": utc_now(),
+        }
+        text = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        atomic_write_text(self.state_path, text)
+        self._authoritative_state_bytes = text.encode("utf-8")
+
+    def _controller_truth_authority(self) -> dict[Path, bytes | None]:
+        """Return controller-owned bytes without trusting worker-visible disk again."""
+        if self.state_path is None:
+            return {}
+        with self._lock:
+            return {
+                self.state_path.expanduser().resolve(): self._authoritative_state_bytes
+            }
 
     def doctor(self, cwd: Path) -> dict:
         result = dict(self.inner.doctor(cwd))
@@ -114,12 +134,12 @@ class BudgetedAdapter(AgentAdapter):
 
     def _reserve_call_locked(self) -> float | None:
         if self.max_total_worker_calls and self.calls >= self.max_total_worker_calls:
-            raise AgentExecutionError(
+            raise BudgetExhaustedError(
                 f"Manageroo worker-call budget exhausted at {self.calls} calls."
             )
         remaining = self._remaining_runtime_seconds()
         if remaining is not None and remaining < 1:
-            raise AgentExecutionError(
+            raise BudgetExhaustedError(
                 "Manageroo runtime budget exhausted before launching another worker."
             )
         self.calls += 1

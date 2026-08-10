@@ -36,7 +36,7 @@ MANAGEROO does not attempt to replace those systems. Its distinct role is the op
 - controller-owned verification commands;
 - isolated author/reviewer contexts;
 - evidence-validated findings;
-- bounded repair;
+- proof-driven repair under controller-owned whole-run budgets;
 - explicit budget and anti-spin controls for loop-shaped work;
 - skill hygiene through the bundled `edit-skill` skill;
 - product-level final report.

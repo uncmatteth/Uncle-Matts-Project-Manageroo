@@ -11,8 +11,12 @@ Agents are forbidden from editing it during a run.
 ## `[project]`
 
 - `apply_on_success`: apply the verified patch to the exact source snapshot.
-- `max_repair_cycles`: maximum review-triggered repair loops.
-- `max_plan_review_cycles`: maximum pre-code plan repair loops.
+- `max_repair_cycles`: optional fixed limit for review-triggered repair loops.
+  Default: `0`, meaning no separate phase limit; the run continues until review
+  approves, a concrete non-retryable failure occurs, or the whole-run budget is
+  exhausted.
+- `max_plan_review_cycles`: optional fixed limit for pre-code plan repair loops.
+  Default: `0`, with the same whole-run budget and concrete-failure boundary.
 - `require_demonstration`: require demonstration evidence when the plan marks it required.
 - `require_clawpatch_release_sweep`: require `release-ready` to find a complete zero-open Clawpatch sweep proof tied to the current Git HEAD. Default: `false`.
 
@@ -65,8 +69,9 @@ Required context exceeding a limit is not truncated; the plan must decompose.
 ## `[orchestration]`
 
 - `max_parallel_agent_calls`: maximum fresh agent calls for independent chunks.
-- `max_worker_attempts`: maximum attempts for one disposable worker job before
-  the job becomes failed.
+- `max_worker_attempts`: optional fixed attempt limit for one disposable worker
+  job. Default: `0`, meaning retry recoverable failures until success, a concrete
+  non-retryable failure, or whole-run budget exhaustion.
 - `parallel_mapping`: run repository-mapper chunks concurrently when possible.
 - `parallel_review`: run isolated reviewer chunks concurrently when possible.
 

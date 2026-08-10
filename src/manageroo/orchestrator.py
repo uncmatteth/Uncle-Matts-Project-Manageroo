@@ -26,6 +26,7 @@ from .context import ContextCompiler, ContextRequest
 from .document_lane import build_document_manifest
 from .errors import (
     BlockingDecisionError,
+    BudgetExhaustedError,
     ContextBudgetError,
     GateFailure,
     SafetyError,
@@ -422,7 +423,7 @@ class Orchestrator:
                 "effective_sha256": route_record["effective_sha256"],
                 "selected_prompt_chars": route_record["selected_prompt_chars"],
             }
-        def capability_prelaunch(candidate: AgentRequest, is_codex: bool) -> AgentRequest:
+        def refresh_capability_request(candidate: AgentRequest, is_codex: bool) -> AgentRequest:
             if route is not None:
                 validate_capability_route_freshness(route)
                 refreshed = route_capabilities(
@@ -461,6 +462,14 @@ class Orchestrator:
                 "capability_catalog_paths": refreshed_paths,
             }
             return replace(candidate, metadata=refreshed_metadata)
+
+        def capability_prelaunch(candidate: AgentRequest, is_codex: bool) -> AgentRequest:
+            try:
+                return refresh_capability_request(candidate, is_codex)
+            except ValidationError as exc:
+                raise SafetyError(
+                    f"Capability safety validation failed before worker launch: {exc}"
+                ) from exc
         instructions = _WORKER_EXTERNAL_ACTION_BOUNDARY + "\n\n" + instructions
         token_prompt = token_mode_prompt()
         if token_prompt:
@@ -508,10 +517,21 @@ class Orchestrator:
             if completed is not None:
                 return completed
 
-        max_attempts = max(1, int(self.config.get("orchestration", {}).get("max_worker_attempts", 2)))
-        attempt_limit = len(self.job_store.attempts_for(name)) + max_attempts
+        max_attempts = max(
+            0,
+            int(
+                self.config.get("orchestration", {}).get(
+                    "max_worker_attempts", 0
+                )
+            ),
+        )
+        attempt_limit = (
+            len(self.job_store.attempts_for(name)) + max_attempts
+            if max_attempts
+            else None
+        )
         last_error: Exception | None = None
-        while len(self.job_store.attempts_for(name)) < attempt_limit:
+        while attempt_limit is None or len(self.job_store.attempts_for(name)) < attempt_limit:
             attempt = self.job_store.begin_attempt(name)
             try:
                 attempt_packet_root = packet_root or (self.packet_root / name)
@@ -567,10 +587,21 @@ class Orchestrator:
                 self.job_store.fail_attempt(name, attempt.attempt_id, exc)
                 self.job_store.block_job(name, exc)
                 raise
+            except SafetyError as exc:
+                self.job_store.fail_attempt(name, attempt.attempt_id, exc)
+                self.job_store.block_job(name, exc)
+                raise
+            except BudgetExhaustedError as exc:
+                self.job_store.fail_attempt(name, attempt.attempt_id, exc)
+                self.job_store.fail_job(name, exc)
+                raise
             except Exception as exc:
                 last_error = exc
                 self.job_store.fail_attempt(name, attempt.attempt_id, exc)
-                if len(self.job_store.attempts_for(name)) >= attempt_limit:
+                if (
+                    attempt_limit is not None
+                    and len(self.job_store.attempts_for(name)) >= attempt_limit
+                ):
                     self.job_store.fail_job(name, exc)
                     raise
         if last_error is not None:
@@ -617,12 +648,19 @@ class Orchestrator:
             recommended = decision.get("recommended")
             reversible = bool(decision.get("reversible"))
             category = decision.get("category", "product")
-            if reversible and recommended:
-                decision["chosen"] = recommended
-                decision["resolution_source"] = "MANAGEROO reversible-default policy"
-            elif category in {"cosmetic", "implementation"} and recommended:
-                decision["chosen"] = recommended
-                decision["resolution_source"] = "MANAGEROO conventional-default policy"
+            options = [str(item) for item in decision.get("options", []) if str(item)]
+            safe_default = recommended or (options[0] if options else "")
+            requires_operator = (
+                not reversible
+                and category in {"security", "legal", "cost", "data"}
+            )
+            if safe_default and not requires_operator:
+                decision["chosen"] = safe_default
+                decision["resolution_source"] = (
+                    "MANAGEROO reversible-default policy"
+                    if reversible
+                    else "MANAGEROO conventional-default policy"
+                )
             else:
                 unresolved.append(decision)
         return resolved, unresolved
@@ -1179,8 +1217,16 @@ class Orchestrator:
         capability_intent: str,
     ) -> dict:
         assert self.workspace is not None
-        review_repo = self.mirror.clone_for_review(self.run_root / "review-workspace")
-        review_packet_root = self.run_root / "review-packets"
+        review_round = max(0, int(self.state.repair_cycles))
+        review_name = f"review-{review_round:03d}"
+        review_destination = self.run_root / "review-workspaces" / review_name
+        retry = 0
+        while review_destination.exists():
+            retry += 1
+            review_name = f"review-{review_round:03d}-retry-{retry:03d}"
+            review_destination = self.run_root / "review-workspaces" / review_name
+        review_repo = self.mirror.clone_for_review(review_destination)
+        review_packet_root = self.run_root / "review-packets" / review_name
         review_packet_root.mkdir(parents=True, exist_ok=True)
         review_outputs: list[dict] = []
         allowed_review_paths = sorted(
@@ -1515,7 +1561,7 @@ class Orchestrator:
                         break
                     self.state.plan_review_cycles += 1
                     self.state.save(self.state_path)
-                    if self.state.plan_review_cycles >= max_cycles:
+                    if max_cycles > 0 and self.state.plan_review_cycles >= max_cycles:
                         raise ValidationError("Plan review did not converge within the configured limit.")
                     self._transition(Phase.PLAN_COMPILE, "Repairing plan-review findings")
                     plan = self._call(
@@ -1648,7 +1694,7 @@ class Orchestrator:
 
             max_repairs = int(self.config["project"]["max_repair_cycles"])
             while any(item.get("blocking") for item in review.get("findings", [])):
-                if self.state.repair_cycles >= max_repairs:
+                if max_repairs > 0 and self.state.repair_cycles >= max_repairs:
                     raise ValidationError("Blocking review findings did not converge within repair limit.")
                 self.state.repair_cycles += 1
                 self.state.save(self.state_path)

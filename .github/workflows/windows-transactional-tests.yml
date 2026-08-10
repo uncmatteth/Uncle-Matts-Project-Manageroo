@@ -1,0 +1,26 @@
+name: Windows transactional tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transactional-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Run Windows transactional regressions
+        run: >-
+          python -m unittest
+          tests.test_skill_pack_transaction.SkillPackTransactionTests.test_source_symlink_swap_after_validation_preserves_active_destination
+          tests.test_transactional_adapter_hardening.TransactionalAdapterHardeningTests.test_repository_transactions_are_serialized_across_spawned_processes
+          -v

@@ -43,10 +43,10 @@ Describe the people or systems that use it.
 
 ## Budget and stop rules
 
-- Max repair passes, iterations, time, or external cost
-- Stop if the same fix fails twice
-- Stop if the work flip-flops between incompatible approaches
-- Stop and report if the verifier cannot prove the result
+- Continue through recoverable failures until proof passes or the configured whole-run budget is exhausted
+- Diagnose repeated failures and change approach when new evidence supports it
+- Do not stop merely because one repair approach failed twice
+- Stop and report a concrete non-retryable failure when the controller cannot safely continue
 
 ## Existing product
 

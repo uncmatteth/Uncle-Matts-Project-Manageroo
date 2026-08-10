@@ -69,7 +69,7 @@ BOUNDED JOBS FOR CODING AGENTS
         ↓
 REAL CHECKS + INDEPENDENT REVIEW
         ↓
-BOUNDED REPAIR WHEN SOMETHING FAILS
+PROOF-DRIVEN REPAIR WHEN SOMETHING FAILS
         ↓
 EVIDENCE + DELIVERY
 ```
@@ -111,8 +111,8 @@ Manageroo can:
 - run deterministic project checks;
 - bind requested outcomes to required proof;
 - perform review separately from implementation;
-- run bounded repair loops when work fails verification or review;
-- stop and surface high-impact decisions instead of guessing them;
+- keep repairing recoverable failures until proof passes or the configured whole-run budget is exhausted;
+- choose safe defaults for ordinary decisions and stop only for irreversible security, legal, cost, or data choices that cannot be inferred safely;
 - resume interrupted work from durable state;
 - produce reports, evidence, and a patch for delivery.
 
@@ -172,7 +172,7 @@ Before large implementation work, Manageroo looks beyond the literal request and
 - external services, rate limits, cost, and degraded modes;
 - accessibility and user-facing states.
 
-When repository evidence can answer a question, Manageroo uses the evidence. When a genuinely high-impact decision still requires the operator, Manageroo surfaces it explicitly instead of guessing.
+When repository evidence can answer a question, Manageroo uses the evidence. For ordinary reversible choices, it uses the recommended or first safe option. It asks the operator only when an irreversible security, legal, cost, or data choice cannot be inferred safely.
 
 # Source isolation and bounded changes
 
@@ -243,7 +243,7 @@ manageroo run --apply
 
 This starts a normal Manageroo work run for the current project.
 
-Manageroo reads the project truth, performs discovery and planning, creates bounded worker jobs, sends those jobs to compatible coding agents, checks the resulting changes, runs verification, performs review, and attempts bounded repair when necessary.
+Manageroo reads the project truth, performs discovery and planning, creates bounded worker jobs, sends those jobs to compatible coding agents, checks the resulting changes, runs verification, performs review, and keeps repairing recoverable failures until proof passes or the configured whole-run budget is exhausted.
 
 `--apply` means Manageroo is allowed to apply a successfully verified delivery patch back to the source repository when its safety checks pass.
 
@@ -257,7 +257,7 @@ manageroo run --mode repair --apply
 
 Use repair mode when the mission is specifically to diagnose and fix an existing broken project or failed implementation rather than build a normal new change.
 
-Repair mode still uses bounded work, verification, review, evidence, and controlled retries. It is not a command for endlessly changing files until something happens to pass.
+Repair mode still uses bounded work, verification, review, evidence, and controlled retries. Recoverable phases have no arbitrary two-attempt cap by default; the configured whole-run call and runtime budgets remain the limit.
 
 ## 5. Check what a run is doing or what happened
 
@@ -293,7 +293,7 @@ Manageroo reloads the durable state for that exact run and continues from the re
 
 ## 7. Answer a blocking decision
 
-When Manageroo reaches a genuinely high-impact choice that repository evidence cannot safely answer, it can stop instead of making up the answer.
+Manageroo automatically chooses the recommended or first safe option for ordinary reversible decisions. It stops for an answer only when an irreversible security, legal, cost, or data choice cannot safely be inferred.
 
 See the decision:
 

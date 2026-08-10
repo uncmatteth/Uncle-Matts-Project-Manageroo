@@ -5,6 +5,11 @@ from pathlib import Path
 from .branding import PROJECT_DIR
 from .util import atomic_write_text
 
+DEFAULT_STOP_RULE = (
+    "Continue through recoverable failures until proof passes, the configured "
+    "whole-run budget is exhausted, or a concrete non-retryable failure occurs."
+)
+
 
 def _bullets(items: list[str], fallback: str) -> list[str]:
     values = [item.strip() for item in items if item.strip()]
@@ -58,9 +63,9 @@ def build_product_brief(
         "",
         "## Budget and stop rules",
         "",
-        f"- {stop_rule.strip() or 'Stop after two failed repair passes and report the blocker.'}",
-        "- Stop if the same fix fails twice.",
-        "- Stop if the work flip-flops between incompatible approaches.",
+        f"- {stop_rule.strip() or DEFAULT_STOP_RULE}",
+        "- Diagnose repeated failures and change approach when new evidence supports it.",
+        "- Do not stop merely because one repair approach failed twice.",
         "",
         "## Existing product",
         "",

@@ -30,7 +30,7 @@ Bad:
 
 Better:
 
-> Build a client portal. A client signs in, sees only their own projects, uploads documents, views status history, and messages our team. Existing admin workflows must remain unchanged. A browser demonstration must show one successful client journey and one denied cross-client access attempt. Stop after two failed repair passes and report the blocker instead of trying random fixes.
+> Build a client portal. A client signs in, sees only their own projects, uploads documents, views status history, and messages our team. Existing admin workflows must remain unchanged. A browser demonstration must show one successful client journey and one denied cross-client access attempt. Keep repairing recoverable failures until that proof passes or the configured whole-run budget is exhausted.
 
 ## Adding ideas while the product is being built
 

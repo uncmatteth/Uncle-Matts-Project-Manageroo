@@ -1,6 +1,7 @@
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -81,6 +82,23 @@ class _BudgetTamperingWorker(_LaunchHookSuccess):
         payload["worker_calls_consumed"] = 999
         atomic_write_json(self.budget_path, payload)
         return response
+
+
+class _ParallelLaunchWorker(_LaunchHookSuccess):
+    def __init__(self, both_launched: threading.Barrier):
+        super().__init__()
+        self.both_launched = both_launched
+
+    def run(self, request: AgentRequest):
+        if self.before_launch is not None:
+            request = self.before_launch(request)
+        self.both_launched.wait(timeout=5)
+        return AgentResponse(
+            role=request.role,
+            data={"ok": True},
+            raw_text='{"ok": true}',
+            command=["parallel-hook-aware-worker"],
+        )
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -220,6 +238,70 @@ class WorkerAttemptIsolationTests(unittest.TestCase):
                     "worker_calls_consumed"
                 ],
                 1,
+            )
+
+    def test_parallel_controller_budget_updates_do_not_block_running_workers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "first").mkdir()
+            (root / "second").mkdir()
+            first_source = _git_repo(root / "first")
+            second_source = _git_repo(root / "second")
+            run_root = root / "run" / "parallel-budget-guard-test"
+            run_root.mkdir(parents=True)
+            first_workspace = WorkspaceMirror(
+                first_source, run_root / "first-workspace", CommandRunner()
+            ).create()
+            second_workspace = WorkspaceMirror(
+                second_source, run_root / "second-workspace", CommandRunner()
+            ).create()
+            first_request = _run_request(run_root, first_workspace)
+            second_request = _run_request(run_root, second_workspace)
+            second_request.output_path = (
+                run_root / "agent-output" / "002-implementer" / "001.json"
+            )
+            second_request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            budget_path = run_root / "controller" / "budget.json"
+            budget_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(
+                budget_path,
+                {
+                    "worker_calls_consumed": 0,
+                    "max_total_worker_calls": 5,
+                    "updated_at": "before",
+                },
+            )
+            adapter = BudgetedAdapter(
+                TransactionalAdapter(
+                    _ParallelLaunchWorker(threading.Barrier(2)), CommandRunner()
+                ),
+                max_total_worker_calls=5,
+                state_path=budget_path,
+            )
+            errors: list[Exception] = []
+
+            def run(request: AgentRequest) -> None:
+                try:
+                    adapter.run(request)
+                except Exception as exc:  # pragma: no cover - asserted below
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=run, args=(request,))
+                for request in (first_request, second_request)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(errors, [])
+            self.assertEqual(
+                json.loads(budget_path.read_text(encoding="utf-8"))[
+                    "worker_calls_consumed"
+                ],
+                2,
             )
 
     def test_failed_transactional_worker_cannot_poison_next_attempt(self):

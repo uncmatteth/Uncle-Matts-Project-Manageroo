@@ -226,10 +226,14 @@ that observes an existing lock reopens it without creation, avoiding the macOS
 concurrent-creation race while retaining the existing inode and link checks.
 
 The durable worker budget is updated by Manageroo immediately before each real
-provider launch. The worker-transaction guard then refreshes its expected
-controller record before the provider process starts. Manageroo therefore does
-not blame a worker for the controller's own budget update, while any later worker
-change to that record is still restored and rejected.
+provider launch. Its newest controller-owned bytes remain authoritative for all
+parallel transaction guards, so one worker does not blame another controller
+reservation on its worker. Any later worker-authored change to that record is
+still restored and rejected.
+
+Each independent review uses a fresh run-owned checkout name. An incomplete
+checkout left by an interrupted review is preserved for evidence and skipped;
+it cannot block the next review attempt.
 
 `release-ready` executes configured verification gates in a disposable local
 clone checked out at the exact candidate commit. After every gate, Manageroo

@@ -182,7 +182,7 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("{prompt}", config["agent"]["argv_template"])
         self.assertEqual(config["integrations"]["document_analysis_command"], [])
 
-    def test_auto_config_is_vendor_neutral_and_budgeted(self):
+    def test_auto_config_is_vendor_neutral_and_has_no_arbitrary_phase_caps(self):
         config = tomllib.loads(config_template("auto", []))
         self.assertEqual(config["agent"]["adapter"], "auto")
         self.assertEqual(
@@ -191,6 +191,9 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertGreater(config["budget"]["max_total_worker_calls"], 0)
         self.assertGreater(config["budget"]["max_runtime_minutes"], 0)
+        self.assertEqual(config["orchestration"]["max_worker_attempts"], 0)
+        self.assertEqual(config["project"]["max_plan_review_cycles"], 0)
+        self.assertEqual(config["project"]["max_repair_cycles"], 0)
 
     def test_apply_agent_preset_replaces_only_agent_block(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -209,7 +212,7 @@ class ConfigTests(unittest.TestCase):
                     }
                 ],
             )
-            text = text.replace("max_repair_cycles = 2", "max_repair_cycles = 9")
+            text = text.replace("max_repair_cycles = 0", "max_repair_cycles = 9")
             text = text.replace("max_total_worker_calls = 80", "max_total_worker_calls = 17")
             text = text.replace("max_runtime_minutes = 240", "max_runtime_minutes = 33")
             text = text.replace(

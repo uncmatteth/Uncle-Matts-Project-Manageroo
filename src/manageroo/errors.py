@@ -22,6 +22,10 @@ class AgentExecutionError(MANAGEROOError):
     """An external coding agent failed or returned invalid output."""
 
 
+class BudgetExhaustedError(AgentExecutionError):
+    """The explicitly configured whole-run worker budget is exhausted."""
+
+
 class ValidationError(MANAGEROOError):
     """An artifact or agent response failed validation."""
 

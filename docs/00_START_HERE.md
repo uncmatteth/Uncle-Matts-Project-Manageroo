@@ -214,7 +214,7 @@ This prints one useful next operator action based on the current project state.
 manageroo run --apply
 ```
 
-Manageroo loads the project truth, performs discovery and planning, creates bounded worker jobs, routes work to compatible coding agents, verifies the resulting changes, performs review, and attempts bounded repair when necessary.
+Manageroo loads the project truth, performs discovery and planning, creates bounded worker jobs, routes work to compatible coding agents, verifies the resulting changes, performs review, and keeps repairing recoverable failures until proof passes or the configured whole-run budget is exhausted.
 
 `--apply` gives Manageroo permission to apply a successfully verified delivery patch back to the source repository when its safety checks pass.
 
@@ -226,7 +226,7 @@ manageroo run --mode repair --apply
 
 Use repair mode when the mission is specifically to diagnose and fix an existing broken project or failed implementation.
 
-Repair mode still uses bounded work, verification, review, evidence, retry budgets, and stop conditions.
+Repair mode still uses bounded work, verification, review, evidence, and the configured whole-run call and runtime budgets. Recoverable phases do not stop at an arbitrary two-attempt default.
 
 ## Check a run
 

@@ -13,7 +13,7 @@ Deterministic properties:
 - exact included line ranges;
 - task dependency ordering;
 - allowlisted gate commands;
-- bounded repair and plan-review cycles;
+- configurable whole-run call and runtime budgets, with optional explicit phase caps;
 - exact changed-file comparison;
 - binary reviewer status derived from validated findings, never model-reported confidence;
 - source freshness check before patch application;

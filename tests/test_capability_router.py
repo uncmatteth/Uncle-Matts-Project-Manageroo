@@ -27,7 +27,7 @@ from manageroo.capability_router import (
     validate_capability_route_freshness,
 )
 from manageroo.cli import main as cli_main
-from manageroo.errors import ValidationError
+from manageroo.errors import SafetyError, ValidationError
 from manageroo.orchestrator import (
     Orchestrator,
     _product_capability_intent,
@@ -1110,7 +1110,7 @@ class CapabilityRouterTests(unittest.TestCase):
             orchestrator.workspace = orchestrator.mirror.create()
 
             with patch("manageroo.capability_router.MAX_CAPABILITY_DISCOVERY_ENTRIES", 2):
-                with self.assertRaisesRegex(ValidationError, "catalog isolation"):
+                with self.assertRaisesRegex(SafetyError, "catalog isolation"):
                     orchestrator._call(
                         role="implementer",
                         schema="agent-result.schema.json",
@@ -1120,6 +1120,9 @@ class CapabilityRouterTests(unittest.TestCase):
                     )
 
             self.assertEqual(adapter.requests, [])
+            self.assertEqual(
+                len(orchestrator.job_store.attempts_for("001-implementer")), 1
+            )
 
     def test_disabled_selection_non_codex_worker_ignores_malformed_codex_config(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1351,7 +1354,7 @@ class CapabilityRouterTests(unittest.TestCase):
             with patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False):
                 orchestrator = Orchestrator(repo, adapter=adapter, capability_roots=[skills])
                 orchestrator.workspace = orchestrator.mirror.create()
-                with self.assertRaisesRegex(ValidationError, "before worker launch"):
+                with self.assertRaisesRegex(SafetyError, "before worker launch"):
                     orchestrator._call(
                         role="implementer",
                         schema="agent-result.schema.json",

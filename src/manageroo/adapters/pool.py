@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .base import AgentAdapter, AgentRequest, AgentResponse
-from ..errors import AgentExecutionError, ConfigurationError, ValidationError
+from ..errors import (
+    AgentExecutionError,
+    BudgetExhaustedError,
+    ConfigurationError,
+    ValidationError,
+)
 
 
 class WorkerPoolAdapter(AgentAdapter):
@@ -56,6 +61,21 @@ class WorkerPoolAdapter(AgentAdapter):
                 managed.add(name)
         self._hook_managed_workers = managed
 
+    def set_controller_truth_authority(
+        self, callback: Callable[[], dict[Path, bytes | None]]
+    ) -> None:
+        """Give each transactional worker the controller's current durable bytes."""
+        for _, adapter in self.workers:
+            current: Any | None = adapter
+            seen: set[int] = set()
+            while current is not None and id(current) not in seen:
+                seen.add(id(current))
+                setter = getattr(current, "set_controller_truth_authority", None)
+                if callable(setter):
+                    setter(callback)
+                    break
+                current = getattr(current, "inner", None)
+
     def doctor(self, cwd: Path) -> dict:
         checks = []
         for name, adapter in self.workers:
@@ -103,6 +123,8 @@ class WorkerPoolAdapter(AgentAdapter):
                     self.last_successful_worker = name
                 response.command = [f"worker:{name}", *response.command]
                 return response
+            except BudgetExhaustedError:
+                raise
             except retryable as exc:
                 failures.append(f"{name}: {type(exc).__name__}: {exc}")
         raise AgentExecutionError(

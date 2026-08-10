@@ -14,7 +14,7 @@ from manageroo.cli import main, parser
 from manageroo.errors import AgentExecutionError, BlockingDecisionError
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
-from manageroo.util import read_json
+from manageroo.util import atomic_write_json, read_json
 
 
 def _toml_array(items):
@@ -211,7 +211,7 @@ class OrchestratorJobCliTests(unittest.TestCase):
             config = repo / ".manageroo" / "config.toml"
             config.write_text(
                 config.read_text(encoding="utf-8").replace(
-                    "max_worker_attempts = 2",
+                    "max_worker_attempts = 0",
                     "max_worker_attempts = 1",
                 ),
                 encoding="utf-8",
@@ -252,6 +252,202 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 (repo / ".manageroo" / "runs" / run_id / "worker-attempts" / "001-product-analyst").glob("*.json")
             )
             self.assertEqual([path.stem for path in product_attempts], ["001", "002"])
+
+    def test_default_worker_retry_policy_does_not_stop_after_two_attempts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class RecoveringProductAdapter(MockAdapter):
+                def __init__(self):
+                    self.product_calls = 0
+
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "product-analyst":
+                        self.product_calls += 1
+                        if self.product_calls <= 2:
+                            raise AgentExecutionError("temporary worker failure")
+                    return super().run(request)
+
+            result = Orchestrator(repo, adapter=RecoveringProductAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            attempts = sorted(
+                (
+                    repo
+                    / ".manageroo"
+                    / "runs"
+                    / result["run_id"]
+                    / "worker-attempts"
+                    / "001-product-analyst"
+                ).glob("*.json")
+            )
+            self.assertEqual([path.stem for path in attempts], ["001", "002", "003"])
+
+    def test_non_destructive_product_choice_uses_recommended_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class ProductChoiceAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    response = super().run(request)
+                    if request.role == "product-analyst":
+                        response.data["blocking_decisions"] = [
+                            {
+                                "id": "PRODUCT-001",
+                                "question": "Which normal layout should be used?",
+                                "why": "Both choices are safe and local.",
+                                "category": "product",
+                                "options": ["Use the existing layout", "Create a new layout"],
+                                "recommended": "Use the existing layout",
+                                "reversible": False,
+                                "chosen": "",
+                            }
+                        ]
+                        atomic_write_json(request.output_path, response.data)
+                    return response
+
+            result = Orchestrator(repo, adapter=ProductChoiceAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            product = read_json(
+                repo
+                / ".manageroo"
+                / "runs"
+                / result["run_id"]
+                / "artifacts"
+                / "planning"
+                / "product-model.json"
+            )
+            self.assertEqual(
+                product["blocking_decisions"][0]["chosen"],
+                "Use the existing layout",
+            )
+
+    def test_plan_review_continues_while_it_is_still_converging(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class ConvergingPlanAdapter(MockAdapter):
+                def __init__(self):
+                    self.plan_reviews = 0
+
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    response = super().run(request)
+                    if request.role == "plan-reviewer":
+                        self.plan_reviews += 1
+                        if self.plan_reviews <= 4:
+                            response.data = {
+                                "status": "changes-required",
+                                "summary": "The next plan revision is still improving.",
+                                "findings": [
+                                    {
+                                        "id": f"PLAN-{self.plan_reviews}",
+                                        "severity": "medium",
+                                        "problem": "Revise the bounded plan once more.",
+                                        "required_change": "Return the next complete plan.",
+                                    }
+                                ],
+                            }
+                            atomic_write_json(request.output_path, response.data)
+                    return response
+
+            result = Orchestrator(repo, adapter=ConvergingPlanAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+
+    def test_review_repair_can_run_more_than_two_cycles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class ConvergingReviewAdapter(MockAdapter):
+                def __init__(self):
+                    self.reviews = 0
+
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    response = super().run(request)
+                    if request.role == "reviewer":
+                        self.reviews += 1
+                        if self.reviews <= 3:
+                            response.data = {
+                                "status": "changes-required",
+                                "summary": "One more verified review pass is needed.",
+                                "findings": [
+                                    {
+                                        "id": f"REVIEW-{self.reviews}",
+                                        "severity": "high",
+                                        "category": "correctness",
+                                        "path": "manageroo_fixture.txt",
+                                        "start_line": 1,
+                                        "end_line": 1,
+                                        "quote": "MANAGEROO deterministic fixture completed",
+                                        "reason": "Exercise the controller repair loop.",
+                                        "action": "Run another bounded repair and review.",
+                                        "blocking": True,
+                                    }
+                                ],
+                            }
+                            atomic_write_json(request.output_path, response.data)
+                    elif request.role == "repairer":
+                        response.data = {
+                            "status": "implemented",
+                            "summary": "No additional edit was required for this fixture pass.",
+                            "files_changed": [],
+                            "commands_run": [],
+                            "risks": [],
+                            "scope_expansion_requested": [],
+                        }
+                        atomic_write_json(request.output_path, response.data)
+                    return response
+
+            result = Orchestrator(repo, adapter=ConvergingReviewAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+
+    def test_stale_review_checkout_does_not_block_a_fresh_review_attempt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            orchestrator = Orchestrator(repo, adapter=MockAdapter())
+            stale = (
+                orchestrator.run_root
+                / "review-workspaces"
+                / "review-000"
+            )
+            stale.mkdir(parents=True)
+            (stale / "partial.txt").write_text(
+                "interrupted old review\n", encoding="utf-8"
+            )
+
+            result = orchestrator.run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            self.assertTrue(stale.is_dir())
+            self.assertTrue(
+                (
+                    orchestrator.run_root
+                    / "review-workspaces"
+                    / "review-000-retry-001"
+                ).is_dir()
+            )
 
     def test_continue_waiting_for_product_decisions_does_not_proceed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -321,7 +517,7 @@ class OrchestratorJobCliTests(unittest.TestCase):
             config = repo / ".manageroo" / "config.toml"
             config.write_text(
                 config.read_text(encoding="utf-8").replace(
-                    "max_worker_attempts = 2",
+                    "max_worker_attempts = 0",
                     "max_worker_attempts = 1",
                 ),
                 encoding="utf-8",
@@ -373,6 +569,14 @@ class OrchestratorJobCliTests(unittest.TestCase):
     def test_resumed_worker_gets_new_retry_budget(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
+            config = repo / ".manageroo" / "config.toml"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "max_worker_attempts = 0",
+                    "max_worker_attempts = 2",
+                ),
+                encoding="utf-8",
+            )
 
             class AlwaysFailProductAdapter(MockAdapter):
                 def run(self, request: AgentRequest) -> AgentResponse:

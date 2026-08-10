@@ -84,7 +84,7 @@ The worker output is then independently parsed and validated by Manageroo. Provi
 
 The built-in Claude Code and Gemini presets map these modes to provider-native permission or approval controls. A provider's separate operating-system sandbox is optional unless a custom preset explicitly enables it. Manageroo still checks repository mutations, scope, commits, gates, and review evidence afterward. Provider enforcement is an additional prevention layer, not the source of truth.
 
-Every configured provider attempt is also transactional at the Git workspace layer. Failed attempts are rolled back to their pre-attempt checkpoint and stale output artifacts are discarded before fallback or retry. A successful read-only worker that mutated its repository is rejected and rolled back. If rollback integrity cannot be proven, the run stops with a safety failure instead of trying another provider.
+Every configured provider attempt is also transactional at the Git workspace layer. Failed attempts are rolled back to their pre-attempt checkpoint and stale output artifacts are discarded before fallback or retry. A successful read-only worker that mutated its repository is rejected and rolled back. If rollback integrity cannot be proven, the run stops with a safety failure instead of trying another provider. Permanent controller-side safety failures detected before launch stop after one recorded attempt; retrying them cannot change the evidence and would not consume the worker-call budget. By default, recoverable worker, plan-review, and review-repair work has no separate arbitrary attempt cap; the durable whole-run call and time budgets remain the outer boundary.
 
 ## Response normalization
 
@@ -107,7 +107,7 @@ max_total_worker_calls = 80
 max_runtime_minutes = 240
 ```
 
-The worker-call counter is persisted in the run controller directory before each real provider launch, so consumed calls survive `run --continue` and provider fallbacks cannot hide extra launches. Manageroo refreshes its protected controller snapshot after writing that reservation and before starting the provider, so it does not mistake its own update for worker tampering. The runtime budget clamps each worker timeout to the remaining process budget. Elapsed runtime is not accumulated across a stopped process and later continuation.
+The worker-call counter is persisted in the run controller directory before each real provider launch, so consumed calls survive `run --continue` and provider fallbacks cannot hide extra launches. Manageroo keeps the newest controller-owned budget bytes authoritative across parallel launches, so one worker cannot mistake another controller reservation for tampering. A later worker-authored change is still restored and rejected. The runtime budget clamps each worker timeout to the remaining process budget. Elapsed runtime is not accumulated across a stopped process and later continuation.
 
 Exhausting a configured controller budget blocks further worker launches. Provider-specific budget controls can be layered on later but do not replace the Manageroo budget.
 

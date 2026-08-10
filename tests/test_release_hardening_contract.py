@@ -17,6 +17,17 @@ def _load_package_release():
     return module
 
 
+def _load_verify_release():
+    spec = importlib.util.spec_from_file_location(
+        "manageroo_verify_release_hardening",
+        ROOT / "scripts" / "verify_release.py",
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 HARDENING_MODULES = {
     "src/manageroo/acceptance.py",
     "src/manageroo/chiptune_policy.py",
@@ -138,11 +149,37 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("Evidence Retrieval Architecture", combined)
         self.assertIn("retrieves evidence", combined)
 
-    def test_release_stays_local_and_action_free(self):
+    def test_release_stays_local_while_windows_transaction_tests_run_in_ci(self):
         workflows = ROOT / ".github" / "workflows"
-        self.assertFalse(workflows.exists() and any(workflows.iterdir()))
+        self.assertEqual(
+            {path.name for path in workflows.iterdir() if path.is_file()},
+            {"windows-transactional-tests.yml"},
+        )
+        workflow = (workflows / "windows-transactional-tests.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("runs-on: windows-latest", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn(
+            "tests.test_skill_pack_transaction.SkillPackTransactionTests."
+            "test_source_symlink_swap_after_validation_preserves_active_destination",
+            workflow,
+        )
+        self.assertIn(
+            "tests.test_transactional_adapter_hardening."
+            "TransactionalAdapterHardeningTests."
+            "test_repository_transactions_are_serialized_across_spawned_processes",
+            workflow,
+        )
+        verify_release = _load_verify_release()
+        workflow_check = next(
+            check
+            for check in verify_release.structural_checks()
+            if check["name"] == "github-actions-workflows-are-bounded"
+        )
+        self.assertTrue(workflow_check["ok"])
         publish = (ROOT / "PUBLISH_TO_GITHUB.md").read_text(encoding="utf-8")
-        self.assertIn("does not use GitHub Actions", publish)
+        self.assertIn("does not build or publish releases", publish)
         self.assertIn("python3 scripts/release.py", publish)
         self.assertIn("manageroo prove", publish)
         self.assertIn("scripts/verify_release.py", publish)

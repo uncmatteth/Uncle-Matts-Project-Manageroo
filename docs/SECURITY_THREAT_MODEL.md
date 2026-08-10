@@ -35,7 +35,7 @@
 - exact changed-file checks;
 - redaction of common secret assignments and bearer tokens;
 - no silent installation of stack integrations;
-- fixed repair limits;
+- configurable whole-run call and runtime budgets;
 - source freshness check before application.
 
 ## Out of scope

@@ -43,7 +43,7 @@ git remote set-url origin git@github.com:uncmatteth/Uncle-Matts-Project-Managero
 
 ## 3. Run the fail-closed release command
 
-This repository does not use GitHub Actions. Before creating a release, run:
+GitHub Actions runs only the focused Windows transactional regression tests. It does not build or publish releases. Before creating a release, run:
 
 ```bash
 python3 scripts/release.py

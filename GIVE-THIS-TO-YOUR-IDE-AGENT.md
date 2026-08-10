@@ -16,15 +16,18 @@ architecture, or get creative.
 - `OPERATOR_REQUEST`: what the operator wants built or fixed.
 - `CREATE_PROJECT`: `yes` only when `TARGET_PROJECT` is allowed to be created if missing or empty.
 
-Find the paths from the workspace and the request from the operator. If any
-input is missing, stop and say which one is missing. Do not guess.
+Find the paths from the workspace and the request from the operator. Inspect
+current files and infer every value that current files and the operator request make clear.
+Do not make the operator restate known information. Ask only if two materially
+different target repositories remain equally plausible or creation would
+overwrite existing non-Git work.
 
 ## Required sequence
 
 ```bash
 cd "$MANAGEROO_SOURCE"
 python3 scripts/verify_release.py
-./install.sh
+./install.sh --skip-stack --skill-pack install --gbrain-lane skip --token-mode off --stack-doctor skip --clawpatch-codex-login skip --agent auto --no-music --no-animation
 export PATH="$HOME/.local/bin:$PATH"
 manageroo --version
 manageroo self-test
@@ -96,14 +99,18 @@ manageroo gbrain-setup --source-id target-repo --path "$TARGET_PROJECT" --apply 
 If a local skill is getting long, repetitive, or stale, use the bundled
 `$edit-skill` skill before adding more instructions.
 
-## Stop conditions
+## Continuation policy
 
-- Stop on any release-verification failure.
-- Stop if `CREATE_PROJECT` is not `yes` and the target is not already a Git repository.
-- Stop if `CREATE_PROJECT` is `yes` but the target is a non-empty non-Git folder.
-- Stop if `ready.ok` is false and report every failed or action item exactly, plus the single `next.command`.
-- Do not run a real build until the operator completes `.manageroo/PRODUCT-BRIEF.md`.
-- Before broad product work, read `.manageroo/PROJECT-MEMORY.md` and preserve its `What Must Not Break` section.
+- If a safe prerequisite is missing, execute the safe next action instead of
+  handing the command to the operator.
+- If `ready.ok` is false, follow `next.command` when it is local, reversible,
+  and inside the requested scope, then recheck readiness.
+- Build `.manageroo/PRODUCT-BRIEF.md` from `OPERATOR_REQUEST`; do not wait for the
+  operator to hand-edit it.
+- Before broad product work, read `.manageroo/PROJECT-MEMORY.md` and preserve its
+  `What Must Not Break` section.
+- Stop only for a concrete release failure that cannot be repaired in scope, a
+  real destructive collision, a missing credential, or genuinely ambiguous target.
 
 ## Do not
 
@@ -116,19 +123,9 @@ If a local skill is getting long, repetitive, or stale, use the bundled
 
 ## Required final report
 
-Return:
-
-- terminal/runtime environment;
-- MANAGEROO version;
-- Python version;
-- selected agent adapter, version when discoverable, and executable path;
-- MANAGEROO executable path;
-- install-lock path;
-- complete `manageroo stack-status --json` output;
-- complete `manageroo repair-install --no-apply --json` output;
-- self-test result;
-- complete `manageroo ready --json` output;
-- target repository path;
-- readiness for a real product brief.
+Report in plain English: what was installed, whether the self-test and project
+checks passed, what work was delivered, and the one concrete blocker only if
+something truly could not be completed. Keep full JSON and paths in saved
+evidence unless the operator asks for diagnostics.
 
 ---

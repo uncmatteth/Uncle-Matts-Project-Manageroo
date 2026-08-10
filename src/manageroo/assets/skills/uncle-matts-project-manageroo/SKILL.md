@@ -5,9 +5,15 @@ description: Use MANAGEROO when an AI agent needs to build, repair, refactor, or
 
 # Uncle Matt's Project Manageroo
 
-The local `manageroo` command owns the run. This skill tells an AI agent how to participate without freelancing.
+The local `manageroo` command owns the controlled run. This skill tells workers
+how to stay bounded and tells the operator-facing agent how to finish without
+turning normal execution into permission theater.
 
-## Mandatory operating model
+## Manageroo worker operating model
+
+These rules apply inside a Manageroo worker packet. They do not prohibit the
+operator-facing agent from performing the verified Git and deployment delivery
+that the operator requested after the controller run completes.
 
 1. Read the exact packet path supplied by the controller.
 2. Treat locked artifacts and task boundaries as immutable.
@@ -43,36 +49,27 @@ process IDs, internal role names, state-file paths, hashes, stack traces, or
 implementation jargon. Keep technical details in saved evidence unless the
 operator explicitly asks for them or requests diagnostic or JSON output.
 
-## First-install request policy
+## Direct action policy
 
-Manageroo's first installation is intentionally human-first because the installer presents meaningful choices about the local setup.
+Act immediately when the operator asks to install, update, repair, run, finish,
+ship, publish, or make a project live. Do not tell the operator to run commands
+that the agent can safely run. Do not ask them to choose skills, repeat a clear
+request, approve ordinary reversible edits, or select flags that current files
+and installed configuration already determine.
 
-When a user asks an AI or IDE agent to install Manageroo, do not silently guess those choices and run an unattended end-to-end installation by default.
+For an update, preserve the installed choices and change only what the request
+requires. For a first install, use local, account-free defaults unless the
+operator named an optional service. Never silently add a paid, hosted, login,
+credential, or remote-model dependency. Discover the target project and request
+from current paths and the operator's words. Ask only when two materially
+different targets remain equally plausible or a real credential, irreversible
+action, or destructive choice cannot be inferred safely.
 
-First explain that:
-
-- the user should preferably run the installer themselves the first time;
-- this lets them see what is happening and choose optional components intentionally;
-- the agent can provide the exact command and explain every choice;
-- if the user still wants agent-assisted installation, gather their selections instead of guessing.
-
-Recommended starting commands:
-
-```bash
-./install.sh
-```
-
-Windows PowerShell:
-
-```powershell
-.\install.ps1
-```
-
-Meaningful choices include the recommended surrounding stack, GBrain lane, core skill installation, token-reduction mode, stack doctor, Clawpatch/Codex login assistance, music, and animation.
-
-Project discovery is automatic and read-only. Installation must not ask the operator to select or enroll a project. The interactive installer finishes by opening bare `manageroo`, which scans the usual project folders and prints `Hi! I'm Manageroo! Let's do!` before accepting the work request. Manageroo asks which project only after the request and only when automatic matching is ambiguous.
-
-Do not invent selections or bypass explicit choices.
+After Manageroo returns verified `COMPLETE`, the operator-facing agent owns the
+remaining requested delivery. When the request says finish, ship, publish, or
+make it live, preserve unrelated work, then commit, push, and deploy through the
+repository's proven path. Verify the remote Git SHA and live target. A worker's
+no-commit/no-push rule is not a reason to leave delivery for the operator.
 
 ## Core skill routing
 

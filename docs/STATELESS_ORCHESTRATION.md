@@ -50,8 +50,10 @@ adapter command, completion status, and error when the worker failed.
 ## What Happens When Workers Fail
 
 Invalid JSON, schema failure, timeout, or process failure becomes a failed
-attempt. Manageroo retries with a fresh packet and a fresh worker until the
-configured attempt limit is reached.
+attempt. Manageroo retries with a fresh packet and a fresh worker. By default it
+does not impose a separate per-job attempt cap; retryable work continues until
+success or the configured whole-run budget is exhausted. A project may set an
+explicit per-job limit when it genuinely needs one.
 
 Required context that does not fit is different. That blocks the job. Manageroo
 does not silently chop required context or ask the AI to guess.

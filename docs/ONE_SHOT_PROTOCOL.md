@@ -44,7 +44,9 @@ Plan repair loops are allowed only as:
 PLAN_REVIEW → PLAN_COMPILE → PLAN_REVIEW
 ```
 
-Both loops have fixed limits. A model cannot skip a state or declare completion.
+Both loops remain under the controller's whole-run call and runtime budgets. The
+default has no separate arbitrary phase limit, although a project may configure
+one explicitly. A model cannot skip a state or declare completion.
 
 ## Decisions
 

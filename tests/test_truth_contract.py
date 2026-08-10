@@ -65,7 +65,8 @@ class TruthContractTests(unittest.TestCase):
             "docs/INSTALLATION.md": [
                 "They do not become authorities over Manageroo completion",
                 "The updater does not use absence as permission to install every optional component",
-                "An AI or IDE agent can assist, but it should surface meaningful installer choices",
+                "An AI or IDE agent should act on a clear install request using the local, account-free defaults",
+                "It must not pause merely to hand runnable commands or ordinary installer choices back to the operator",
             ],
             "docs/DOCUMENT_LANE.md": [
                 "Failure is optional context", "pretend it understood images", "Media metadata is not vision",

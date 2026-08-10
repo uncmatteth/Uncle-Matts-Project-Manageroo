@@ -27,6 +27,14 @@ class BriefBuilderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_product_brief(want="   ")
 
+    def test_default_brief_does_not_install_an_arbitrary_two_attempt_blocker(self):
+        brief = build_product_brief(want="Repair the current failure.")
+
+        self.assertNotIn("two failed repair passes", brief)
+        self.assertNotIn("same fix fails twice", brief)
+        self.assertIn("whole-run budget", brief)
+        self.assertIn("concrete non-retryable failure", brief)
+
     def test_write_product_brief_refuses_accidental_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "PRODUCT-BRIEF.md"

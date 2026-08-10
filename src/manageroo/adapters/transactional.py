@@ -39,6 +39,9 @@ class TransactionalAdapter(AgentAdapter):
         self.inner = inner
         self.runner = runner
         self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
+        self._controller_truth_authority: (
+            Callable[[], dict[Path, bytes | None]] | None
+        ) = None
         self._inner_launch_hook_installed = False
         self._launch_state = threading.local()
 
@@ -60,6 +63,12 @@ class TransactionalAdapter(AgentAdapter):
         if callable(setter):
             setter(self._run_controller_launch_hook)
             self._inner_launch_hook_installed = True
+
+    def set_controller_truth_authority(
+        self, callback: Callable[[], dict[Path, bytes | None]]
+    ) -> None:
+        """Accept only the controller's current bytes for concurrently written truth."""
+        self._controller_truth_authority = callback
 
     def _run_controller_launch_hook(self, request: AgentRequest) -> AgentRequest:
         if self._before_worker_launch is None:
@@ -792,7 +801,20 @@ class TransactionalAdapter(AgentAdapter):
                     f"Critical controller truth directory changed and could not be restored: {path}: {exc}"
                 ) from exc
 
-        for path, expected in snapshot.files.items():
+        expected_files = dict(snapshot.files)
+        if self._controller_truth_authority is not None:
+            try:
+                authoritative = self._controller_truth_authority()
+            except Exception as exc:
+                raise SafetyError(
+                    f"Manageroo could not read its authoritative controller truth: {exc}"
+                ) from exc
+            for path, expected in authoritative.items():
+                resolved = path.expanduser().resolve()
+                if resolved in expected_files:
+                    expected_files[resolved] = expected
+
+        for path, expected in expected_files.items():
             try:
                 path_state = path.lstat()
             except FileNotFoundError:
