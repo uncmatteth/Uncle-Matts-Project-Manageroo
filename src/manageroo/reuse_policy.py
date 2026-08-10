@@ -27,6 +27,10 @@ _EXPLICIT_CANDIDATE = re.compile(
     r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+|[0-9a-f]{7,40})(?![A-Za-z0-9_.-])",
     re.IGNORECASE,
 )
+_REPOSITORY_SCOPE_DIRECTIVE = re.compile(
+    r"^use\s+the\s+current\s+git\s+repository\s+as\s+the\s+source\s+of\s+truth\.?$",
+    re.IGNORECASE,
+)
 
 
 def _affirmative_reuse(sentence: str) -> bool:
@@ -59,7 +63,12 @@ def operator_reuse_directives(brief: str) -> list[str]:
     directives = []
     for sentence in re.split(r"(?<=[.!?;])\s+|\n+", brief):
         value = sentence.strip()
-        if value and _affirmative_reuse(value) and _OPERATOR_SOURCE_CUE.search(value):
+        if (
+            value
+            and not _REPOSITORY_SCOPE_DIRECTIVE.fullmatch(value)
+            and _affirmative_reuse(value)
+            and _OPERATOR_SOURCE_CUE.search(value)
+        ):
             directives.append(value)
     return directives
 

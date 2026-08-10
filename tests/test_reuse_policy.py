@@ -1,9 +1,21 @@
 import unittest
 
-from manageroo.reuse_policy import operator_reuse_findings, reuse_binding_findings
+from manageroo.reuse_policy import (
+    operator_reuse_directives,
+    operator_reuse_findings,
+    reuse_binding_findings,
+)
 
 
 class ReusePolicyTests(unittest.TestCase):
+    def test_repository_scope_boilerplate_is_not_a_component_reuse_directive(self):
+        brief = (
+            "Use the current Git repository as the source of truth. "
+            "Preserve unrelated behavior."
+        )
+
+        self.assertEqual(operator_reuse_directives(brief), [])
+
     def test_operator_named_finished_source_cannot_be_reclassified_as_custom_build(self):
         brief = (
             "Use the finished animations already in tools/swipebot_motion.py at commit "

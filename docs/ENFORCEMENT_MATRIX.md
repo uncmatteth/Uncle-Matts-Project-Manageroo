@@ -15,6 +15,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | An exact source-and-target task is expanded into product discovery and mapping | Exact-task contract deterministically creates the product model and plan while retaining implementation, verification, review, and delivery gates | Preventive |
 | Agent follows role instructions | Prompt packet + schema | Guidance plus output validation |
 | Operator says to use finished or named work but a worker silently rebuilds an approximation | Exact operator reuse directive must appear in one non-custom reuse decision; plan binds the same need, decision, candidate, implementation method, and empty deviation | Preventive before planning and implementation |
+| Generic repository source-truth boilerplate is mistaken for a named component-reuse command | Reuse extraction excludes the generated current-Git-repository scope sentence while retaining exact named-source directives | Preventive |
 | Green tests are used to relabel a custom rewrite as reuse | Independent review receives locked reuse bindings; substitution is a blocking truth defect, and the final report exposes the bound candidate and implementation path | Detective and completion-blocking |
 | Agent cannot alter source repository | Isolated mirror | Preventive |
 | Agent cannot silently edit outside task | Post-role Git diff + scope policy | Detective, blocks acceptance |

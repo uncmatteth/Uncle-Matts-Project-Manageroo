@@ -72,6 +72,9 @@ decision, candidate, implementation method, and empty deviation. A custom
 replacement, changed candidate, omitted binding, or declared deviation blocks
 before implementation. Review receives those bindings and treats substitution
 as a blocking scope and truth defect even when substitute-specific tests pass.
+The generated instruction to use the current Git repository as source truth is
+repository scope, not a component-reuse directive, so it does not create a
+model-owned permission gate or require the reuse worker to quote boilerplate.
 
 The standard installer removes obsolete Manageroo operator-scope hook entries,
 installs the continuity hook set, and preserves unrelated hooks.
