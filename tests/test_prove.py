@@ -1,15 +1,48 @@
 import io
 import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 from manageroo import entrypoint
-from manageroo.prove import format_product_proof, run_product_proof
+from manageroo.prove import (
+    _configure_proof_project,
+    _git_fixture,
+    _remove_disposable_config_locks,
+    format_product_proof,
+    run_product_proof,
+)
 
 
 class ProductProofTests(unittest.TestCase):
+    def test_live_proof_fixture_is_pristine_before_transactional_worker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _git_fixture(Path(temp))
+            _configure_proof_project(repo, agent="codex")
+            _remove_disposable_config_locks(repo)
+            for argv in (["git", "add", "-A"], ["git", "commit", "-m", "proof"]):
+                result = subprocess.run(
+                    argv,
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+            status = subprocess.run(
+                ["git", "status", "--porcelain", "--untracked-files=all", "--ignored"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertEqual(status.stdout, "")
+
     def test_product_proof_core_lanes_pass_but_missing_evidence_forbids_complete(self):
         report = run_product_proof(include_regression=False)
         self.assertFalse(report["ok"], report)

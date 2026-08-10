@@ -70,6 +70,21 @@ def _configure_proof_project(repo: Path, *, agent: str) -> Path:
     return brief
 
 
+def _remove_disposable_config_locks(repo: Path) -> None:
+    """Remove closed advisory locks before the transactional proof begins."""
+    cache = repo / ".manageroo" / "cache"
+    for name in (
+        "PROJECT-MEMORY.md.manageroo.lock",
+        "config.toml.manageroo.lock",
+    ):
+        path = cache / name
+        if not path.exists():
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"Unsafe disposable proof lock entry: {path}")
+        path.unlink()
+
+
 def _full_lifecycle_case() -> dict[str, Any]:
     result = run_self_test()
     return {"ok": bool(result.get("ok") and result.get("status") == "COMPLETE"), "detail": "controller completed a fixture run and applied the verified result", "run": result}
@@ -82,6 +97,7 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
         root = Path(temp)
         repo = _git_fixture(root)
         _configure_proof_project(repo, agent=agent)
+        _remove_disposable_config_locks(repo)
         runner = CommandRunner(root / "logs")
         for argv in (["git", "add", "-A"], ["git", "commit", "-m", "configure live proof"]):
             result = runner.run(argv, cwd=repo, timeout_seconds=30)
