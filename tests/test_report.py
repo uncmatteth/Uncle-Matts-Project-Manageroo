@@ -26,6 +26,28 @@ class ReportTests(unittest.TestCase):
         self.assertIn("ValidationError: Product brief not found", report)
         self.assertIn("cat /tmp/run-1/delivery/final-result.json", report)
 
+    def test_report_exposes_the_exact_locked_reuse_path_and_deviation(self):
+        report = build_report(
+            {
+                "run_id": "run-2",
+                "status": "COMPLETE",
+                "mode": "repair",
+                "files_changed": ["AgentRobotView.kt"],
+                "gates": [],
+                "review": {"status": "approved", "findings": []},
+                "reuse_conformance": [
+                    {
+                        "need": "final animations",
+                        "candidate": "tools/swipebot_motion.py at 722296ca",
+                        "implementation": "adapt-existing",
+                        "deviation": "",
+                    }
+                ],
+            }
+        )
+        self.assertIn("adapt-existing from `tools/swipebot_motion.py at 722296ca`", report)
+        self.assertIn("deviation: none", report)
+
 
 if __name__ == "__main__":
     unittest.main()

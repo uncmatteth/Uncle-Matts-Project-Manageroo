@@ -15,6 +15,7 @@ from .config import load_config
 from .errors import ConfigurationError
 from .gates import gates_from_config
 from .gbrain_setup import gbrain_setup_status
+from .intent_lock import audit_compaction_text, read_intent_lock
 from .project import git_root
 from .runner import CommandRunner
 from .token_modes import CORE_HELPER_SKILLS, token_mode_skills_dir
@@ -384,6 +385,40 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             )
         )
         brief_text = _read_text_if_present(brief_path)
+        intent = read_intent_lock(repo)
+        if intent.get("ok"):
+            intent_audit = audit_compaction_text(repo, brief_text, summary_path=brief_path)
+            items.append(
+                _item(
+                    "intent lock",
+                    bool(intent_audit.get("ok")),
+                    (
+                        f"bound to {intent.get('lock_hash')}"
+                        if intent_audit.get("ok")
+                        else "product brief drops or changes locked intent"
+                    ),
+                    f"manageroo intent show {repo}",
+                )
+            )
+        else:
+            intent_path = Path(str(intent.get("path") or ""))
+            missing_intent = not intent_path.exists()
+            items.append(
+                _item(
+                    "intent lock",
+                    missing_intent and brief_valid,
+                    (
+                        "will be captured from the exact product brief before the first worker starts"
+                        if missing_intent and brief_valid
+                        else str(intent.get("error") or "intent lock unavailable")
+                    ),
+                    (
+                        ""
+                        if missing_intent and brief_valid
+                        else f"manageroo intent show {repo}"
+                    ),
+                )
+            )
         items.append(
             _item(
                 "project memory",

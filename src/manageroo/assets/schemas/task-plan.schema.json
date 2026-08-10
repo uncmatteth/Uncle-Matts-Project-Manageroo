@@ -55,6 +55,30 @@
       "minItems": 1,
       "type": "array"
     },
+    "reuse_bindings": {
+      "description": "Exact implementation binding for every locked reuse decision. A reuse decision cannot silently become a custom replacement.",
+      "items": {
+        "properties": {
+          "candidate": {"minLength": 1, "type": "string"},
+          "decision": {
+            "enum": ["reuse-internal", "reuse-external", "platform-native", "build-custom", "defer"],
+            "type": "string"
+          },
+          "deviation": {
+            "description": "Must be empty. A non-empty deviation blocks the run and requires a new operator request.",
+            "type": "string"
+          },
+          "implementation": {
+            "enum": ["reuse-as-is", "adapt-existing", "build-custom", "defer"],
+            "type": "string"
+          },
+          "need": {"minLength": 1, "type": "string"}
+        },
+        "required": ["need", "decision", "candidate", "implementation", "deviation"],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "summary": {
       "type": "string"
     },
@@ -132,6 +156,7 @@
   "required": [
     "summary",
     "tasks",
+    "reuse_bindings",
     "demonstration",
     "global_invariants"
   ],

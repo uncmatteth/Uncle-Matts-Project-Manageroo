@@ -73,6 +73,18 @@ def build_report(data: dict[str, Any]) -> str:
             lines.append(f"- **{item.get('need', 'unknown')}** → {item.get('decision', 'unknown')}: {item.get('candidate', 'n/a')}")
     else:
         lines.append("- None recorded.")
+    lines.extend(["", "## Locked implementation path", ""])
+    conformance = data.get("reuse_conformance", [])
+    if conformance:
+        for item in conformance:
+            deviation = str(item.get("deviation") or "").strip()
+            lines.append(
+                f"- **{item.get('need', 'unknown')}**: {item.get('implementation', 'unknown')} "
+                f"from `{item.get('candidate', 'unknown')}`; "
+                f"deviation: {deviation or 'none'}"
+            )
+    else:
+        lines.append("- No locked reuse bindings recorded.")
     lines.extend(["", "## Verification", ""])
     if not gates:
         lines.append("- No verification gates recorded.")

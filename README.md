@@ -58,12 +58,40 @@ The problem is simple: one giant AI chat should not be expected to remember an e
 
 Manageroo puts a controller above the workers.
 
+If you name finished or existing work, Manageroo treats reuse as binding. The
+reuse report must preserve your exact directive, the task plan must name the
+same candidate and implementation path, and a custom substitute blocks before
+implementation. Passing tests for a substitute do not prove that your named
+work was reused.
+
 For Codex, Manageroo also closes the gap outside a controlled run. Its installed
-host hook turns the current user prompt into a signed repository-and-action
+host hook turns the active user instruction into a signed repository-and-action
 receipt, then checks supported shell, file, patch, and MCP calls before they run.
 A stale summary or sibling checkout cannot silently redirect that receipt.
-Codex must show the hook as trusted and active; this guardrail does not replace
-an operating-system sandbox for hostile code.
+Questions and keyword mentions do not grant write, push, deploy, install, or
+delete authority. Opaque commands are forced through Manageroo's native
+workspace OS-sandbox wrapper. The signed receipt also carries the bounded
+user-authored conversation into `manageroo run`, so an agent-written brief or
+context compaction cannot replace the operator's words. A short same-session
+follow-up such as “in the whole TXT file” or “yes, only that file” keeps the
+preceding signed target and action instead of forcing the operator to repeat an
+absolute path. An unrelated request, an explicit prohibition, or an explicit
+target change resets that carried authority.
+
+Explicit external output destinations and exact external edit files are
+writable, including through `apply_patch`. Disposable contact sheets, previews,
+and audit evidence may be created and cleaned under
+`.manageroo/operator-tmp` even during a read-only review; product source remains
+read-only unless the operator authorized mutation. Unrelated outside paths
+remain denied. Codex must show the hook as trusted and active;
+a deliberately disabled same-user hook is outside this boundary.
+
+When the operator explicitly invokes the Manageroo skill, direct searches,
+alternate read tools, freehand edits, and process interruption are denied for
+that turn. The agent may invoke and poll the controlled run, inspect its status,
+and perform separately authorized Git delivery; it cannot abandon the controller
+and improvise another workflow. A `Stop` hook keeps the turn alive if the agent
+tries to finish before launching the signed `manageroo run`.
 
 ```text
 YOU DESCRIBE WHAT YOU WANT

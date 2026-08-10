@@ -82,6 +82,13 @@ class MockAdapter(AgentAdapter):
             gate_ids = metadata.get("gate_ids", ["fixture-check"])
             data = {
                 "summary": "Implement the brief as one bounded task.",
+                "reuse_bindings": [{
+                    "need": "fixture implementation",
+                    "decision": "reuse-internal",
+                    "candidate": "existing repository conventions",
+                    "implementation": "reuse-as-is",
+                    "deviation": "",
+                }],
                 "tasks": [{
                     "id": "TASK-001",
                     "title": "Implement requested fixture change",

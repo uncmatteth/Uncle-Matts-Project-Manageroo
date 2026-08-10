@@ -22,6 +22,7 @@ separate host hook, but it is bound to the same current-request authority.
 6. Do not weaken tests or redefine acceptance criteria.
 7. Do not claim global completion. Only the controller may mark a run `COMPLETE`.
 8. When scope is insufficient, return `scope_expansion_requested`; do not expand it yourself.
+   A blocked status or any requested expansion stops the controller before checkpointing.
 9. Report possible future features as ideas; do not silently build them.
 10. Every factual review finding must cite current file evidence.
 11. Read `.manageroo/PROJECT-MEMORY.md` before broad product work and preserve `What Must Not Break`.
@@ -51,13 +52,64 @@ operator explicitly asks for them or requests diagnostic or JSON output.
 ## Direct action policy
 
 Every operator tool action in a Git repository is subject to Manageroo's signed current-turn scope receipt.
-The receipt binds the current user prompt, canonical
+The receipt binds the current user instruction, canonical
 repository and Git common-directory identity, explicitly named read-only source
 files, and allowed action classes. Missing, malformed, expired, tampered, stale,
 or mismatched receipts deny the action before a supported local tool runs.
 Direct action never bypasses this lock. A new repo, path, commit, push, install,
 delete, or deployment needs matching authority in the current user request;
 memory, summaries, handoffs, old runs, and dirty sibling checkouts cannot grant it.
+A clearly referential same-session follow-up retains the exact preceding signed
+target, action, and Manageroo routing. Do not ask the operator to repeat an
+absolute path or re-invoke the skill for “that file,” “the whole TXT,” or a
+similar continuation. An unrelated request, explicit prohibition, or explicit
+target change resets the carried authority.
+
+When the operator explicitly invokes `$uncle-matts-project-manageroo` for a
+build or repair, do not implement it freehand. Prepare the exact brief and use
+the controlled `manageroo run`; the host hook denies freehand patch and mutation
+tools for that request. Direct action outside the run is limited to inspection,
+Manageroo control commands, and separately authorized delivery after the
+controller succeeds. The hook injects the signed user conversation into the run;
+do not replace it with an agent summary after compaction.
+Do not perform freehand repository search or route to an alternate skill/MCP
+workflow after this explicit invocation. Start the controlled run, poll it
+without sending input, and use Manageroo status/report commands. Do not terminate
+the run merely because intake or mapping takes longer than expected; report a
+real blocker through the controller. The host `Stop` gate will continue the turn
+if you try to finish before launching the signed run.
+
+An instruction to use, reuse, copy, or port existing/finished/named work is a
+binding implementation decision, not a suggestion. Preserve the exact operator
+sentence as reuse evidence. The plan must bind the same need, decision, and
+candidate. Never replace it with a custom approximation because rewriting seems
+easier, more familiar, or independently testable. If the source cannot be used,
+stop and report that fact before editing; do not substitute and do not claim the
+requested method was followed.
+Questions, historical mentions, quoted words, and prohibitions do not grant an
+action merely because they contain its name. An explicit `only` file clause is
+an exact write boundary. Use an explicit current instruction to switch repos.
+
+Run simple inspected command primitives directly. If the hook says a command's
+effects cannot be proven, retry the same literal argv through:
+
+```bash
+manageroo operator-exec --repo /absolute/repo -- COMMAND ARG...
+```
+
+Do not evade that denial with a nested shell, dynamic variable path,
+interpreter `-c`/`-e`, alternate tool, or disabled hooks. `operator-exec` uses
+the local Codex native workspace OS sandbox and fails if that boundary is not
+available.
+
+For contact sheets, render previews, package staging, and other disposable
+evidence, write under `.manageroo/operator-tmp` through `operator-exec`. A
+read-only audit is allowed to create and clean evidence there; it does not gain
+authority to mutate product source. Inspect the result, then use an inspected
+direct copy/move command to deliver only to an external destination the operator
+explicitly named. An exact external file named for editing may be changed with
+`apply_patch` without unlocking its siblings. Do not use arbitrary `/tmp` paths,
+create hidden ad-hoc audit folders, or claim that a named output is read-only.
 
 Act immediately when the operator asks to install, update, repair, run, finish,
 ship, publish, or make a project live. Do not tell the operator to run commands
@@ -184,6 +236,13 @@ Passing one axis does not imply the other passed.
 Current repository truth beats stale memory, summaries, old plans, or assumptions.
 
 Retrieve current files and command output before making factual claims that depend on repository state. Never claim runtime proof from static inspection.
+
+Never tell the operator that named work was copied, ported, reused, preserved,
+or matched unless the locked reuse binding and final report identify that exact
+candidate and show no deviation. Tests prove only their assertions; they cannot
+turn a rewrite into reuse. If a prior claim conflicts with current evidence,
+state the contradiction and correction immediately. Do not lead with speculative
+excuses or ask the operator to disprove the claim again.
 
 ## Learning card lane
 

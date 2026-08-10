@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,12 +38,14 @@ from .gates import Gate, GateRunner, gates_from_config
 from .ideas import IdeaInbox
 from .integrations import ExternalCommandIntegration, ObsidianIntegration, command_record
 from .inventory import build_inventory, inventory_summary
+from .intent_lock import audit_compaction_text, capture_intent_lock, read_intent_lock
 from .jobs import JobStatus, JobStore
 from .learning import generate_learning_cards, pending_root, save_pending_learning_cards
 from .map_cache import load_system_map_cache, write_system_map_cache
 from .policy import CommandPolicy, ScopePolicy, validate_allowed_scope_patterns
 from .report import write_report
 from .review import inventory_hashes, validate_review_evidence
+from .reuse_policy import operator_reuse_directives, operator_reuse_findings, reuse_binding_findings
 from .runner import CommandRunner
 from .state import Phase, RunState
 from .token_modes import token_mode_prompt
@@ -104,13 +107,43 @@ _WORKER_EXTERNAL_ACTION_BOUNDARY = (
 
 def _product_capability_intent(brief: str, product: dict | None = None) -> str:
     del product
-    normalized = " ".join(str(brief).split())
+    normalized = " ".join(_capability_intent(str(brief)).split())
     if len(normalized) > 180_000:
         raise ValidationError(
             "The operator brief exceeds the 180,000-character capability-intent limit. "
             "Split the request without dropping explicit requirements."
         )
     return normalized
+
+
+def _capability_intent(brief: str) -> str:
+    """The controller skill names the workflow, not a project capability to install."""
+    return re.sub(
+        r"\$?uncle-matts-project-manageroo",
+        "Manageroo controller",
+        brief,
+        flags=re.IGNORECASE,
+    )
+
+
+def _effective_brief(prepared_brief: str, operator_context: list[str] | None) -> str:
+    locked_messages = [
+        message.strip()
+        for message in (operator_context or [])
+        if isinstance(message, str) and message.strip()
+    ]
+    if not locked_messages:
+        return prepared_brief
+    conversation = "\n\n".join(
+        f"## User message {index} (verbatim)\n\n{message}"
+        for index, message in enumerate(locked_messages, start=1)
+    )
+    return (
+        "# Signed operator conversation\n\n"
+        f"{conversation}\n\n"
+        "# Prepared project brief\n\n"
+        f"{prepared_brief}"
+    )
 
 
 def _task_capability_intent(product_intent: str, task: dict) -> str:
@@ -136,6 +169,16 @@ def _review_capability_focus(review: dict) -> str:
         ),
         max_chars=4_000,
     )
+
+
+def _require_completed_agent_edit(result: dict[str, Any], *, role: str, task_id: str) -> None:
+    requested = result.get("scope_expansion_requested", [])
+    if result.get("status") != "implemented" or requested:
+        detail = ", ".join(str(item) for item in requested) if requested else "worker reported blocked"
+        raise SafetyError(
+            f"{role} for {task_id} requested scope expansion or could not complete: {detail}. "
+            "The controller stopped before checkpointing or verification."
+        )
 
 
 def _capability_catalog_metadata(
@@ -677,6 +720,9 @@ class Orchestrator:
         )
         max_single = int(self.config["context"]["max_single_file_tokens"])
         findings: list[dict] = []
+        reuse_path = self.artifacts.root / "planning" / "reuse-report.json"
+        if reuse_path.is_file():
+            findings.extend(reuse_binding_findings(reuse=read_json(reuse_path), plan=plan))
         for task in plan.get("tasks", []):
             try:
                 validate_allowed_scope_patterns(task.get("allowed_paths", []))
@@ -1160,7 +1206,7 @@ class Orchestrator:
             return self._call(
                 role="repository-mapper",
                 schema="repository-map-part.schema.json",
-                capability_intent=brief,
+                capability_intent=_capability_intent(brief),
                 instructions=(
                     "# Repository mapping role\n\n"
                     "Map only the supplied repository slice. Identify modules, interfaces, "
@@ -1187,7 +1233,7 @@ class Orchestrator:
         reduced = self._call(
             role="map-reducer",
             schema="system-map.schema.json",
-            capability_intent=brief,
+            capability_intent=_capability_intent(brief),
             instructions=(
                 "# Repository map reducer\n\n"
                 "Combine the independently produced map parts into one canonical system map. "
@@ -1286,7 +1332,9 @@ class Orchestrator:
             instructions = (
                 "# Independent evidence review\n\n"
                 "You did not author this patch. Review only against the locked product model, "
-                "task plan, and deterministic evidence below. Report concrete correctness, "
+                "task plan, reuse bindings, and deterministic evidence below. Any custom replacement "
+                "of a reuse-as-is or adapt-existing candidate is a blocking scope and truth defect, "
+                "even if its own tests pass. Report concrete correctness, "
                 "security, data-loss, concurrency, compatibility, and missing-test defects. "
                 "Do not mutate any file. Every blocking finding must cite an exact current file, "
                 "valid line range, and matching quote.\n\n"
@@ -1357,6 +1405,7 @@ class Orchestrator:
         brief_path: Path,
         mode: str,
         apply_on_success: bool | None = None,
+        operator_context: list[str] | None = None,
     ) -> dict:
         result: dict[str, Any] = {
             "run_id": self.run_id,
@@ -1391,11 +1440,52 @@ class Orchestrator:
             brief_path = brief_path.resolve()
             if not brief_path.is_file():
                 raise ValidationError(f"Product brief not found: {brief_path}")
-            brief = brief_path.read_text(encoding="utf-8", errors="replace").strip()
-            if not brief:
+            prepared_brief = brief_path.read_text(encoding="utf-8", errors="replace").strip()
+            if not prepared_brief:
                 raise ValidationError("Product brief is empty.")
+            brief = _effective_brief(prepared_brief, operator_context)
             if self.continuing and self._blocking_decisions_path().is_file():
                 raise BlockingDecisionError("Resolve product decisions before continuing.")
+
+            bound_intent = self._artifact_json("intake/intent-lock.json")
+            current_intent = read_intent_lock(self.source_repo)
+            if bound_intent is not None:
+                if (
+                    not current_intent.get("ok")
+                    or current_intent.get("lock_hash") != bound_intent.get("lock_hash")
+                ):
+                    raise SafetyError(
+                        "The run's locked intent changed or disappeared; start a new run for new authority."
+                    )
+            else:
+                if not current_intent.get("ok"):
+                    intent_path = Path(str(current_intent.get("path") or ""))
+                    if intent_path.exists():
+                        raise SafetyError(
+                            f"The repository intent lock is invalid: {current_intent.get('error', 'unknown error')}"
+                        )
+                    current_intent = capture_intent_lock(
+                        self.source_repo,
+                        want=brief,
+                        source="manageroo run product brief",
+                    )
+                intent_audit = audit_compaction_text(self.source_repo, brief, summary_path=brief_path)
+                if not intent_audit.get("ok"):
+                    missing = "; ".join(
+                        f"{item.get('category')}: {item.get('text')}"
+                        for item in intent_audit.get("missing", [])
+                        if isinstance(item, dict)
+                    )
+                    raise SafetyError(
+                        "The product brief does not preserve the repository's locked intent: "
+                        + (missing or "intent audit failed")
+                    )
+                bound_intent = {
+                    "lock_hash": current_intent["lock_hash"],
+                    "lock": current_intent["lock"],
+                    "brief_hash": intent_audit["summary_hash"],
+                }
+                self.artifacts.write_json("intake/intent-lock.json", bound_intent, lock=True)
 
             self._transition(Phase.INTAKE, "Captured product request and pending ideas")
             self._write_or_reuse_text("intake/product-brief.md", brief, lock=True)
@@ -1439,7 +1529,7 @@ class Orchestrator:
                 product = self._call(
                     role="product-analyst",
                     schema="product-model.schema.json",
-                    capability_intent=brief,
+                    capability_intent=_capability_intent(brief),
                     instructions=(
                         "# Product analysis role\n\n"
                         "Convert the operator's normal-language brief into a complete product model. "
@@ -1484,14 +1574,30 @@ class Orchestrator:
                         "internal capabilities, platform-native functions, and maintained dependencies "
                         "that can satisfy each need. Prefer repository-owned and already-approved "
                         "components. Record license uncertainty rather than inventing facts. "
-                        "Do not install anything and do not edit the repository.\n\n"
+                        "Do not install anything and do not edit the repository. Every operator "
+                        "directive to use, reuse, copy, or port an existing/finished/named source is "
+                        "binding: copy that complete directive exactly into one decision's evidence "
+                        "and choose reuse-internal, reuse-external, or platform-native. Never "
+                        "reclassify it as build-custom.\n\n"
                         f"Product model:\n{_compact_json(product)}\n\n"
+                        f"Locked operator reuse directives:\n{_compact_json(operator_reuse_directives(brief))}\n\n"
                         f"External repo intelligence:\n{_compact_json(external_intelligence)}\n\n"
                         f"Repository summary:\n{_compact_json({k: v for k, v in raw_inventory.items() if k != 'files'})}"
                     ),
                     context=self._documentation_context(inventory_files),
                 )
                 self.artifacts.write_json("planning/reuse-report.json", reuse, lock=True)
+            operator_reuse_violations = operator_reuse_findings(brief=brief, reuse=reuse)
+            if operator_reuse_violations:
+                self.artifacts.write_json(
+                    "planning/reuse-operator-violations.json",
+                    {"findings": operator_reuse_violations},
+                    lock=True,
+                )
+                raise SafetyError(
+                    "The reuse report omitted or replaced an operator-named existing source. "
+                    "Manageroo stopped before planning or implementation."
+                )
 
             self._transition(Phase.SYSTEM_MAPPING, "Mapping repository through bounded map/reduce packets")
             system_map = self._map_repository(inventory_files, brief)
@@ -1512,7 +1618,11 @@ class Orchestrator:
                         "criteria, and references only to the provided deterministic gate IDs. "
                         "Do not invent shell commands. Prefer sequential correctness over speculative "
                         "parallelism. Every interface shared by tasks must be explicit. "
-                        "No implementation may begin until this plan survives review.\n\n"
+                        "No implementation may begin until this plan survives review. Bind every "
+                        "reuse decision exactly in reuse_bindings. Reuse-internal, reuse-external, "
+                        "and platform-native work may only be reused as-is or adapted; it may not "
+                        "become build-custom. Leave deviation empty. If the candidate cannot be used, "
+                        "keep the plan blocked instead of inventing a substitute.\n\n"
                         f"Product model:\n{_compact_json(product)}\n\n"
                         f"Reuse report:\n{_compact_json(reuse)}\n\n"
                         f"System map:\n{_compact_json(system_map)}\n\n"
@@ -1573,6 +1683,7 @@ class Orchestrator:
                             "Repair the proposed plan using the verified review findings. Preserve the "
                             "product model and system boundaries. Return a complete replacement plan.\n\n"
                             f"Product model:\n{_compact_json(product)}\n\n"
+                            f"Locked reuse report:\n{_compact_json(reuse)}\n\n"
                             f"System map:\n{_compact_json(system_map)}\n\n"
                             f"Previous plan:\n{_compact_json(plan)}\n\n"
                             f"Plan review:\n{_compact_json(plan_review)}\n\n"
@@ -1625,15 +1736,22 @@ class Orchestrator:
                         "# Bounded implementation role\n\n"
                         "Implement exactly one locked task. You may inspect the repository, but may "
                         "edit only allowed_paths. Do not redesign adjacent systems, alter the locked "
-                        "plan, weaken tests, commit, push, or change .git/.manageroo. Use existing repository "
+                        "plan or reuse binding, replace a named candidate with a custom approximation, "
+                        "weaken tests, commit, push, or change .git/.manageroo. Use existing repository "
                         "patterns and the reuse decisions. Return an exact list of every changed file.\n\n"
                         f"Product model:\n{_compact_json(product)}\n\n"
                         f"Task:\n{_compact_json(task)}\n\n"
+                        f"Locked reuse bindings:\n{_compact_json(plan['reuse_bindings'])}\n\n"
                         f"Global invariants:\n{_compact_json(plan['global_invariants'])}"
                     ),
                     context=requests,
                     sandbox="workspace-write",
                     metadata={"task": task},
+                )
+                _require_completed_agent_edit(
+                    implementation,
+                    role="Implementer",
+                    task_id=str(task["id"]),
                 )
                 if bool(self.config["safety"]["block_agent_commits"]) and self.mirror.head() != before_head:
                     raise SafetyError(f"Agent created a commit during task {task['id']}.")
@@ -1730,7 +1848,8 @@ class Orchestrator:
                     instructions=(
                         "# Verified-finding repair role\n\n"
                         "Repair only the verified blocking findings. Do not broaden the product, "
-                        "change locked requirements, or perform cleanup unrelated to a finding. "
+                        "change locked requirements or reuse bindings, substitute custom work for a "
+                        "named candidate, or perform cleanup unrelated to a finding. "
                         "Return every changed file exactly. Do not commit.\n\n"
                         f"Review:\n{_compact_json(review)}\n\n"
                         f"Allowed paths:\n{allowed}\n\n"
@@ -1739,6 +1858,11 @@ class Orchestrator:
                     context=requests,
                     sandbox="workspace-write",
                     metadata={"task": {"allowed_paths": allowed}},
+                )
+                _require_completed_agent_edit(
+                    repair,
+                    role="Repairer",
+                    task_id=f"repair-{self.state.repair_cycles}",
                 )
                 if self.mirror.head() != before_head:
                     raise SafetyError("Repair agent created an unauthorized commit.")
@@ -1810,6 +1934,7 @@ class Orchestrator:
                     "product_summary": product.get("goal", ""),
                     "acceptance": acceptance,
                     "reuse": reuse.get("decisions", []),
+                    "reuse_conformance": plan.get("reuse_bindings", []),
                     "gates": global_gate_results,
                     "review": review,
                     "external_review_repair": external_review_repair,

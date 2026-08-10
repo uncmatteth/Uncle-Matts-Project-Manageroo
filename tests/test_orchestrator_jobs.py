@@ -11,8 +11,9 @@ from unittest.mock import patch
 from manageroo.adapters.mock import MockAdapter
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.cli import main, parser
-from manageroo.errors import AgentExecutionError, BlockingDecisionError
-from manageroo.orchestrator import Orchestrator
+from manageroo.errors import AgentExecutionError, BlockingDecisionError, SafetyError, ValidationError
+from manageroo.intent_lock import capture_intent_lock, read_intent_lock
+from manageroo.orchestrator import Orchestrator, _effective_brief
 from manageroo.project import initialize_project
 from manageroo.util import atomic_write_json, read_json
 
@@ -87,6 +88,145 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertEqual(payload["phase"], "COMPLETE")
             self.assertGreater(payload["jobs"]["completed_jobs"], 0)
             self.assertEqual(payload["jobs"]["failed_attempts"], 0)
+
+    def test_blocked_implementer_scope_expansion_stops_before_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class ScopeExpansionAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    response = super().run(request)
+                    if request.role == "implementer":
+                        response.data["status"] = "blocked"
+                        response.data["scope_expansion_requested"] = ["adjacent-system.py"]
+                        atomic_write_json(request.output_path, response.data)
+                    return response
+
+            orchestrator = Orchestrator(repo, adapter=ScopeExpansionAdapter())
+            with self.assertRaisesRegex(SafetyError, "scope expansion"):
+                orchestrator.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+            task_evidence = (
+                repo
+                / ".manageroo"
+                / "runs"
+                / orchestrator.run_id
+                / "artifacts"
+                / "implementation"
+                / "tasks"
+                / "TASK-001.json"
+            )
+            self.assertFalse(task_evidence.exists())
+
+    def test_locked_reuse_decision_blocks_custom_replacement_before_implementation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            config = repo / ".manageroo" / "config.toml"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "max_plan_review_cycles = 0", "max_plan_review_cycles = 1"
+                ),
+                encoding="utf-8",
+            )
+
+            class SubstitutingPlanAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    response = super().run(request)
+                    if request.role == "plan-compiler":
+                        response.data["reuse_bindings"][0]["implementation"] = "build-custom"
+                        atomic_write_json(request.output_path, response.data)
+                    if request.role == "implementer":
+                        raise AssertionError("custom substitution must block before implementation")
+                    return response
+
+            with self.assertRaisesRegex(ValidationError, "Plan review did not converge"):
+                Orchestrator(repo, adapter=SubstitutingPlanAdapter()).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+    def test_operator_named_existing_source_blocks_before_plan_if_reuse_worker_omits_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            brief.write_text(
+                "Use the finished renderer already in tools/swipebot_motion.py; do not redraw it.\n",
+                encoding="utf-8",
+            )
+
+            class OmissionAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "plan-compiler":
+                        raise AssertionError("reuse omission must block before planning")
+                    return super().run(request)
+
+            with self.assertRaisesRegex(SafetyError, "operator-named existing source"):
+                Orchestrator(repo, adapter=OmissionAdapter()).run(
+                    brief_path=brief,
+                    mode="repair",
+                    apply_on_success=False,
+                )
+
+    def test_signed_operator_context_is_part_of_the_locked_effective_brief(self):
+        prior_request = "Use the finished renderer from tools/swipebot_motion.py."
+        locked_brief = _effective_brief(
+            "Replace the wrong implementation.",
+            [prior_request, "$uncle-matts-project-manageroo go do it right."],
+        )
+        self.assertIn(prior_request, locked_brief)
+        self.assertIn("# Prepared project brief", locked_brief)
+        self.assertIn("Replace the wrong implementation.", locked_brief)
+
+    def test_run_captures_and_binds_exact_brief_as_intent_when_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            self.assertFalse(read_intent_lock(repo)["ok"])
+
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            current = read_intent_lock(repo)
+            bound = read_json(
+                Path(result["evidence_paths"]["run_root"])
+                / "artifacts"
+                / "intake"
+                / "intent-lock.json"
+            )
+            self.assertTrue(current["ok"])
+            self.assertEqual(bound["lock_hash"], current["lock_hash"])
+            self.assertEqual(
+                bound["lock"]["want"],
+                "# Product request Create the fixture file.",
+            )
+            self.assertRegex(bound["brief_hash"], r"^[0-9a-f]{64}$")
+
+    def test_existing_intent_missing_from_brief_blocks_before_workers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(
+                repo,
+                want="Create the fixture file.",
+                must_not=["Do not alter the adjacent payment system."],
+            )
+
+            class ExplodingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    raise AssertionError("intent drift must block before a worker starts")
+
+            with self.assertRaisesRegex(SafetyError, "locked intent"):
+                Orchestrator(repo, adapter=ExplodingAdapter()).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
 
     def test_saved_installer_token_mode_is_injected_exactly_once_per_worker_packet(self):
         with tempfile.TemporaryDirectory() as temp:

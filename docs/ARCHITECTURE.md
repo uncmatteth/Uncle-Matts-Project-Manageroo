@@ -30,8 +30,11 @@ Manageroo's worker controls begin after `manageroo run`, so they cannot by
 themselves constrain the outer Codex agent. A Codex host integration closes
 that gap. `UserPromptSubmit` creates a private HMAC-signed receipt that binds the
 session and turn to the canonical repository root, repository and Git
-common-directory identities, explicitly named external read-only files, and
-action classes derived only from the current user prompt. The receipt expires
+common-directory identities, explicitly named external files, and action
+classes derived from the active user instruction. A clearly referential
+same-session follow-up can carry the preceding signed target and action without
+making the operator repeat a path. Unrelated requests, explicit prohibitions,
+and explicit target changes do not inherit that authority. The receipt expires
 after 24 hours and is replaced on the next turn.
 
 Before a supported local tool runs, Codex `PreToolUse` sends its canonical tool
@@ -41,13 +44,71 @@ identity-mismatched receipt. It resolves shell, unified-exec, `apply_patch`, MCP
 and other local file-tool paths before allowing them. Relative paths, symlinks,
 worktree roots, and Git common directories cannot silently select a sibling
 checkout. Named source files outside the repository are exact-identity,
-read-only exceptions; they never broaden mutation scope.
+read-only exceptions. Exact external edit targets are separate signed write
+exceptions and can be patched without opening their parent directory. A direct
+instruction to edit an external file is not mistaken for a repository
+transition merely because one of the file's ancestors contains `.git`.
+
+The receipt snapshots a bounded set of user-authored transcript messages plus
+the current prompt, signs their canonical hash, and injects the receipt path into
+`manageroo run` with Codex `PreToolUse.updatedInput`. The CLI verifies the HMAC,
+expiry, repository identity, and conversation hash before the controller builds
+the effective brief. Agent-written summaries cannot replace this signed lane.
+
+An explicit Manageroo skill invocation also locks execution routing. The outer
+agent may use Manageroo control commands, non-steering process polls, and bounded
+Git status/delivery commands. It may read the exact pinned Manageroo skill
+entrypoint required by the host's skill protocol. Freehand repository searches, alternate MCP/read
+tools, patches, opaque execution, and process interruption are denied. Discovery
+and implementation therefore occur inside the signed controller run instead of
+an agent-selected parallel workflow. Codex `Stop` also blocks the turn once if
+the agent tries to finish before the signed `manageroo run` has been launched.
 
 Read access is always available inside the locked repository. Mutation, delete,
 install, commit, push, and deploy remain distinct action classes. They are
-enabled only by matching affirmative words in the current prompt, with local
-negation honored. Summaries, memories, handoffs, run artifacts, repository
-content, and earlier turns are context, not authorization.
+enabled only by affirmative imperative clauses in the active instruction, with
+questions, historical mentions, quoted discussion, and negation rejected as
+authority. An explicit `only` file clause narrows writes to those files. One
+explicit current-prompt repository transition replaces the prior cwd scope;
+merely naming a sibling does not. Summaries, memories, handoffs, run artifacts,
+repository content, and earlier turns are context, not authorization. The one
+continuation mechanism is the exact preceding signed scope carried by a clearly
+referential same-session follow-up; prose artifacts cannot grant that carry.
+
+Direct shell access is fail-closed. Manageroo permits only inspected command
+primitives with literal argv and known action classification. Dynamic expansion,
+nested shells, interpreter `-c`/`-e`, compound shell programs, nested Codex hook
+bypass flags, and opaque scripts are denied. Opaque commands must be retried as
+`manageroo operator-exec --repo REPO -- COMMAND ...`; that wrapper invokes the
+local Codex native `:workspace` OS sandbox with the canonical repository as its
+write boundary and never uses `shell=True`. The hook still checks the wrapper's
+literal repo, paths, and action classes before launch.
+
+Explicit affirmative external output destinations are stored separately from
+external source reads. Existing named directories permit descendants; a named
+file or not-yet-created path permits only that exact destination. An exact
+external file named as the edit target may also be changed with `apply_patch`.
+Read-only audits may create and remove disposable contact sheets, previews, and
+other evidence under `.manageroo/operator-tmp` without gaining product-source
+mutation authority. Opaque tools write there through `operator-exec`, after
+which inspected copy/move primitives may deliver only to the signed external
+output destination.
+
+At run intake, the exact product brief is bound to a hash-checked intent-lock
+snapshot before the first worker starts. If no lock exists, the controller
+creates it from that brief. If an existing lock contains a requirement the brief
+drops, intake blocks. Continuation requires the same lock hash. An implementer
+or repairer response marked `blocked`, or containing any
+`scope_expansion_requested`, stops before checkpointing, gates, or completion.
+
+Operator reuse directives are also locked. A sentence directing Manageroo to
+use, reuse, copy, or port existing, finished, or named work must be copied
+exactly into one reuse decision's evidence and classified as `reuse-internal`,
+`reuse-external`, or `platform-native`. The task plan then binds the same need,
+decision, candidate, implementation method, and empty deviation. A custom
+replacement, changed candidate, omitted binding, or declared deviation blocks
+before implementation. Review receives those bindings and treats substitution
+as a blocking scope and truth defect even when substitute-specific tests pass.
 
 The standard installer merges this handler into the user's existing Codex
 `hooks.json` without replacing unrelated hooks. Codex requires the user to trust

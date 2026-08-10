@@ -54,6 +54,8 @@ from .learning import (
 )
 from .next_action import format_next_action, next_action
 from .orchestrator import Orchestrator
+from .operator_exec import operator_exec
+from .operator_scope import load_operator_context
 from .project import create_project_repo, git_root, initialize_project, starter_choices
 from .project_memory import ensure_project_memory, format_project_memory, read_project_memory
 from .projects import (
@@ -500,6 +502,7 @@ def parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Run the complete one-request workflow.")
     run.add_argument("--repo", default=".")
     run.add_argument("--brief")
+    run.add_argument("--operator-receipt", help=argparse.SUPPRESS)
     run.add_argument("--mode", choices=["build", "repair"], default="build")
     run.add_argument(
         "--json",
@@ -514,6 +517,13 @@ def parser() -> argparse.ArgumentParser:
     apply_group = run.add_mutually_exclusive_group()
     apply_group.add_argument("--apply", action="store_true")
     apply_group.add_argument("--no-apply", action="store_true")
+
+    operator = sub.add_parser(
+        "operator-exec",
+        help="Run an opaque command inside the locked repo's native OS sandbox.",
+    )
+    operator.add_argument("--repo", required=True)
+    operator.add_argument("command_argv", nargs=argparse.REMAINDER)
 
     status = sub.add_parser("status", help="Show durable state for a run.")
     status.add_argument("run_id")
@@ -639,6 +649,12 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
+        if args.command == "operator-exec":
+            command = list(args.command_argv)
+            if command and command[0] == "--":
+                command = command[1:]
+            return operator_exec(Path(args.repo), command)
+
         if args.command == "init":
             created_project = None
             if args.create:
@@ -1162,6 +1178,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "run":
             repo = _repo(args.repo)
+            operator_context = None
+            if args.operator_receipt:
+                operator_context = load_operator_context(
+                    Path(args.operator_receipt), repo=repo
+                )["messages"]
             apply_override = True if args.apply else False if args.no_apply else None
             brief_path = (
                 Path(args.brief).resolve()
@@ -1174,11 +1195,14 @@ def main(argv: list[str] | None = None) -> int:
                 continue_existing=bool(args.continue_run_id),
             )
             try:
-                result = controller.run(
-                    brief_path=brief_path,
-                    mode=args.mode,
-                    apply_on_success=apply_override,
-                )
+                run_options = {
+                    "brief_path": brief_path,
+                    "mode": args.mode,
+                    "apply_on_success": apply_override,
+                }
+                if operator_context is not None:
+                    run_options["operator_context"] = operator_context
+                result = controller.run(**run_options)
             except (MANAGEROOError, OSError, ValueError, RuntimeError) as exc:
                 if args.json:
                     print(
