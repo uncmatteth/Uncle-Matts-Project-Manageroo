@@ -1,4 +1,5 @@
 import json
+import copy
 import multiprocessing
 import tempfile
 import unittest
@@ -7,8 +8,12 @@ from unittest.mock import patch
 
 from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.adapters.budget import BudgetedAdapter
+from manageroo.adapters.factory import build_adapter
 from manageroo.adapters.pool import WorkerPoolAdapter
+from manageroo.adapters.transactional import TransactionalAdapter
+from manageroo.config import DEFAULT_CONFIG, agent_preset
 from manageroo.errors import AgentExecutionError, SafetyError
+from manageroo.runner import CommandRunner
 
 
 class _Worker(AgentAdapter):
@@ -70,6 +75,19 @@ def _reserve_shared_budget(ledger: Path, ready, start, results) -> None:
 
 
 class WorkerPoolTests(unittest.TestCase):
+    def test_factory_lock_wait_covers_the_configured_whole_run(self):
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["agent"] = agent_preset("mock")
+        config["budget"]["max_runtime_minutes"] = 17
+
+        adapter = build_adapter(config, CommandRunner())
+
+        self.assertIsInstance(adapter.inner, TransactionalAdapter)
+        self.assertEqual(
+            adapter.inner.repository_lock_timeout_seconds,
+            17 * 60,
+        )
+
     def test_provider_failure_falls_back_to_next_worker(self):
         with tempfile.TemporaryDirectory() as temp:
             first = _Worker(error=AgentExecutionError("provider unavailable"))

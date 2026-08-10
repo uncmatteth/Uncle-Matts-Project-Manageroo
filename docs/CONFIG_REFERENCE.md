@@ -8,6 +8,12 @@ Project configuration lives at:
 
 Agents are forbidden from editing it during a run.
 
+`policy_version = 2` marks a current configuration whose explicitly chosen
+phase caps must be preserved. A pre-version config containing the exact old
+generated `2` repair, `4` plan-review, and `2` worker-attempt defaults is treated
+as legacy and uses the current `0` defaults in memory. Manageroo does not rewrite
+that project file during loading.
+
 ## `[project]`
 
 - `apply_on_success`: apply the verified patch to the exact source snapshot.

@@ -86,6 +86,11 @@ The built-in Claude Code and Gemini presets map these modes to provider-native p
 
 Every configured provider attempt is also transactional at the Git workspace layer. Failed attempts are rolled back to their pre-attempt checkpoint and stale output artifacts are discarded before fallback or retry. A successful read-only worker that mutated its repository is rejected and rolled back. If rollback integrity cannot be proven, the run stops with a safety failure instead of trying another provider. Permanent controller-side safety failures detected before launch stop after one recorded attempt; retrying them cannot change the evidence and would not consume the worker-call budget. By default, recoverable worker, plan-review, and review-repair work has no separate arbitrary attempt cap; the durable whole-run call and time budgets remain the outer boundary.
 
+Parallel workers that share one disposable repository serialize their complete
+transactions. Waiting for that repository lock uses the configured whole-run
+runtime window, not a fixed 30-second timeout. The lock is released by the
+operating system if its owning process exits.
+
 ## Response normalization
 
 Regardless of transport or provider, the adapter obtains the worker response from the configured output file when one exists, otherwise from stdout. Manageroo then:

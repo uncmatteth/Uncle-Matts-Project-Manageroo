@@ -48,14 +48,49 @@ def _build_raw(agent: dict, runner: CommandRunner) -> AgentAdapter:
     raise ConfigurationError(f"Unknown agent adapter: {adapter}")
 
 
-def _build_single(agent: dict, runner: CommandRunner) -> AgentAdapter:
-    return TransactionalAdapter(_build_raw(agent, runner), runner)
+def _repository_lock_timeout_seconds(config: dict) -> float:
+    runtime_minutes = float(
+        config.get("budget", {}).get("max_runtime_minutes", 0) or 0
+    )
+    if runtime_minutes > 0:
+        return max(30.0, runtime_minutes * 60.0)
+    worker_timeout = float(
+        config.get("agent", {}).get("timeout_seconds", 300) or 300
+    )
+    parallel_calls = max(
+        1,
+        int(
+            config.get("orchestration", {}).get(
+                "max_parallel_agent_calls", 1
+            )
+            or 1
+        ),
+    )
+    return max(30.0, worker_timeout * parallel_calls * 2.0)
+
+
+def _build_single(
+    agent: dict,
+    runner: CommandRunner,
+    *,
+    repository_lock_timeout_seconds: float,
+) -> AgentAdapter:
+    return TransactionalAdapter(
+        _build_raw(agent, runner),
+        runner,
+        repository_lock_timeout_seconds=repository_lock_timeout_seconds,
+    )
 
 
 def _build_unbudgeted(config: dict, runner: CommandRunner) -> AgentAdapter:
     agent = config["agent"]
+    repository_lock_timeout_seconds = _repository_lock_timeout_seconds(config)
     if agent["adapter"] != "auto":
-        return _build_single(agent, runner)
+        return _build_single(
+            agent,
+            runner,
+            repository_lock_timeout_seconds=repository_lock_timeout_seconds,
+        )
 
     candidate_names = list(agent.get("candidates", []) or ["codex", "claude-code", "gemini"])
     workers: list[tuple[str, AgentAdapter]] = []
@@ -64,7 +99,16 @@ def _build_unbudgeted(config: dict, runner: CommandRunner) -> AgentAdapter:
         executable = str(candidate.get("executable") or "")
         if not executable or shutil.which(executable) is None:
             continue
-        workers.append((str(name), _build_single(candidate, runner)))
+        workers.append(
+            (
+                str(name),
+                _build_single(
+                    candidate,
+                    runner,
+                    repository_lock_timeout_seconds=repository_lock_timeout_seconds,
+                ),
+            )
+        )
     return WorkerPoolAdapter(workers)
 
 

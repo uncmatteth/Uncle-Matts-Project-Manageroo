@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from manageroo.config import apply_agent_preset, config_template
+from manageroo.config import apply_agent_preset, config_template, load_config
 from manageroo.config_lock import config_mutation_lock
 from manageroo.errors import SafetyError
 
@@ -184,6 +184,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_auto_config_is_vendor_neutral_and_has_no_arbitrary_phase_caps(self):
         config = tomllib.loads(config_template("auto", []))
+        self.assertEqual(config["policy_version"], 2)
         self.assertEqual(config["agent"]["adapter"], "auto")
         self.assertEqual(
             config["agent"]["candidates"],
@@ -194,6 +195,49 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["orchestration"]["max_worker_attempts"], 0)
         self.assertEqual(config["project"]["max_plan_review_cycles"], 0)
         self.assertEqual(config["project"]["max_repair_cycles"], 0)
+
+    def test_exact_legacy_generated_caps_migrate_in_memory_without_rewriting_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            config_path = repo / ".manageroo" / "config.toml"
+            config_path.parent.mkdir()
+            legacy = config_template("auto", []).replace(
+                "policy_version = 2\n", ""
+            ).replace(
+                "max_repair_cycles = 0", "max_repair_cycles = 2"
+            ).replace(
+                "max_plan_review_cycles = 0", "max_plan_review_cycles = 4"
+            ).replace(
+                "max_worker_attempts = 0", "max_worker_attempts = 2"
+            )
+            config_path.write_text(legacy, encoding="utf-8")
+
+            loaded = load_config(repo)
+
+            self.assertEqual(loaded["project"]["max_repair_cycles"], 0)
+            self.assertEqual(loaded["project"]["max_plan_review_cycles"], 0)
+            self.assertEqual(loaded["orchestration"]["max_worker_attempts"], 0)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), legacy)
+
+    def test_versioned_explicit_phase_caps_are_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            config_path = repo / ".manageroo" / "config.toml"
+            config_path.parent.mkdir()
+            configured = config_template("auto", []).replace(
+                "max_repair_cycles = 0", "max_repair_cycles = 2"
+            ).replace(
+                "max_plan_review_cycles = 0", "max_plan_review_cycles = 4"
+            ).replace(
+                "max_worker_attempts = 0", "max_worker_attempts = 2"
+            )
+            config_path.write_text(configured, encoding="utf-8")
+
+            loaded = load_config(repo)
+
+            self.assertEqual(loaded["project"]["max_repair_cycles"], 2)
+            self.assertEqual(loaded["project"]["max_plan_review_cycles"], 4)
+            self.assertEqual(loaded["orchestration"]["max_worker_attempts"], 2)
 
     def test_apply_agent_preset_replaces_only_agent_block(self):
         with tempfile.TemporaryDirectory() as temp:

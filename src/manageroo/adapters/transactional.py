@@ -35,9 +35,18 @@ class _ControllerTruthSnapshot:
 class TransactionalAdapter(AgentAdapter):
     """Rollback failed attempts and protect controller-owned run truth."""
 
-    def __init__(self, inner: AgentAdapter, runner: CommandRunner):
+    def __init__(
+        self,
+        inner: AgentAdapter,
+        runner: CommandRunner,
+        *,
+        repository_lock_timeout_seconds: float = 30.0,
+    ):
         self.inner = inner
         self.runner = runner
+        self.repository_lock_timeout_seconds = max(
+            30.0, float(repository_lock_timeout_seconds)
+        )
         self._before_worker_launch: Callable[[AgentRequest], AgentRequest] | None = None
         self._controller_truth_authority: (
             Callable[[], dict[Path, bytes | None]] | None
@@ -880,7 +889,10 @@ class TransactionalAdapter(AgentAdapter):
         )
 
     def run(self, request: AgentRequest) -> AgentResponse:
-        with self._repository_transaction_lock(request.cwd):
+        with self._repository_transaction_lock(
+            request.cwd,
+            timeout_seconds=self.repository_lock_timeout_seconds,
+        ):
             return self._run_locked(request)
 
     def _run_locked(self, request: AgentRequest) -> AgentResponse:

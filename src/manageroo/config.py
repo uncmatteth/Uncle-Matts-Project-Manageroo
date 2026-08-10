@@ -14,6 +14,7 @@ from .util import atomic_write_text
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    "policy_version": 2,
     "project": {
         "apply_on_success": True,
         "max_repair_cycles": 0,
@@ -127,6 +128,17 @@ def load_config(repo: Path) -> dict[str, Any]:
         raise ConfigurationError(f"Missing {path}. Run `{PUBLIC_COMMAND} init` first.")
     with path.open("rb") as handle:
         raw = tomllib.load(handle)
+    legacy_caps = (
+        raw.get("policy_version") is None
+        and raw.get("project", {}).get("max_repair_cycles") == 2
+        and raw.get("project", {}).get("max_plan_review_cycles") == 4
+        and raw.get("orchestration", {}).get("max_worker_attempts") == 2
+    )
+    if legacy_caps:
+        raw = copy.deepcopy(raw)
+        raw["project"]["max_repair_cycles"] = 0
+        raw["project"]["max_plan_review_cycles"] = 0
+        raw["orchestration"]["max_worker_attempts"] = 0
     return _merge(DEFAULT_CONFIG, raw)
 
 
@@ -204,6 +216,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
     lines = [
         f"# {FULL_ACRONYM} project configuration.",
         "# Generated deterministically. Edit product policy only; agents must not edit this file.",
+        "policy_version = 2",
         "",
         "[project]",
         "apply_on_success = true",

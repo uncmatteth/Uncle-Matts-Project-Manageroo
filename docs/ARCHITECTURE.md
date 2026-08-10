@@ -235,6 +235,11 @@ Each independent review uses a fresh run-owned checkout name. An incomplete
 checkout left by an interrupted review is preserved for evidence and skipped;
 it cannot block the next review attempt.
 
+Workers sharing one disposable repository serialize their transaction windows
+to keep rollback and tamper detection coherent. The wait window is derived from
+the whole-run runtime budget, so normal long-running parallel calls do not fail
+on an unrelated fixed 30-second lock timeout.
+
 `release-ready` executes configured verification gates in a disposable local
 clone checked out at the exact candidate commit. After every gate, Manageroo
 rejects any HEAD, tracked, untracked, or ignored mutation before another gate
