@@ -3,12 +3,8 @@
 AUTOREVIEW and Clawpatch are command-owned repair lanes. They are not vague
 advice for the AI agent to reinterpret.
 
-Configuration makes a lane available; it does not request the lane. MANAGEROO
-runs `autoreview_command` only when the current brief affirmatively requests
-AUTOREVIEW, and runs `clawpatch_command` only when the brief affirmatively
-requests ClawPatch. Questions, historical mentions, exclusions, and mere
-configuration leave both lanes dormant. For a requested configured lane,
-MANAGEROO does this:
+When `autoreview_command` or `clawpatch_command` is configured in
+`.manageroo/config.toml`, MANAGEROO does this:
 
 1. Runs the configured AUTOREVIEW command exactly as an argv array.
 2. Runs the configured Clawpatch command exactly as an argv array.

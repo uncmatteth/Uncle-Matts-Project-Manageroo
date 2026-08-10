@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, TypeVar
 
 from .acceptance import build_acceptance_evidence
-from .agent_continuity import brief_requests_workstream
 from .adapters.base import AgentAdapter, AgentRequest
 from .adapters.factory import build_adapter
 from .artifacts import ArtifactStore
@@ -1013,7 +1012,7 @@ class Orchestrator:
         commands = [
             (name, argv_template)
             for name, argv_template in self._external_review_repair_commands()
-            if argv_template and brief_requests_workstream(brief, name)
+            if argv_template
         ]
         if not commands:
             return None
@@ -1878,10 +1877,7 @@ class Orchestrator:
             global_gate_results = self._run_gates(all_gates, self.workspace)
             self.artifacts.write_json("verification/gates.json", global_gate_results)
 
-            if any(
-                argv and brief_requests_workstream(brief, name)
-                for name, argv in self._external_review_repair_commands()
-            ):
+            if any(argv for _, argv in self._external_review_repair_commands()):
                 self._transition(
                     Phase.REPAIRING,
                     "Running command-owned AUTOREVIEW and Clawpatch lanes",

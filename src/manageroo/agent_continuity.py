@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import os
@@ -37,28 +36,20 @@ _NATURAL_CORRECTION = re.compile(
     re.IGNORECASE,
 )
 _ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9_])(/[A-Za-z0-9._~+@%:,=/-]+)")
-_RELATIVE_PATH = re.compile(
-    r"(?<![A-Za-z0-9_./-])((?:[A-Za-z0-9._~+@%=-]+/)+[A-Za-z0-9._~+@%:=-]+)"
-)
 _NEGATION_NEAR_PATH = re.compile(
     r"\b(?:do\s+not|don't|never|must\s+not|mustn't|without|leave)\b",
     re.IGNORECASE,
 )
 _MUTATING_SHELL_COMMAND = re.compile(
-    r"(?:^|[;&|]\s*)(?:chmod|chown|cp|install|ln|mkdir|mkfifo|mv|patch|rename|rm|rmdir|"
+    r"(?:^|[;&|]\s*)(?:chmod|chown|cp|install|ln|mkdir|mkfifo|mv|patch|rename|"
     r"rsync|sed\s+-i|tee|touch|truncate)(?:\s|$)|"
     r"(?:^|[;&|]\s*)git\s+(?:[^;&|]*\s)?(?:add|am|apply|checkout|cherry-pick|"
     r"clean|commit|merge|mv|pull|push|rebase|reset|restore|rm|switch|tag)(?:\s|$)",
     re.IGNORECASE,
 )
-_PYTHON_MUTATION = re.compile(
-    r"\b(?:python|python3|py)\b[^\n]*(?:"
-    r"\.write_(?:text|bytes)\s*\(|\.unlink\s*\(|\.mkdir\s*\(|\.rename\s*\(|"
-    r"\.replace\s*\(|\.touch\s*\(|\.chmod\s*\(|"
-    r"\b(?:remove|unlink|rmdir|removedirs|mkdir|makedirs|rename|replace)\s*\(|"
-    r"\b(?:rmtree|copy|copy2|copyfile|move)\s*\(|"
-    r"\bopen\s*\([^)]*,\s*['\"](?:[wax+]))",
-    re.IGNORECASE,
+_SHELL_REDIRECTION = re.compile(
+    r"(?<!<)(?:\d*)(?:>>|>)(?![=&])\s*"
+    r"(?P<target>\"(?:\\.|[^\"])*\"|'[^']*'|[^\s;&|]+)"
 )
 _PATCH_PATH = re.compile(
     r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$",
@@ -80,46 +71,10 @@ _HISTORICAL_CONTEXT = re.compile(
 )
 _CURRENT_PATH_DIRECTIVE = re.compile(
     r"^\s*(?:(?:now|instead)[:,]?\s+)?(?:please\s+)?"
-    r"(?:use|edit|write|create|copy|move|rename|delete|remove|fix|repair|update|modify|"
+    r"(?:use|edit|write|create|copy|move|rename|delete|remove|"
     r"work\s+(?:in|on|from)|read|inspect|review)\b",
     re.IGNORECASE,
 )
-_EXCLUSIVE_PATH_DIRECTIVE = re.compile(
-    r"\b(?:edit|write|create|copy|move|rename|delete|remove|fix|repair|update|"
-    r"touch|modify)\s+only\s*$|^\s*only\s+(?:this\s+)?(?:file|path)\b"
-    r"|^\s*(?:no(?:pe)?|actually|wrong|correction)\b\s*[,;:\u2014-]?\s*"
-    r"(?:please\s+)?(?:i\s+mean\s+)?use\s*$",
-    re.IGNORECASE,
-)
-_WORKSTREAM_REQUEST = re.compile(
-    r"^\s*(?:please\s+)?(?:run|use|start|invoke|execute|perform|resume|deploy|publish)\b",
-    re.IGNORECASE,
-)
-_WORKSTREAM_EXCLUSION = re.compile(
-    r"\b(?:do\s+not|don't|never|without|exclude(?:d)?|unrequested|unmentioned|"
-    r"no\s+added|not\s+run)\b",
-    re.IGNORECASE,
-)
-_ACTION_OBJECTIVE = re.compile(
-    r"\b(?:fix|repair|edit|change|build|implement|finish|verify|test|commit|push|"
-    r"deploy|release|move|copy|delete|remove|write|create|install|update|publish)\b",
-    re.IGNORECASE,
-)
-_VERIFICATION_OBJECTIVE = re.compile(r"\b(?:verify|test|proof|prove|check)\b", re.IGNORECASE)
-_VERIFICATION_COMMAND = re.compile(
-    r"(?:^|[;&|]\s*)(?:python(?:3)?\s+-m\s+unittest|pytest|npm\s+(?:run\s+)?test|"
-    r"pnpm\s+(?:run\s+)?test|yarn\s+test|cargo\s+test|go\s+test|dotnet\s+test|"
-    r"mvn\s+test|gradle(?:w)?\s+test|make\s+(?:test|check)|[^;&|]*\bself-test\b)",
-    re.IGNORECASE,
-)
-_DELIVERY_OBJECTIVE = re.compile(
-    r"\b(?:finish|ship|commit|push|publish|deploy|release|get\s+it\s+current|make\s+it\s+live)\b",
-    re.IGNORECASE,
-)
-_COMMIT_OBJECTIVE = re.compile(r"\bcommit\b", re.IGNORECASE)
-_PUSH_OBJECTIVE = re.compile(r"\bpush\b", re.IGNORECASE)
-_COMMIT_COMMAND = re.compile(r"(?:^|[;&|]\s*)git\s+[^;&|]*\bcommit\b", re.IGNORECASE)
-_PUSH_COMMAND = re.compile(r"(?:^|[;&|]\s*)git\s+[^;&|]*\bpush\b", re.IGNORECASE)
 
 
 def continuity_state_root() -> Path:
@@ -185,19 +140,6 @@ def _message(prompt: str, turn_id: str, relation: str) -> dict[str, str]:
     }
 
 
-def _empty_completion_evidence() -> dict[str, int]:
-    return {
-        "sequence": 0,
-        "successful_tools": 0,
-        "successful_mutations": 0,
-        "last_mutation_sequence": 0,
-        "successful_verifications": 0,
-        "last_verification_sequence": 0,
-        "successful_commits": 0,
-        "successful_pushes": 0,
-    }
-
-
 def capture_current_request(
     *,
     session_id: str,
@@ -221,7 +163,6 @@ def capture_current_request(
         messages = [_message(prompt, turn_id, "root" if not replace else "replacement")]
         created_at = utc_now()
         generation = int(existing.get("generation", 0)) + 1 if existing else 1
-        completion_evidence = _empty_completion_evidence()
     else:
         messages = [
             item
@@ -232,9 +173,6 @@ def capture_current_request(
             messages.append(_message(prompt, turn_id, "addition"))
         created_at = str(existing.get("created_at") or utc_now())
         generation = int(existing.get("generation", 1))
-        completion_evidence = existing.get("completion_evidence")
-        if not isinstance(completion_evidence, dict):
-            completion_evidence = _empty_completion_evidence()
     state = {
         "schema_version": STATE_SCHEMA_VERSION,
         "session_id": session_id,
@@ -246,7 +184,6 @@ def capture_current_request(
         "created_at": created_at,
         "updated_at": utc_now(),
         "waiting_reason": "",
-        "completion_evidence": completion_evidence,
     }
     _save_state(root, state)
     return state
@@ -317,80 +254,13 @@ def _path_is_quoted(text: str, start: int, end: int) -> bool:
     )
 
 
-def _quoted_absolute_paths(text: str) -> list[tuple[str, int, int]]:
-    paths: list[tuple[str, int, int]] = []
-    for span in _QUOTED_SPAN.finditer(text):
-        raw = span.group(0)[1:-1]
-        if raw.startswith("/"):
-            paths.append((raw, span.start() + 1, span.end() - 1))
-    return paths
-
-
-def _ambiguous_unquoted_path_tail(text: str, end: int) -> bool:
-    if end >= len(text) or not text[end].isspace():
-        return False
-    tail = text[end:]
-    return not bool(
-        re.match(
-            r"\s+(?:(?:and|then|only|instead|but|without|from|to|as|for|during|"
-            r"because|so|which|that|while)\b|[.!?;,])",
-            tail,
-            re.IGNORECASE,
-        )
-    )
-
-
-def _record_named_path(
-    raw: str,
-    *,
-    prefix: str,
-    clause: str,
-    allowed: list[Path],
-    excluded: list[Path],
-    base: Path,
-) -> None:
-    cleaned = raw.rstrip(".,;:!?)]}>\"'")
-    if not cleaned:
-        return
-    value = Path(cleaned).expanduser()
-    if not value.is_absolute():
-        value = base / value
-    value = value.resolve(strict=False)
-    target = excluded if _NEGATION_NEAR_PATH.search(prefix) else allowed
-    if value not in target:
-        target.append(value)
-
-
 def _named_paths(state: dict[str, Any]) -> tuple[list[Path], list[Path]]:
     allowed: list[Path] = []
     excluded: list[Path] = []
-    cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
-    base = _git_root(cwd) or cwd
     for item in state.get("messages", []):
         text = str(item.get("text") or "")
-        for raw, start, end in _quoted_absolute_paths(text):
-            prefix, clause = _path_clause(text, start, end)
-            direct = bool(
-                _CURRENT_PATH_DIRECTIVE.search(clause) or _NATURAL_CORRECTION.search(clause)
-            )
-            if clause.rstrip().endswith("?"):
-                continue
-            if _HISTORICAL_CONTEXT.search(clause) and not direct:
-                continue
-            if not direct and not _NEGATION_NEAR_PATH.search(prefix):
-                continue
-            _record_named_path(
-                raw,
-                prefix=prefix,
-                clause=clause,
-                allowed=allowed,
-                excluded=excluded,
-                base=base,
-            )
         for match in _ABSOLUTE_PATH.finditer(text):
             if _path_is_quoted(text, match.start(), match.end()):
-                continue
-            if _ambiguous_unquoted_path_tail(text, match.end()):
                 continue
             prefix, clause = _path_clause(text, match.start(), match.end())
             if clause.rstrip().endswith("?"):
@@ -400,70 +270,14 @@ def _named_paths(state: dict[str, Any]) -> tuple[list[Path], list[Path]]:
                 and not _CURRENT_PATH_DIRECTIVE.search(clause)
             ):
                 continue
-            _record_named_path(
-                match.group(1),
-                prefix=prefix,
-                clause=clause,
-                allowed=allowed,
-                excluded=excluded,
-                base=base,
-            )
-        for match in _RELATIVE_PATH.finditer(text):
-            if _path_is_quoted(text, match.start(), match.end()):
+            raw = match.group(1).rstrip(".,;:!?)]}>\"'")
+            if not raw:
                 continue
-            prefix, clause = _path_clause(text, match.start(), match.end())
-            direct = bool(
-                _CURRENT_PATH_DIRECTIVE.search(clause) or _NATURAL_CORRECTION.search(clause)
-            )
-            if clause.rstrip().endswith("?"):
-                continue
-            if _HISTORICAL_CONTEXT.search(clause) and not direct:
-                continue
-            if not direct and not _NEGATION_NEAR_PATH.search(prefix):
-                continue
-            _record_named_path(
-                match.group(1),
-                prefix=prefix,
-                clause=clause,
-                allowed=allowed,
-                excluded=excluded,
-                base=base,
-            )
+            value = Path(raw).expanduser().resolve(strict=False)
+            target = excluded if _NEGATION_NEAR_PATH.search(prefix) else allowed
+            if value not in target:
+                target.append(value)
     return allowed, excluded
-
-
-def _exclusive_paths(state: dict[str, Any], allowed: list[Path]) -> list[Path]:
-    exclusive: list[Path] = []
-    cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
-    base = _git_root(cwd) or cwd
-    for item in state.get("messages", []):
-        text = str(item.get("text") or "")
-        mentions = [
-            *(_quoted_absolute_paths(text)),
-            *(
-                (match.group(1), match.start(), match.end())
-                for match in _ABSOLUTE_PATH.finditer(text)
-                if not _path_is_quoted(text, match.start(), match.end())
-            ),
-            *(
-                (match.group(1), match.start(), match.end())
-                for match in _RELATIVE_PATH.finditer(text)
-                if not _path_is_quoted(text, match.start(), match.end())
-            ),
-        ]
-        for raw, start, end in mentions:
-            prefix, _clause = _path_clause(text, start, end)
-            prefix = prefix.rstrip("\"'`“‘")
-            raw = raw.rstrip(".,;:!?)]}>\"'")
-            if not raw or not _EXCLUSIVE_PATH_DIRECTIVE.search(prefix):
-                continue
-            value = Path(raw).expanduser()
-            if not value.is_absolute():
-                value = base / value
-            value = value.resolve(strict=False)
-            if value in allowed and value not in exclusive:
-                exclusive.append(value)
-    return exclusive
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -482,253 +296,6 @@ def _git_root(cwd: Path) -> Path | None:
     return None
 
 
-def _shell_segments(command: str) -> list[list[str]]:
-    try:
-        lexer = shlex.shlex(command, posix=os.name != "nt", punctuation_chars=";&|<>")
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        tokens = list(lexer)
-    except ValueError:
-        return []
-    segments: list[list[str]] = []
-    current: list[str] = []
-    for token in tokens:
-        if token in {";", "&&", "||", "|", "&"}:
-            if current:
-                segments.append(current)
-                current = []
-            continue
-        current.append(token)
-    if current:
-        segments.append(current)
-    return segments
-
-
-def _command_operands(tokens: list[str]) -> list[str]:
-    return [token for token in tokens if token and not token.startswith("-")]
-
-
-def _literal_string(node: ast.AST | None) -> str | None:
-    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
-
-
-def _path_constructor_value(node: ast.AST) -> str | None:
-    if not isinstance(node, ast.Call) or not node.args:
-        return None
-    func = node.func
-    name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
-    return _literal_string(node.args[0]) if name == "Path" else None
-
-
-def _qualified_call_name(func: ast.AST) -> str:
-    if isinstance(func, ast.Name):
-        return func.id
-    if isinstance(func, ast.Attribute):
-        prefix = _qualified_call_name(func.value)
-        return f"{prefix}.{func.attr}" if prefix else func.attr
-    return ""
-
-
-def _python_inline_mutation_values(tokens: list[str]) -> list[str]:
-    if "-c" not in tokens:
-        return []
-    index = tokens.index("-c")
-    if index + 1 >= len(tokens):
-        return []
-    code = tokens[index + 1]
-    try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return _ABSOLUTE_PATH.findall(code)
-    values: list[str] = []
-    path_methods = {
-        "write_text",
-        "write_bytes",
-        "unlink",
-        "mkdir",
-        "rename",
-        "replace",
-        "touch",
-        "chmod",
-    }
-    single_arg_calls = {
-        "os.remove",
-        "os.unlink",
-        "os.rmdir",
-        "os.removedirs",
-        "os.mkdir",
-        "os.makedirs",
-        "shutil.rmtree",
-    }
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = _qualified_call_name(node.func)
-        if isinstance(node.func, ast.Attribute) and node.func.attr in path_methods:
-            receiver = _path_constructor_value(node.func.value)
-            if receiver:
-                values.append(receiver)
-            if node.func.attr in {"rename", "replace"} and node.args:
-                destination = _literal_string(node.args[0])
-                if destination:
-                    values.append(destination)
-        elif name in single_arg_calls and node.args:
-            value = _literal_string(node.args[0])
-            if value:
-                values.append(value)
-        elif name in {"os.rename", "os.replace", "shutil.move"}:
-            values.extend(
-                value for arg in node.args[:2] if (value := _literal_string(arg)) is not None
-            )
-        elif name in {"shutil.copy", "shutil.copy2", "shutil.copyfile"} and len(node.args) > 1:
-            destination = _literal_string(node.args[1])
-            if destination:
-                values.append(destination)
-        elif name == "open" and node.args:
-            mode = _literal_string(node.args[1]) if len(node.args) > 1 else "r"
-            if mode and any(flag in mode for flag in "wax+"):
-                value = _literal_string(node.args[0])
-                if value:
-                    values.append(value)
-        elif isinstance(node.func, ast.Attribute) and node.func.attr == "open":
-            mode = _literal_string(node.args[0]) if node.args else "r"
-            if mode and any(flag in mode for flag in "wax+"):
-                receiver = _path_constructor_value(node.func.value)
-                if receiver:
-                    values.append(receiver)
-    return values
-
-
-def _shell_mutation_values(command: str) -> list[str]:
-    values: list[str] = []
-    for segment in _shell_segments(command):
-        command_tokens: list[str] = []
-        index = 0
-        while index < len(segment):
-            token = segment[index]
-            if token in {">", ">>"}:
-                if index + 1 < len(segment):
-                    values.append(segment[index + 1])
-                index += 2
-                continue
-            if token == "<":
-                index += 2
-                continue
-            command_tokens.append(token)
-            index += 1
-        while command_tokens and "=" in command_tokens[0] and not command_tokens[0].startswith("/"):
-            command_tokens.pop(0)
-        while command_tokens and Path(command_tokens[0]).name in {"command", "env", "sudo"}:
-            command_tokens.pop(0)
-        if not command_tokens:
-            continue
-        executable = Path(command_tokens[0]).name.casefold()
-        args = command_tokens[1:]
-        operands = _command_operands(args)
-        if executable in {"rm", "rmdir", "touch", "mkdir", "mkfifo", "truncate"}:
-            values.extend(operands)
-        elif executable in {"cp", "install", "ln", "rsync"} and operands:
-            values.append(operands[-1])
-        elif executable in {"mv", "rename"}:
-            values.extend(operands)
-        elif executable in {"chmod", "chown"} and len(operands) > 1:
-            values.extend(operands[1:])
-        elif executable == "tee":
-            values.extend(operands)
-        elif executable == "sed" and any(arg == "-i" or arg.startswith("-i") for arg in args):
-            values.extend(operands[1:])
-        elif executable in {"python", "python3", "py"}:
-            rendered = " ".join(command_tokens)
-            if _PYTHON_MUTATION.search(rendered):
-                values.extend(_python_inline_mutation_values(command_tokens))
-        elif _MUTATING_SHELL_COMMAND.search(" ".join(command_tokens)):
-            values.extend(_ABSOLUTE_PATH.findall(" ".join(command_tokens)))
-    return values
-
-
-def _command_workstreams(command: str) -> set[str]:
-    workstreams: set[str] = set()
-    for segment in _shell_segments(command):
-        if not segment:
-            continue
-        executable = Path(segment[0]).name.casefold()
-        lowered = [token.casefold() for token in segment[1:]]
-        if executable == "clawpatch":
-            workstreams.add("clawpatch")
-        if executable == "autoreview":
-            workstreams.add("autoreview")
-        if executable in {"manageroo", "manageroo.exe"} and lowered:
-            if lowered[0] == "clawpatch":
-                workstreams.add("clawpatch")
-            if lowered[0] in {"release-ready", "release-sweep"}:
-                workstreams.add("release")
-        release_scripts = {"package_release.py", "publish_release.py"}
-        executed_script = executable if executable in release_scripts else ""
-        if executable in {"python", "python3", "py"}:
-            for token in lowered:
-                if token in {"-c", "-m"}:
-                    break
-                if not token.startswith("-"):
-                    executed_script = Path(token).name
-                    break
-        if executed_script in release_scripts:
-            workstreams.add("release")
-        if (executable == "gh" and lowered[:1] == ["release"]) or (
-            executable in {"npm", "pnpm", "yarn", "twine"}
-            and "publish" in lowered
-        ):
-            workstreams.add("release")
-        if executable in {"vercel", "netlify"} and any(
-            token in {"deploy", "--prod", "--production"} for token in lowered
-        ):
-            workstreams.add("release")
-    return workstreams
-
-
-def _workstream_requested(state: dict[str, Any], name: str) -> bool:
-    pattern = re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
-    for item in state.get("messages", []):
-        text = str(item.get("text") or "")
-        for match in pattern.finditer(text):
-            if _path_is_quoted(text, match.start(), match.end()):
-                continue
-            _prefix, clause = _path_clause(text, match.start(), match.end())
-            if clause.rstrip().endswith("?") or _HISTORICAL_CONTEXT.search(clause):
-                continue
-            if _WORKSTREAM_EXCLUSION.search(clause):
-                continue
-            if _WORKSTREAM_REQUEST.search(clause):
-                return True
-    return False
-
-
-def brief_requests_workstream(brief: str, name: str) -> bool:
-    return _workstream_requested({"messages": [{"text": brief}]}, name)
-
-
-def _workstream_decision(event: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
-    if str(event.get("tool_name") or "") not in _SHELL_TOOLS:
-        return {}
-    payload = event.get("tool_input")
-    values = payload if isinstance(payload, dict) else {}
-    command = str(values.get("command") or values.get("cmd") or "")
-    for name in sorted(_command_workstreams(command)):
-        if _workstream_requested(state, name):
-            continue
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    f"Manageroo rejected the unrequested {name} workstream. "
-                    "Questions, readiness discussion, configuration, and historical mentions "
-                    "do not authorize starting that workstream."
-                ),
-            }
-        }
-    return {}
-
-
 def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
     tool_name = str(event.get("tool_name") or "")
     tool_input = event.get("tool_input")
@@ -739,9 +306,20 @@ def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
         values = _PATCH_PATH.findall(command)
     elif tool_name in _SHELL_TOOLS:
         command = str(payload.get("command") or payload.get("cmd") or "")
-        values = _shell_mutation_values(command)
-        if not values:
+        command_mutates = bool(_MUTATING_SHELL_COMMAND.search(command))
+        redirect_values: list[str] = []
+        for match in _SHELL_REDIRECTION.finditer(command):
+            raw = match.group("target")
+            try:
+                parsed = shlex.split(raw, posix=os.name != "nt")
+            except ValueError:
+                parsed = []
+            if parsed:
+                redirect_values.append(parsed[0])
+        if not command_mutates and not redirect_values:
             return []
+        values = _ABSOLUTE_PATH.findall(command) if command_mutates else []
+        values.extend(redirect_values)
     else:
         return []
     paths: list[Path] = []
@@ -756,14 +334,10 @@ def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
 
 
 def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
-    workstream = _workstream_decision(event, state)
-    if workstream:
-        return workstream
     targets = _tool_mutation_paths(event)
     if not targets:
         return {}
     allowed, excluded = _named_paths(state)
-    exclusive = _exclusive_paths(state, allowed)
     cwd = Path(str(event.get("cwd") or ".")).expanduser().resolve(strict=False)
     repo = _git_root(cwd)
     temporary_roots = [Path("/tmp"), Path("/dev/shm")]
@@ -782,24 +356,6 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
             }
         if target == null_target:
             continue
-        if exclusive:
-            if any(_inside(target, path) or target == path for path in exclusive):
-                continue
-            if (
-                any(_inside(target, root) or target == root for root in temporary_roots)
-                and not (repo is not None and (_inside(target, repo) or target == repo))
-            ):
-                continue
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": (
-                        f"Manageroo rejected mutation of {target} because the active operator "
-                        "objective limits changes to an explicit file or path."
-                    ),
-                }
-            }
         if any(_inside(target, root) or target == root for root in temporary_roots):
             continue
         if repo is not None and (_inside(target, repo) or target == repo):
@@ -830,90 +386,6 @@ def _additional_context(event_name: str, text: str) -> dict[str, Any]:
     }
 
 
-def _post_tool_succeeded(event: dict[str, Any]) -> bool:
-    output = event.get("tool_output")
-    if not isinstance(output, dict):
-        output = event.get("tool_response")
-    if not isinstance(output, dict):
-        return True
-    if output.get("is_error") is True or output.get("isError") is True:
-        return False
-    exit_code = output.get("exit_code", output.get("exitCode"))
-    return exit_code in {None, 0, "0"}
-
-
-def _record_completion_evidence(event: dict[str, Any], state: dict[str, Any]) -> None:
-    if not _post_tool_succeeded(event):
-        return
-    evidence = state.get("completion_evidence")
-    if not isinstance(evidence, dict):
-        evidence = _empty_completion_evidence()
-        state["completion_evidence"] = evidence
-    sequence = int(evidence.get("sequence", 0)) + 1
-    evidence["sequence"] = sequence
-    evidence["successful_tools"] = int(evidence.get("successful_tools", 0)) + 1
-    if _tool_mutation_paths(event):
-        evidence["successful_mutations"] = int(evidence.get("successful_mutations", 0)) + 1
-        evidence["last_mutation_sequence"] = sequence
-    if str(event.get("tool_name") or "") in _SHELL_TOOLS:
-        payload = event.get("tool_input")
-        values = payload if isinstance(payload, dict) else {}
-        command = str(values.get("command") or values.get("cmd") or "")
-        if _VERIFICATION_COMMAND.search(command):
-            evidence["successful_verifications"] = int(
-                evidence.get("successful_verifications", 0)
-            ) + 1
-            evidence["last_verification_sequence"] = sequence
-        if _COMMIT_COMMAND.search(command):
-            evidence["successful_commits"] = int(evidence.get("successful_commits", 0)) + 1
-        if _PUSH_COMMAND.search(command):
-            evidence["successful_pushes"] = int(evidence.get("successful_pushes", 0)) + 1
-
-
-def _completion_evidence_problems(state: dict[str, Any]) -> list[str]:
-    objective = "\n".join(
-        str(item.get("text") or "") for item in state.get("messages", [])
-    )
-    evidence = state.get("completion_evidence")
-    if not isinstance(evidence, dict):
-        evidence = _empty_completion_evidence()
-    problems: list[str] = []
-    if _ACTION_OBJECTIVE.search(objective) and int(evidence.get("successful_tools", 0)) == 0:
-        problems.append("no successful tool execution was observed for the requested action")
-    if (
-        _VERIFICATION_OBJECTIVE.search(objective)
-        and int(evidence.get("successful_verifications", 0)) == 0
-    ):
-        problems.append("no successful verification command was observed")
-    if int(evidence.get("successful_mutations", 0)) > 0 and int(
-        evidence.get("last_verification_sequence", 0)
-    ) < int(evidence.get("last_mutation_sequence", 0)):
-        problems.append("the latest successful mutation has no later successful verification")
-    if _DELIVERY_OBJECTIVE.search(objective):
-        cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
-        repo = _git_root(cwd)
-        if repo is not None:
-            status = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=repo,
-                text=True,
-                capture_output=True,
-                timeout=5,
-                check=False,
-            )
-            if status.returncode != 0:
-                problems.append("current Git state could not be inspected")
-            elif status.stdout.strip():
-                problems.append("Git worktree is not clean for the requested delivery")
-        if _COMMIT_OBJECTIVE.search(objective) and int(
-            evidence.get("successful_mutations", 0)
-        ) > 0 and int(evidence.get("successful_commits", 0)) == 0:
-            problems.append("no successful Git commit was observed after mutation")
-        if _PUSH_OBJECTIVE.search(objective) and int(evidence.get("successful_pushes", 0)) == 0:
-            problems.append("no successful Git push was observed")
-    return problems
-
-
 def process_codex_continuity_hook(
     event: dict[str, Any], *, state_root: Path | None = None
 ) -> dict[str, Any]:
@@ -939,28 +411,11 @@ def process_codex_continuity_hook(
     if name == "PreToolUse":
         decision = audit_agent_tool(event, state)
         return decision or _additional_context(name, "Agent action remains bound to the active Manageroo objective.")
-    if name == "PostToolUse":
-        _record_completion_evidence(event, state)
-        state["updated_at"] = utc_now()
-        _save_state(root, state)
-        return {}
     if name == "Stop":
         last = str(event.get("last_assistant_message") or "")
         complete_marker = _completion_marker(state, "complete")
         blocked_marker = _completion_marker(state, "blocked")
         if complete_marker in last:
-            problems = _completion_evidence_problems(state)
-            if problems:
-                return {
-                    "decision": "block",
-                    "reason": (
-                        f"{INTERNAL_CONTINUATION_PREFIX}\n"
-                        "The completion marker is not independent completion evidence. "
-                        + "Resolve: "
-                        + "; ".join(problems)
-                        + ". Then return current proof for the complete objective."
-                    ),
-                }
             state["status"] = "complete"
             state["updated_at"] = utc_now()
             _save_state(root, state)
@@ -1038,7 +493,6 @@ def install_codex_continuity_hooks(
         "SessionStart": {"matcher": "startup|resume|clear|compact", "hooks": [context_handler]},
         "UserPromptSubmit": {"hooks": [context_handler]},
         "PreToolUse": {"matcher": "*", "hooks": [context_handler]},
-        "PostToolUse": {"matcher": "*", "hooks": [handler]},
         "Stop": {"hooks": [handler]},
         "SubagentStart": {"hooks": [context_handler]},
     }

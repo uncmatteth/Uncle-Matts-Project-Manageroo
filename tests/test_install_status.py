@@ -189,50 +189,6 @@ class InstallStatusTests(unittest.TestCase):
             self.assertIsNone(item["path"])
             self.assertTrue(item["needs_action"])
 
-    def test_stack_status_replaces_synthetic_bundle_with_individual_live_tool_truth(self):
-        with tempfile.TemporaryDirectory() as temp:
-            lock = Path(temp) / "install-lock.json"
-            lock.write_text(
-                json.dumps(
-                    {
-                        "external_tools": [
-                            {"name": "recommended-stack", "installed": True, "configured": True}
-                        ],
-                        "stack_summary": {
-                            "items": [
-                                {
-                                    "name": "recommended-stack",
-                                    "installed": True,
-                                    "configured": True,
-                                    "needs_action": False,
-                                }
-                            ]
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            def which(name: str):
-                return {
-                    "codex": "/bin/codex",
-                    "gbrain": "/bin/gbrain",
-                    "gitnexus": "/bin/gitnexus",
-                    "trufflehog": "/bin/trufflehog",
-                    "clawpatch": "/bin/clawpatch",
-                }.get(name)
-
-            with patch("manageroo.install_status.shutil.which", side_effect=which), patch(
-                "manageroo.install_status._find_skill",
-                side_effect=lambda name: "/skills/autoreview/SKILL.md" if name == "autoreview" else None,
-            ):
-                report = stack_status(lock)
-            items = {item["name"]: item for item in report["stack_summary"]["items"]}
-            self.assertNotIn("recommended-stack", items)
-            for name in ("codex", "gbrain", "gitnexus", "trufflehog", "clawpatch", "autoreview"):
-                self.assertTrue(items[name]["installed"], name)
-                self.assertFalse(items[name]["needs_action"], name)
-
     def test_uninstall_plan_uses_recorded_custom_launcher_not_default_bin(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

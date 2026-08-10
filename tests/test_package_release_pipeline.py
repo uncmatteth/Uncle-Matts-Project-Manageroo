@@ -17,7 +17,7 @@ SPEC.loader.exec_module(package_release)
 
 
 class PackageReleasePipelineTests(unittest.TestCase):
-    def test_distribution_failure_stops_before_archive_generation(self):
+    def test_distribution_failure_stops_before_manifest_or_archive_generation(self):
         calls = []
 
         def fake_run(argv, **_kwargs):
@@ -29,6 +29,8 @@ class PackageReleasePipelineTests(unittest.TestCase):
             raise AssertionError(f"unexpected subprocess: {argv}")
 
         with patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
+            package_release, "generate_manifest"
+        ) as manifest, patch.object(
             package_release, "included_files", return_value=[]
         ), patch.object(package_release, "write_archive") as archive:
             code = package_release.main()
@@ -41,6 +43,7 @@ class PackageReleasePipelineTests(unittest.TestCase):
                 [package_release.sys.executable, "scripts/verify_distribution.py"],
             ],
         )
+        manifest.assert_not_called()
         archive.assert_not_called()
 
     def test_smoke_failure_never_publishes_candidate_archives_or_refreshes_drop(self):
@@ -53,8 +56,8 @@ class PackageReleasePipelineTests(unittest.TestCase):
             return SimpleNamespace(returncode=0)
 
         with patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
-            package_release, "included_files", return_value=[]
-        ), patch.object(
+            package_release, "generate_manifest"
+        ), patch.object(package_release, "included_files", return_value=[]), patch.object(
             package_release, "end_user_files", return_value=[]
         ), patch.object(package_release, "write_archive") as write_archive, patch.object(
             package_release, "_publish_archive_pair"
@@ -92,8 +95,8 @@ class PackageReleasePipelineTests(unittest.TestCase):
             "_release_lock_target",
             return_value=Path(temp) / "release-publication",
         ), patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
-            package_release, "included_files", return_value=[]
-        ), patch.object(
+            package_release, "generate_manifest", side_effect=lambda: events.append("manifest")
+        ), patch.object(package_release, "included_files", return_value=[]), patch.object(
             package_release, "end_user_files", return_value=[]
         ), patch.object(package_release, "write_archive", side_effect=fake_write), patch.object(
             package_release, "_publish_archive_pair", side_effect=lambda *_args: events.append("publish")
@@ -108,6 +111,7 @@ class PackageReleasePipelineTests(unittest.TestCase):
             [
                 "verify-release",
                 "verify-distribution",
+                "manifest",
                 "write-installer",
                 "write-source",
                 "smoke",

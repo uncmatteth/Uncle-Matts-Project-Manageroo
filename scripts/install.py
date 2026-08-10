@@ -29,7 +29,6 @@ from manageroo.credits import format_special_thanks  # noqa: E402
 from manageroo.install_status import (  # noqa: E402
     INSTALL_OWNERSHIP_MARKER,
     LAUNCHER_MARKER,
-    reconcile_stack_summary,
     summarize_external_tools,
     uninstall_plan,
 )
@@ -1350,8 +1349,17 @@ def main() -> int:
                     bin_dir,
                 )
             )
+        else:
+            external_tools.append(
+                {
+                    "name": "recommended-stack",
+                    "skipped": True,
+                    "reason": "Stack install skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian.",
+                }
+            )
+
         _assert_download_sources_immutable(downloads)
-        stack_summary = reconcile_stack_summary(summarize_external_tools(external_tools))
+        stack_summary = summarize_external_tools(external_tools)
         for item in stack_summary["items"]:
             state = "OK" if item["installed"] and not item["needs_action"] else "ACTION"
             print(f"  {state} {item['name']}")

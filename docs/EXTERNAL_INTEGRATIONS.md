@@ -140,7 +140,7 @@ Current AUTOREVIEW requires TruffleHog and fails closed when the binary is missi
 
 Manageroo's stack updater refreshes an existing AUTOREVIEW installation from the canonical `skills/autoreview` tree and rejects symlinked downloaded content. A discovered alias is accepted only when it resolves to an `autoreview` directory directly beneath an approved resolved skill root and its `SKILL.md` names `autoreview`; unsafe destinations fail without replacement. Replacement uses same-filesystem rollback storage outside the discovered skills root; it restores the prior copy on a failed swap and removes the rollback storage after a successful update, so normal updates do not create duplicate `autoreview` skill folders. If only that final cleanup fails, the updater reports the already-installed update as successful, returns the retained rollback path, and surfaces a cleanup warning instead of falsely reporting that the swap failed.
 
-AUTOREVIEW findings do not become unconstrained freehand AI repair prompts. Configuration only makes the command-owned lane available; the current controlled-run brief must affirmatively request AUTOREVIEW before Manageroo runs it. Its command owns its result and Manageroo scope-checks any resulting edits.
+AUTOREVIEW findings do not become unconstrained freehand AI repair prompts. When configured as a Manageroo command-owned lane, its command owns its result and Manageroo scope-checks any resulting edits.
 
 Project: https://github.com/openclaw/agent-skills/tree/main/skills/autoreview
 
@@ -148,7 +148,7 @@ TruffleHog project: https://github.com/trufflesecurity/trufflehog
 
 ## ClawPatch and the standalone supervisor
 
-ClawPatch remains a command-owned review and repair lane. Configuration alone does not start it; the current controlled-run brief must affirmatively request ClawPatch. Manageroo updates the pinned ClawPatch CLI through its proven npm or pnpm owner and reruns `clawpatch doctor`; it does not freehand a repair from a finding.
+ClawPatch remains a command-owned review and repair lane. Manageroo updates the pinned ClawPatch CLI through its proven npm or pnpm owner and reruns `clawpatch doctor`; it does not freehand a repair from a finding.
 
 Clawpatch findings remain command-owned. Manageroo must not hand them to a
 worker for unconstrained freehand repair.
