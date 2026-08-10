@@ -172,6 +172,8 @@ See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
 
 Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
 
+For pytest-configured Python projects, validation uses a disposable environment with the project's declared runtime and test dependencies. Manageroo adds its default pytest range only when those dependencies do not declare pytest themselves.
+
 ClawPatch queue supervision is an optional external integration. The standalone `clawpatch-supervise` package owns finding transitions, partial-progress commits, checkpoints, recovery, validation environments, fixed-point review, and service exit policy.
 
 Manageroo keeps only an argv adapter in `clawpatch_release.py`. A dry run renders the exact standalone command. An applying run resolves the installed executable, requires its `--version` output to match the declared supervisor version exactly, invokes it with `shell=False`, streams its terminal output, and returns its exit code unchanged. The release-ready gate asks that executable for its external state path before reading the proof, so Manageroo does not duplicate platform path or checkpoint logic.

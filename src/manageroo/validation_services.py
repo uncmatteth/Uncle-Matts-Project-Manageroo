@@ -41,6 +41,7 @@ _DEFAULT_READY_SECONDS = 90
 _MAX_PYTHON_REQUIREMENTS = 256
 _MAX_PYTHON_REQUIREMENT_BYTES = 4096
 _MAX_PYTHON_REQUIREMENTS_BYTES = 64 * 1024
+_PYTHON_REQUIREMENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 @dataclass(frozen=True)
@@ -258,6 +259,14 @@ def _python_environment_bin(environment: Path) -> tuple[Path, Path]:
     return executable_dir, python
 
 
+def _declares_pytest(requirements: tuple[str, ...]) -> bool:
+    for requirement in requirements:
+        match = _PYTHON_REQUIREMENT_NAME.match(requirement)
+        if match is not None and re.sub(r"[-_.]+", "-", match.group()).lower() == "pytest":
+            return True
+    return False
+
+
 def _checked_python_environment_command(
     run: RunCommand,
     argv: list[str],
@@ -322,6 +331,9 @@ def _provision_python_test_environment(
                 raise SafetyError(
                     "Disposable Python validation environment did not create its interpreter."
                 )
+            pytest_requirement = (
+                () if _declares_pytest(contract.requirements) else ("pytest>=8,<10",)
+            )
             _checked_python_environment_command(
                 run,
                 [
@@ -331,7 +343,7 @@ def _provision_python_test_environment(
                     "install",
                     "--disable-pip-version-check",
                     "--no-input",
-                    "pytest>=8,<10",
+                    *pytest_requirement,
                     "--",
                     *contract.requirements,
                 ],

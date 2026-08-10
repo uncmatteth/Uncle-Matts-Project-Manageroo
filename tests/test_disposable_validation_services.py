@@ -290,6 +290,46 @@ class DisposableValidationServiceTests(unittest.TestCase):
             }
             self.assertEqual(after, before)
 
+    def test_declared_pytest_requirement_is_not_overridden(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            (repo / "pyproject.toml").write_text(
+                "[project]\n"
+                "name = 'fixture'\n"
+                "version = '1'\n"
+                "dependencies = []\n"
+                "\n"
+                "[project.optional-dependencies]\n"
+                "test = ['pytest<8']\n"
+                "\n"
+                "[tool.pytest.ini_options]\n",
+                encoding="utf-8",
+            )
+            calls: list[list[str]] = []
+
+            def runner(
+                argv: list[str], *, cwd: Path, timeout: int
+            ) -> subprocess.CompletedProcess[str]:
+                del cwd, timeout
+                calls.append(list(argv))
+                if argv[:3] == [sys.executable, "-m", "venv"]:
+                    environment = Path(argv[3])
+                    executable_dir = environment / (
+                        "Scripts" if os.name == "nt" else "bin"
+                    )
+                    executable_dir.mkdir(parents=True)
+                    python_name = "python.exe" if os.name == "nt" else "python"
+                    (executable_dir / python_name).write_text("fixture", encoding="utf-8")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+
+            with provision_disposable_validation_environment(repo, run=runner):
+                pass
+
+            install = calls[1]
+            self.assertIn("pytest<8", install)
+            self.assertNotIn("pytest>=8,<10", install)
+
     def test_python_dependency_failure_stops_before_queue_and_cleans_environment(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
