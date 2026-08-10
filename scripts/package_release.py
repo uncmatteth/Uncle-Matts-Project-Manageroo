@@ -38,7 +38,7 @@ SENSITIVE_FILENAMES = {".env", "credentials.json", "service-account.json", "id_r
 SAFE_ENV_EXAMPLES = {".env.example", ".env.sample", ".env.template"}
 SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
-EXPLICIT_GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
+EXPLICIT_GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt"}
 DROP_ARCHIVE_PREFIXES = (
     "uncle-matts-project-manageroo-",
     "Manageroo-",
@@ -46,7 +46,7 @@ DROP_ARCHIVE_PREFIXES = (
 )
 DROP_ARCHIVE_SUFFIX = re.compile(r"v\d+(?:\.\d+)+(?:-source)?\.zip")
 END_USER_EXCLUDED = {
-    "BUILD-VALIDATION.json", "GITHUB_DESCRIPTION.md", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md",
+    "BUILD-VALIDATION.json", "GITHUB_DESCRIPTION.md", "SHA256SUMS.txt",
     "scripts/package_release.py", "tests/test_package_release.py",
 }
 RELEASE_FILE_LIST_ENV = "MANAGEROO_RELEASE_FILE_LIST"
@@ -159,19 +159,6 @@ def purpose(relative: str) -> str:
     if relative.startswith("examples/"):
         return "Example product input"
     return "Project metadata or handoff"
-
-
-def generate_manifest() -> None:
-    lines = [
-        "# File manifest", "", "This manifest is generated from the release source tree.", "",
-        "| File | Bytes | Purpose |", "|---|---:|---|",
-    ]
-    for path in included_files():
-        relative = path.relative_to(ROOT).as_posix()
-        if relative in {"docs/FILE_MANIFEST.md", "SHA256SUMS.txt"}:
-            continue
-        lines.append(f"| `{relative}` | {path.stat().st_size} | {purpose(relative)} |")
-    (ROOT / "docs" / "FILE_MANIFEST.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _stage_release_snapshot(snapshot_root: Path) -> Path:
@@ -554,7 +541,6 @@ def main() -> int:
                 validated_source, "distribution verification", exclude=EXPLICIT_GENERATED
             )
 
-            generate_manifest()
             checksums = []
             for path in included_files():
                 relative = path.relative_to(ROOT).as_posix()

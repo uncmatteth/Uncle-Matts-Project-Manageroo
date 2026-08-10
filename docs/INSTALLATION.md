@@ -177,8 +177,10 @@ manageroo stack-status
 manageroo stack-doctor
 ```
 
-`stack-status` rechecks each recorded executable by its path or command name instead of
-treating the install lock as current installation proof.
+`stack-status` reports Codex, GBrain, GitNexus, TruffleHog, ClawPatch, Obsidian,
+and AUTOREVIEW individually from current executable or skill probes. It removes
+the stale synthetic `recommended-stack` bundle from the live report and does
+not treat the install lock as current installation proof.
 
 Preview supported updates without changing anything:
 

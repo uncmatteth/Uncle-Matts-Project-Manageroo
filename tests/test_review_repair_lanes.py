@@ -83,7 +83,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
         self.assertIn("Run the configured command", skill)
         self.assertIn("Do not convert their findings into untracked AI freehand fixes", skill)
 
-    def test_configured_external_lane_runs_as_command_owned_artifact(self):
+    def test_configured_external_lane_stays_dormant_without_brief_request(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._fixture_repo(Path(temp))
             config = repo / ".manageroo" / "config.toml"
@@ -106,6 +106,7 @@ class ReviewRepairLaneTests(unittest.TestCase):
                     ]
                 ),
             )
+            text = text.replace("[capabilities]\nenabled = true", "[capabilities]\nenabled = false")
             config.write_text(text, encoding="utf-8")
 
             result = Orchestrator(repo, adapter=MockAdapter()).run(
@@ -116,11 +117,56 @@ class ReviewRepairLaneTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "COMPLETE")
             run_root = Path(result["evidence_paths"]["run_root"])
-            external = read_json(run_root / "artifacts" / "review" / "external-review-repair.json")
-            self.assertTrue(external["summary"]["command_owned_repair_lanes"])
-            self.assertFalse(external["summary"]["ai_freehand_repair_allowed"])
+            self.assertFalse(
+                (run_root / "artifacts" / "review" / "external-review-repair.json").exists()
+            )
+            self.assertFalse(
+                (run_root / "artifacts" / "review" / "external-state" / "autoreview.txt").exists()
+            )
+
+    def test_explicitly_requested_configured_external_lane_runs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            config = repo / ".manageroo" / "config.toml"
+            text = config.read_text(encoding="utf-8")
+            text = text.replace(
+                "autoreview_command = []",
+                "autoreview_command = "
+                + _toml_array(
+                    [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import pathlib, sys; "
+                            "state = pathlib.Path(sys.argv[1]); "
+                            "state.mkdir(parents=True, exist_ok=True); "
+                            "(state / 'autoreview.txt').write_text('ok', encoding='utf-8'); "
+                            "print('AUTOREVIEW LANE')"
+                        ),
+                        "{external_state_dir}",
+                    ]
+                ),
+            )
+            text = text.replace("[capabilities]\nenabled = true", "[capabilities]\nenabled = false")
+            config.write_text(text, encoding="utf-8")
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            brief.write_text(
+                "# Product request\n\nCreate the deterministic fixture file. Run AUTOREVIEW.\n",
+                encoding="utf-8",
+            )
+
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=brief,
+                mode="build",
+                apply_on_success=True,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            run_root = Path(result["evidence_paths"]["run_root"])
+            external = read_json(
+                run_root / "artifacts" / "review" / "external-review-repair.json"
+            )
             self.assertIn("autoreview", external["summary"]["passed"])
-            self.assertIn("AUTOREVIEW LANE", external["records"][0]["stdout"])
             self.assertTrue(
                 (run_root / "artifacts" / "review" / "external-state" / "autoreview.txt").is_file()
             )
@@ -136,11 +182,16 @@ class ReviewRepairLaneTests(unittest.TestCase):
                 + _toml_array([sys.executable, "-c", "print('CLAWPATCH FAIL'); raise SystemExit(7)"]),
             )
             config.write_text(text, encoding="utf-8")
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            brief.write_text(
+                "# Product request\n\nCreate the deterministic fixture file. Run ClawPatch.\n",
+                encoding="utf-8",
+            )
 
             orchestrator = Orchestrator(repo, adapter=MockAdapter())
             with self.assertRaises(ValidationError):
                 orchestrator.run(
-                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    brief_path=brief,
                     mode="build",
                     apply_on_success=True,
                 )

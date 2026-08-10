@@ -21,6 +21,15 @@ LAUNCHER_MARKER = "MANAGEROO-LAUNCHER-V1"
 INSTALL_OWNERSHIP_MARKER = ".manageroo-install-owner.json"
 _MAX_LAUNCHER_CHARACTERS = 8192
 _MAX_INSTALL_MARKER_BYTES = 4096
+_INDIVIDUAL_STACK_TOOLS = (
+    "codex",
+    "gbrain",
+    "gitnexus",
+    "trufflehog",
+    "clawpatch",
+    "obsidian",
+    "autoreview",
+)
 
 
 def default_prefix() -> Path:
@@ -288,14 +297,30 @@ def _probe_summary_executable(item: dict[str, Any]) -> str | None:
         return None
 
 
-def _reconcile_summary(summary: dict[str, Any], probes: dict[str, str | None]) -> dict[str, Any]:
+def reconcile_stack_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    probes: dict[str, str | None] = {
+        name: shutil.which(name)
+        for name in ("codex", "gbrain", "gitnexus", "trufflehog", "clawpatch", "obsidian")
+    }
+    probes["autoreview"] = _find_skill("autoreview")
+    for skill in CORE_HELPER_SKILLS:
+        probes[skill] = _find_skill(skill)
+    for item in summary.get("items", []) if isinstance(summary, dict) else []:
+        name = str(item.get("name") or "unknown")
+        if name not in probes:
+            probes[name] = _probe_summary_executable(item)
+
     items = []
     counts = {"installed": 0, "configured": 0, "skipped": 0, "needs_action": 0}
+    seen: set[str] = set()
     for original in summary.get("items", []) if isinstance(summary, dict) else []:
         if not isinstance(original, dict):
             continue
         item = dict(original)
         name = str(item.get("name") or "unknown")
+        if name == "recommended-stack":
+            continue
+        seen.add(name)
         live_path = probes.get(name)
         if name in probes and not live_path:
             item["path"] = None
@@ -320,6 +345,25 @@ def _reconcile_summary(summary: dict[str, Any], probes: dict[str, str | None]) -
         counts["skipped"] += 1 if item.get("skipped") else 0
         counts["needs_action"] += 1 if item.get("needs_action") else 0
         items.append(item)
+    for name in _INDIVIDUAL_STACK_TOOLS:
+        if name in seen:
+            continue
+        live_path = probes.get(name)
+        installed = bool(live_path)
+        item = {
+            "name": name,
+            "installed": installed,
+            "configured": installed,
+            "skipped": False,
+            "needs_action": not installed,
+            "path": live_path,
+            "reason": "" if installed else "Current executable or skill path was not found.",
+            "next_commands": [],
+        }
+        counts["installed"] += 1 if installed else 0
+        counts["configured"] += 1 if installed else 0
+        counts["needs_action"] += 0 if installed else 1
+        items.append(item)
     return {"counts": counts, "items": items}
 
 
@@ -330,19 +374,11 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
     lock = loaded["lock"]
     summary = summarize_external_tools(lock.get("external_tools", []))
     cached_summary = lock.get("stack_summary") or summary
-    probes: dict[str, str | None] = {name: shutil.which(name) for name in ("codex", "gbrain", "gitnexus", "trufflehog", "clawpatch", "obsidian")}
-    probes["autoreview"] = _find_skill("autoreview")
-    for skill in CORE_HELPER_SKILLS:
-        probes[skill] = _find_skill(skill)
-    for item in cached_summary.get("items", []):
-        name = str(item.get("name") or "unknown")
-        if name not in probes:
-            probes[name] = _probe_summary_executable(item)
-    live_summary = _reconcile_summary(cached_summary, probes)
+    live_summary = reconcile_stack_summary(cached_summary)
     return {
         "ok": True, "lock_path": loaded["lock_path"], "installed_at": lock.get("installed_at"),
         "prefix": lock.get("prefix"), "launcher": lock.get("launcher"), "token_mode": lock.get("token_mode"),
-        "stack_summary": live_summary, "cached_stack_summary": cached_summary, "current_tool_paths": probes,
+        "stack_summary": live_summary, "cached_stack_summary": cached_summary,
     }
 
 

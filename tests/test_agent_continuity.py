@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,251 @@ from manageroo.agent_continuity import (
 
 
 class AgentContinuityTests(unittest.TestCase):
+    def _shell_decision(self, root: Path, repo: Path, prompt: str, command: str):
+        process_codex_continuity_hook(
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "session",
+                "turn_id": "turn-1",
+                "cwd": str(repo),
+                "prompt": prompt,
+            },
+            state_root=root / "state",
+        )
+        return process_codex_continuity_hook(
+            {
+                "hook_event_name": "PreToolUse",
+                "session_id": "session",
+                "turn_id": "turn-1",
+                "cwd": str(repo),
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": command},
+            },
+            state_root=root / "state",
+        )
+
+    def test_only_file_rejects_a_different_file_inside_the_current_repository(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root,
+                repo,
+                f"Edit only {repo / 'allowed.txt'}.",
+                f"touch {repo / 'different.txt'}",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_only_repo_relative_file_rejects_a_different_repository_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root,
+                repo,
+                "Edit only src/allowed.py.",
+                f"touch {repo / 'src' / 'different.py'}",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_only_file_rejects_rm_of_a_different_repository_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root,
+                repo,
+                f"Edit only {repo / 'allowed.txt'}.",
+                f"rm {repo / 'different.txt'}",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_only_file_rejects_python_write_of_a_different_repository_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root,
+                repo,
+                f"Edit only {repo / 'allowed.txt'}.",
+                (
+                    "python3 -c \"from pathlib import Path; "
+                    f"Path('{repo / 'different.txt'}').write_text('drift')\""
+                ),
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_compound_command_does_not_reclassify_read_only_input_as_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            allowed = repo / "allowed.txt"
+            source = repo / "source.txt"
+            result = self._shell_decision(
+                root,
+                repo,
+                f"Edit only {allowed}.",
+                f"cat {source} && touch {allowed}",
+            )
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+
+    def test_python_read_input_is_not_reclassified_as_a_write_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            allowed = repo / "contact sheet.png"
+            source = repo / "source image.png"
+            result = self._shell_decision(
+                root,
+                repo,
+                f'Edit only "{allowed}".',
+                (
+                    "python3 -c \"from pathlib import Path; "
+                    f"data = Path('{source}').read_bytes(); "
+                    f"Path('{allowed}').write_bytes(data)\""
+                ),
+            )
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+
+    def test_quoted_path_with_spaces_is_exact_and_does_not_authorize_its_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            allowed = repo / "Folder With Spaces" / "allowed.txt"
+            sibling = repo / "Folder With Spaces" / "different.txt"
+            allowed_case = root / "allowed-case"
+            denied_case = root / "denied-case"
+            allowed_case.mkdir()
+            denied_case.mkdir()
+            prompt = f'Edit only "{allowed}".'
+            allowed_result = self._shell_decision(
+                allowed_case,
+                repo,
+                prompt,
+                f'touch "{allowed}"',
+            )
+            denied_result = self._shell_decision(
+                denied_case,
+                repo,
+                prompt,
+                f'touch "{sibling}"',
+            )
+            self.assertNotEqual(
+                allowed_result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+            self.assertEqual(
+                denied_result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_unrequested_clawpatch_command_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root,
+                repo,
+                "Repair scope control only. Do not run ClawPatch or release commands.",
+                "clawpatch review",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_unrequested_release_command_is_rejected_but_direct_request_is_allowed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            denied_root = root / "denied"
+            allowed_root = root / "allowed"
+            denied_root.mkdir()
+            allowed_root.mkdir()
+            denied = self._shell_decision(
+                denied_root,
+                repo,
+                "Repair scope control. Do not run release commands.",
+                "manageroo release-ready",
+            )
+            allowed = self._shell_decision(
+                allowed_root,
+                repo,
+                "Run the release workflow.",
+                "manageroo release-ready",
+            )
+            self.assertEqual(
+                denied["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+            self.assertNotEqual(
+                allowed.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+
+    def test_release_named_evidence_path_is_not_a_release_workstream(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            staged = self._shell_decision(
+                root / "staged",
+                repo,
+                "Repair the current repository only. Do not run release commands.",
+                "git add scripts/package_release.py scripts/verify_release.py",
+            )
+            executed = self._shell_decision(
+                root / "executed",
+                repo,
+                "Repair the current repository only. Do not run release commands.",
+                "python3 scripts/package_release.py",
+            )
+            self.assertNotEqual(
+                staged.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+            self.assertEqual(
+                executed["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
     def test_new_messages_are_additive_while_work_is_unfinished(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -99,6 +345,62 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(
                 stale_write["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_natural_file_correction_replaces_old_file_inside_same_repository(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            old = repo / "old.txt"
+            new = repo / "new.txt"
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": f"Edit only {old}.",
+                },
+                state_root=root / "state",
+            )
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "prompt": f"No, use {new} instead.",
+                },
+                state_root=root / "state",
+            )
+            stale = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": f"touch {old}"},
+                },
+                state_root=root / "state",
+            )
+            current = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": f"touch {new}"},
+                },
+                state_root=root / "state",
+            )
+            self.assertEqual(stale["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertNotEqual(
+                current.get("hookSpecificOutput", {}).get("permissionDecision"),
                 "deny",
             )
 
@@ -339,6 +641,31 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(stopped["decision"], "block")
             self.assertIn("resume and finish", stopped["reason"])
+            faked = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "last_assistant_message": f"Verified completion.\n{marker}",
+                    "stop_hook_active": True,
+                },
+                state_root=root,
+            )
+            self.assertEqual(faked["decision"], "block")
+            self.assertIn("independent completion evidence", faked["reason"])
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "python3 -m unittest"},
+                    "tool_output": {"exit_code": 0, "output": "OK"},
+                },
+                state_root=root,
+            )
             completed = process_codex_continuity_hook(
                 {
                     "hook_event_name": "Stop",
@@ -351,6 +678,63 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root,
             )
             self.assertEqual(completed, {})
+
+    def test_stop_hook_rejects_completion_with_dirty_required_delivery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            for argv in (
+                ["git", "init", "-q", "-b", "main"],
+                ["git", "config", "user.name", "Manageroo Tests"],
+                ["git", "config", "user.email", "tests@local.invalid"],
+            ):
+                subprocess.run(argv, cwd=repo, check=True)
+            target = repo / "target.txt"
+            target.write_text("before\n", encoding="utf-8")
+            subprocess.run(["git", "add", "target.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=repo, check=True)
+            response = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Fix, commit, and push this change.",
+                },
+                state_root=root / "state",
+            )
+            marker = next(
+                line
+                for line in response["hookSpecificOutput"]["additionalContext"].splitlines()
+                if line.startswith("<!-- manageroo-continuity:")
+                and line.endswith(":complete -->")
+            )
+            target.write_text("after\n", encoding="utf-8")
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PostToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "python3 -m unittest"},
+                    "tool_output": {"exit_code": 0},
+                },
+                state_root=root / "state",
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "last_assistant_message": f"Done.\n{marker}",
+                },
+                state_root=root / "state",
+            )
+            self.assertEqual(result["decision"], "block")
+            self.assertIn("Git worktree is not clean", result["reason"])
 
     def test_read_only_tools_are_never_blocked_by_scope(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -537,7 +921,10 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(
                 result["hookSpecificOutput"]["permissionDecision"], "deny"
             )
-            self.assertIn("agent's unrelated mutation", result["hookSpecificOutput"]["permissionDecisionReason"])
+            self.assertIn(
+                "explicit file or path",
+                result["hookSpecificOutput"]["permissionDecisionReason"],
+            )
 
     def test_sentence_punctuation_does_not_change_named_external_path(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -602,6 +989,7 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertIn("agent-continuity-hook", rendered)
             self.assertIn("Stop", written["hooks"])
             self.assertIn("PreToolUse", written["hooks"])
+            self.assertIn("PostToolUse", written["hooks"])
             stop_handler = written["hooks"]["Stop"][0]["hooks"][0]
             self.assertNotIn("additionalContextLimit", stop_handler)
 

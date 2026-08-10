@@ -30,13 +30,20 @@ operator-facing agent's unfinished objective across follow-up messages,
 resumption, and compaction. `UserPromptSubmit` adds the current message without
 ever blocking it; explicit cancel/replace language and an unambiguous natural
 correction such as `No, use this instead` supersede unfinished work. `PreToolUse` leaves reads and ordinary temporary evidence alone and
-rejects only a clearly unrelated or explicitly excluded agent mutation. Paths
+rejects only a clearly unrelated or explicitly excluded agent mutation. An
+explicit `only` file/path clause narrows mutation even inside the current
+repository. Shell parsing attributes writes to each compound-command segment,
+including `rm`, redirection, and common inline Python filesystem writes, without
+turning read operands into write targets. ClawPatch, AUTOREVIEW, and release
+commands require an affirmative current request. Paths
 mentioned only in questions, quotations, block quotes, or historical examples
 remain context and do not enter the named mutation scope. Shell
 redirection binds only its output target; it does not turn other absolute paths
 read by the same command into mutation targets, and the platform null sink is
-always non-persistent. `Stop`
-continues the agent until the complete active objective is marked verified or a
+always non-persistent. `PostToolUse` records successful tool, mutation,
+verification, commit, and push evidence. `Stop` rejects the hidden marker by
+itself and checks required evidence plus current Git cleanliness before it
+accepts completion. It continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.
 
@@ -44,6 +51,12 @@ The stronger repository boundary controls processes launched through
 `manageroo run`. The host's normal workspace and approval policy remains the
 operator-facing security boundary; continuity hooks are not a hostile-process
 sandbox.
+
+The controlled-run boundary is currently Git-based: it creates a run-owned Git
+workspace, a controller baseline/checkpoint history, and a separate reviewer
+copy under the run root. These are implementation dependencies of checkpoint,
+rollback, patch, and reviewer isolation—not source repositories and not a
+settled alternative for an operator who rejects Git-backed run workspaces.
 
 Inside a controlled run, each worker receives an immutable packet containing
 the current brief, exact task-owned paths, named reuse sources, exclusions, and

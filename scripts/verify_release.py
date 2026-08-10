@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from manageroo.truth_contract import find_overclaim_offenders  # noqa: E402
 
-GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt", "docs/FILE_MANIFEST.md"}
+GENERATED = {"BUILD-VALIDATION.json", "SHA256SUMS.txt"}
 EXCLUDED_PARTS = {".git", ".venv", ".clawpatch", "__pycache__", "dist", "build"}
 PUBLIC_TRUTH_FILES = (
     "README.md",
