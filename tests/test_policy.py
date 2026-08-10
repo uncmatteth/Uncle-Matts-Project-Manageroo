@@ -25,25 +25,25 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             ScopePolicy(()).validate_paths(["README.md"])
 
-    def test_scope_blocks_controller_files(self):
-        with self.assertRaises(SafetyError):
-            ScopePolicy((".manageroo/**",)).validate_paths([".manageroo/config.toml"])
+    def test_scope_allows_explicit_controller_configuration(self):
+        self.assertEqual(
+            ScopePolicy((".manageroo/config.toml",)).validate_paths([".manageroo/config.toml"]),
+            [".manageroo/config.toml"],
+        )
 
     def test_scope_blocks_exact_forbidden_roots(self):
-        for path in (".git", ".manageroo"):
+        for path in (".git", ".manageroo/runs", ".manageroo/cache"):
             with self.subTest(path=path):
                 with self.assertRaises(SafetyError):
                     validate_allowed_scope_patterns([path])
                 with self.assertRaises(SafetyError):
                     ScopePolicy((path,)).validate_paths([path])
 
-    def test_mixed_case_sensitive_paths_are_forbidden(self):
+    def test_secret_named_source_paths_require_exact_scope_but_are_not_categorically_forbidden(self):
         for path in ("Secrets.txt", "CONFIG/CREDENTIALS.JSON", "src/ApiSecret.py"):
             with self.subTest(path=path):
-                with self.assertRaises(SafetyError):
-                    validate_allowed_scope_patterns([path])
-                with self.assertRaises(SafetyError):
-                    ScopePolicy((path,)).validate_paths([path])
+                self.assertEqual(validate_allowed_scope_patterns([path]), [path])
+                self.assertEqual(ScopePolicy((path,)).validate_paths([path]), [path])
 
     def test_allowed_scope_matching_remains_case_sensitive(self):
         self.assertEqual(
@@ -80,7 +80,7 @@ class PolicyTests(unittest.TestCase):
                 CommandPolicy(("python",)).validate([executable, "-m", "unittest"])
 
     def test_broad_allowed_scope_patterns_are_rejected(self):
-        for pattern in ("**", "*", "src/**", "**/*", "*.py", "src/*.py", "", "/", "."):
+        for pattern in ("**", "*", "**/*", "*.py", "src/*.py", "", "/", "."):
             with self.subTest(pattern=pattern):
                 with self.assertRaises(SafetyError):
                     validate_allowed_scope_patterns([pattern])
@@ -89,6 +89,13 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(
             validate_allowed_scope_patterns(["src/app.py", "tests/test_app.py"]),
             ["src/app.py", "tests/test_app.py"],
+        )
+
+    def test_bounded_directory_scope_passes(self):
+        self.assertEqual(validate_allowed_scope_patterns(["src/"]), ["src/**"])
+        self.assertEqual(
+            ScopePolicy(("src/**",)).validate_paths(["src/app.py", "src/nested/tool.py"]),
+            ["src/app.py", "src/nested/tool.py"],
         )
 
 

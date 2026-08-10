@@ -288,19 +288,22 @@ Show durable project memory:
 manageroo memory show
 ```
 
-Show the protected intent lock:
+Show the optional durable intent context:
 
 ```bash
 manageroo intent show
 ```
 
-Audit whether a compacted or summarized project description still preserves the important requirements:
+Repair a compacted or summarized project description if it dropped important requirements:
 
 ```bash
 manageroo compact audit --summary SUMMARY.md
 ```
 
-The point is to keep important project truth outside any one chat transcript so the mission survives long runs, new sessions, and context compaction.
+The point is to keep important project truth outside any one chat transcript so
+the mission survives long runs, new sessions, and context compaction. Missing
+phrases are restored into agent context; they do not become a reason to refuse a
+newer operator instruction.
 
 # The boundary
 

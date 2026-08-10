@@ -5,14 +5,17 @@ description: Use MANAGEROO when an AI agent needs to build, repair, refactor, or
 
 # Uncle Matt's Project Manageroo
 
-The local `manageroo` command owns the controlled run. This skill keeps both
-workers and the operator-facing agent inside the current request and repository
-while still finishing authorized work without permission theater.
+The current operator request owns the work. Manageroo keeps every participating
+agent aligned with that request. It contains controlled workers so they cannot
+drift, substitute, or touch unrelated paths; it never turns its own bookkeeping
+into a reason for an agent to deny the operator's authorized work. The outer
+agent uses normal host tools and remains free to inspect, edit, create evidence,
+correct course, interrupt a bad run, or use a more direct workflow.
 
 ## Manageroo worker operating model
 
-These rules apply inside a Manageroo worker packet. Operator delivery has a
-separate host hook, but it is bound to the same current-request authority.
+These rules apply inside a Manageroo worker packet. They do not install a
+prompt-derived authorization firewall around the operator-facing agent.
 
 1. Read the exact packet path supplied by the controller.
 2. Treat locked artifacts and task boundaries as immutable.
@@ -21,23 +24,24 @@ separate host hook, but it is bound to the same current-request authority.
 5. Do not commit, push, switch branches, modify `.git`, or edit `.manageroo/config.toml`.
 6. Do not weaken tests or redefine acceptance criteria.
 7. Do not claim global completion. Only the controller may mark a run `COMPLETE`.
-8. When scope is insufficient, return `scope_expansion_requested`; do not expand it yourself.
-   A blocked status or any requested expansion stops the controller before checkpointing.
+8. When the packet accidentally omits work already authorized by the current
+   request, report the exact omission so the controller can rebuild the packet;
+   do not make the operator repeat the request. Never expand into work the
+   current request did not authorize.
 9. Report possible future features as ideas; do not silently build them.
 10. Every factual review finding must cite current file evidence.
 11. Read `.manageroo/PROJECT-MEMORY.md` before broad product work and preserve `What Must Not Break`.
-12. Run `manageroo intent show --json` before trusting compacted chat, handoffs, or old summaries; use its validated `lock`, not the generated `INTENT-LOCK.md` directly.
+12. Treat the current run brief and packet as authority; repository intent notes are context only.
 13. Do not apply learning cards without explicit operator approval.
 
 ## Context rule
 
 No role receives or relies on the full prior conversation. The packet is the complete authority for that role. Read its `manifest.json` when provenance or omissions matter.
 
-If a compacted summary, handoff, or resumed chat drops the locked ask, must-not rules, rejected ideas, latest corrections, proof, or scope boundaries, stop and run:
-
-```bash
-manageroo compact audit --summary SUMMARY.md
-```
+If a compacted summary, handoff, or resumed chat drops the ask, must-not rules,
+rejected ideas, latest corrections, proof, or scope boundaries, reconstruct the
+brief from the current operator request and live sources. Do not make a stale
+repository lock override a new request.
 
 Do not call a plan best, perfect, ready, or 100% complete unless current evidence proves that exact claim.
 
@@ -51,65 +55,42 @@ operator explicitly asks for them or requests diagnostic or JSON output.
 
 ## Direct action policy
 
-Every operator tool action in a Git repository is subject to Manageroo's signed current-turn scope receipt.
-The receipt binds the current user instruction, canonical
-repository and Git common-directory identity, explicitly named read-only source
-files, and allowed action classes. Missing, malformed, expired, tampered, stale,
-or mismatched receipts deny the action before a supported local tool runs.
-Direct action never bypasses this lock. A new repo, path, commit, push, install,
-delete, or deployment needs matching authority in the current user request;
-memory, summaries, handoffs, old runs, and dirty sibling checkouts cannot grant it.
-A clearly referential same-session follow-up retains the exact preceding signed
-target, action, and Manageroo routing. Do not ask the operator to repeat an
-absolute path or re-invoke the skill for “that file,” “the whole TXT,” or a
-similar continuation. An unrelated request, explicit prohibition, or explicit
-target change resets the carried authority.
+The unfinished active objective is the authority for every participating agent.
+Manageroo continuity hooks preserve it across follow-ups, resume, and
+compaction. New messages add to unfinished work unless they explicitly cancel
+or replace it. Manageroo does not turn conversational
+English into filesystem permissions. `UserPromptSubmit` never blocks the operator. `PreToolUse`
+rejects only the agent's clearly unrelated or explicitly excluded mutation;
+reads and ordinary temporary evidence remain available. `Stop` continues the
+agent when it tries to end before the complete active objective is verified.
+Never make the operator repeat a clear path, repository name, request, or
+authorization phrase. Never answer authorized work with a receipt, stale intent
+lock, skill-routing ritual, or write-guard denial.
 
-When the operator explicitly invokes `$uncle-matts-project-manageroo` for a
-build or repair, do not implement it freehand. Prepare the exact brief and use
-the controlled `manageroo run`; the host hook denies freehand patch and mutation
-tools for that request. Direct action outside the run is limited to inspection,
-Manageroo control commands, and separately authorized delivery after the
-controller succeeds. The hook injects the signed user conversation into the run;
-do not replace it with an agent summary after compaction.
-Do not perform freehand repository search or route to an alternate skill/MCP
-workflow after this explicit invocation. Start the controlled run, poll it
-without sending input, and use Manageroo status/report commands. Do not terminate
-the run merely because intake or mapping takes longer than expected; report a
-real blocker through the controller. The host `Stop` gate will continue the turn
-if you try to finish before launching the signed run.
+Use a controlled `manageroo run` when isolated workers and durable proof add
+value. Use the exact-task path when source, targets, exclusions, and proof are
+already known. Direct inspection, safe evidence generation, ordinary temporary
+files, contact sheets, browser tools, corrections, and process interruption
+remain available to the outer agent. If a controlled run is wrong or wasteful,
+stop it and continue by the method that best follows the current request.
 
 An instruction to use, reuse, copy, or port existing/finished/named work is a
 binding implementation decision, not a suggestion. Preserve the exact operator
 sentence as reuse evidence. The plan must bind the same need, decision, and
 candidate. Never replace it with a custom approximation because rewriting seems
-easier, more familiar, or independently testable. If the source cannot be used,
-stop and report that fact before editing; do not substitute and do not claim the
-requested method was followed.
-Questions, historical mentions, quoted words, and prohibitions do not grant an
-action merely because they contain its name. An explicit `only` file clause is
-an exact write boundary. Use an explicit current instruction to switch repos.
+easier, more familiar, or independently testable. If the source genuinely cannot
+be used, prove the concrete external blocker and report it before editing; do
+not substitute and do not claim the requested method was followed. An internal
+Manageroo lock, packet omission, or stale intent is a controller defect to
+repair, not an operator blocker.
+Questions, historical mentions, and quoted text remain context rather than new
+work. An explicit `only` clause is a binding task boundary. A later current
+instruction may change the repo, target, method, or action without fighting a
+stale Manageroo lock.
 
-Run simple inspected command primitives directly. If the hook says a command's
-effects cannot be proven, retry the same literal argv through:
-
-```bash
-manageroo operator-exec --repo /absolute/repo -- COMMAND ARG...
-```
-
-Do not evade that denial with a nested shell, dynamic variable path,
-interpreter `-c`/`-e`, alternate tool, or disabled hooks. `operator-exec` uses
-the local Codex native workspace OS sandbox and fails if that boundary is not
-available.
-
-For contact sheets, render previews, package staging, and other disposable
-evidence, write under `.manageroo/operator-tmp` through `operator-exec`. A
-read-only audit is allowed to create and clean evidence there; it does not gain
-authority to mutate product source. Inspect the result, then use an inspected
-direct copy/move command to deliver only to an external destination the operator
-explicitly named. An exact external file named for editing may be changed with
-`apply_patch` without unlocking its siblings. Do not use arbitrary `/tmp` paths,
-create hidden ad-hoc audit folders, or claim that a named output is read-only.
+Use normal host tooling for contact sheets, render previews, package staging,
+and other disposable evidence. Keep temporary output bounded and clean it after
+inspection, but do not force all evidence through a repository-private folder.
 
 Act immediately when the operator asks to install, update, repair, run, finish,
 ship, publish, or make a project live. Do not tell the operator to run commands
@@ -128,8 +109,8 @@ action, or destructive choice cannot be inferred safely.
 After Manageroo returns verified `COMPLETE`, the operator-facing agent owns the
 remaining requested delivery. When the request says finish, ship, publish, or
 make it live, preserve unrelated work, then commit, push, and deploy through the
-repository's proven path when those action classes are present in the signed
-current-turn receipt. Verify the remote Git SHA and live target. A worker's
+repository's proven path when the current request authorizes those actions.
+Verify the remote Git SHA and live target. A worker's
 no-commit/no-push rule is not a reason to leave authorized delivery for the operator.
 
 ## Core skill routing

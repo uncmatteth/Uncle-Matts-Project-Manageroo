@@ -24,7 +24,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "agent": {
         "adapter": "auto",
-        "candidates": ["codex", "claude-code", "gemini"],
+        "candidates": ["codex"],
         "timeout_seconds": 3600,
     },
     "context": {
@@ -69,7 +69,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 AGENT_PRESETS: dict[str, dict[str, Any]] = {
-    "auto": {"adapter": "auto", "candidates": ["codex", "claude-code", "gemini"], "timeout_seconds": 3600},
+    "auto": {"adapter": "auto", "candidates": ["codex"], "timeout_seconds": 3600},
     "codex": {"adapter": "codex", "executable": "codex", "model": "", "timeout_seconds": 3600},
     "mock": {"adapter": "mock", "executable": "python", "model": "", "timeout_seconds": 3600},
     "generic": {

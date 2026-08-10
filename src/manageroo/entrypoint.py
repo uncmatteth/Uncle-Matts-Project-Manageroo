@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .branding import PROJECT_DIR
+from .agent_continuity import run_codex_continuity_hook
 from .clawpatch_release import format_release_sweep, release_sweep
 from .cli import main as cli_main
 from .cli import parser as cli_parser
@@ -22,7 +23,6 @@ from .config_lock import config_mutation_lock
 from .discovery_policy import decisions_fully_resolved, render_blocking_questions
 from .errors import SafetyError
 from .host_skills import format_host_skills, inspect_host_skills
-from .operator_scope import run_codex_operator_scope_hook
 from .projects import discover_projects
 from .prove import LIVE_AGENT_CHOICES, format_product_proof, run_product_proof
 from .stack_update import STACK_TOOL_NAMES, apply_stack_updates, format_stack_update, stack_update_plan
@@ -1261,8 +1261,8 @@ def main() -> int:
         return _clawpatch_main(argv[1:])
     if argv and argv[0] == "stack-update":
         return _stack_update_main(argv[1:])
-    if argv == ["operator-scope-hook"]:
-        return run_codex_operator_scope_hook()
+    if argv == ["agent-continuity-hook"]:
+        return run_codex_continuity_hook()
     if argv in (["--help"], ["-h"]):
         print(_root_help(), end="")
         return 0

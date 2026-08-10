@@ -139,7 +139,7 @@ class CheckCommandTests(unittest.TestCase):
                 ["manageroo", "checks", "add", "test", "--", "npm", "run", "test"],
             )
 
-    def test_suggests_python_compile_smoke_when_no_tests_exist(self):
+    def test_does_not_suggest_compile_only_proof_when_no_tests_exist(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             (repo / "app.py").write_text("print('ok')\n", encoding="utf-8")
@@ -147,22 +147,19 @@ class CheckCommandTests(unittest.TestCase):
             report = suggest_check_gates(repo)
 
             self.assertTrue(report["ok"])
-            self.assertEqual(report["suggestions"][0]["id"], "python-compile")
-            self.assertEqual(report["suggestions"][0]["argv"], [sys.executable, "-m", "compileall", "."])
-            self.assertIn("catches Python syntax errors", report["suggestions"][0]["reason"])
+            self.assertEqual(report["suggestions"], [])
+            self.assertIn("behavior test or demonstration", report["note"])
 
-    def test_add_first_suggested_check_gate_writes_first_detected_gate(self):
+    def test_add_first_suggested_check_gate_refuses_compile_only_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             (repo / "app.py").write_text("print('ok')\n", encoding="utf-8")
 
             result = add_first_suggested_check_gate(repo)
 
-            self.assertTrue(result["ok"])
-            self.assertEqual(result["added"]["id"], "python-compile")
+            self.assertFalse(result["ok"])
             gates = list_check_gates(repo)["gates"]
-            self.assertEqual(gates[0]["id"], "python-compile")
-            self.assertEqual(gates[0]["argv"], [sys.executable, "-m", "compileall", "."])
+            self.assertEqual(gates, [])
 
 
 if __name__ == "__main__":

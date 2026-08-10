@@ -13,7 +13,7 @@ from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.cli import main, parser
 from manageroo.errors import AgentExecutionError, BlockingDecisionError, SafetyError, ValidationError
 from manageroo.intent_lock import capture_intent_lock, read_intent_lock
-from manageroo.orchestrator import Orchestrator, _effective_brief
+from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 from manageroo.util import atomic_write_json, read_json
 
@@ -89,6 +89,42 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertGreater(payload["jobs"]["completed_jobs"], 0)
             self.assertEqual(payload["jobs"]["failed_attempts"], 0)
 
+    def test_exact_task_skips_model_discovery_mapping_and_planning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            roles: list[str] = []
+
+            class RecordingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    roles.append(request.role)
+                    return super().run(request)
+
+            result = Orchestrator(repo, adapter=RecordingAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+                exact_task={
+                    "targets": ["manageroo_fixture.txt"],
+                    "sources": [],
+                    "exclusions": ["Do not edit any other product file."],
+                    "proofs": ["The deterministic fixture exists with the expected contents."],
+                    "gate_ids": ["fixture-check"],
+                },
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            for skipped in (
+                "product-analyst",
+                "reuse-researcher",
+                "repository-mapper",
+                "map-reducer",
+                "plan-compiler",
+                "plan-reviewer",
+            ):
+                self.assertNotIn(skipped, roles)
+            self.assertIn("implementer", roles)
+            self.assertIn("reviewer", roles)
+
     def test_blocked_implementer_scope_expansion_stops_before_checkpoint(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
@@ -121,6 +157,54 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 / "TASK-001.json"
             )
             self.assertFalse(task_evidence.exists())
+
+    def test_already_authorized_scope_request_repairs_worker_packet_without_operator(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class PacketOmissionAdapter(MockAdapter):
+                def __init__(self):
+                    super().__init__()
+                    self.implementer_calls = 0
+
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "implementer":
+                        self.implementer_calls += 1
+                        if self.implementer_calls == 1:
+                            data = {
+                                "status": "blocked",
+                                "summary": "The packet looked incomplete.",
+                                "files_changed": [],
+                                "commands_run": [],
+                                "risks": [],
+                                "scope_expansion_requested": ["manageroo_fixture.txt"],
+                            }
+                            atomic_write_json(request.output_path, data)
+                            return AgentResponse(
+                                role=request.role,
+                                data=data,
+                                raw_text=json.dumps(data),
+                                command=["packet-omission"],
+                            )
+                    return super().run(request)
+
+            adapter = PacketOmissionAdapter()
+            result = Orchestrator(repo, adapter=adapter).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE")
+            self.assertEqual(adapter.implementer_calls, 2)
+            repaired_prompts = [
+                path.read_text(encoding="utf-8")
+                for path in Path(result["evidence_paths"]["run_root"]).glob(
+                    "packets/*implementer*/**/prompt.md"
+                )
+            ]
+            self.assertTrue(any("# Controller packet repair" in text for text in repaired_prompts))
+            self.assertTrue(all("Create the fixture file." in text for text in repaired_prompts))
 
     def test_locked_reuse_decision_blocks_custom_replacement_before_implementation(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -172,17 +256,11 @@ class OrchestratorJobCliTests(unittest.TestCase):
                     apply_on_success=False,
                 )
 
-    def test_signed_operator_context_is_part_of_the_locked_effective_brief(self):
-        prior_request = "Use the finished renderer from tools/swipebot_motion.py."
-        locked_brief = _effective_brief(
-            "Replace the wrong implementation.",
-            [prior_request, "$uncle-matts-project-manageroo go do it right."],
-        )
-        self.assertIn(prior_request, locked_brief)
-        self.assertIn("# Prepared project brief", locked_brief)
-        self.assertIn("Replace the wrong implementation.", locked_brief)
+    def test_run_uses_only_the_explicit_brief_not_transcript_history(self):
+        signature = __import__("inspect").signature(Orchestrator.run)
+        self.assertNotIn("operator_context", signature.parameters)
 
-    def test_run_captures_and_binds_exact_brief_as_intent_when_missing(self):
+    def test_run_binds_exact_brief_inside_run_without_creating_repo_intent(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             self.assertFalse(read_intent_lock(repo)["ok"])
@@ -193,22 +271,76 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 apply_on_success=False,
             )
 
-            current = read_intent_lock(repo)
             bound = read_json(
                 Path(result["evidence_paths"]["run_root"])
                 / "artifacts"
                 / "intake"
-                / "intent-lock.json"
+                / "run-intent.json"
             )
-            self.assertTrue(current["ok"])
-            self.assertEqual(bound["lock_hash"], current["lock_hash"])
+            self.assertFalse(read_intent_lock(repo)["ok"])
             self.assertEqual(
-                bound["lock"]["want"],
-                "# Product request Create the fixture file.",
+                bound["current_request"],
+                "# Product request\n\nCreate the fixture file.",
             )
-            self.assertRegex(bound["brief_hash"], r"^[0-9a-f]{64}$")
+            self.assertRegex(bound["request_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(bound["authority"], "current-run-request")
 
-    def test_existing_intent_missing_from_brief_blocks_before_workers(self):
+            prompts = list(Path(result["evidence_paths"]["run_root"]).glob("packets/**/prompt.md"))
+            prompts.extend(
+                Path(result["evidence_paths"]["run_root"]).glob(
+                    "review-packets/**/prompt.md"
+                )
+            )
+            self.assertTrue(prompts)
+            for prompt in prompts:
+                text = prompt.read_text(encoding="utf-8")
+                self.assertIn("# Manageroo current-request contract", text)
+                self.assertIn("Create the fixture file.", text)
+
+            conformance = read_json(
+                Path(result["evidence_paths"]["intent_conformance"])
+            )
+            self.assertEqual(conformance["status"], "passed")
+            self.assertTrue(conformance["current_request_was_in_every_worker_packet"])
+            self.assertTrue(conformance["operator_was_not_used_as_an_authorization_gate"])
+
+    def test_newer_brief_automatically_supersedes_saved_run_instead_of_refusing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            first = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=brief,
+                mode="build",
+                apply_on_success=False,
+            )
+
+            brief.write_text(
+                "# Product request\n\nCreate the fixture file. Latest correction: preserve the exact newline.\n",
+                encoding="utf-8",
+            )
+            replacement = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=first["run_id"],
+                continue_existing=True,
+            ).run(
+                brief_path=brief,
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(replacement["status"], "COMPLETE")
+            self.assertNotEqual(replacement["run_id"], first["run_id"])
+            self.assertEqual(replacement["supersedes_run_id"], first["run_id"])
+            replacement_intent = read_json(
+                Path(replacement["evidence_paths"]["run_root"])
+                / "artifacts"
+                / "intake"
+                / "run-intent.json"
+            )
+            self.assertIn("Latest correction", replacement_intent["current_request"])
+
+    def test_existing_repo_intent_does_not_block_new_current_run(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             capture_intent_lock(
@@ -217,16 +349,12 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 must_not=["Do not alter the adjacent payment system."],
             )
 
-            class ExplodingAdapter(MockAdapter):
-                def run(self, request: AgentRequest) -> AgentResponse:
-                    raise AssertionError("intent drift must block before a worker starts")
-
-            with self.assertRaisesRegex(SafetyError, "locked intent"):
-                Orchestrator(repo, adapter=ExplodingAdapter()).run(
-                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
-                    mode="build",
-                    apply_on_success=False,
-                )
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            self.assertEqual(result["status"], "COMPLETE")
 
     def test_saved_installer_token_mode_is_injected_exactly_once_per_worker_packet(self):
         with tempfile.TemporaryDirectory() as temp:

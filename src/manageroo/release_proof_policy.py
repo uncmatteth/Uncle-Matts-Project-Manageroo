@@ -143,6 +143,15 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
             ):
                 preexisting_complete = saved
         result = original_run(self, *args, **kwargs)
+        if (
+            isinstance(result, dict)
+            and result.get("supersedes_run_id") == getattr(self, "run_id", None)
+            and result.get("supersedes_run_id") is not None
+        ):
+            # The newer request completed in a fresh controller/run and already
+            # received that run's release proof. Never rebind it to the
+            # superseded run's patch or source snapshot.
+            return result
         if not isinstance(result, dict) or result.get("status") != "COMPLETE":
             return result
 

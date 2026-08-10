@@ -406,7 +406,29 @@ def audit_compaction_text(repo_path: Path, summary_text: str, *, summary_path: P
     repo = git_root(repo_path)
     lock_report = read_intent_lock(repo)
     if not lock_report.get("ok"):
-        return {"ok": False, "status": "blocked", "repo": str(repo), "lock_path": lock_report["path"], "summary_path": str(summary_path.resolve()) if summary_path else "", "summary_hash": sha256_text(summary_text), "missing": [{"category": "intent_lock", "text": lock_report["error"]}], "warnings": [], "next_command": lock_report["next_command"]}
+        # Repository intent notes are optional context, never authority over the
+        # current request. Surface the damaged/missing note without stopping the
+        # agent's current work.
+        return {
+            "ok": True,
+            "status": "context-warning",
+            "repo": str(repo),
+            "lock_path": lock_report["path"],
+            "summary_path": str(summary_path.resolve()) if summary_path else "",
+            "summary_hash": sha256_text(summary_text),
+            "original_summary_hash": sha256_text(summary_text),
+            "missing": [],
+            "warnings": [
+                {
+                    "code": "repository_intent_unavailable",
+                    "text": lock_report["error"],
+                    "detail": "Current work continues from the current request; this stale context note was not used as an authorization gate.",
+                }
+            ],
+            "repair_applied": False,
+            "repaired_summary": summary_text,
+            "next_command": "",
+        }
     lock = lock_report["lock"]
     normalized_summary = _normalize(summary_text)
     missing = [
@@ -415,13 +437,31 @@ def audit_compaction_text(repo_path: Path, summary_text: str, *, summary_path: P
         if not _contains_required_phrase(normalized_summary, item["text"])
     ]
     warnings = _confidence_warnings(summary_text)
-    ok = not missing
+    repaired_summary = summary_text
+    if missing:
+        restored = [
+            "",
+            "# Manageroo restored current intent",
+            "",
+            "The controller restored these exact requirements after context compaction:",
+            "",
+            *(f"- {item['category']}: {item['text']}" for item in missing),
+            "",
+        ]
+        repaired_summary = summary_text.rstrip() + "\n" + "\n".join(restored)
     return {
-        "ok": ok, "status": "passed" if ok else "blocked", "repo": str(repo), "lock_path": lock_report["path"],
+        "ok": True,
+        "status": "repaired" if missing else "passed",
+        "repo": str(repo), "lock_path": lock_report["path"],
         "lock_hash": lock_report["lock_hash"], "summary_path": str(summary_path.resolve()) if summary_path else "",
-        "summary_hash": sha256_text(summary_text), "missing": missing, "warnings": warnings,
+        "summary_hash": sha256_text(repaired_summary),
+        "original_summary_hash": sha256_text(summary_text),
+        "missing": missing,
+        "warnings": warnings,
+        "repair_applied": bool(missing),
+        "repaired_summary": repaired_summary,
         "checked_categories": sorted({item["category"] for item in _required_phrases(lock)}),
-        "next_command": render_next_command("intent", "show", repo) if missing else render_next_command("run", "--repo", repo, "--apply"),
+        "next_command": render_next_command("run", "--repo", repo, "--apply"),
     }
 
 
@@ -440,7 +480,8 @@ def save_compaction_checkpoint(repo_path: Path, summary_path: Path) -> dict[str,
     stem = f"{utc_now().replace(':', '').replace('+', 'Z')}-{summary.stem}"
     copied_summary = checkpoint_root / f"{stem}.md"
     copied_audit = checkpoint_root / f"{stem}.audit.json"
-    atomic_write_text(copied_summary, summary_text)
+    checkpoint_text = str(audit.get("repaired_summary", summary_text))
+    atomic_write_text(copied_summary, checkpoint_text)
     if sha256_file(copied_summary) != audit["summary_hash"]:
         raise ConfigurationError("Compaction checkpoint hash does not match its audit.")
     atomic_write_json(copied_audit, audit)
@@ -474,10 +515,15 @@ def format_intent_lock(report: dict[str, Any]) -> str:
 
 
 def format_compaction_audit(report: dict[str, Any]) -> str:
-    title = "COMPACTION AUDIT: PASSED" if report.get("ok") else "COMPACTION AUDIT: BLOCKED"
+    if report.get("status") == "repaired":
+        title = "COMPACTION AUDIT: REPAIRED"
+    elif report.get("status") == "context-warning":
+        title = "COMPACTION AUDIT: CONTEXT WARNING"
+    else:
+        title = "COMPACTION AUDIT: PASSED"
     lines = [title, f"Intent lock: {report.get('lock_path', '')}", f"Summary hash: {report.get('summary_hash', '')}"]
     for item in report.get("missing", []):
-        lines.append(f"MISSING {item.get('category')}: {item.get('text')}")
+        lines.append(f"RESTORED {item.get('category')}: {item.get('text')}")
     for item in report.get("warnings", []):
         lines.append(f"WARN {item.get('code')}: {item.get('text')} - {item.get('detail')}")
     if report.get("next_command"):

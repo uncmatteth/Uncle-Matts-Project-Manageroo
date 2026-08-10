@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import shlex
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -114,30 +113,10 @@ def _suggestion(repo: Path, gate: dict[str, Any], reason: str) -> dict[str, Any]
     }
 
 
-def _python_compile_fallback(repo: Path) -> dict[str, Any] | None:
-    has_python = any(
-        path.suffix == ".py"
-        and ".git" not in path.parts
-        and "__pycache__" not in path.parts
-        for path in repo.rglob("*.py")
-    )
-    if not has_python:
-        return None
-    return _suggestion(
-        repo,
-        {"id": "python-compile", "kind": "check", "argv": [sys.executable, "-m", "compileall", "."]},
-        "Safe starter check: catches Python syntax errors when no test command was found.",
-    )
-
-
 def suggest_check_gates(repo: Path) -> dict[str, Any]:
     repo = repo.resolve()
     detected = detect_gates(repo)
     suggestions = [_suggestion(repo, gate, "Detected from repository files and package scripts.") for gate in detected]
-    if not suggestions:
-        fallback = _python_compile_fallback(repo)
-        if fallback:
-            suggestions.append(fallback)
     return {
         "ok": True,
         "repo": str(repo),
@@ -145,7 +124,7 @@ def suggest_check_gates(repo: Path) -> dict[str, Any]:
         "next_command": suggestions[0]["add_command"] if suggestions else shlex.join([
             PUBLIC_COMMAND, "checks", "add", "smoke", "--", "COMMAND_THAT_PROVES_THE_PROJECT_WORKS"
         ]),
-        "note": f"Pick one command the repo can really run. Add it, then run `{PUBLIC_COMMAND} ready` again.",
+        "note": f"Add a behavior test or demonstration command that proves the requested outcome, then run `{PUBLIC_COMMAND} ready` again.",
     }
 
 

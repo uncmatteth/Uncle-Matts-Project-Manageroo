@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from manageroo.branding import FULL_NAME, print_banner, status_line  # noqa: E402
+from manageroo.agent_continuity import install_codex_continuity_hooks  # noqa: E402
 from manageroo.chiptune import ThemePlayback, play_once  # noqa: E402
 from manageroo.adapters.codex import codex_sandbox_preflight  # noqa: E402
 from manageroo.credits import format_special_thanks  # noqa: E402
@@ -31,7 +32,6 @@ from manageroo.install_status import (  # noqa: E402
     summarize_external_tools,
     uninstall_plan,
 )
-from manageroo.operator_scope import install_codex_operator_hooks  # noqa: E402
 from manageroo.runner import CommandRunner  # noqa: E402
 from manageroo.token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, set_token_mode  # noqa: E402
 from manageroo.trufflehog import (  # noqa: E402
@@ -66,8 +66,6 @@ CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"
 CODING_AGENT_CLIS = (
     {"preset": "codex", "name": "Codex", "executable": "codex"},
-    {"preset": "claude-code", "name": "Claude Code", "executable": "claude"},
-    {"preset": "gemini", "name": "Gemini CLI", "executable": "gemini"},
 )
 NODE_MACOS_PACKAGE_URL = "https://nodejs.org/dist/v22.14.0/node-v22.14.0.pkg"
 NODE_MACOS_PACKAGE_SHA256 = "3931585e6af0785f01af897d31d67b7318e724af07845ffb04d432ab1a4532b4"
@@ -144,23 +142,47 @@ def codex_sandbox_install_status(executable: str) -> dict:
     }
 
 
-def install_codex_operator_scope(
-    launcher: Path, *, codex_home: Path | None = None
-) -> dict:
-    if shutil.which("codex") is None:
-        return {
-            "ok": False,
-            "skipped": True,
-            "reason": "Codex is not installed; operator-scope hooks were not configured.",
-        }
+def _manageroo_operator_hook_group(group: object) -> bool:
+    if not isinstance(group, dict):
+        return False
+    handlers = group.get("hooks")
+    return isinstance(handlers, list) and any(
+        isinstance(handler, dict)
+        and "operator-" "scope-hook" in str(handler.get("command") or "")
+        for handler in handlers
+    )
+
+
+def remove_legacy_codex_operator_hooks(*, codex_home: Path | None = None) -> dict:
+    """Remove obsolete Manageroo global authorization hooks without touching others."""
     selected_home = (
         codex_home
         or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     ).expanduser().resolve(strict=False)
-    return install_codex_operator_hooks(
-        codex_home=selected_home,
-        manageroo_command=launcher,
-    )
+    hooks_path = selected_home / "hooks.json"
+    if not hooks_path.exists():
+        return {"ok": True, "path": str(hooks_path), "changed": False, "removed": 0}
+    try:
+        payload = json.loads(hooks_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Cannot remove legacy Manageroo Codex hooks safely: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("hooks", {}), dict):
+        raise SystemExit("Cannot remove legacy Manageroo Codex hooks: hooks.json has an invalid shape")
+    removed = 0
+    hooks = payload.get("hooks", {})
+    for event in list(hooks):
+        groups = hooks[event]
+        if not isinstance(groups, list):
+            raise SystemExit(f"Cannot remove legacy Manageroo Codex hooks: {event} is not an array")
+        kept = [group for group in groups if not _manageroo_operator_hook_group(group)]
+        removed += len(groups) - len(kept)
+        if kept:
+            hooks[event] = kept
+        else:
+            del hooks[event]
+    if removed:
+        atomic_write_json(hooks_path, payload)
+    return {"ok": True, "path": str(hooks_path), "changed": bool(removed), "removed": removed}
 
 
 def _safe_cmd_value(path: Path) -> str:
@@ -1353,12 +1375,13 @@ def main() -> int:
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")
         launcher = install_launcher(bin_dir, python, app_root, prefix)
-        codex_operator_scope = install_codex_operator_scope(launcher)
-        if codex_operator_scope.get("trust_required"):
-            print(
-                "  ACTION codex operator scope: open `/hooks` once to review and trust "
-                "the new Manageroo pre-action hooks."
-            )
+        legacy_operator_hooks = remove_legacy_codex_operator_hooks()
+        continuity_hooks = install_codex_continuity_hooks(
+            codex_home=Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex"),
+            manageroo_command=launcher,
+        )
+        if continuity_hooks["trust_required"]:
+            print("  ACTION Codex continuity hooks changed; open /hooks once to review and trust them.")
         installed_env = {"PYTHONPATH": str(app_root)}
         version = run([str(python), "-m", "manageroo", "--version"], cwd=prefix, env=installed_env)
         self_test_output = (
@@ -1394,7 +1417,8 @@ def main() -> int:
             "agent_preference": agent_setup["preference"],
             "detected_coding_agents": detect_coding_agents(),
             "helper_skills": helper_skills_record,
-            "codex_operator_scope": codex_operator_scope,
+            "legacy_operator_hooks": legacy_operator_hooks,
+            "agent_continuity_hooks": continuity_hooks,
             "external_tools": external_tools,
             "stack_summary": stack_summary,
             "installation_ownership": {

@@ -52,7 +52,7 @@ The manifest records:
 8. Review is partitioned across changed-code chunks when the changed set exceeds the review packet budget.
 9. Media files are represented as generated metadata summaries, not silently skipped.
 10. Oversized prose can be included through explicit summary mode; full required prose still must be sliced or decomposed.
-11. Intent locks are audited with a strict phrase-preservation audit before a compact summary is trusted.
+11. A compacted packet is checked against captured intent; missing exact requirements are restored automatically before a worker receives it. This check audits agent context and never authorizes or rejects the operator's request.
 12. Worker jobs are stateless. A retry receives a fresh packet generated from controller-owned facts, not from the previous worker's memory.
 13. Completed jobs are loaded from recorded artifacts and hashes, not rerun from a compacted chat summary. Missing artifact hashes make the job stale.
 14. Continue reuses the original saved job when the logical worker call already exists, so skipped completed phases do not shift later failed jobs.

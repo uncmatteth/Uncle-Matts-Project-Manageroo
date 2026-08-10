@@ -4,21 +4,15 @@ Not every control is equally strong. This document distinguishes prevention from
 
 | Requirement | Mechanism | Strength |
 |---|---|---|
-| Outer Codex agent cannot silently target a different repository | HMAC-signed current-turn receipt plus Codex `PreToolUse` canonical repo/path check | Preventive for supported, enabled, and trusted local tool hooks |
-| Stale memory, summaries, handoffs, or old runs cannot grant operator scope | Receipt authority comes from the current `UserPromptSubmit` payload or the exact preceding signed receipt when the new same-session prompt is clearly referential; unrelated requests and explicit prohibitions reset carried authority | Preventive |
-| Operator does not have to repeat an exact file or output path in every short follow-up | Referential same-session prompts carry only the preceding signed repo identity, exact target, action, and Manageroo routing; newly named targets replace it | Preventive and bounded |
-| Operator cannot silently turn review authority into mutation, commit, push, install, delete, or deploy authority | Separate affirmative imperative active-instruction action classes; questions, historical mentions, quoted discussion, and negation do not grant authority | Preventive for classified supported tool calls |
-| A file-scoped request silently broadens to the whole repository | An explicit `only` file clause is recorded as exact allowed paths and checked for patch, shell, and structured mutation tools | Preventive |
-| A current request explicitly moves to another repository but stale cwd remains authoritative | One explicit existing-repository transition in the current prompt replaces the cwd receipt; ambiguous or merely named repositories do not | Preventive and fail-closed |
-| Nested shells, dynamic paths, interpreter code, scripts, or nested Codex bypass flags hide effective filesystem behavior | Deny unprovable direct commands; require `manageroo operator-exec` to run opaque argv through Codex's native `:workspace` OS sandbox rooted at the signed repository | Preventive for the installed local Codex path |
-| Relative paths, symlinks, worktrees, or a replaced checkout cannot alias another operator scope | Canonical path checks plus repository and Git common-directory device/inode binding | Preventive and fail-closed |
-| A named source file outside the repo does not unlock its directory | Signed exact-path and device/inode read-only exception | Preventive |
-| A named external output or exact external edit is incorrectly treated as read-only, or naming one target unlocks its siblings | Signed external-write destination with ancestor identity; directories permit only descendants and files/nonexistent targets permit only the exact path; `apply_patch` accepts that exact file | Preventive and fail-closed |
-| An external file edit is mistaken for a repository switch because an ancestor contains `.git` | Direct repo transitions require an exact Git-repository directory; direct file edits remain exact external-file authority | Preventive |
-| A read-only visual audit cannot create needed contact sheets, or `/tmp` and arbitrary repo writes broaden scope | Dedicated `.manageroo/operator-tmp` create-and-clean evidence root remains available without product mutation authority; opaque generators run through the native workspace sandbox, then inspected primitives deliver to the signed output | Preventive |
-| Context compaction or an agent-written brief drops or rewrites the operator's actual words | User-only transcript messages and current prompt are bounded, hashed, HMAC-signed, hook-injected into `manageroo run`, and included verbatim in the effective brief | Preventive for available local Codex transcripts; current prompt always retained |
-| Agent invokes Manageroo, then abandons it for freehand repo search, an alternate skill/MCP workflow, or termination of the running process | Explicit skill receipt permits the pinned Manageroo skill entrypoint read, Manageroo controls, empty polling, and bounded Git delivery while denying other outer-agent tools and non-empty process input | Preventive on supported local hook paths |
-| Agent invokes Manageroo but tries to end the turn without launching the controller | Codex `Stop` checks the signed current-turn receipt and continues the turn once until `manageroo run` has been authorized and launched | Preventive on enabled and trusted local Codex hooks |
+| Manageroo blocks the operator's current request or requires repeated authorization phrases | `UserPromptSubmit` records and injects the request but never denies it; a newer request is accepted automatically; the installer removes the legacy permission firewall while preserving unrelated hooks | Preventive by hook contract |
+| The operator-facing agent drifts into a different repository or explicitly excluded target | `PreToolUse` compares supported local mutations with the active objective, current repository, named paths, and exclusions; reads and bounded temporary evidence remain available | Preventive for supported local tools |
+| The operator-facing agent stops after answering only a side question | `Stop` returns the complete active objective as a continuation until verified completion or one concrete external blocker is recorded | Preventive for the active Codex session |
+| A controlled worker edits outside its task | Immutable worker packet, isolated mirror, exact task-owned paths, post-role Git diff, and scope policy | Preventive and detective inside the run |
+| A new current request is blocked by stale repository intent | Intent snapshots are run-owned; a new run binds the new brief instead of auditing it against a persistent repository-wide lock | Preventive |
+| A continued run has an older request than the current brief | The old run is recorded as superseded and a fresh run starts automatically from the newer current request | Preventive |
+| A generated worker packet omits part of the current request | The controller injects the verbatim current-request contract and structured exact-task boundaries into every packet, then audits all emitted packets before completion | Preventive and completion-blocking for the agent |
+| Intent auditing becomes an operator authorization gate | Continuity bookkeeping never authorizes the operator; intent conformance is evaluated on agent actions, worker packets, diffs, reuse bindings, review, and acceptance evidence | Preventive by architecture |
+| An exact source-and-target task is expanded into product discovery and mapping | Exact-task contract deterministically creates the product model and plan while retaining implementation, verification, review, and delivery gates | Preventive |
 | Agent follows role instructions | Prompt packet + schema | Guidance plus output validation |
 | Operator says to use finished or named work but a worker silently rebuilds an approximation | Exact operator reuse directive must appear in one non-custom reuse decision; plan binds the same need, decision, candidate, implementation method, and empty deviation | Preventive before planning and implementation |
 | Green tests are used to relabel a custom rewrite as reuse | Independent review receives locked reuse bindings; substitution is a blocking truth defect, and the final report exposes the bound candidate and implementation path | Detective and completion-blocking |
@@ -101,6 +95,9 @@ Not every control is equally strong. This document distinguishes prevention from
 
 ## Critical limitation
 
-A deliberately hostile same-user process can tamper with any same-user configuration, including an unmanaged hook. That is different from ordinary agent drift: on the installed local Codex path, Manageroo's trusted hook denies out-of-scope tool calls and forces opaque commands through the native workspace OS sandbox. Hosted or explicitly hook-exempt tools are not on this local enforcement path, and an untrusted, disabled, removed, or deliberately bypassed hook does not run. MANAGEROO is not a hostile multi-tenant boundary or virtual machine.
-
-For untrusted models or plugins, run the entire harness inside an OS container or disposable machine.
+Continuity hooks keep the operator-facing Codex agent on one unfinished
+objective and can reject supported local tool calls that are clearly outside
+named scope. Controlled runs add isolated workspace enforcement and proof.
+Neither layer is a hostile same-user operating-system sandbox, and hosted or
+opt-out tools may bypass local tool hooks. Use the host workspace policy, a
+container, or a disposable machine when hostile-code isolation is required.

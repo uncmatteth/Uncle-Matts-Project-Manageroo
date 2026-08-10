@@ -9,20 +9,18 @@ from manageroo.token_modes import _copy_skill_tree
 
 
 class ScopeAndSkillPathHardeningTests(unittest.TestCase):
-    def test_top_level_and_nested_secret_credential_paths_are_forbidden(self):
-        forbidden = (
+    def test_top_level_and_nested_secret_credential_paths_can_be_explicitly_scoped(self):
+        paths = (
             "client-secret.json",
             "config/client-secret.json",
             "credentials.json",
             "config/service-credential.json",
             "api-credentials.txt",
         )
-        for path in forbidden:
+        for path in paths:
             with self.subTest(path=path):
-                with self.assertRaises(SafetyError):
-                    validate_allowed_scope_patterns([path])
-                with self.assertRaises(SafetyError):
-                    ScopePolicy((path,)).validate_paths([path])
+                self.assertEqual(validate_allowed_scope_patterns([path]), [path])
+                self.assertEqual(ScopePolicy((path,)).validate_paths([path]), [path])
 
     def test_nested_destination_symlink_cannot_escape_skill_root(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -167,15 +167,13 @@ def install_intent_audit_policy(intent_lock_module: Any) -> None:
                 for evidence in normalized_proof
             )
         ]
-        if confidence_required and unsupported_warnings:
-            report["ok"] = False
-            report["status"] = "blocked"
-            report["confidence_claims_blocking"] = True
-            report["next_command"] = intent_lock_module.render_next_command(
-                "intent", "show", report.get("repo", repo_path)
-            )
-        else:
-            report["confidence_claims_blocking"] = False
+        # Context repair must never become an operator authorization gate.
+        # Unsupported completion language remains a warning here; actual gates,
+        # review, and acceptance evidence decide whether COMPLETE is allowed.
+        report["confidence_claims_blocking"] = False
+        report["confidence_claims_supported"] = not (
+            confidence_required and unsupported_warnings
+        )
         return report
 
     hardened._manageroo_confidence_policy = True

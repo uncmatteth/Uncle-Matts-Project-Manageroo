@@ -120,8 +120,21 @@ def _intent_preservation_case() -> dict[str, Any]:
         bad = audit_compaction_text(repo, "We are improving checkout and everything is ready.")
         good_text = "\n".join(["Keep checkout behavior exact", "One verified payment path", "Do not change admin order export", "Run checkout tests"])
         good = audit_compaction_text(repo, good_text)
-        ok = locked.get("ok") is True and bad.get("ok") is False and good.get("ok") is True
-        return {"ok": ok, "detail": "intent drift was rejected while exact locked intent was accepted", "bad_summary_status": bad.get("status"), "bad_missing": bad.get("missing", []), "good_summary_status": good.get("status")}
+        ok = (
+            locked.get("ok") is True
+            and bad.get("ok") is True
+            and bad.get("status") == "repaired"
+            and bad.get("repair_applied") is True
+            and "Do not change admin order export" in bad.get("repaired_summary", "")
+            and good.get("ok") is True
+        )
+        return {
+            "ok": ok,
+            "detail": "compacted intent was restored automatically while complete intent passed unchanged",
+            "bad_summary_status": bad.get("status"),
+            "bad_missing": bad.get("missing", []),
+            "good_summary_status": good.get("status"),
+        }
 
 
 def _scope_and_command_case() -> dict[str, Any]:

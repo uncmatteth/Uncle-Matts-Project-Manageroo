@@ -16,16 +16,10 @@ from .util import safe_repo_relative
 FORBIDDEN_SCOPE_PATTERNS = (
     ".git",
     ".git/**",
-    PROJECT_DIR,
-    f"{PROJECT_DIR}/**",
-    ".env",
-    ".env.*",
-    "**/.env",
-    "**/.env.*",
-    "*secret*",
-    "**/*secret*",
-    "*credential*",
-    "**/*credential*",
+    f"{PROJECT_DIR}/runs",
+    f"{PROJECT_DIR}/runs/**",
+    f"{PROJECT_DIR}/cache",
+    f"{PROJECT_DIR}/cache/**",
 )
 PYTHON_EXECUTABLE_RE = re.compile(r"^python(?:3(?:\.\d+)?)?(?:\.exe)?$", re.IGNORECASE)
 
@@ -42,11 +36,16 @@ def validate_allowed_scope_patterns(patterns: Iterable[str]) -> list[str]:
     for raw in patterns:
         raw_text = str(raw).strip().replace("\\", "/")
         if raw_text.endswith("/"):
-            raise SafetyError(f"Allowed scope must be a file path, not a directory: {raw!r}")
+            raw_text = raw_text.rstrip("/") + "/**"
         path = safe_repo_relative(raw_text)
         if path in {".", ""} or str(raw).strip() in {"/", "\\"}:
             raise SafetyError(f"Allowed scope must be an exact task-owned file path: {raw!r}")
-        if path in broad or "*" in path or "?" in path or "[" in path or "]" in path:
+        directory_scope = path.endswith("/**") and not any(
+            token in path[:-3] for token in ("*", "?", "[", "]")
+        )
+        if path in broad or (
+            not directory_scope and any(token in path for token in ("*", "?", "[", "]"))
+        ):
             raise SafetyError(f"Allowed scope is too broad: {raw!r}")
         if _matches_forbidden(path, FORBIDDEN_SCOPE_PATTERNS):
             raise SafetyError(f"Allowed scope points at a forbidden path: {path}")

@@ -33,15 +33,16 @@ Manageroo-controlled workers must never:
 - weaken acceptance tests to obtain a passing result;
 - claim completion without a `COMPLETE` controller state.
 
-Every operator tool action in a Git repository is subject to Manageroo's signed current-turn scope receipt.
-It binds the current request to the canonical repo,
-explicitly named read-only source files, and allowed action classes. Missing,
-stale, malformed, expired, or mismatched receipts deny the action before a
-supported local tool runs. Direct action never bypasses this lock; summaries,
-memory, handoffs, old runs, and dirty sibling repos cannot broaden it.
+The current operator request owns the work for every participating agent.
+Manageroo technically contains workers launched inside a controlled run while
+guiding the operator-facing agent without intercepting its tools. It does not
+install prompt, pre-tool, or stop hooks and does not convert conversational
+English into filesystem permissions. Use the current request, cwd, named paths,
+and live disk truth normally. Never demand a repeated repository name, exact
+authorization phrase, receipt, or scope-lock ritual for authorized work.
 
 Those worker restrictions do not block authorized operator delivery after
-Manageroo returns verified `COMPLETE`. When the current receipt authorizes
+Manageroo returns verified `COMPLETE`. When the current request authorizes
 finish, ship, publish, or make it live, the operator-facing agent must preserve
 unrelated work, then commit, push, and deploy through the repository's proven
 delivery path and verify the resulting Git SHA and live target. Ask only when a
@@ -54,11 +55,9 @@ silently broadening the current task.
 Read `.manageroo/PROJECT-MEMORY.md` before broad product work. Preserve the
 `What Must Not Break` section unless the operator explicitly changes it.
 
-Run `manageroo intent show --json` before relying on a compacted chat, handoff,
-or old summary, and use its validated `lock` as the current intent. Do not read
-the generated `INTENT-LOCK.md` directly. If a summary drops a must-not rule,
-rejected idea, latest correction, proof requirement, or scope boundary, stop
-and run `manageroo compact audit --summary SUMMARY.md`.
+The current operator request and run-owned brief outrank repository intent notes,
+compacted chat, handoffs, and old summaries. A new current request starts a new
+run contract; stale intent notes cannot block it.
 
 Use relevant installed skills when their triggers match, but do not treat host-owned
 skills as Manageroo-owned dependencies. Manageroo's portable core remains bounded.
@@ -76,9 +75,8 @@ For broad work, agents and AI IDEs should read these in order:
 
 1. `.manageroo/PROJECT-MEMORY.md` for durable project identity, shipped facts,
    must-not-break rules, proof, and operator notes.
-2. `manageroo intent show --json` for the validated current ask, must-not rules,
-   rejected ideas, latest corrections, proof, and scope boundaries. Do not read
-   the generated `INTENT-LOCK.md` directly.
+2. The current operator request and run-owned brief for the active ask, must-not
+   rules, corrections, proof, and scope boundaries.
 3. `.manageroo/PRODUCT-BRIEF.md` for the current requested build or repair.
 4. `AGENTS.md` for repo operating rules.
 5. This `CONTEXT.md` file when the repo has extra background, product language,

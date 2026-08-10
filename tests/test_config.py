@@ -188,7 +188,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["agent"]["adapter"], "auto")
         self.assertEqual(
             config["agent"]["candidates"],
-            ["codex", "claude-code", "gemini"],
+            ["codex"],
         )
         self.assertGreater(config["budget"]["max_total_worker_calls"], 0)
         self.assertGreater(config["budget"]["max_runtime_minutes"], 0)

@@ -34,11 +34,11 @@ from .errors import (
     MANAGEROOError,
     ValidationError,
 )
+from .exact_task import build_exact_artifacts, render_external_source_context
 from .gates import Gate, GateRunner, gates_from_config
 from .ideas import IdeaInbox
 from .integrations import ExternalCommandIntegration, ObsidianIntegration, command_record
 from .inventory import build_inventory, inventory_summary
-from .intent_lock import audit_compaction_text, capture_intent_lock, read_intent_lock
 from .jobs import JobStatus, JobStore
 from .learning import generate_learning_cards, pending_root, save_pending_learning_cards
 from .map_cache import load_system_map_cache, write_system_map_cache
@@ -49,7 +49,7 @@ from .reuse_policy import operator_reuse_directives, operator_reuse_findings, re
 from .runner import CommandRunner
 from .state import Phase, RunState
 from .token_modes import token_mode_prompt
-from .util import atomic_write_json, atomic_write_text, new_run_id, read_json, safe_repo_relative, utc_now
+from .util import atomic_write_json, atomic_write_text, new_run_id, read_json, safe_repo_relative, sha256_text, utc_now
 from .workspace import WorkspaceMirror
 
 T = TypeVar("T")
@@ -126,26 +126,6 @@ def _capability_intent(brief: str) -> str:
     )
 
 
-def _effective_brief(prepared_brief: str, operator_context: list[str] | None) -> str:
-    locked_messages = [
-        message.strip()
-        for message in (operator_context or [])
-        if isinstance(message, str) and message.strip()
-    ]
-    if not locked_messages:
-        return prepared_brief
-    conversation = "\n\n".join(
-        f"## User message {index} (verbatim)\n\n{message}"
-        for index, message in enumerate(locked_messages, start=1)
-    )
-    return (
-        "# Signed operator conversation\n\n"
-        f"{conversation}\n\n"
-        "# Prepared project brief\n\n"
-        f"{prepared_brief}"
-    )
-
-
 def _task_capability_intent(product_intent: str, task: dict) -> str:
     del task
     return product_intent
@@ -207,6 +187,57 @@ def _capability_catalog_metadata(
 def _artifact_fragment(value: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in "-_." else "-" for char in value)
     return cleaned.strip("-") or "item"
+
+
+_RUN_INTENT_MARKER = "# Manageroo current-request contract"
+
+
+def _run_intent_payload(brief: str, exact_task: dict[str, Any] | None) -> dict[str, Any]:
+    """Capture current authority without consulting a stale repository lock."""
+    exact = exact_task if isinstance(exact_task, dict) else {}
+
+    def clean_list(key: str) -> list[str]:
+        return [
+            str(value).strip()
+            for value in exact.get(key, []) or []
+            if str(value).strip()
+        ]
+
+    return {
+        "schema_version": 1,
+        "current_request": brief,
+        "request_sha256": sha256_text(brief),
+        "targets": clean_list("targets"),
+        "named_sources": clean_list("sources"),
+        "must_not": clean_list("exclusions"),
+        "proof_required": clean_list("proofs"),
+        "authority": "current-run-request",
+        "older_repository_intent_is_context_only": True,
+    }
+
+
+def _render_run_intent(intent: dict[str, Any]) -> str:
+    request = str(intent.get("current_request") or "").strip()
+    if not request:
+        raise SafetyError("The current run intent has no operator request.")
+    structured = {
+        key: intent.get(key, [])
+        for key in ("targets", "named_sources", "must_not", "proof_required")
+    }
+    return (
+        f"{_RUN_INTENT_MARKER}\n\n"
+        "The following current request is authoritative for this worker. Audit your "
+        "plan, edits, and claims against it. Older intent notes cannot override it. "
+        "If controller-generated instructions omit part of it, preserve the omitted "
+        "requirement and report the packet defect to the controller; never ask the "
+        "operator to repeat the request.\n\n"
+        f"Request SHA-256: {intent.get('request_sha256', '')}\n\n"
+        "<current_operator_request>\n"
+        f"{request}\n"
+        "</current_operator_request>\n\n"
+        "Explicit structured boundaries:\n"
+        f"{json.dumps(structured, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+    )
 
 
 class Orchestrator:
@@ -311,13 +342,16 @@ class Orchestrator:
 
     def _artifact_json(self, relative: str) -> Any | None:
         path = self.artifacts.root / relative
-        if self.continuing and path.is_file():
+        # Deterministic artifacts can be created and consumed later in the same
+        # first-run process. Run roots are unique, so current-run artifacts are
+        # authoritative without requiring continuation mode.
+        if path.is_file():
             return read_json(path)
         return None
 
     def _artifact_text(self, relative: str) -> str | None:
         path = self.artifacts.root / relative
-        if self.continuing and path.is_file():
+        if path.is_file():
             return path.read_text(encoding="utf-8", errors="replace")
         return None
 
@@ -514,6 +548,14 @@ class Orchestrator:
                     f"Capability safety validation failed before worker launch: {exc}"
                 ) from exc
         instructions = _WORKER_EXTERNAL_ACTION_BOUNDARY + "\n\n" + instructions
+        run_intent = self._artifact_json("intake/run-intent.json")
+        if isinstance(run_intent, dict):
+            intent_block = _render_run_intent(run_intent)
+            # The controller repairs incomplete generated packets itself. This
+            # is an agent-fidelity control, never an operator authorization gate.
+            if _RUN_INTENT_MARKER not in instructions:
+                instructions = intent_block + "\n" + instructions
+            metadata["current_request_sha256"] = run_intent.get("request_sha256", "")
         token_prompt = token_mode_prompt()
         if token_prompt:
             instructions = token_prompt + "\n\n" + instructions
@@ -1405,7 +1447,7 @@ class Orchestrator:
         brief_path: Path,
         mode: str,
         apply_on_success: bool | None = None,
-        operator_context: list[str] | None = None,
+        exact_task: dict[str, Any] | None = None,
     ) -> dict:
         result: dict[str, Any] = {
             "run_id": self.run_id,
@@ -1417,6 +1459,50 @@ class Orchestrator:
         external_intelligence: dict[str, Any] | None = None
         external_review_repair: dict[str, Any] | None = None
         try:
+            if mode not in {"build", "repair"}:
+                raise ValidationError("Mode must be 'build' or 'repair'.")
+            brief_path = brief_path.resolve()
+            if not brief_path.is_file():
+                raise ValidationError(f"Product brief not found: {brief_path}")
+            brief = brief_path.read_text(encoding="utf-8", errors="replace").strip()
+            if not brief:
+                raise ValidationError("Product brief is empty.")
+
+            current_intent = _run_intent_payload(brief, exact_task)
+            bound_intent = self._artifact_json("intake/run-intent.json")
+            if isinstance(bound_intent, dict):
+                bound_hash = str(
+                    bound_intent.get("request_sha256")
+                    or bound_intent.get("brief_hash")
+                    or ""
+                )
+                if bound_hash != current_intent["request_sha256"]:
+                    # A newer request supersedes this saved run. Continue the
+                    # operator's work automatically in a fresh run whose
+                    # artifacts are derived from the new request; never turn a
+                    # stale run lock into a refusal.
+                    replacement = Orchestrator(
+                        self.source_repo,
+                        adapter=self.adapter,
+                        capability_roots=list(self.capability_index.roots),
+                    )
+                    replacement_result = replacement.run(
+                        brief_path=brief_path,
+                        mode=mode,
+                        apply_on_success=apply_on_success,
+                        exact_task=exact_task,
+                    )
+                    replacement_result["supersedes_run_id"] = self.run_id
+                    atomic_write_json(
+                        self.run_root / "controller" / "superseded.json",
+                        {
+                            "superseded_by": replacement.run_id,
+                            "new_request_sha256": current_intent["request_sha256"],
+                            "reason": "A newer current request replaced this run's intent.",
+                        },
+                    )
+                    return replacement_result
+
             delivery_result = self._delivery_result()
             if (
                 delivery_result is not None
@@ -1435,57 +1521,15 @@ class Orchestrator:
             completed = self._completed_result()
             if completed is not None:
                 return completed
-            if mode not in {"build", "repair"}:
-                raise ValidationError("Mode must be 'build' or 'repair'.")
-            brief_path = brief_path.resolve()
-            if not brief_path.is_file():
-                raise ValidationError(f"Product brief not found: {brief_path}")
-            prepared_brief = brief_path.read_text(encoding="utf-8", errors="replace").strip()
-            if not prepared_brief:
-                raise ValidationError("Product brief is empty.")
-            brief = _effective_brief(prepared_brief, operator_context)
             if self.continuing and self._blocking_decisions_path().is_file():
                 raise BlockingDecisionError("Resolve product decisions before continuing.")
 
-            bound_intent = self._artifact_json("intake/intent-lock.json")
-            current_intent = read_intent_lock(self.source_repo)
-            if bound_intent is not None:
-                if (
-                    not current_intent.get("ok")
-                    or current_intent.get("lock_hash") != bound_intent.get("lock_hash")
-                ):
-                    raise SafetyError(
-                        "The run's locked intent changed or disappeared; start a new run for new authority."
-                    )
-            else:
-                if not current_intent.get("ok"):
-                    intent_path = Path(str(current_intent.get("path") or ""))
-                    if intent_path.exists():
-                        raise SafetyError(
-                            f"The repository intent lock is invalid: {current_intent.get('error', 'unknown error')}"
-                        )
-                    current_intent = capture_intent_lock(
-                        self.source_repo,
-                        want=brief,
-                        source="manageroo run product brief",
-                    )
-                intent_audit = audit_compaction_text(self.source_repo, brief, summary_path=brief_path)
-                if not intent_audit.get("ok"):
-                    missing = "; ".join(
-                        f"{item.get('category')}: {item.get('text')}"
-                        for item in intent_audit.get("missing", [])
-                        if isinstance(item, dict)
-                    )
-                    raise SafetyError(
-                        "The product brief does not preserve the repository's locked intent: "
-                        + (missing or "intent audit failed")
-                    )
-                bound_intent = {
-                    "lock_hash": current_intent["lock_hash"],
-                    "lock": current_intent["lock"],
-                    "brief_hash": intent_audit["summary_hash"],
-                }
-                self.artifacts.write_json("intake/intent-lock.json", bound_intent, lock=True)
+            if bound_intent is None:
+                self.artifacts.write_json(
+                    "intake/run-intent.json",
+                    current_intent,
+                    lock=True,
+                )
 
             self._transition(Phase.INTAKE, "Captured product request and pending ideas")
             self._write_or_reuse_text("intake/product-brief.md", brief, lock=True)
@@ -1513,15 +1557,30 @@ class Orchestrator:
                 self.artifacts.write_json("discovery/inventory.json", raw_inventory, lock=True)
             inventory_files = raw_inventory["files"]
 
-            obsidian = ObsidianIntegration(
-                self.config["integrations"].get("obsidian_vault", ""),
-                self.config["integrations"].get("obsidian_export_folder", "MANAGEROO"),
-            )
-            memory = self._artifact_json("discovery/obsidian-context.json")
-            if memory is None:
-                memory = obsidian.search(brief)
-                self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
-            external_intelligence = self._external_intelligence(brief, raw_inventory)
+            if exact_task is not None and self._artifact_json("intake/exact-task.json") is None:
+                exact_artifacts = build_exact_artifacts(
+                    repo=self.source_repo,
+                    brief=brief,
+                    contract=exact_task,
+                    configured_gate_ids=list(self._gate_catalog()),
+                )
+                for relative, payload in exact_artifacts.items():
+                    self.artifacts.write_json(relative, payload, lock=True)
+
+            obsidian: ObsidianIntegration | None = None
+            if self._artifact_json("intake/exact-task.json") is not None:
+                memory = {"status": "skipped", "reason": "exact-task path"}
+                external_intelligence = {"status": "skipped", "reason": "exact-task path"}
+            else:
+                obsidian = ObsidianIntegration(
+                    self.config["integrations"].get("obsidian_vault", ""),
+                    self.config["integrations"].get("obsidian_export_folder", "MANAGEROO"),
+                )
+                memory = self._artifact_json("discovery/obsidian-context.json")
+                if memory is None:
+                    memory = obsidian.search(brief)
+                    self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
+                external_intelligence = self._external_intelligence(brief, raw_inventory)
 
             product = self._artifact_json("planning/product-model.json")
             unresolved: list[dict] = []
@@ -1700,6 +1759,11 @@ class Orchestrator:
                     safe_repo_relative(path)
             self._write_or_reuse_json("planning/task-plan.json", plan, lock=True)
             self._write_or_reuse_json("planning/plan-review.json", plan_review, lock=True)
+            if Phase(self.state.phase) == Phase.PLAN_COMPILE:
+                self._transition(
+                    Phase.PLAN_REVIEW,
+                    "Using deterministic or previously approved plan review",
+                )
             self._transition(Phase.CONTRACT_LOCKED, "Product, system map, and task plan are immutable")
             self.artifacts.verify_locked()
 
@@ -1727,27 +1791,58 @@ class Orchestrator:
                             priority=100 if path in task.get("context_paths", []) else 80,
                         )
                     )
-                implementation = self._call(
-                    role="implementer",
-                    schema="agent-result.schema.json",
-                    capability_intent=_task_capability_intent(product_capability_intent, task),
-                    capability_focus=_task_capability_focus(task),
-                    instructions=(
-                        "# Bounded implementation role\n\n"
-                        "Implement exactly one locked task. You may inspect the repository, but may "
-                        "edit only allowed_paths. Do not redesign adjacent systems, alter the locked "
-                        "plan or reuse binding, replace a named candidate with a custom approximation, "
-                        "weaken tests, commit, push, or change .git/.manageroo. Use existing repository "
-                        "patterns and the reuse decisions. Return an exact list of every changed file.\n\n"
-                        f"Product model:\n{_compact_json(product)}\n\n"
-                        f"Task:\n{_compact_json(task)}\n\n"
-                        f"Locked reuse bindings:\n{_compact_json(plan['reuse_bindings'])}\n\n"
-                        f"Global invariants:\n{_compact_json(plan['global_invariants'])}"
-                    ),
-                    context=requests,
-                    sandbox="workspace-write",
-                    metadata={"task": task},
+                implementation_instructions = (
+                    "# Bounded implementation role\n\n"
+                    "Implement exactly one locked task. You may inspect the repository, but may "
+                    "edit only allowed_paths. Do not redesign adjacent systems, alter the locked "
+                    "plan or reuse binding, replace a named candidate with a custom approximation, "
+                    "weaken tests, commit, push, or change .git/.manageroo. Use existing repository "
+                    "patterns and the reuse decisions. Return an exact list of every changed file.\n\n"
+                    f"Product model:\n{_compact_json(product)}\n\n"
+                    f"Task:\n{_compact_json(task)}\n\n"
+                    f"Locked reuse bindings:\n{_compact_json(plan['reuse_bindings'])}\n\n"
+                    f"Global invariants:\n{_compact_json(plan['global_invariants'])}\n\n"
+                    f"Exact external source contents (hash-bound):\n"
+                    f"{render_external_source_context(task) or '(none)'}"
                 )
+
+                def run_implementer(instructions: str) -> dict[str, Any]:
+                    return self._call(
+                        role="implementer",
+                        schema="agent-result.schema.json",
+                        capability_intent=_task_capability_intent(product_capability_intent, task),
+                        capability_focus=_task_capability_focus(task),
+                        instructions=instructions,
+                        context=requests,
+                        sandbox="workspace-write",
+                        metadata={"task": task},
+                    )
+
+                implementation = run_implementer(implementation_instructions)
+                requested_scope = sorted(
+                    {
+                        str(path).strip()
+                        for path in implementation.get("scope_expansion_requested", []) or []
+                        if str(path).strip()
+                    }
+                )
+                if requested_scope:
+                    # A worker may misread an already-authorized path as absent.
+                    # Repair that packet once without involving the operator. A
+                    # request outside the locked task remains agent drift.
+                    if self.mirror.changed_paths(before_head):
+                        raise SafetyError(
+                            "Worker requested scope expansion or packet repair after already changing files. "
+                            "Those uncheckpointed edits are rejected."
+                        )
+                    ScopePolicy(tuple(task["allowed_paths"])).validate_paths(requested_scope)
+                    implementation = run_implementer(
+                        implementation_instructions
+                        + "\n\n# Controller packet repair\n\n"
+                        + "The paths below were already authorized by the current request and "
+                        + "locked task. Complete the task now; do not ask the operator to repeat it:\n"
+                        + "\n".join(f"- {path}" for path in requested_scope)
+                    )
                 _require_completed_agent_edit(
                     implementation,
                     role="Implementer",
@@ -1921,6 +2016,53 @@ class Orchestrator:
                     "See verification/acceptance-evidence.json."
                 )
 
+            run_intent = self._artifact_json("intake/run-intent.json")
+            packet_paths = sorted(
+                [*self.packet_root.glob("**/prompt.md"), *(self.run_root / "review-packets").glob("**/prompt.md")]
+            )
+            packets_missing_current_request = [
+                str(path)
+                for path in packet_paths
+                if _RUN_INTENT_MARKER not in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            if packets_missing_current_request:
+                raise SafetyError(
+                    "Controller packet audit found workers missing the current request: "
+                    + ", ".join(packets_missing_current_request)
+                )
+            intent_conformance = {
+                "status": "passed",
+                "request_sha256": (
+                    run_intent.get("request_sha256", "")
+                    if isinstance(run_intent, dict)
+                    else ""
+                ),
+                "current_request_was_in_every_worker_packet": True,
+                "worker_packet_count": len(packet_paths),
+                "changed_paths": changed_paths,
+                "authorized_paths": sorted(
+                    {
+                        path
+                        for task in plan.get("tasks", [])
+                        for path in task.get("allowed_paths", [])
+                    }
+                ),
+                "named_sources": (
+                    list(run_intent.get("named_sources", []))
+                    if isinstance(run_intent, dict)
+                    else []
+                ),
+                "reuse_bindings": plan.get("reuse_bindings", []),
+                "acceptance": acceptance,
+                "independent_review": review.get("status"),
+                "operator_was_not_used_as_an_authorization_gate": True,
+            }
+            self.artifacts.write_json(
+                "verification/intent-conformance.json",
+                intent_conformance,
+                lock=True,
+            )
+
             self._transition(Phase.DELIVERING, "Producing patch, evidence ledger, and product report")
             patch_path = self.mirror.write_patch(self.run_root / "delivery" / "final.patch")
             should_apply = (
@@ -1935,6 +2077,7 @@ class Orchestrator:
                     "acceptance": acceptance,
                     "reuse": reuse.get("decisions", []),
                     "reuse_conformance": plan.get("reuse_bindings", []),
+                    "intent_conformance": intent_conformance,
                     "gates": global_gate_results,
                     "review": review,
                     "external_review_repair": external_review_repair,
@@ -1950,6 +2093,9 @@ class Orchestrator:
                         "final_report": str(self.run_root / "delivery" / "FINAL-REPORT.md"),
                         "artifact_ledger": str(self.artifacts.ledger_path),
                         "state": str(self.state_path),
+                        "intent_conformance": str(
+                            self.artifacts.root / "verification" / "intent-conformance.json"
+                        ),
                     },
                     "applied_to_source": False,
                     "finished_at": utc_now(),
@@ -1981,7 +2127,8 @@ class Orchestrator:
                 result["external_capture"] = external_capture
                 markdown = write_report(report_path, result)
                 atomic_write_json(final_result_path, result)
-            obsidian.export(f"{self.run_id}.md", markdown)
+            if obsidian is not None:
+                obsidian.export(f"{self.run_id}.md", markdown)
             self._transition(Phase.COMPLETE, "All required evidence passed; delivery complete")
             return result
 

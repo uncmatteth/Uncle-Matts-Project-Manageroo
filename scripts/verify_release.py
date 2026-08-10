@@ -240,7 +240,6 @@ def structural_checks() -> list[dict]:
         "src/manageroo/evidence.py", "src/manageroo/evidence_hardening.py", "src/manageroo/evidence_artifact_guard.py",
         "src/manageroo/evidence_policy.py", "src/manageroo/external_repair_policy.py", "src/manageroo/jobs.py",
         "src/manageroo/learning.py", "src/manageroo/next_action.py", "src/manageroo/project_memory.py",
-        "src/manageroo/operator_scope.py",
         "src/manageroo/release_proof_policy.py", "src/manageroo/release_ready_policy.py", "src/manageroo/skill_pack_policy.py",
         "src/manageroo/stack_update_policy.py", "src/manageroo/solo.py", "src/manageroo/token_modes.py",
         "src/manageroo/truth_contract.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
@@ -250,7 +249,7 @@ def structural_checks() -> list[dict]:
         "tests/test_clawpatch_remaining_regressions.py",
         "tests/test_evidence.py", "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py",
         "tests/test_release_hardening_contract.py", "tests/test_remaining_audit_regressions.py",
-        "tests/test_operator_scope.py",
+        "tests/test_no_global_operator_hooks.py",
         "tests/test_transactional_adapter_hardening.py", "tests/test_transactional_history_and_pristine.py",
         "tests/test_truth_contract.py", "tests/test_truth_contract_production.py",
     ]
@@ -304,10 +303,11 @@ def structural_checks() -> list[dict]:
             "ok": contains_compact(stateless, 'Manageroo is not "AI remembers better." Manageroo makes remembering unnecessary.'),
         },
         {
-            "name": "truth:operator-scope-boundary",
-            "ok": contains_compact(architecture, "`UserPromptSubmit` creates a private HMAC-signed receipt")
-            and contains_compact(skill, "Direct action never bypasses this lock")
-            and contains_compact(limitations, "an untrusted, disabled, removed, or bypassed hook is not an active lock"),
+            "name": "truth:worker-scope-boundary",
+            "ok": contains_compact(architecture, "The stronger repository boundary controls processes launched through `manageroo run`")
+            and contains_compact(skill, "The current operator request owns the work")
+            and contains_compact(limitations, "Manageroo installs Codex continuity hooks")
+            and contains_compact(limitations, "Controlled runs remain the stronger isolated worker boundary"),
         },
         {
             "name": "truth:evidence-is-context-not-authority",

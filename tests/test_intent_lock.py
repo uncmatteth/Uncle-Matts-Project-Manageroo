@@ -431,17 +431,14 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
         for path in surfaces:
             with self.subTest(path=path):
                 text = path.read_text(encoding="utf-8")
-                self.assertIn("manageroo intent show --json", text)
-                self.assertIn(
-                    "generated `INTENT-LOCK.md` directly",
-                    " ".join(text.split()),
-                )
+                self.assertIn("current operator request", text.lower())
+                self.assertNotIn("manageroo intent show --json", text)
 
-    def test_audit_blocks_when_compaction_drops_must_not_rules(self):
+    def test_audit_restores_when_compaction_drops_must_not_rules(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Build the release helper.", must_not=["Do not deploy production"], rejected=["Do not add GitHub Actions"], proof=["release-ready reports READY"], scopes=["Only this Git repo"])
             report = audit_compaction_text(repo, "Current task: build the release helper. Proof: release-ready reports READY.")
-            self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); missing = {(item["category"], item["text"]) for item in report["missing"]}; self.assertIn(("must_not", "Do not deploy production"), missing); self.assertIn(("rejected", "Do not add GitHub Actions"), missing)
+            self.assertTrue(report["ok"]); self.assertEqual(report["status"], "repaired"); missing = {(item["category"], item["text"]) for item in report["missing"]}; self.assertIn(("must_not", "Do not deploy production"), missing); self.assertIn(("rejected", "Do not add GitHub Actions"), missing); self.assertIn("Do not deploy production", report["repaired_summary"])
 
     def test_audit_requires_alphanumeric_phrase_boundaries(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -452,7 +449,8 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                 repo,
                 "Shipping is postponed while the contest continues.",
             )
-            self.assertFalse(overlapping["ok"])
+            self.assertTrue(overlapping["ok"])
+            self.assertEqual(overlapping["status"], "repaired")
             self.assertEqual(
                 {(item["category"], item["text"]) for item in overlapping["missing"]},
                 {("want", "ship"), ("proof", "test")},
@@ -508,12 +506,10 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                     error = f"INTENT-LOCK.json is invalid: {detail}"
                     self.assertFalse(lock_report["ok"])
                     self.assertEqual(lock_report["error"], error)
-                    self.assertFalse(audit_report["ok"])
-                    self.assertEqual(audit_report["status"], "blocked")
-                    self.assertEqual(
-                        audit_report["missing"],
-                        [{"category": "intent_lock", "text": error}],
-                    )
+                    self.assertTrue(audit_report["ok"])
+                    self.assertEqual(audit_report["status"], "context-warning")
+                    self.assertEqual(audit_report["missing"], [])
+                    self.assertIn(error, audit_report["warnings"][0]["text"])
 
     def test_corrupt_intent_locks_are_blocked_configuration_reports(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -535,13 +531,11 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                     self.assertFalse(lock_report["ok"])
                     self.assertIn(detail, lock_report["error"])
                     self.assertIn("--force", lock_report["next_command"])
-                    self.assertFalse(audit_report["ok"])
-                    self.assertEqual(audit_report["status"], "blocked")
-                    self.assertEqual(
-                        audit_report["missing"],
-                        [{"category": "intent_lock", "text": lock_report["error"]}],
-                    )
-                    self.assertEqual(audit_report["next_command"], lock_report["next_command"])
+                    self.assertTrue(audit_report["ok"])
+                    self.assertEqual(audit_report["status"], "context-warning")
+                    self.assertEqual(audit_report["missing"], [])
+                    self.assertIn(lock_report["error"], audit_report["warnings"][0]["text"])
+                    self.assertEqual(audit_report["next_command"], "")
 
     def test_audit_passes_when_pinned_truth_survives(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -569,7 +563,7 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
             self.assertTrue(report["ok"], report)
             self.assertFalse(report["confidence_claims_blocking"])
 
-    def test_audit_blocks_negated_colon_form_confidence_claim(self):
+    def test_audit_warns_on_negated_colon_form_confidence_claim(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
             proof = "Production-ready: release gate did not pass."
@@ -580,14 +574,15 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                 f"Intent: Ship the release.\nProof: {proof}",
             )
 
-            self.assertFalse(report["ok"], report)
-            self.assertTrue(report["confidence_claims_blocking"])
+            self.assertTrue(report["ok"], report)
+            self.assertFalse(report["confidence_claims_blocking"])
+            self.assertFalse(report["confidence_claims_supported"])
 
-    def test_audit_blocks_confidence_claim_without_matching_locked_proof(self):
+    def test_audit_warns_confidence_claim_without_matching_locked_proof(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp)); capture_intent_lock(repo, want="Ship the release.", proof=["The release gate and smoke tests have not run."])
             report = audit_compaction_text(repo, "\n".join(["Intent: Ship the release.", "Proof: The release gate and smoke tests have not run.", "Status: Production-ready."]))
-            self.assertFalse(report["ok"]); self.assertEqual(report["status"], "blocked"); self.assertTrue(report["confidence_claims_blocking"]); self.assertFalse(report["missing"])
+            self.assertTrue(report["ok"]); self.assertEqual(report["status"], "passed"); self.assertFalse(report["confidence_claims_blocking"]); self.assertFalse(report["confidence_claims_supported"]); self.assertFalse(report["missing"])
 
     def test_audit_does_not_treat_word_apostrophes_as_quote_delimiters(self):
         summaries = (
@@ -601,9 +596,10 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
 
                 report = audit_compaction_text(repo, summary)
 
-                self.assertFalse(report["ok"], report)
-                self.assertEqual(report["status"], "blocked")
-                self.assertTrue(report["confidence_claims_blocking"])
+                self.assertTrue(report["ok"], report)
+                self.assertEqual(report["status"], "passed")
+                self.assertFalse(report["confidence_claims_blocking"])
+                self.assertFalse(report["confidence_claims_supported"])
                 self.assertEqual(
                     [warning["text"] for warning in report["warnings"]],
                     ["production-ready"],
@@ -632,7 +628,7 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                 self.assertFalse(report["confidence_claims_blocking"])
                 self.assertFalse(report["warnings"])
 
-    def test_audit_blocks_affirmative_claim_after_separate_negated_clause(self):
+    def test_audit_warns_affirmative_claim_after_separate_negated_clause(self):
         summaries = (
             "Checks did not run, but the release is production-ready.",
             "Checks did not run, the release is production-ready.",
@@ -673,9 +669,10 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                     f"Intent: Ship the release.\n{summary}",
                 )
 
-                self.assertFalse(report["ok"], report)
-                self.assertEqual(report["status"], "blocked")
-                self.assertTrue(report["confidence_claims_blocking"])
+                self.assertTrue(report["ok"], report)
+                self.assertEqual(report["status"], "passed")
+                self.assertFalse(report["confidence_claims_blocking"])
+                self.assertFalse(report["confidence_claims_supported"])
                 self.assertEqual(
                     [warning["text"] for warning in report["warnings"]],
                     ["production-ready"],
@@ -706,8 +703,9 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                     repo,
                     f"Intent: Ship the release.\nProof: {proof}\nStatus: Production-ready.",
                 )
-                self.assertFalse(report["ok"], report)
-                self.assertTrue(report["confidence_claims_blocking"])
+                self.assertTrue(report["ok"], report)
+                self.assertFalse(report["confidence_claims_blocking"])
+                self.assertFalse(report["confidence_claims_supported"])
 
     def test_audit_allows_success_with_explicitly_zero_failures(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -757,8 +755,9 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                     f"Intent: Ship the release.\nProof: {proof}",
                 )
 
-                self.assertFalse(report["ok"], report)
-                self.assertTrue(report["confidence_claims_blocking"])
+                self.assertTrue(report["ok"], report)
+                self.assertFalse(report["confidence_claims_blocking"])
+                self.assertFalse(report["confidence_claims_supported"])
 
     def test_audit_rejects_conflicting_outcome_after_confidence_claim(self):
         proofs = (
@@ -775,8 +774,9 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
                     f"Intent: Ship the release.\nProof: {proof}",
                 )
 
-                self.assertFalse(report["ok"], report)
-                self.assertTrue(report["confidence_claims_blocking"])
+                self.assertTrue(report["ok"], report)
+                self.assertFalse(report["confidence_claims_blocking"])
+                self.assertFalse(report["confidence_claims_supported"])
 
     def test_cli_capture_and_compact_audit_json(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -819,15 +819,15 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
             self.assertEqual(checkpoint_audit["summary_hash"], report["summary_hash"])
             self.assertEqual(checkpoint_audit["summary_hash"], sha256_file(checkpoint))
 
-    def test_format_compaction_audit_is_plain_about_blockers(self):
-        text = format_compaction_audit({"ok": False, "status": "blocked", "lock_path": "/repo/.manageroo/intent/INTENT-LOCK.json", "missing": [{"category": "must_not", "text": "Do not deploy production"}], "warnings": [{"code": "confidence_claim", "text": "perfect"}], "next_command": "manageroo intent show"})
-        self.assertIn("COMPACTION AUDIT: BLOCKED", text); self.assertIn("MISSING must_not: Do not deploy production", text); self.assertIn("WARN confidence_claim: perfect", text); self.assertIn("Next: manageroo intent show", text)
+    def test_format_compaction_audit_is_plain_about_repairs(self):
+        text = format_compaction_audit({"ok": True, "status": "repaired", "lock_path": "/repo/.manageroo/intent/INTENT-LOCK.json", "missing": [{"category": "must_not", "text": "Do not deploy production"}], "warnings": [{"code": "confidence_claim", "text": "perfect"}], "next_command": "manageroo run"})
+        self.assertIn("COMPACTION AUDIT: REPAIRED", text); self.assertIn("RESTORED must_not: Do not deploy production", text); self.assertIn("WARN confidence_claim: perfect", text); self.assertIn("Next: manageroo run", text)
 
     def test_public_docs_explain_intent_lock_and_compaction_audit(self):
         surfaces = {
             "README.md": [".manageroo/intent/INTENT-LOCK.md", "manageroo compact audit", "remain unproven until matching affirmative evidence exists and records a successful outcome"],
-            "docs/CONTEXT_COMPILER.md": ["Chat compaction is not the source of truth", "strict phrase-preservation audit"],
-            "docs/ENFORCEMENT_MATRIX.md": ["Compaction cannot drop must-not rules", "Intent lock plus compaction audit"],
+            "docs/CONTEXT_COMPILER.md": ["Chat compaction is not the source of truth", "missing exact requirements are restored automatically"],
+            "docs/ENFORCEMENT_MATRIX.md": ["generated worker packet omits part of the current request", "injects the verbatim current-request contract"],
             "docs/SOLO_OPERATOR_MODE.md": ["solo captures an intent lock", "compact audit"],
         }
         for relative, phrases in surfaces.items():

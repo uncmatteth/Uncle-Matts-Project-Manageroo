@@ -45,37 +45,33 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
-    def test_codex_install_adds_operator_scope_hooks_for_manageroo_launcher(self):
+    def test_install_removes_only_legacy_manageroo_operator_hooks(self):
         install = load_install_script()
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            launcher = root / "bin" / "manageroo"
             codex_home = root / ".codex"
-            expected = {
-                "ok": True,
-                "path": str(codex_home / "hooks.json"),
-                "changed": True,
-                "trust_required": True,
-                "next": "/hooks",
+            codex_home.mkdir()
+            hooks = {
+                "hooks": {
+                    "UserPromptSubmit": [
+                        {"hooks": [{"command": "gbrain prompt hook"}]},
+                        {"hooks": [{"command": "/bin/manageroo operator-" "scope-hook"}]},
+                    ],
+                    "PreToolUse": [
+                        {"matcher": "*", "hooks": [{"command": "/bin/manageroo operator-" "scope-hook"}]}
+                    ],
+                }
             }
-            with patch.object(
-                install.shutil,
-                "which",
-                side_effect=lambda name: "/tools/codex" if name == "codex" else None,
-            ), patch.object(
-                install,
-                "install_codex_operator_hooks",
-                return_value=expected,
-            ) as install_hooks:
-                result = install.install_codex_operator_scope(
-                    launcher,
-                    codex_home=codex_home,
-                )
+            (codex_home / "hooks.json").write_text(json.dumps(hooks), encoding="utf-8")
 
-            self.assertEqual(result, expected)
-            install_hooks.assert_called_once_with(
-                codex_home=codex_home,
-                manageroo_command=launcher,
+            result = install.remove_legacy_codex_operator_hooks(codex_home=codex_home)
+
+            self.assertEqual(result["removed"], 2)
+            self.assertTrue(result["changed"])
+            written = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                written,
+                {"hooks": {"UserPromptSubmit": [{"hooks": [{"command": "gbrain prompt hook"}]}]}},
             )
 
     def test_normal_install_runs_short_compile_check_not_843_developer_tests(self):
@@ -178,12 +174,6 @@ class InstallScriptTests(unittest.TestCase):
                         "name": "Codex",
                         "executable": "codex",
                         "path": "/tools/codex",
-                    },
-                    {
-                        "preset": "claude-code",
-                        "name": "Claude Code",
-                        "executable": "claude",
-                        "path": "/tools/claude",
                     },
                 ],
             )
@@ -306,8 +296,13 @@ class InstallScriptTests(unittest.TestCase):
                 patch.object(install, "detect_coding_agents", return_value=detected),
                 patch.object(
                     install,
-                    "install_codex_operator_scope",
-                    return_value={"ok": True, "changed": False},
+                    "remove_legacy_codex_operator_hooks",
+                    return_value={"ok": True, "changed": False, "removed": 0},
+                ),
+                patch.object(
+                    install,
+                    "install_codex_continuity_hooks",
+                    return_value={"ok": True, "changed": False, "trust_required": False},
                 ),
                 patch.object(install, "command_version", return_value="codex fixture"),
                 patch.object(

@@ -73,8 +73,8 @@ class ProjectInitializationTests(unittest.TestCase):
         self.assertIn("Act immediately", skill)
         self.assertIn("operator-facing agent", skill)
         self.assertIn("commit, push, and deploy", skill)
-        self.assertIn("signed current-turn scope receipt", skill)
-        self.assertIn("Direct action never bypasses this lock", skill)
+        self.assertIn("The current operator request owns the work", skill)
+        self.assertIn("does not turn conversational\nEnglish into filesystem permissions", skill)
         self.assertNotIn(
             "They do not prohibit the\noperator-facing agent from performing",
             skill,
@@ -110,8 +110,8 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn("Manageroo-controlled workers", agents_text)
             self.assertIn("operator-facing agent", agents_text)
             self.assertIn("commit, push, and deploy", agents_text)
-            self.assertIn("signed current-turn scope receipt", agents_text)
-            self.assertIn("Direct action never bypasses this lock", agents_text)
+            self.assertIn("The current operator request owns the work", agents_text)
+            self.assertIn("does not convert conversational\nEnglish into filesystem permissions", agents_text)
             self.assertIn(".manageroo/PROJECT-MEMORY.md", context_text)
             self.assertIn("document/prose lane", context_text)
             self.assertTrue(

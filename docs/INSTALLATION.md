@@ -28,19 +28,15 @@ only the remediation for that platform. Manageroo never silently disables Codex
 sandboxing. OpenAI's current platform setup is documented at
 <https://learn.chatgpt.com/docs/sandboxing>.
 
-When Codex is detected, the installer also merges Manageroo's operator-scope
-handler into the existing Codex `hooks.json`. It preserves unrelated hooks and
-adds `UserPromptSubmit` receipt capture plus a `PreToolUse` gate for supported
-local tools. If the file changed, Codex requires one host-owned trust step:
-open `/hooks`, review the resolved Manageroo launcher command, and trust it.
-The installer reports that action instead of claiming the lock is active.
-Restart or begin a new Codex session after changing hook configuration.
-
-The hook binds every Git-repository turn to a signed current-turn scope receipt.
-It denies out-of-repo paths and action classes not authorized by the current
-prompt. Explicitly named external source files are read-only. The hook is a
-Codex guardrail, not a replacement for a sandbox or managed organization policy;
-see `docs/LIMITATIONS.md` for host coverage boundaries.
+Manageroo installs Codex continuity hooks for prompt capture, local-tool scope
+checks, resume/compaction recovery, subagent context, and premature-stop
+continuation. During install or update it removes obsolete Manageroo operator
+scope hook groups from the existing Codex `hooks.json` and preserves
+every unrelated hook. `UserPromptSubmit` never blocks an operator request.
+Codex requires review of a new or changed non-managed hook definition before it
+runs; open `/hooks` once after installation and trust the Manageroo continuity
+hook set. Controlled `manageroo run` workers retain the stronger isolated
+repository boundary.
 
 Manageroo detects coding-agent command-line tools, not the person's subscription or private account details. The selected coding tool keeps control of its own login and model configuration.
 

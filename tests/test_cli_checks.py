@@ -42,7 +42,7 @@ class CliCheckTests(unittest.TestCase):
             self.assertEqual(payload["id"], "smoke")
             self.assertEqual(payload["argv"], ["python3", "-m", "unittest", "discover"])
 
-    def test_checks_suggest_reports_python_compile_fallback(self):
+    def test_checks_suggest_reports_no_compile_only_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
@@ -55,10 +55,10 @@ class CliCheckTests(unittest.TestCase):
 
             payload = json.loads(stdout.getvalue())
             self.assertEqual(code, 0)
-            self.assertEqual(payload["suggestions"][0]["id"], "python-compile")
-            self.assertIn("checks add python-compile", payload["suggestions"][0]["add_command"])
+            self.assertEqual(payload["suggestions"], [])
+            self.assertIn("behavior test or demonstration", payload["note"])
 
-    def test_checks_suggest_apply_first_writes_detected_gate(self):
+    def test_checks_suggest_apply_first_refuses_compile_only_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
@@ -71,13 +71,10 @@ class CliCheckTests(unittest.TestCase):
                 code = main(["checks", "suggest", str(repo), "--apply-first", "--json"])
 
             payload = json.loads(stdout.getvalue())
-            self.assertEqual(code, 0)
-            self.assertEqual(payload["added"]["id"], "python-compile")
-            self.assertEqual(payload["added"]["argv"], [sys.executable, "-m", "compileall", "."])
+            self.assertNotEqual(code, 0)
+            self.assertFalse(payload["ok"])
             config_text = (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")
-            self.assertIn('id = "python-compile"', config_text)
-            self.assertIn(json.dumps(sys.executable), config_text)
-            self.assertIn('"-m", "compileall", "."', config_text)
+            self.assertNotIn('id = "python-compile"', config_text)
 
 
 if __name__ == "__main__":

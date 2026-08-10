@@ -1,38 +1,6 @@
 from __future__ import annotations
 
-import re
 from typing import Any
-
-
-DEMONSTRATION_TERMS = (
-    "browser",
-    "journey",
-    "demo",
-    "deploy",
-    "deployment",
-    "security",
-    "auth",
-    "authentication",
-    "authorization",
-    "authorize",
-    "authorized",
-    "unauthorized",
-    "login",
-    "permission",
-    "permissions",
-    "access control",
-    "access-control",
-    "privilege",
-    "privileges",
-    "role",
-    "roles",
-    "policy",
-    "screenshot",
-    "visual",
-    "checkout",
-    "user can",
-    "end user",
-)
 
 
 def _normalized(value: object) -> str:
@@ -67,16 +35,9 @@ def _gate_result_ids(gates: list[dict]) -> tuple[set[str], set[str], set[str]]:
     return observed, passed, duplicates
 
 
-def _term_present(text: str, term: str) -> bool:
-    normalized = _normalized(text)
-    term_normalized = _normalized(term)
-    if " " in term_normalized:
-        return term_normalized in normalized
-    return bool(re.search(rf"(?<![\w-]){re.escape(term_normalized)}(?![\w-])", normalized))
-
-
 def _needs_demonstration(description: str) -> bool:
-    return any(_term_present(description, term) for term in DEMONSTRATION_TERMS)
+    del description
+    return True
 
 
 def _bindings(demonstration: dict) -> dict[str, list[dict[str, Any]]]:
@@ -197,8 +158,8 @@ def build_acceptance_evidence(
                     "status": "unknown",
                     "evidence": [f"gate:{gate_id}" for gate_id in sorted(required_gate_ids)],
                     "reason": (
-                        "This outcome describes observable, security, authorization, access-control, "
-                        "or user-journey behavior but none of its bound proof gates ran in the demonstration lane."
+                        "Every acceptance outcome requires a bound demonstration gate; none of this "
+                        "outcome's proof gates ran in the demonstration lane."
                     ),
                 }
             )

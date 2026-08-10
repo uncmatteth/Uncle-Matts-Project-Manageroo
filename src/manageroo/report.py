@@ -66,6 +66,20 @@ def build_report(data: dict[str, Any]) -> str:
             lines.append(line)
     else:
         lines.append("- No acceptance outcomes recorded.")
+    intent = data.get("intent_conformance", {})
+    lines.extend(["", "## Current-request conformance", ""])
+    if isinstance(intent, dict) and intent:
+        lines.append(f"- Status: **{intent.get('status', 'unknown')}**")
+        lines.append(
+            "- Current request present in every worker packet: "
+            + _yes_no_unknown(intent.get("current_request_was_in_every_worker_packet"))
+        )
+        lines.append(
+            "- Operator request used as an authorization gate: "
+            + ("no" if intent.get("operator_was_not_used_as_an_authorization_gate") else "unknown")
+        )
+    else:
+        lines.append("- No current-request conformance record was produced.")
     lines.extend(["", "## Reuse decisions", ""])
     reuse = data.get("reuse", [])
     if reuse:

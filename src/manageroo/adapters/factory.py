@@ -92,7 +92,7 @@ def _build_unbudgeted(config: dict, runner: CommandRunner) -> AgentAdapter:
             repository_lock_timeout_seconds=repository_lock_timeout_seconds,
         )
 
-    candidate_names = list(agent.get("candidates", []) or ["codex", "claude-code", "gemini"])
+    candidate_names = list(agent.get("candidates", []) or ["codex"])
     workers: list[tuple[str, AgentAdapter]] = []
     for name in candidate_names:
         candidate = agent_preset(str(name))

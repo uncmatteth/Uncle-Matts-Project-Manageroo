@@ -64,34 +64,20 @@ same candidate and implementation path, and a custom substitute blocks before
 implementation. Passing tests for a substitute do not prove that your named
 work was reused.
 
-For Codex, Manageroo also closes the gap outside a controlled run. Its installed
-host hook turns the active user instruction into a signed repository-and-action
-receipt, then checks supported shell, file, patch, and MCP calls before they run.
-A stale summary or sibling checkout cannot silently redirect that receipt.
-Questions and keyword mentions do not grant write, push, deploy, install, or
-delete authority. Opaque commands are forced through Manageroo's native
-workspace OS-sandbox wrapper. The signed receipt also carries the bounded
-user-authored conversation into `manageroo run`, so an agent-written brief or
-context compaction cannot replace the operator's words. A short same-session
-follow-up such as “in the whole TXT file” or “yes, only that file” keeps the
-preceding signed target and action instead of forcing the operator to repeat an
-absolute path. An unrelated request, an explicit prohibition, or an explicit
-target change resets that carried authority.
+Manageroo installs Codex continuity hooks that preserve one unfinished active
+objective across follow-up messages, resumed sessions, and compaction. New
+messages are additive unless they explicitly cancel or replace earlier work.
+The prompt hook never blocks the operator. The tool hook rejects only an
+agent's clearly unrelated or explicitly excluded mutation, and the stop hook
+continues the agent until it marks the complete active objective verified or
+reports one concrete external blocker. The installer replaces the obsolete
+prompt-derived permission firewall while preserving unrelated Codex hooks.
 
-Explicit external output destinations and exact external edit files are
-writable, including through `apply_patch`. Disposable contact sheets, previews,
-and audit evidence may be created and cleaned under
-`.manageroo/operator-tmp` even during a read-only review; product source remains
-read-only unless the operator authorized mutation. Unrelated outside paths
-remain denied. Codex must show the hook as trusted and active;
-a deliberately disabled same-user hook is outside this boundary.
-
-When the operator explicitly invokes the Manageroo skill, direct searches,
-alternate read tools, freehand edits, and process interruption are denied for
-that turn. The agent may invoke and poll the controlled run, inspect its status,
-and perform separately authorized Git delivery; it cannot abandon the controller
-and improvise another workflow. A `Stop` hook keeps the turn alive if the agent
-tries to finish before launching the signed `manageroo run`.
+When the source, targets, exclusions, and proof are already known, use the
+exact-task path. It skips model-driven product discovery, reuse research,
+whole-repository mapping, and plan review while retaining isolated
+implementation, deterministic verification, independent review, and delivery
+proof. Broader work can still use the complete discovery pipeline.
 
 ```text
 YOU DESCRIBE WHAT YOU WANT
@@ -366,7 +352,8 @@ Show the current intent lock:
 manageroo intent show
 ```
 
-The intent lock protects the important outcomes, constraints, must-not rules, and proof expectations that should not quietly disappear during a long run.
+The repository intent lock is optional durable context. The current run brief is
+the authority; a stale lock cannot reject a newer request.
 
 Audit whether a compacted or summarized project description still preserves the important intent:
 
@@ -374,7 +361,10 @@ Audit whether a compacted or summarized project description still preserves the 
 manageroo compact audit --summary SUMMARY.md
 ```
 
-This is useful when a long project history has been summarized and you want to check that the summary did not accidentally throw away something important.
+If the summary dropped captured intent, the audit restores the missing exact
+requirements into the agent context and continues. It does not deny the
+operator's request. Final claims still require the normal gates, review, and
+acceptance evidence.
 
 ## 9. Run the final ClawPatch release sweep
 
