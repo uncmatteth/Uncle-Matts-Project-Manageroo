@@ -200,6 +200,74 @@ class AgentContinuityTests(unittest.TestCase):
                 "deny",
             )
 
+    def test_read_only_redirect_does_not_reclassify_input_paths_as_mutations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Inspect this repository without changing it.",
+                },
+                state_root=root / "state",
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": "diff -qr src /opt/manageroo/app >/dev/null"
+                    },
+                },
+                state_root=root / "state",
+            )
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+
+    def test_redirect_to_unrelated_external_path_is_still_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Inspect this repository without changing it.",
+                },
+                state_root=root / "state",
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": "cat README.md > /opt/manageroo/report.txt"
+                    },
+                },
+                state_root=root / "state",
+            )
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
     def test_exec_command_alias_is_checked_for_cross_repo_mutation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

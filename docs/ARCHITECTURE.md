@@ -30,7 +30,10 @@ operator-facing agent's unfinished objective across follow-up messages,
 resumption, and compaction. `UserPromptSubmit` adds the current message without
 ever blocking it; explicit cancel/replace language alone supersedes unfinished
 work. `PreToolUse` leaves reads and ordinary temporary evidence alone and
-rejects only a clearly unrelated or explicitly excluded agent mutation. `Stop`
+rejects only a clearly unrelated or explicitly excluded agent mutation. Shell
+redirection binds only its output target; it does not turn other absolute paths
+read by the same command into mutation targets, and the platform null sink is
+always non-persistent. `Stop`
 continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.

@@ -34,13 +34,16 @@ _NEGATION_NEAR_PATH = re.compile(
     r"\b(?:do\s+not|don't|never|must\s+not|mustn't|without|leave)\b",
     re.IGNORECASE,
 )
-_MUTATING_SHELL = re.compile(
+_MUTATING_SHELL_COMMAND = re.compile(
     r"(?:^|[;&|]\s*)(?:chmod|chown|cp|install|ln|mkdir|mkfifo|mv|patch|rename|"
     r"rsync|sed\s+-i|tee|touch|truncate)(?:\s|$)|"
     r"(?:^|[;&|]\s*)git\s+(?:[^;&|]*\s)?(?:add|am|apply|checkout|cherry-pick|"
-    r"clean|commit|merge|mv|pull|push|rebase|reset|restore|rm|switch|tag)(?:\s|$)|"
-    r"(?:^|[^<])(?:>>|>)(?!=)",
+    r"clean|commit|merge|mv|pull|push|rebase|reset|restore|rm|switch|tag)(?:\s|$)",
     re.IGNORECASE,
+)
+_SHELL_REDIRECTION = re.compile(
+    r"(?<!<)(?:\d*)(?:>>|>)(?![=&])\s*"
+    r"(?P<target>\"(?:\\.|[^\"])*\"|'[^']*'|[^\s;&|]+)"
 )
 _PATCH_PATH = re.compile(
     r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$",
@@ -244,9 +247,20 @@ def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
         values = _PATCH_PATH.findall(command)
     elif tool_name in _SHELL_TOOLS:
         command = str(payload.get("command") or payload.get("cmd") or "")
-        if not _MUTATING_SHELL.search(command):
+        command_mutates = bool(_MUTATING_SHELL_COMMAND.search(command))
+        redirect_values: list[str] = []
+        for match in _SHELL_REDIRECTION.finditer(command):
+            raw = match.group("target")
+            try:
+                parsed = shlex.split(raw, posix=os.name != "nt")
+            except ValueError:
+                parsed = []
+            if parsed:
+                redirect_values.append(parsed[0])
+        if not command_mutates and not redirect_values:
             return []
-        values = _ABSOLUTE_PATH.findall(command)
+        values = _ABSOLUTE_PATH.findall(command) if command_mutates else []
+        values.extend(redirect_values)
     else:
         return []
     paths: list[Path] = []
@@ -268,6 +282,7 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
     cwd = Path(str(event.get("cwd") or ".")).expanduser().resolve(strict=False)
     repo = _git_root(cwd)
     temporary_roots = [Path("/tmp"), Path("/dev/shm")]
+    null_target = Path(os.devnull).expanduser().resolve(strict=False)
     for target in targets:
         if any(_inside(target, path) or target == path for path in excluded):
             return {
@@ -280,6 +295,8 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
                     ),
                 }
             }
+        if target == null_target:
+            continue
         if any(_inside(target, root) or target == root for root in temporary_roots):
             continue
         if repo is not None and (_inside(target, repo) or target == repo):
