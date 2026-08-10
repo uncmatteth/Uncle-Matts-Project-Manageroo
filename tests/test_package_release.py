@@ -57,8 +57,10 @@ def _fixture(codes: list[int]) -> str:
 
 
 def _publish_release_fixture(
-    root_value, checkout_name, marker, installer_published, release_first
+    root_value, checkout_name, marker, lock_contended, installer_published, release_first
 ) -> None:
+    import manageroo.config_lock as config_lock_module
+
     root = Path(root_value)
     checkout = root / checkout_name
     checkout.mkdir()
@@ -69,6 +71,15 @@ def _publish_release_fixture(
     candidate_output.write_bytes(f"{marker}-installer".encode())
     candidate_source.write_bytes(f"{marker}-source".encode())
     original_replace = package_release.os.replace
+    original_try_lock = config_lock_module._try_lock_file
+
+    def signal_lock_attempt(descriptor):
+        try:
+            return original_try_lock(descriptor)
+        except OSError as exc:
+            if lock_contended is not None and exc.errno in {errno.EACCES, errno.EAGAIN}:
+                lock_contended.set()
+            raise
 
     def pause_after_installer_publish(source, destination):
         original_replace(source, destination)
@@ -84,6 +95,7 @@ def _publish_release_fixture(
         }
 
     with (
+        patch.object(config_lock_module, "_try_lock_file", side_effect=signal_lock_attempt),
         patch.object(package_release, "ROOT", checkout),
         patch.object(package_release, "OUTPUT", output),
         patch.object(package_release, "SOURCE_OUTPUT", source_output),
@@ -964,21 +976,30 @@ class PackageReleaseTests(unittest.TestCase):
             context = multiprocessing.get_context("spawn")
             first_published = context.Event()
             second_published = context.Event()
+            second_lock_contended = context.Event()
             release_first = context.Event()
             first = context.Process(
                 target=_publish_release_fixture,
-                args=(root, "checkout-a", "a", first_published, release_first),
+                args=(root, "checkout-a", "a", None, first_published, release_first),
             )
             second = context.Process(
                 target=_publish_release_fixture,
-                args=(root, "checkout-b", "b", second_published, release_first),
+                args=(
+                    root,
+                    "checkout-b",
+                    "b",
+                    second_lock_contended,
+                    second_published,
+                    release_first,
+                ),
             )
 
             try:
                 first.start()
                 self.assertTrue(first_published.wait(timeout=5))
                 second.start()
-                self.assertFalse(second_published.wait(timeout=0.3))
+                self.assertTrue(second_lock_contended.wait(timeout=5))
+                self.assertFalse(second_published.is_set())
                 release_first.set()
                 first.join(timeout=5)
                 second.join(timeout=5)
