@@ -67,11 +67,16 @@ work was reused.
 Manageroo installs Codex continuity hooks that preserve one unfinished active
 objective across follow-up messages, resumed sessions, and compaction. New
 messages are additive unless they explicitly cancel or replace earlier work.
-The prompt hook never blocks the operator. The tool hook rejects only an
-agent's clearly unrelated or explicitly excluded mutation, and the stop hook
+The prompt hook never blocks the operator. New
+side effects cannot be authorized by the agent's own recommendations or cleanup
+ideas: structured edits stay bound to exact operator-named targets, exact
+configured proof commands stay available, read-only shell work runs under a
+host-enforced read-only profile, and broader work enters the controlled
+executor using the verbatim active operator brief rather than an agent-written
+replacement. The stop hook
 continues the agent until it marks the complete active objective verified or
-reports one concrete external blocker. The installer replaces the obsolete
-prompt-derived permission firewall while preserving unrelated Codex hooks.
+reports one concrete external blocker. The installer preserves unrelated Codex
+hooks.
 
 When the source, targets, exclusions, and proof are already known, use the
 exact-task path. It skips model-driven product discovery, reuse research,

@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+from .action_authority import authorize_shell_action
 from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
 from .util import atomic_write_json, sha256_text, utc_now
@@ -269,11 +270,14 @@ def _path_is_quoted(text: str, start: int, end: int) -> bool:
 
 
 def _named_paths(state: dict[str, Any]) -> tuple[list[Path], list[Path]]:
+    cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
+    base = _git_root(cwd) or cwd
     allowed: list[Path] = []
     excluded: list[Path] = []
     for item in state.get("messages", []):
         text = str(item.get("text") or "")
-        for match in _ABSOLUTE_PATH.finditer(text):
+        matches = [*list(_ABSOLUTE_PATH.finditer(text)), *list(_RELATIVE_PATH.finditer(text))]
+        for match in matches:
             if _path_is_quoted(text, match.start(), match.end()):
                 continue
             prefix, clause = _path_clause(text, match.start(), match.end())
@@ -287,7 +291,10 @@ def _named_paths(state: dict[str, Any]) -> tuple[list[Path], list[Path]]:
             raw = match.group(1).rstrip(".,;:!?)]}>\"'")
             if not raw:
                 continue
-            value = Path(raw).expanduser().resolve(strict=False)
+            value = Path(raw).expanduser()
+            if not value.is_absolute():
+                value = base / value
+            value = value.resolve(strict=False)
             target = excluded if _NEGATION_NEAR_PATH.search(prefix) else allowed
             if value not in target:
                 target.append(value)
@@ -453,14 +460,43 @@ def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
 
 def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     targets = _tool_mutation_paths(event)
-    if not targets:
-        return {}
-    allowed, excluded = _named_paths(state)
-    exclusive = _exclusive_paths(state)
     cwd = Path(str(event.get("cwd") or ".")).expanduser().resolve(strict=False)
     repo = _git_root(cwd)
     temporary_roots = [Path("/tmp"), Path("/dev/shm")]
     null_target = Path(os.devnull).expanduser().resolve(strict=False)
+    tool_name = str(event.get("tool_name") or "")
+    tool_input = event.get("tool_input")
+    payload = tool_input if isinstance(tool_input, dict) else {}
+    if tool_name in _SHELL_TOOLS:
+        command = str(payload.get("command") or payload.get("cmd") or "")
+        authority = authorize_shell_action(
+            command,
+            cwd=cwd,
+            repo=repo,
+            operator_brief="\n\n".join(
+                str(item.get("text") or "") for item in state.get("messages", [])
+            ),
+            permission_mode=str(event.get("permission_mode") or ""),
+        )
+        if not authority.authorized:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "Manageroo rejected the agent action because no operator-authorized "
+                        "action contract owns this side effect. Agent-written recommendations, "
+                        "findings, cleanup ideas, and next steps are context, never authority. "
+                        "Use the exact requested target, a configured proof gate, or Manageroo's "
+                        "controlled executor."
+                    ),
+                }
+            }
+        return {}
+    if not targets:
+        return {}
+    allowed, excluded = _named_paths(state)
+    exclusive = _exclusive_paths(state)
     for target in targets:
         if any(_inside(target, path) or target == path for path in excluded):
             return {
@@ -492,7 +528,20 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
                 }
             }
         if repo is not None and (_inside(target, repo) or target == repo):
-            continue
+            if any(_inside(target, path) or target == path for path in allowed):
+                continue
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "Manageroo rejected the agent's broad direct repository mutation because "
+                        "no exact operator-named target owns it. Use the exact requested target or "
+                        "Manageroo's controlled executor, which locks the task paths and verifies "
+                        "the actual change set before delivery."
+                    ),
+                }
+            }
         if any(_inside(target, path) or target == path for path in allowed):
             continue
         if allowed or repo is not None:

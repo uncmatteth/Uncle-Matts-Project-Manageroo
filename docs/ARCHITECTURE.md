@@ -29,15 +29,25 @@ Manageroo uses two distinct control layers. Codex continuity hooks preserve the
 operator-facing agent's unfinished objective across follow-up messages,
 resumption, and compaction. `UserPromptSubmit` adds the current message without
 ever blocking it; explicit cancel/replace language and an unambiguous natural
-correction such as `No, use this instead` supersede unfinished work. `PreToolUse` leaves reads and ordinary temporary evidence alone and
-rejects only a clearly unrelated or explicitly excluded agent mutation. Paths
+correction such as `No, use this instead` supersede unfinished work. `PreToolUse`
+admits shell execution only when the host is already enforcing read-only access,
+or when the exact installed Codex executable applies its built-in `:read-only`
+permission profile. Exact configured proof gates and mutations of exact
+operator-named targets through structured patch tools remain available. A
+broader repository mutation must enter through Manageroo's controlled executor.
+That entrypoint accepts the current repository and a brief whose contents match
+the verbatim active operator messages; agent-added target, source, exclusion,
+proof, gate, exact-task, or continuation overrides are rejected. Agent-written findings,
+recommendations, cleanup ideas, and next-step language never create action
+authority. Paths
 mentioned only in questions, quotations, block quotes, or historical examples
 remain context and do not enter the named mutation scope. Shell
 redirection binds only its output target; it does not turn other absolute paths
 read by the same command into mutation targets, and the platform null sink is
 always non-persistent. An explicit `edit only <file>` instruction narrows
-mutations inside the current repository to that exact file; this applies to
-ordinary shell writes, `rm`/`rmdir`, and inline Python filesystem writes. `Stop`
+structured mutations inside the current repository to that exact file. Raw
+shell composition does not gain authority by mentioning the file; `rm`, inline
+Python writes, and compound commands must enter the controlled executor. `Stop`
 continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.
@@ -45,7 +55,8 @@ operator authority.
 The stronger repository boundary controls processes launched through
 `manageroo run`. The host's normal workspace and approval policy remains the
 operator-facing security boundary; continuity hooks are not a hostile-process
-sandbox.
+sandbox. The action gateway is a scope boundary for supported Codex tool calls,
+not an operating-system claim about same-user processes that bypass hooks.
 
 Inside a controlled run, each worker receives an immutable packet containing
 the current brief, exact task-owned paths, named reuse sources, exclusions, and
