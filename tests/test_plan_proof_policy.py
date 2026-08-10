@@ -59,7 +59,7 @@ class PlanProofPolicyTests(unittest.TestCase):
         )
         self.assertTrue(any(item["id"].startswith("PROOF-DEMONSTRATION") for item in findings))
 
-    def test_exact_valid_binding_has_no_findings(self):
+    def test_valid_binding_no_findings(self):
         findings = proof_binding_findings(
             product={"acceptance_outcomes": ["User can log in"]},
             plan={

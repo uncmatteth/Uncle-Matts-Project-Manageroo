@@ -138,7 +138,7 @@ class ReleaseHardeningContractTests(unittest.TestCase):
         self.assertIn("Evidence Retrieval Architecture", combined)
         self.assertIn("retrieves evidence", combined)
 
-    def test_release_stays_local_and_action_free(self):
+    def test_release_local_no_actions(self):
         workflows = ROOT / ".github" / "workflows"
         self.assertFalse(workflows.exists() and any(workflows.iterdir()))
         publish = (ROOT / "PUBLISH_TO_GITHUB.md").read_text(encoding="utf-8")
