@@ -1,3 +1,4 @@
+import errno
 import multiprocessing
 import os
 import subprocess
@@ -16,15 +17,26 @@ def _update_project_memory_after_synchronized_read(
     repo: str,
     field: str,
     value: str,
+    lock_contended,
     read_reached,
     release_read,
     finished,
     results,
 ) -> None:
+    import manageroo.config_lock as config_lock_module
     import manageroo.project_memory as project_memory_module
 
+    original_try_lock = config_lock_module._try_lock_file
     original_read = project_memory_module._read_utf8
     first_read = True
+
+    def signal_lock_attempt(descriptor):
+        try:
+            return original_try_lock(descriptor)
+        except OSError as exc:
+            if lock_contended is not None and exc.errno in {errno.EACCES, errno.EAGAIN}:
+                lock_contended.set()
+            raise
 
     def synchronized_read(*args, **kwargs):
         nonlocal first_read
@@ -32,10 +44,11 @@ def _update_project_memory_after_synchronized_read(
         if first_read:
             first_read = False
             read_reached.set()
-            if release_read is not None and not release_read.wait(timeout=5):
+            if release_read is not None and not release_read.wait(timeout=10):
                 raise RuntimeError("timed out waiting to release project-memory read")
         return content
 
+    config_lock_module._try_lock_file = signal_lock_attempt
     project_memory_module._read_utf8 = synchronized_read
     try:
         ensure_project_memory(Path(repo), **{field: [value]})
@@ -158,6 +171,7 @@ class ProjectInitializationTests(unittest.TestCase):
             repo = Path(temp)
             ensure_project_memory(repo)
             context = multiprocessing.get_context("spawn")
+            second_lock_contended = context.Event()
             first_read = context.Event()
             release_first_read = context.Event()
             first_finished = context.Event()
@@ -170,6 +184,7 @@ class ProjectInitializationTests(unittest.TestCase):
                     str(repo),
                     "shipped",
                     "Concurrent shipped item.",
+                    None,
                     first_read,
                     release_first_read,
                     first_finished,
@@ -182,6 +197,7 @@ class ProjectInitializationTests(unittest.TestCase):
                     str(repo),
                     "notes",
                     "Concurrent operator note.",
+                    second_lock_contended,
                     second_read,
                     None,
                     second_finished,
@@ -193,8 +209,8 @@ class ProjectInitializationTests(unittest.TestCase):
                 first.start()
                 self.assertTrue(first_read.wait(timeout=5))
                 second.start()
-                if second_read.wait(timeout=0.5):
-                    self.assertTrue(second_finished.wait(timeout=5))
+                self.assertTrue(second_lock_contended.wait(timeout=5))
+                self.assertFalse(second_read.is_set())
                 release_first_read.set()
                 first.join(timeout=5)
                 second.join(timeout=5)

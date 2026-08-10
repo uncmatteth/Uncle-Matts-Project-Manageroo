@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import importlib.util
 import json
@@ -92,16 +93,30 @@ def _publish_release_fixture(
         package_release._publish_release(candidate_output, candidate_source, root / "drop")
 
 
-def _finalize_gitnexus_fixture(prefix_value, marker, setup_started, release_setup, results) -> None:
+def _finalize_gitnexus_fixture(
+    prefix_value, marker, lock_contended, setup_started, release_setup, results
+) -> None:
+    import manageroo.config_lock as config_lock_module
+
     prefix = Path(prefix_value)
+    original_try_lock = config_lock_module._try_lock_file
+
+    def signal_lock_attempt(descriptor):
+        try:
+            return original_try_lock(descriptor)
+        except OSError as exc:
+            if lock_contended is not None and exc.errno in {errno.EACCES, errno.EAGAIN}:
+                lock_contended.set()
+            raise
 
     def setup(argv, **_kwargs):
         setup_started.set()
-        if marker == "first" and not release_setup.wait(timeout=5):
+        if marker == "first" and not release_setup.wait(timeout=10):
             raise TimeoutError("test did not release GitNexus setup")
         return subprocess.CompletedProcess(argv, 0, stdout=f"{marker} setup complete\n")
 
     with (
+        patch.object(config_lock_module, "_try_lock_file", side_effect=signal_lock_attempt),
         patch.object(finalize_gitnexus.shutil, "which", return_value="/fake/gitnexus"),
         patch.object(finalize_gitnexus.subprocess, "run", side_effect=setup),
     ):
@@ -252,24 +267,40 @@ class PackageReleaseTests(unittest.TestCase):
                 encoding="utf-8",
             )
             context = multiprocessing.get_context("spawn")
+            second_lock_contended = context.Event()
             first_setup_started = context.Event()
             second_setup_started = context.Event()
             release_setup = context.Event()
             results = context.Queue()
             first = context.Process(
                 target=_finalize_gitnexus_fixture,
-                args=(prefix, "first", first_setup_started, release_setup, results),
+                args=(
+                    prefix,
+                    "first",
+                    None,
+                    first_setup_started,
+                    release_setup,
+                    results,
+                ),
             )
             second = context.Process(
                 target=_finalize_gitnexus_fixture,
-                args=(prefix, "second", second_setup_started, release_setup, results),
+                args=(
+                    prefix,
+                    "second",
+                    second_lock_contended,
+                    second_setup_started,
+                    release_setup,
+                    results,
+                ),
             )
 
             try:
                 first.start()
                 self.assertTrue(first_setup_started.wait(timeout=5))
                 second.start()
-                self.assertFalse(second_setup_started.wait(timeout=0.3))
+                self.assertTrue(second_lock_contended.wait(timeout=5))
+                self.assertFalse(second_setup_started.is_set())
                 release_setup.set()
                 first.join(timeout=5)
                 second.join(timeout=5)
