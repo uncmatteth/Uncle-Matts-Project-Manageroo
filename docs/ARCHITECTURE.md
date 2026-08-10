@@ -35,7 +35,9 @@ mentioned only in questions, quotations, block quotes, or historical examples
 remain context and do not enter the named mutation scope. Shell
 redirection binds only its output target; it does not turn other absolute paths
 read by the same command into mutation targets, and the platform null sink is
-always non-persistent. `Stop`
+always non-persistent. An explicit `edit only <file>` instruction narrows
+mutations inside the current repository to that exact file; this applies to
+ordinary shell writes, `rm`/`rmdir`, and inline Python filesystem writes. `Stop`
 continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.

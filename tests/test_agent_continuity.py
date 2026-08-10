@@ -14,6 +14,104 @@ from manageroo.agent_continuity import (
 
 
 class AgentContinuityTests(unittest.TestCase):
+    def _shell_decision(self, root: Path, repo: Path, prompt: str, command: str):
+        process_codex_continuity_hook(
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "session",
+                "turn_id": "turn-1",
+                "cwd": str(repo),
+                "prompt": prompt,
+            },
+            state_root=root,
+        )
+        return process_codex_continuity_hook(
+            {
+                "hook_event_name": "PreToolUse",
+                "session_id": "session",
+                "turn_id": "turn-1",
+                "cwd": str(repo),
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": command},
+            },
+            state_root=root,
+        )
+
+    def test_only_file_rejects_a_different_file_inside_current_repository(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            allowed = repo / "allowed.txt"
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                f"Edit only {allowed}.",
+                f"touch {repo / 'different.txt'}",
+            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_only_repo_relative_file_rejects_a_different_repository_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            (repo / "src").mkdir(parents=True)
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                "Edit only src/allowed.py.",
+                "touch src/different.py",
+            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_only_file_rejects_rm_of_a_different_repository_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                f"Edit only {repo / 'allowed.txt'}.",
+                "rm different.txt",
+            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_only_file_rejects_python_write_of_a_different_repository_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                f"Edit only {repo / 'allowed.txt'}.",
+                "python3 -c \"from pathlib import Path; Path('different.txt').write_text('x')\"",
+            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_only_file_allows_the_exact_requested_repository_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            allowed = repo / "allowed.txt"
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                f"Edit only {allowed}.",
+                f"touch {allowed}",
+            )
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+
     def test_new_messages_are_additive_while_work_is_unfinished(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

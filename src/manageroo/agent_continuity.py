@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -36,15 +37,27 @@ _NATURAL_CORRECTION = re.compile(
     re.IGNORECASE,
 )
 _ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9_])(/[A-Za-z0-9._~+@%:,=/-]+)")
+_RELATIVE_PATH = re.compile(
+    r"(?<![A-Za-z0-9_./-])((?:[A-Za-z0-9._~+@%=-]+/)+[A-Za-z0-9._~+@%:=-]+)"
+)
 _NEGATION_NEAR_PATH = re.compile(
     r"\b(?:do\s+not|don't|never|must\s+not|mustn't|without|leave)\b",
     re.IGNORECASE,
 )
 _MUTATING_SHELL_COMMAND = re.compile(
-    r"(?:^|[;&|]\s*)(?:chmod|chown|cp|install|ln|mkdir|mkfifo|mv|patch|rename|"
+    r"(?:^|[;&|]\s*)(?:chmod|chown|cp|install|ln|mkdir|mkfifo|mv|patch|rename|rm|rmdir|"
     r"rsync|sed\s+-i|tee|touch|truncate)(?:\s|$)|"
     r"(?:^|[;&|]\s*)git\s+(?:[^;&|]*\s)?(?:add|am|apply|checkout|cherry-pick|"
     r"clean|commit|merge|mv|pull|push|rebase|reset|restore|rm|switch|tag)(?:\s|$)",
+    re.IGNORECASE,
+)
+_PYTHON_MUTATION = re.compile(
+    r"\b(?:python|python3|py)\b[^\n]*(?:"
+    r"\.write_(?:text|bytes)\s*\(|\.unlink\s*\(|\.mkdir\s*\(|\.rename\s*\(|"
+    r"\.replace\s*\(|\.touch\s*\(|\.chmod\s*\(|"
+    r"\b(?:remove|unlink|rmdir|removedirs|mkdir|makedirs|rename|replace)\s*\(|"
+    r"\b(?:rmtree|copy|copy2|copyfile|move)\s*\(|"
+    r"\bopen\s*\([^)]*,\s*['\"](?:[wax+]))",
     re.IGNORECASE,
 )
 _SHELL_REDIRECTION = re.compile(
@@ -75,6 +88,7 @@ _CURRENT_PATH_DIRECTIVE = re.compile(
     r"work\s+(?:in|on|from)|read|inspect|review)\b",
     re.IGNORECASE,
 )
+_EXCLUSIVE_PATH_PREFIX = re.compile(r"\bonly\s*$", re.IGNORECASE)
 
 
 def continuity_state_root() -> Path:
@@ -280,6 +294,31 @@ def _named_paths(state: dict[str, Any]) -> tuple[list[Path], list[Path]]:
     return allowed, excluded
 
 
+def _exclusive_paths(state: dict[str, Any]) -> list[Path]:
+    cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
+    base = _git_root(cwd) or cwd
+    exclusive: list[Path] = []
+    for item in state.get("messages", []):
+        text = str(item.get("text") or "")
+        matches = [*list(_ABSOLUTE_PATH.finditer(text)), *list(_RELATIVE_PATH.finditer(text))]
+        for match in matches:
+            if _path_is_quoted(text, match.start(), match.end()):
+                continue
+            prefix, clause = _path_clause(text, match.start(), match.end())
+            if clause.rstrip().endswith("?") or not _EXCLUSIVE_PATH_PREFIX.search(prefix):
+                continue
+            raw = match.group(1).rstrip(".,;:!?)]}>\"'")
+            if not raw:
+                continue
+            value = Path(raw).expanduser()
+            if not value.is_absolute():
+                value = base / value
+            value = value.resolve(strict=False)
+            if value not in exclusive:
+                exclusive.append(value)
+    return exclusive
+
+
 def _inside(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -296,6 +335,81 @@ def _git_root(cwd: Path) -> Path | None:
     return None
 
 
+def _literal_string(node: ast.AST) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _qualified_call_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _qualified_call_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    return ""
+
+
+def _path_constructor_value(node: ast.AST) -> str | None:
+    if not isinstance(node, ast.Call) or not node.args:
+        return None
+    name = _qualified_call_name(node.func)
+    return _literal_string(node.args[0]) if name in {"Path", "pathlib.Path"} else None
+
+
+def _python_mutation_values(tokens: list[str]) -> list[str]:
+    if "-c" not in tokens:
+        return []
+    index = tokens.index("-c")
+    if index + 1 >= len(tokens):
+        return []
+    try:
+        tree = ast.parse(tokens[index + 1])
+    except SyntaxError:
+        return []
+    values: list[str] = []
+    path_methods = {"write_text", "write_bytes", "unlink", "mkdir", "rename", "replace", "touch", "chmod"}
+    one_path_calls = {"os.remove", "os.unlink", "os.rmdir", "os.removedirs", "os.mkdir", "os.makedirs", "shutil.rmtree"}
+    two_path_calls = {"os.rename", "os.replace", "shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.move"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _qualified_call_name(node.func)
+        if isinstance(node.func, ast.Attribute) and node.func.attr in path_methods:
+            receiver = _path_constructor_value(node.func.value)
+            if receiver:
+                values.append(receiver)
+            if node.func.attr in {"rename", "replace"} and node.args:
+                if destination := _literal_string(node.args[0]):
+                    values.append(destination)
+        elif name in one_path_calls and node.args:
+            if value := _literal_string(node.args[0]):
+                values.append(value)
+        elif name in two_path_calls:
+            values.extend(value for arg in node.args[:2] if (value := _literal_string(arg)))
+        elif name == "open" and node.args:
+            mode = _literal_string(node.args[1]) if len(node.args) > 1 else "r"
+            if mode and any(flag in mode for flag in "wax+"):
+                if value := _literal_string(node.args[0]):
+                    values.append(value)
+    return values
+
+
+def _shell_mutation_values(command: str) -> list[str]:
+    try:
+        tokens = shlex.split(command, posix=os.name != "nt")
+    except ValueError:
+        tokens = []
+    if not tokens:
+        return []
+    executable = Path(tokens[0]).name.casefold()
+    if executable in {"python", "python3", "py"} and _PYTHON_MUTATION.search(command):
+        return _python_mutation_values(tokens)
+    if executable == "git":
+        return [token for token in tokens[2:] if not token.startswith("-")]
+    if _MUTATING_SHELL_COMMAND.search(command):
+        return [token for token in tokens[1:] if not token.startswith("-")]
+    return []
+
+
 def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
     tool_name = str(event.get("tool_name") or "")
     tool_input = event.get("tool_input")
@@ -306,7 +420,9 @@ def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
         values = _PATCH_PATH.findall(command)
     elif tool_name in _SHELL_TOOLS:
         command = str(payload.get("command") or payload.get("cmd") or "")
-        command_mutates = bool(_MUTATING_SHELL_COMMAND.search(command))
+        command_mutates = bool(
+            _MUTATING_SHELL_COMMAND.search(command) or _PYTHON_MUTATION.search(command)
+        )
         redirect_values: list[str] = []
         for match in _SHELL_REDIRECTION.finditer(command):
             raw = match.group("target")
@@ -318,7 +434,9 @@ def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
                 redirect_values.append(parsed[0])
         if not command_mutates and not redirect_values:
             return []
-        values = _ABSOLUTE_PATH.findall(command) if command_mutates else []
+        values = _shell_mutation_values(command) if command_mutates else []
+        if command_mutates and not values:
+            values = _ABSOLUTE_PATH.findall(command)
         values.extend(redirect_values)
     else:
         return []
@@ -338,6 +456,7 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
     if not targets:
         return {}
     allowed, excluded = _named_paths(state)
+    exclusive = _exclusive_paths(state)
     cwd = Path(str(event.get("cwd") or ".")).expanduser().resolve(strict=False)
     repo = _git_root(cwd)
     temporary_roots = [Path("/tmp"), Path("/dev/shm")]
@@ -356,8 +475,22 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
             }
         if target == null_target:
             continue
-        if any(_inside(target, root) or target == root for root in temporary_roots):
+        if (
+            any(_inside(target, root) or target == root for root in temporary_roots)
+            and not (repo is not None and (_inside(target, repo) or target == repo))
+        ):
             continue
+        if exclusive and target not in exclusive:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Manageroo rejected the agent's unrelated mutation of {target} because the active "
+                        f"operator objective permits only: {', '.join(str(path) for path in exclusive)}."
+                    ),
+                }
+            }
         if repo is not None and (_inside(target, repo) or target == repo):
             continue
         if any(_inside(target, path) or target == path for path in allowed):
