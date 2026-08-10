@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 # Exact versions from the verified supervisor source.
-$SupervisorCommit = "f731f6da56d3ae58d1934b3b723716d54ad82975"
+$SupervisorCommit = "590eed1bbe313ccca20a42ac20dc02044679f65b"
 $SupervisorSource = "git+https://github.com/uncmatteth/clawpatch-supervise.git@$SupervisorCommit"
 $CodexPackage = "@openai/codex@0.144.4"
 $ClawPatchPackage = "clawpatch@0.7.2"

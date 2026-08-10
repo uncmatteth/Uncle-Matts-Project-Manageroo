@@ -13,7 +13,7 @@ from .errors import SafetyError
 
 SUPERVISOR_EXECUTABLE = "clawpatch-supervise"
 SUPERVISOR_REPOSITORY = "https://github.com/uncmatteth/clawpatch-supervise"
-SUPERVISOR_VERSION = "0.1.2"
+SUPERVISOR_VERSION = "0.1.28"
 SUPERVISOR_GATE_VERSION = "1.0.0"
 SUPERVISOR_GATE_VERSION_ARG = "--manageroo-runtime-gate-version"
 TRANSIENT_EXIT_CODE = 75
