@@ -147,6 +147,21 @@ def manageroo_command(launcher: Path, *args: str) -> list[str]:
     return [comspec, "/d", "/s", "/c", subprocess.list2cmdline(argv)]
 
 
+def product_run_command(launcher: Path, product: Path) -> list[str]:
+    return manageroo_command(
+        launcher,
+        "run",
+        "--repo",
+        str(product),
+        "--brief",
+        str(product / ".manageroo" / "PRODUCT-BRIEF.md"),
+        "--mode",
+        "build",
+        "--no-apply",
+        "--json",
+    )
+
+
 def smoke(
     archive: Path,
     *,
@@ -301,17 +316,7 @@ def smoke(
             raise RuntimeError(f"Initialized project is not ready: {ready}")
 
         run_result = parse_json_command(
-            manageroo_command(
-                launcher,
-                "run",
-                "--repo",
-                str(product),
-                "--brief",
-                str(product / ".manageroo" / "PRODUCT-BRIEF.md"),
-                "--mode",
-                "build",
-                "--no-apply",
-            ),
+            product_run_command(launcher, product),
             cwd=product,
             env=env,
             timeout=180,

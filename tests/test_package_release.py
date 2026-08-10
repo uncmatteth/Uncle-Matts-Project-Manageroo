@@ -112,6 +112,16 @@ def _finalize_gitnexus_fixture(prefix_value, marker, setup_started, release_setu
 
 
 class PackageReleaseTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "Unix command shape fixture")
+    def test_clean_install_product_run_requests_json_output(self):
+        command = smoke_release_install.product_run_command(
+            Path("/tmp/manageroo"),
+            Path("/tmp/product"),
+        )
+
+        self.assertEqual(command[-1], "--json")
+        self.assertEqual(command.count("--json"), 1)
+
     @unittest.skipIf(os.name == "nt", "Unix launcher provenance fixture")
     def test_smoke_requires_temporary_launcher_and_sanitizes_pythonpath(self):
         with tempfile.TemporaryDirectory() as temp:
