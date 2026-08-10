@@ -115,7 +115,7 @@ class RemainingAuditRegressionTests(unittest.TestCase):
         self.assertEqual(_mentions("Read the PDF", ("pdf",)), ["pdf"])
 
     def test_acceptance_auth_term_does_not_match_author_but_real_auth_terms_do(self):
-        self.assertTrue(_needs_demonstration("Update author documentation"))
+        self.assertFalse(_needs_demonstration("Update author documentation"))
         self.assertTrue(_needs_demonstration("Authentication must continue working"))
         self.assertTrue(_needs_demonstration("User can log in"))
         self.assertTrue(_needs_demonstration("Deploy the release"))

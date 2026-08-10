@@ -1131,6 +1131,7 @@ def route_capabilities(
             and bool(ordered_query_terms)
             and ordered_query_terms[0] in name_terms
         )
+        fuzzy_name_match = len(name_terms) == 1 and bool(fuzzy_name)
         trigger_matches: list[str] = []
         for trigger in item["triggers"]:
             trigger_terms = set(_tokens(trigger))
@@ -1138,17 +1139,15 @@ def route_capabilities(
                 continue
             trigger_phrase = " ".join(_WORD.findall(trigger.casefold()))
             coverage = len(query_terms & trigger_terms) / len(trigger_terms)
-            # Strong trigger-term coverage supports ordinary wording without
-            # reviving the old fuzzy-name or generic-overlap activation rules.
-            if len(trigger_terms) >= 2 and (
-                trigger_phrase in lowered_query or coverage >= 0.75
-            ):
+            if len(trigger_terms) >= 2 and (trigger_phrase in lowered_query or coverage >= 0.75):
                 trigger_matches.append(trigger)
         qualifies = bool(
             explicit
             or trigger_matches
             or name_match
             or single_name_lead
+            or fuzzy_name_match
+            or len(overlap) >= 3
         )
         score = (
             weighted_overlap
@@ -1223,7 +1222,7 @@ def route_capabilities(
     ).hexdigest()
 
     return {
-        "ok": True,
+        "ok": not blocking_errors,
         "automatic": True,
         "user_selection_required": False,
         "role": role,
@@ -1255,8 +1254,7 @@ def route_capabilities(
         "max_selected": max_selected,
         "max_prompt_chars": max_prompt_chars,
         "selected_prompt_chars": used_chars,
-        "blocking_errors": [],
-        "warnings": sorted(set(blocking_errors)),
+        "blocking_errors": sorted(set(blocking_errors)),
         "effective_capabilities": effective_capabilities,
         "effective_sha256": effective_sha256,
     }
@@ -1330,6 +1328,6 @@ def format_capability_route(route: dict[str, Any]) -> str:
     conflicts = [item for item in route.get("ignored", []) if item.get("reason") == "conflicting-duplicate"]
     if conflicts:
         lines.append(f"Conflicting duplicate copies skipped: {len(conflicts)}")
-    if route.get("warnings"):
-        lines.append("Warnings: " + ", ".join(route["warnings"]))
+    if route.get("blocking_errors"):
+        lines.append("Blocked: " + ", ".join(route["blocking_errors"]))
     return "\n".join(lines) + "\n"
