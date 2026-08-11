@@ -18,7 +18,7 @@ from manageroo.runner import _platform_argv
 
 ROOT = Path(__file__).resolve().parents[1]
 SUPERVISOR_REPOSITORY = "uncmatteth/clawpatch-supervise"
-SUPERVISOR_COMMIT = "b58cf4df9f973cbe2dfd42e2a84ea505b3c91727"
+SUPERVISOR_COMMIT = "e923de045be8fd18ecb5de10dc49303453d32120"
 SUPERVISOR_SOURCE = (
     f"git+https://github.com/{SUPERVISOR_REPOSITORY}.git@{SUPERVISOR_COMMIT}"
 )
