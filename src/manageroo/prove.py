@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,6 +23,8 @@ from .runner import CommandRunner
 from .selftest import run_self_test
 
 LIVE_AGENT_CHOICES = ("codex", "claude-code", "gemini")
+_LIVE_PROOF_GIT_ENTRY_LIMIT = 10_000
+_LIVE_PROOF_GIT_BYTE_LIMIT = 64 * 1024 * 1024
 
 
 def _proof(name: str, ok: bool, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -90,6 +95,73 @@ def _full_lifecycle_case() -> dict[str, Any]:
     return {"ok": bool(result.get("ok") and result.get("status") == "COMPLETE"), "detail": "controller completed a fixture run and applied the verified result", "run": result}
 
 
+def _live_proof_git_value(repo: Path, runner: CommandRunner, argv: list[str]) -> str:
+    result = runner.run(argv, cwd=repo, timeout_seconds=30)
+    if not result.passed:
+        raise RuntimeError(result.stderr or result.stdout)
+    return result.stdout.strip()
+
+
+def _live_proof_tree_inventory(
+    root: Path,
+    *,
+    excluded_roots: set[str] | None = None,
+) -> dict[str, tuple[str, int, str]]:
+    entries: dict[str, tuple[str, int, str]] = {}
+    total_bytes = 0
+    excluded = excluded_roots or set()
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as children:
+            for child in children:
+                path = Path(child.path)
+                relative_path = path.relative_to(root)
+                if relative_path.parts[0] in excluded:
+                    continue
+                if len(entries) >= _LIVE_PROOF_GIT_ENTRY_LIMIT:
+                    raise RuntimeError("Live-agent proof inventory exceeds the bounded entry limit.")
+                state = child.stat(follow_symlinks=False)
+                mode = stat.S_IMODE(state.st_mode)
+                relative = relative_path.as_posix()
+                if stat.S_ISREG(state.st_mode):
+                    total_bytes += state.st_size
+                    if total_bytes > _LIVE_PROOF_GIT_BYTE_LIMIT:
+                        raise RuntimeError("Live-agent proof inventory exceeds the bounded byte limit.")
+                    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                    entries[relative] = ("file", mode, digest)
+                elif stat.S_ISDIR(state.st_mode):
+                    entries[relative] = ("directory", mode, "")
+                    pending.append(path)
+                elif stat.S_ISLNK(state.st_mode):
+                    entries[relative] = ("symlink", mode, path.readlink().as_posix())
+                else:
+                    entries[relative] = ("other", mode, "")
+    return entries
+
+
+def _live_proof_git_metadata(repo: Path, runner: CommandRunner) -> dict[str, tuple[str, int, str]]:
+    git_dir = Path(
+        _live_proof_git_value(repo, runner, ["git", "rev-parse", "--absolute-git-dir"])
+    )
+    return _live_proof_tree_inventory(git_dir, excluded_roots={"index"})
+
+
+def _live_proof_git_identity(repo: Path, runner: CommandRunner) -> dict[str, Any]:
+    return {
+        "metadata": _live_proof_git_metadata(repo, runner),
+        "head": _live_proof_git_value(repo, runner, ["git", "rev-parse", "HEAD"]),
+        "head_tree": _live_proof_git_value(repo, runner, ["git", "rev-parse", "HEAD^{tree}"]),
+        "index_tree": _live_proof_git_value(repo, runner, ["git", "write-tree"]),
+        "history": _live_proof_git_value(repo, runner, ["git", "rev-list", "--all", "--parents"]),
+        "refs": _live_proof_git_value(
+            repo,
+            runner,
+            ["git", "for-each-ref", "--format=%(refname)%00%(objectname)"],
+        ),
+    }
+
+
 def _live_agent_case(agent: str) -> dict[str, Any]:
     if agent not in LIVE_AGENT_CHOICES:
         return {"ok": False, "detail": f"unsupported live-agent proof choice: {agent}", "agent": agent}
@@ -108,6 +180,15 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
         doctor = adapter.doctor(repo)
         if not doctor.get("ok"):
             return {"ok": False, "detail": f"{agent} failed adapter compatibility checks", "agent": agent, "doctor": doctor}
+        baseline_identity = _live_proof_git_identity(repo, runner)
+        baseline_workspace = _live_proof_tree_inventory(repo, excluded_roots={".git"})
+        baseline_status = runner.run(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--ignored=matching"],
+            cwd=repo,
+            timeout_seconds=30,
+        )
+        if not baseline_status.passed:
+            raise RuntimeError(baseline_status.stderr or baseline_status.stdout)
         prompt_path = root / "live-agent-prompt.md"
         output_path = root / "live-agent-output.json"
         prompt_path.write_text(
@@ -118,15 +199,84 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
         target = repo / "manageroo_live_agent_proof.txt"
         expected = "MANAGEROO live agent proof completed\n"
         actual = target.read_text(encoding="utf-8") if target.is_file() else None
-        status = runner.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo, timeout_seconds=30)
+        status = runner.run(
+            ["git", "status", "--porcelain", "--untracked-files=all", "--ignored=matching"],
+            cwd=repo,
+            timeout_seconds=30,
+        )
         if not status.passed:
             raise RuntimeError(status.stderr or status.stdout)
-        changed_paths = sorted(line[3:].strip() for line in status.stdout.splitlines() if len(line) >= 4 and line[3:].strip())
+        changed_paths = sorted(
+            line[3:].strip()
+            for line in status.stdout.splitlines()
+            if len(line) >= 4 and not line.startswith("!! ") and line[3:].strip()
+        )
+        ignored_paths = sorted(
+            line[3:].strip()
+            for line in status.stdout.splitlines()
+            if line.startswith("!! ") and line[3:].strip()
+        )
+        final_identity = _live_proof_git_identity(repo, runner)
+        final_workspace = _live_proof_tree_inventory(repo, excluded_roots={".git"})
+        identity_checks = {
+            f"{key}_unchanged": final_identity[key] == baseline_identity[key]
+            for key in baseline_identity
+        }
         gate = runner.run([sys.executable, "-m", "unittest", "discover"], cwd=repo, timeout_seconds=60)
         declared = sorted(set(str(item) for item in response.data.get("files_changed", [])))
         expected_paths = ["manageroo_live_agent_proof.txt"]
-        ok = response.data.get("status") == "implemented" and declared == expected_paths and changed_paths == expected_paths and actual == expected and gate.passed
-        return {"ok": ok, "detail": f"{agent} completed one bounded disposable write through the production adapter", "agent": agent, "doctor": doctor, "response_status": response.data.get("status"), "response_summary": response.data.get("summary"), "response_risks": response.data.get("risks", []), "scope_expansion_requested": response.data.get("scope_expansion_requested", []), "declared_files": declared, "changed_paths": changed_paths, "target_exists": target.is_file(), "target_exact": actual == expected, "gate_exit_code": gate.exit_code, "gate_output_tail": (gate.stdout + gate.stderr)[-2000:], "agent_stdout_tail": response.stdout[-4000:], "agent_stderr_tail": response.stderr[-2000:]}
+        baseline_ignored_paths = sorted(
+            line[3:].strip()
+            for line in baseline_status.stdout.splitlines()
+            if line.startswith("!! ") and line[3:].strip()
+        )
+        baseline_nonignored_status = [
+            line for line in baseline_status.stdout.splitlines() if not line.startswith("!! ")
+        ]
+        workspace_unchanged_outside_target = {
+            path: value for path, value in final_workspace.items() if path not in expected_paths
+        } == {
+            path: value for path, value in baseline_workspace.items() if path not in expected_paths
+        }
+        ok = (
+            response.data.get("status") == "implemented"
+            and declared == expected_paths
+            and not baseline_nonignored_status
+            and changed_paths == expected_paths
+            and ignored_paths == baseline_ignored_paths
+            and workspace_unchanged_outside_target
+            and all(identity_checks.values())
+            and actual == expected
+            and gate.passed
+        )
+        detail = (
+            f"{agent} completed one bounded disposable write through the production adapter"
+            if ok
+            else f"{agent} failed bounded live-agent repository identity checks"
+        )
+        return {
+            "ok": ok,
+            "detail": detail,
+            "agent": agent,
+            "doctor": doctor,
+            "response_status": response.data.get("status"),
+            "response_summary": response.data.get("summary"),
+            "response_risks": response.data.get("risks", []),
+            "scope_expansion_requested": response.data.get("scope_expansion_requested", []),
+            "declared_files": declared,
+            "changed_paths": changed_paths,
+            "ignored_paths": ignored_paths,
+            "baseline_ignored_paths": baseline_ignored_paths,
+            "baseline_pristine": not baseline_nonignored_status,
+            "workspace_unchanged_outside_target": workspace_unchanged_outside_target,
+            **identity_checks,
+            "target_exists": target.is_file(),
+            "target_exact": actual == expected,
+            "gate_exit_code": gate.exit_code,
+            "gate_output_tail": (gate.stdout + gate.stderr)[-2000:],
+            "agent_stdout_tail": response.stdout[-4000:],
+            "agent_stderr_tail": response.stderr[-2000:],
+        }
 
 
 def _intent_preservation_case() -> dict[str, Any]:
