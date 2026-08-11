@@ -31,6 +31,8 @@ BLOCKED_MARK = "🚧"
 STOPPED_MARK = "🛑"
 GENERIC_COMPLETE_RECEIPT = f"{COMPLETE_MARK} Manageroo: request complete"
 GENERIC_BLOCKED_RECEIPT = f"{BLOCKED_MARK} Manageroo: waiting on an external blocker"
+SPECIFIC_COMPLETE_PREFIX = "✅ Done — "
+SPECIFIC_COMPLETE_TEMPLATE = f"{SPECIFIC_COMPLETE_PREFIX}<what actually finished>"
 _REPLACE_REQUEST = re.compile(
     r"\b(?:cancel|drop|forget|ignore|replace|supersede)\s+(?:all\s+)?(?:the\s+)?"
     r"(?:earlier|old|prior|previous|unfinished)\s+(?:request|task|work|instructions?)\b|"
@@ -363,6 +365,21 @@ def _legacy_completion_marker(state: dict[str, Any], status: str) -> str:
     return f"<!-- manageroo-continuity:{state['objective_sha256']}:{status} -->"
 
 
+def _has_specific_completion_result(message: str) -> bool:
+    for line in message.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(SPECIFIC_COMPLETE_PREFIX):
+            continue
+        result = stripped[len(SPECIFIC_COMPLETE_PREFIX) :].strip()
+        if result and result.casefold() not in {
+            "<what actually finished>",
+            "request complete",
+            "done",
+        }:
+            return True
+    return False
+
+
 def render_active_objective(state: dict[str, Any]) -> str:
     if state.get("status") == "paused":
         lines = [
@@ -406,8 +423,8 @@ def render_active_objective(state: dict[str, Any]) -> str:
             f"## {FINISH_MARK} Finish status",
             "",
             "Keep working while anything above remains unfinished.",
-            "After current proof shows everything is complete, end the final reply with this short status badge:",
-            _completion_marker(state, "complete"),
+            "After current proof shows everything is complete, end the final reply with one specific result line:",
+            SPECIFIC_COMPLETE_TEMPLATE,
             "If a concrete external blocker makes progress impossible, explain it under `Concrete blocker:` and end with:",
             _completion_marker(state, "blocked"),
             "The badge text is for the operator. Its link target is continuity bookkeeping and should not be explained or expanded.",
@@ -532,8 +549,8 @@ def render_compact_status(state: dict[str, Any], *, activity: str) -> str:
 def _completion_contract() -> str:
     return "\n".join(
         [
-            "Manageroo receipt — append only after verified completion:",
-            GENERIC_COMPLETE_RECEIPT,
+            "When verified, end with one specific result line:",
+            SPECIFIC_COMPLETE_TEMPLATE,
             "For a concrete external blocker, write `Concrete blocker:` and append:",
             GENERIC_BLOCKED_RECEIPT,
         ]
@@ -552,7 +569,7 @@ def _stop_recovery_message(state: dict[str, Any]) -> str:
             INTERNAL_CONTINUATION_PREFIX,
             f"{MANAGEROO_MARK} Missing the completion line, so Manageroo continued this turn.",
             f"{ROOT_REQUEST_MARK} Finish: {goal}",
-            f"{FINISH_MARK} When done, end with: {GENERIC_COMPLETE_RECEIPT}",
+            f"{FINISH_MARK} When done, end with: {SPECIFIC_COMPLETE_TEMPLATE}",
         ]
     )
 
@@ -933,7 +950,8 @@ def process_codex_continuity_hook(
         legacy_complete_marker = _legacy_completion_marker(state, "complete")
         legacy_blocked_marker = _legacy_completion_marker(state, "blocked")
         if (
-            GENERIC_COMPLETE_RECEIPT in last
+            _has_specific_completion_result(last)
+            or GENERIC_COMPLETE_RECEIPT in last
             or complete_marker in last
             or previous_complete_marker in last
             or legacy_complete_marker in last

@@ -61,10 +61,10 @@ later objectives, side questions, and repeated tool actions do not inject it
 again. This keeps status visible without
 repeatedly spending model context on status text or the full prompt.
 
-The stop handshake is request-hash-bound but rendered as a short Markdown badge.
-The operator sees `🎉 Manageroo: request complete` or a `🚧` waiting status; the
-full request hash stays in the link target. The hook also accepts the former raw
-HTML marker so upgrading Manageroo cannot strand an already-running session.
+The stop handshake is bound to the active objective in private state. The
+operator sees a specific result such as `✅ Done — Provided the local supervisor
+path.` or a `🚧` waiting status. The hook also accepts former generic Markdown
+badges and raw HTML markers so upgrading Manageroo cannot strand an already-running session.
 Hook denials use a consistent target, reason, and next-action layout instead of
 one dense implementation sentence.
 

@@ -75,10 +75,9 @@ operator-requested Git commits and pushes remain available. An explicit
 continues the agent until it marks the complete active objective verified or
 reports one concrete external blocker. The installer preserves unrelated Codex
 hooks. Completion stays bound to the exact active request, but normal replies
-show only a short `Manageroo: request complete` badge. The request hash lives in
-the badge's Markdown link target instead of appearing as a long raw HTML
-comment. Existing sessions carrying the older comment form remain valid during
-an upgrade.
+end with one useful result line such as `✅ Done — Provided the local supervisor
+path.` Existing sessions carrying the former generic badge or raw comment remain
+valid during an upgrade.
 Routine `You asked` and `Manageroo is doing` status uses Codex's display-only
 system-message channel instead of model context. The activity line is derived
 locally from the current task instead of repeating one generic purpose slogan;

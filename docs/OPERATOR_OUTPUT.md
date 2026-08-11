@@ -48,7 +48,7 @@ Premature-stop feedback is intentionally compact:
 ```text
 🦘 Missing the completion line, so Manageroo continued this turn.
 🎯 Finish: <short current task>
-🏁 When done, end with: 🎉 Manageroo: request complete
+🏁 When done, end with: ✅ Done — <what actually finished>
 ```
 
 Manageroo adds one small completion handshake to model context per Codex
@@ -56,17 +56,16 @@ session, then binds that handshake to the current objective privately when the
 agent stops. It is not repeated for later objectives, side questions, duplicate
 prompt events, or successful tool checks.
 
-The normal
-completion receipt is a short Markdown badge:
+The normal completion receipt states the actual result:
 
 ```text
-🎉 Manageroo: request complete
+✅ Done — Provided the local ClawPatch supervisor path.
 ```
 
-The request hash remains in the badge's link target for the hook to verify; it
-is not displayed as a long raw comment. A blocked receipt is accepted only when
-the response also includes a concrete blocker with evidence. Older raw HTML
-receipts remain accepted during an upgrade so an active session is not lost.
+The exact objective remains in private state rather than being replayed in the
+receipt. A blocked receipt is accepted only when the response also includes a
+concrete blocker with evidence. Older generic Markdown and raw HTML receipts
+remain accepted during an upgrade so an active session is not lost.
 
 When Manageroo stops an action that violates an explicit operator limit, the
 message names:

@@ -722,7 +722,8 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertNotIn(long_detail, displayed)
             self.assertLessEqual(len(displayed), 1200)
             receipt = first["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("🎉 Manageroo: request complete", receipt)
+            self.assertIn("✅ Done — <what actually finished>", receipt)
+            self.assertNotIn("🎉 Manageroo: request complete", receipt)
             self.assertNotIn("🎯 You asked:", receipt)
             self.assertNotIn("🛠️ Manageroo is doing:", receipt)
             self.assertNotIn("📍 Status:", receipt)
@@ -764,7 +765,8 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertIn("🛠️ Manageroo is doing:", displayed)
             self.assertIn("📍 Status:", displayed)
             receipt = first["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("🎉 Manageroo: request complete", receipt)
+            self.assertIn("✅ Done — <what actually finished>", receipt)
+            self.assertNotIn("🎉 Manageroo: request complete", receipt)
             self.assertIn("🚧 Manageroo: waiting on an external blocker", receipt)
             self.assertNotIn("hookSpecificOutput", result)
 
@@ -922,10 +924,8 @@ class AgentContinuityTests(unittest.TestCase):
             }
             response = process_codex_continuity_hook(prompt, state_root=root)
             context = response["hookSpecificOutput"]["additionalContext"]
-            marker_line = next(
-                line for line in context.splitlines() if "🎉 Manageroo: request complete" in line
-            )
-            marker = marker_line[marker_line.index("🎉 Manageroo: request complete") :]
+            self.assertIn("✅ Done — <what actually finished>", context)
+            self.assertNotIn("🎉 Manageroo: request complete", context)
             stopped = process_codex_continuity_hook(
                 {
                     "hook_event_name": "Stop",
@@ -945,7 +945,7 @@ class AgentContinuityTests(unittest.TestCase):
                         INTERNAL_CONTINUATION_PREFIX,
                         "🦘 Missing the completion line, so Manageroo continued this turn.",
                         "🎯 Finish: Finish and verify the job.",
-                        "🏁 When done, end with: 🎉 Manageroo: request complete",
+                        "🏁 When done, end with: ✅ Done — <what actually finished>",
                     ]
                 ),
             )
@@ -953,13 +953,27 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertNotIn("Manageroo is doing", stopped["reason"])
             self.assertNotIn("📍 Status", stopped["reason"])
             self.assertLessEqual(len(stopped["reason"]), 500)
+            placeholder = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "last_assistant_message": "✅ Done — <what actually finished>",
+                    "stop_hook_active": True,
+                },
+                state_root=root,
+            )
+            self.assertEqual(placeholder["decision"], "block")
             completed = process_codex_continuity_hook(
                 {
                     "hook_event_name": "Stop",
                     "session_id": "session",
                     "turn_id": "turn-1",
                     "cwd": "/project",
-                    "last_assistant_message": f"Verified completion.\n{marker}",
+                    "last_assistant_message": (
+                        "✅ Done — Provided the local ClawPatch supervisor path."
+                    ),
                     "stop_hook_active": True,
                 },
                 state_root=root,
