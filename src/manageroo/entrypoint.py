@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -416,7 +417,12 @@ def _republish_pinned_artifacts(
             )
         blocking = planning / "blocking-decisions.json"
         try:
-            blocking_payload = _read_json_at(
+            (
+                blocking_payload,
+                blocking_bytes,
+                blocking_bytes_sha256,
+                blocking_state,
+            ) = _read_json_snapshot_at(
                 planning_descriptor,
                 blocking.name,
                 blocking,
@@ -429,6 +435,31 @@ def _republish_pinned_artifacts(
             blocking_payload,
             blocking_decisions_sha256,
         ):
+            raise SafetyError(
+                f"Blocking decision artifact changed during decision persistence: {blocking}"
+            )
+        try:
+            current_blocking = os.stat(
+                blocking.name,
+                dir_fd=planning_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError as exc:
+            raise SafetyError(
+                f"Blocking decision artifact changed during decision persistence: {blocking}"
+            ) from exc
+        blocking_changed = not _same_stable_regular_file(
+            blocking_state,
+            current_blocking,
+        )
+        _atomic_write_json_at(
+            planning_descriptor,
+            blocking.name,
+            blocking_payload,
+            serialized=blocking_bytes,
+            expected_sha256=blocking_bytes_sha256,
+        )
+        if blocking_changed:
             raise SafetyError(
                 f"Blocking decision artifact changed during decision persistence: {blocking}"
             )
@@ -502,7 +533,37 @@ def _republish_pinned_artifacts(
                 )
 
 
-def _read_json_at(directory_descriptor: int, name: str, path: Path) -> Any:
+def _stable_regular_file_snapshot(state: os.stat_result) -> tuple[int, ...]:
+    return (
+        state.st_dev,
+        state.st_ino,
+        state.st_mode,
+        state.st_nlink,
+        state.st_size,
+        state.st_mtime_ns,
+        state.st_ctime_ns,
+    )
+
+
+def _same_stable_regular_file(
+    first: os.stat_result,
+    second: os.stat_result,
+) -> bool:
+    return (
+        stat.S_ISREG(first.st_mode)
+        and stat.S_ISREG(second.st_mode)
+        and first.st_nlink == 1
+        and second.st_nlink == 1
+        and _stable_regular_file_snapshot(first)
+        == _stable_regular_file_snapshot(second)
+    )
+
+
+def _read_json_snapshot_at(
+    directory_descriptor: int,
+    name: str,
+    path: Path,
+) -> tuple[Any, bytes, str, os.stat_result]:
     flags = os.O_RDONLY | os.O_NOFOLLOW
     flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
     descriptor = -1
@@ -513,27 +574,36 @@ def _read_json_at(directory_descriptor: int, name: str, path: Path) -> Any:
             current = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
         except FileNotFoundError as exc:
             raise SafetyError(f"Blocking decision artifact changed while opening: {path}") from exc
-        if (
-            not stat.S_ISREG(opened.st_mode)
-            or not stat.S_ISREG(current.st_mode)
-            or opened.st_nlink != 1
-            or current.st_nlink != 1
-            or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
-        ):
+        if not _same_stable_regular_file(opened, current):
             raise SafetyError(f"Blocking decision artifact is unsafe: {path}")
-        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
-            descriptor = -1
-            payload = json.load(handle)
+        chunks = []
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        snapshot = b"".join(chunks)
+        read_state = os.fstat(descriptor)
         try:
             latest = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
         except FileNotFoundError as exc:
             raise SafetyError(f"Blocking decision artifact changed while reading: {path}") from exc
-        if (latest.st_dev, latest.st_ino) != (opened.st_dev, opened.st_ino):
+        if (
+            not _same_stable_regular_file(opened, read_state)
+            or not _same_stable_regular_file(opened, latest)
+        ):
             raise SafetyError(f"Blocking decision artifact changed while reading: {path}")
-        return payload
+        snapshot_sha256 = hashlib.sha256(snapshot).hexdigest()
+        payload = json.loads(snapshot.decode("utf-8"))
+        return payload, snapshot, snapshot_sha256, read_state
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def _read_json_at(directory_descriptor: int, name: str, path: Path) -> Any:
+    payload, _, _, _ = _read_json_snapshot_at(directory_descriptor, name, path)
+    return payload
 
 
 def _blocking_decisions_payload_matches(payload: Any, expected_sha256: str) -> bool:
@@ -702,9 +772,11 @@ def _atomic_write_json_at(
     data: Any,
     *,
     replace: bool = True,
+    serialized: bytes | None = None,
+    expected_sha256: str | None = None,
 ) -> None:
     temporary_name = f".{name}.{secrets.token_hex(16)}"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
     flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
     descriptor = -1
     replaced = False
@@ -719,8 +791,12 @@ def _atomic_write_json_at(
         )
         temporary_exists = True
         payload = (
-            json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        ).encode("utf-8")
+            serialized
+            if serialized is not None
+            else (
+                json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+        )
         remaining = memoryview(payload)
         while remaining:
             written = os.write(descriptor, remaining)
@@ -729,6 +805,24 @@ def _atomic_write_json_at(
             remaining = remaining[written:]
         os.fsync(descriptor)
         written_state = os.fstat(descriptor)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        written_chunks = []
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                break
+            written_chunks.append(chunk)
+        written_sha256 = hashlib.sha256(b"".join(written_chunks)).hexdigest()
+        target_sha256 = (
+            expected_sha256
+            if expected_sha256 is not None
+            else hashlib.sha256(payload).hexdigest()
+        )
+        if (
+            written_state.st_size != len(payload)
+            or written_sha256 != target_sha256
+        ):
+            raise SafetyError(f"Decision artifact changed while writing: {name}")
         os.close(descriptor)
         descriptor = -1
         if replace:
