@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import stat
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -274,6 +275,95 @@ class WorkspaceMirror:
             identities[relative] = (sha256_file(path), file_stat.st_mode & 0o777)
         return identities
 
+    def _capture_source_states(
+        self,
+        expected_source: dict[str, tuple[str, int]],
+    ) -> dict[str, tuple[bytes, int] | None]:
+        source_identity = self._visible_tree_identity(self.source_repo)
+        states: dict[str, tuple[bytes, int] | None] = {}
+        for relative in sorted(set(source_identity) | set(expected_source)):
+            if source_identity.get(relative) == expected_source.get(relative):
+                continue
+            identity = source_identity.get(relative)
+            if identity is None:
+                states[relative] = None
+                continue
+            path = self.source_repo / relative
+            try:
+                contents = path.read_bytes()
+                mode = path.stat().st_mode & 0o777
+            except OSError as exc:
+                raise SafetyError(
+                    f"Source path changed while preparing transactional patch apply: {relative}"
+                ) from exc
+            if hashlib.sha256(contents).hexdigest() != identity[0] or mode != identity[1]:
+                raise SafetyError(
+                    f"Source path changed while preparing transactional patch apply: {relative}"
+                )
+            states[relative] = (contents, mode)
+        return states
+
+    def _source_path_identity(self, relative: str) -> tuple[str, int] | None:
+        path = self.source_repo / relative
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            return None
+        if not stat.S_ISREG(metadata.st_mode):
+            raise SafetyError(f"Repository tree contains an unsupported path: {relative}")
+        return sha256_file(path), metadata.st_mode & 0o777
+
+    def _restore_unchanged_source_paths(
+        self,
+        expected_source: dict[str, tuple[str, int]],
+        source_states: dict[str, tuple[bytes, int] | None],
+    ) -> list[str]:
+        unrestored: list[str] = []
+        for relative, original in source_states.items():
+            path = self.source_repo / relative
+            original_identity = None
+            if original is not None:
+                original_identity = (hashlib.sha256(original[0]).hexdigest(), original[1])
+            try:
+                current_identity = self._source_path_identity(relative)
+                if current_identity == original_identity:
+                    continue
+                if current_identity != expected_source.get(relative):
+                    unrestored.append(relative)
+                    continue
+                if original is None:
+                    if self._source_path_identity(relative) != current_identity:
+                        unrestored.append(relative)
+                        continue
+                    path.unlink()
+                elif current_identity is None:
+                    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, original[1])
+                    with os.fdopen(descriptor, "wb") as handle:
+                        handle.write(original[0])
+                    path.chmod(original[1])
+                else:
+                    descriptor, temporary_name = tempfile.mkstemp(
+                        prefix=f".{path.name}.manageroo-rollback-",
+                        dir=path.parent,
+                    )
+                    temporary = Path(temporary_name)
+                    try:
+                        with os.fdopen(descriptor, "wb") as handle:
+                            handle.write(original[0])
+                        temporary.chmod(original[1])
+                        if self._source_path_identity(relative) != current_identity:
+                            unrestored.append(relative)
+                            continue
+                        os.replace(temporary, path)
+                    finally:
+                        if temporary.exists():
+                            temporary.unlink()
+                if self._source_path_identity(relative) != original_identity:
+                    unrestored.append(relative)
+            except (OSError, SafetyError):
+                unrestored.append(relative)
+        return sorted(set(unrestored))
+
     def apply_patch_to_source(self, patch: Path) -> None:
         self.assert_source_unchanged()
         if not patch.exists() or patch.stat().st_size == 0:
@@ -283,6 +373,7 @@ class WorkspaceMirror:
         if not check.passed:
             raise SafetyError("Final patch no longer applies cleanly to the source tree:\n" + check.stderr)
         self.assert_source_unchanged()
+        source_states = self._capture_source_states(expected_source)
         applied = self.runner.run(["git", "apply", "--binary", str(patch)], cwd=self.source_repo, timeout_seconds=300)
         if not applied.passed:
             raise SafetyError("Failed to apply validated patch:\n" + applied.stderr)
@@ -304,9 +395,13 @@ class WorkspaceMirror:
                 timeout_seconds=300,
             )
             if not reverse_check.passed:
+                unrestored = self._restore_unchanged_source_paths(expected_source, source_states)
+                preserved = ", ".join(unrestored)
                 raise SafetyError(
                     "Source tree changed during patch application, and Manageroo could not "
-                    "safely reverse its patch:\n" + reverse_check.stderr
+                    "safely reverse its complete patch. Manageroo restored every unchanged "
+                    "patched path from its pre-apply state; concurrently changed paths were "
+                    f"preserved: {preserved}\n" + reverse_check.stderr
                 )
             reversed_patch = self.runner.run(
                 ["git", "apply", "--reverse", "--binary", str(patch)],
@@ -314,9 +409,13 @@ class WorkspaceMirror:
                 timeout_seconds=300,
             )
             if not reversed_patch.passed:
+                unrestored = self._restore_unchanged_source_paths(expected_source, source_states)
+                preserved = ", ".join(unrestored)
                 raise SafetyError(
                     "Source tree changed during patch application, and Manageroo failed to "
-                    "reverse its validated patch:\n" + reversed_patch.stderr
+                    "reverse its validated patch. Manageroo restored every unchanged patched "
+                    "path from its pre-apply state; concurrently changed paths were preserved: "
+                    f"{preserved}\n" + reversed_patch.stderr
                 )
             raise SafetyError(
                 "Source tree changed during patch application. Manageroo reversed only its "

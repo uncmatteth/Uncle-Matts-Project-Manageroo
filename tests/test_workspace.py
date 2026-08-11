@@ -31,6 +31,20 @@ class _MutatingApplyRunner(CommandRunner):
         return super().run(argv, **kwargs)
 
 
+class _PostApplyMutatingRunner(CommandRunner):
+    def __init__(self, target: Path, concurrent_contents: bytes):
+        super().__init__()
+        self.target = target
+        self.concurrent_contents = concurrent_contents
+
+    def run(self, argv, **kwargs):
+        result = super().run(argv, **kwargs)
+        is_forward_apply = argv[:2] == ["git", "apply"] and "--reverse" not in argv
+        if is_forward_apply and "--check" not in argv and result.passed:
+            self.target.write_bytes(self.concurrent_contents)
+        return result
+
+
 class WorkspaceTests(unittest.TestCase):
     def _repo(self, root: Path) -> tuple[Path, CommandRunner]:
         repo = root / "repo"
@@ -146,6 +160,46 @@ class WorkspaceTests(unittest.TestCase):
                 mirror.apply_patch_to_source(final_patch)
 
             self.assertEqual((repo / "a.txt").read_text(encoding="utf-8"), concurrent)
+
+    def test_apply_rolls_back_unaffected_file_after_post_apply_conflict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, setup_runner = self._repo(root)
+            second = repo / "b.txt"
+            second.write_bytes(b"second before\n")
+            original_mode = second.stat().st_mode & 0o777
+            self.assertTrue(setup_runner.run(["git", "add", "b.txt"], cwd=repo).passed)
+            self.assertTrue(
+                setup_runner.run(
+                    [
+                        "git",
+                        "-c",
+                        "commit.gpgSign=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "commit",
+                        "-m",
+                        "add second file",
+                    ],
+                    cwd=repo,
+                ).passed
+            )
+
+            concurrent_edit = b"concurrent replacement\n"
+            runner = _PostApplyMutatingRunner(repo / "a.txt", concurrent_edit)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            (workspace / "a.txt").write_bytes(b"workspace after\n")
+            (workspace / "b.txt").write_bytes(b"second after\n")
+            mirror.checkpoint("controller")
+            final_patch = mirror.write_patch(root / "final.patch")
+
+            with self.assertRaisesRegex(SafetyError, "changed during patch application"):
+                mirror.apply_patch_to_source(final_patch)
+
+            self.assertEqual((repo / "a.txt").read_bytes(), concurrent_edit)
+            self.assertEqual((repo / "b.txt").read_bytes(), b"second before\n")
+            self.assertEqual((repo / "b.txt").stat().st_mode & 0o777, original_mode)
 
     def test_second_create_does_not_replace_original_source_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
