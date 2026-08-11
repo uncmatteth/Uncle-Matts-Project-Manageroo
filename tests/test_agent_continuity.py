@@ -808,13 +808,14 @@ class AgentContinuityTests(unittest.TestCase):
                 "session_id": "session",
                 "turn_id": "turn-1",
                 "cwd": "/project",
-                "prompt": "Fix the useful progress summary.",
+                "prompt": "Fix the useful progress summary and verify the output.",
             }
             first = process_codex_continuity_hook(event, state_root=root)
             second = process_codex_continuity_hook(event, state_root=root)
             self.assertEqual(first["systemMessage"], second["systemMessage"])
             self.assertIn(
-                "🛠️ Manageroo is doing: Fixing the useful progress summary.",
+                "🛠️ Manageroo is doing: Fixing the useful progress summary and verifying "
+                "the output.",
                 first["systemMessage"],
             )
             self.assertIn("hookSpecificOutput", first)

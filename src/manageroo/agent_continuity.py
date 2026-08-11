@@ -489,6 +489,12 @@ def _current_activity(state: dict[str, Any]) -> str:
         return "Starting the current task summarized above."
     verb = _ACTIVITY_VERBS[directive.group(1).casefold()]
     rest = directive.group("rest").strip().rstrip(" ,;:-")
+    rest = re.sub(
+        r"\band\s+(" + "|".join(_ACTIVITY_VERBS) + r")\b",
+        lambda match: f"and {_ACTIVITY_VERBS[match.group(1).casefold()].casefold()}",
+        rest,
+        flags=re.IGNORECASE,
+    )
     summary = f"{verb}{(' ' + rest) if rest else ''}."
     return _task_excerpt(summary, limit=180)
 
