@@ -301,9 +301,9 @@ class ObsidianIntegration:
     def export(self, filename: str, markdown: str) -> Path | None:
         if not self.vault or not self.vault.is_dir():
             return None
-        if not _descriptor_export_supported():
+        if not _descriptor_export_supported() or _openat2_syscall_number() is None:
             raise SafetyError(
-                "Obsidian export requires descriptor-relative no-follow filesystem access."
+                "Obsidian export requires Linux openat2 beneath/no-symlink filesystem access."
             )
         export_relative = safe_repo_relative(self.export_folder)
         filename_relative = safe_repo_relative(filename)

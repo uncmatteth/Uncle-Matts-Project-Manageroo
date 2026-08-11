@@ -8,16 +8,47 @@ from manageroo.integrations import ObsidianIntegration
 
 
 class IntegrationTests(unittest.TestCase):
-    def test_obsidian_export_uses_safe_portable_descriptor_walk_without_linux_openat2(self):
+    def test_obsidian_export_without_openat2_never_creates_file_during_parent_rename(self):
         with tempfile.TemporaryDirectory() as temp:
-            vault = Path(temp) / "vault"
+            root = Path(temp)
+            vault = root / "vault"
             (vault / "exports" / "notes").mkdir(parents=True)
+            outside = root / "outside"
+            outside.mkdir()
             integration = ObsidianIntegration(str(vault), "exports")
+            from manageroo.integrations import os as integration_os
 
-            with patch("manageroo.integrations._openat2_syscall_number", return_value=None):
-                destination = integration.export("notes/report.md", "# Portable\n")
+            original_open = integration_os.open
+            export_directory_opens = 0
 
-            self.assertEqual(destination.read_text(encoding="utf-8"), "# Portable\n")
+            def rename_after_fallback_opens_export(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal export_directory_opens
+                descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+                if path == "exports" and flags & integration_os.O_DIRECTORY:
+                    export_directory_opens += 1
+                    if export_directory_opens == 2:
+                        (vault / "exports").rename(outside / "exports-pinned")
+                        (vault / "exports" / "notes").mkdir(parents=True)
+                return descriptor
+
+            with patch(
+                "manageroo.integrations._openat2_syscall_number",
+                return_value=None,
+            ), patch(
+                "manageroo.integrations._descriptor_export_supported",
+                return_value=True,
+            ), patch(
+                "manageroo.integrations._descriptor_relative_open_supported",
+                return_value=True,
+            ), patch(
+                "manageroo.integrations.os.open",
+                side_effect=rename_after_fallback_opens_export,
+            ):
+                with self.assertRaisesRegex(SafetyError, "openat2"):
+                    integration.export("notes/report.md", "# Portable\n")
+
+            self.assertFalse((outside / "exports-pinned" / "notes" / "report.md").exists())
+            self.assertFalse((vault / "exports" / "notes" / "report.md").exists())
 
     def test_obsidian_export_stays_inside_configured_export_root(self):
         with tempfile.TemporaryDirectory() as temp:
