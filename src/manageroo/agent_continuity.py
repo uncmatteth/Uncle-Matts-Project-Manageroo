@@ -571,11 +571,13 @@ def _additional_context(event_name: str, text: str) -> dict[str, Any]:
 def process_codex_continuity_hook(
     event: dict[str, Any], *, state_root: Path | None = None
 ) -> dict[str, Any]:
+    name = str(event.get("hook_event_name") or "")
+    if name == "PreToolUse":
+        return {}
     session_id = str(event.get("session_id") or "")
     if not session_id:
         return {}
     root = _safe_state_root(state_root or continuity_state_root())
-    name = str(event.get("hook_event_name") or "")
     if name == "UserPromptSubmit":
         state = capture_current_request(
             session_id=session_id,
@@ -590,9 +592,6 @@ def process_codex_continuity_hook(
         return {}
     if name in {"SessionStart", "SubagentStart", "PostCompact"}:
         return _additional_context(name, render_active_objective(state))
-    if name == "PreToolUse":
-        decision = audit_agent_tool(event, state)
-        return decision or _additional_context(name, "Agent action remains bound to the active Manageroo objective.")
     if name == "Stop":
         last = str(event.get("last_assistant_message") or "")
         complete_marker = _completion_marker(state, "complete")
