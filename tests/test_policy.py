@@ -17,7 +17,15 @@ class PolicyTests(unittest.TestCase):
             ScopePolicy(("src/app.py",)).validate_paths(["docs/secret.md"])
 
     def test_scope_blocks_traversal_and_absolute_paths(self):
-        for path in ("src/../docs/secret.md", "../outside.txt", "/tmp/outside.txt"):
+        for path in (
+            "src/../docs/secret.md",
+            "../outside.txt",
+            "/tmp/outside.txt",
+            r"..\outside.txt",
+            r"C:\outside.txt",
+            r"C:outside.txt",
+            r"\\server\share\outside.txt",
+        ):
             with self.subTest(path=path), self.assertRaises(SafetyError):
                 ScopePolicy(("src/app.py",)).validate_paths([path])
 
