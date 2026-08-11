@@ -239,6 +239,28 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded["project"]["max_plan_review_cycles"], 4)
             self.assertEqual(loaded["orchestration"]["max_worker_attempts"], 2)
 
+    def test_local_config_overlay_overrides_tracked_machine_independent_config(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            manageroo = repo / ".manageroo"
+            manageroo.mkdir()
+            (manageroo / "config.toml").write_text(
+                '[integrations]\nobsidian_vault = ""\ndocument_analysis_command = ["manageroo", "document-analyze"]\n',
+                encoding="utf-8",
+            )
+            (manageroo / "config.local.toml").write_text(
+                '[integrations]\nobsidian_vault = "/machine/private/vault"\ndocument_analysis_command = ["/machine/bin/manageroo", "document-analyze"]\n',
+                encoding="utf-8",
+            )
+
+            loaded = load_config(repo)
+
+            self.assertEqual(loaded["integrations"]["obsidian_vault"], "/machine/private/vault")
+            self.assertEqual(
+                loaded["integrations"]["document_analysis_command"][0],
+                "/machine/bin/manageroo",
+            )
+
     def test_apply_agent_preset_replaces_only_agent_block(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

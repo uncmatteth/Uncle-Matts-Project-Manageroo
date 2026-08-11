@@ -20,6 +20,8 @@ from .stack_update import (
     MANAGEROO_SKILLS_REFERENCE,
 )
 from .assets import asset_path
+from .config import load_config
+from .errors import ConfigurationError
 from .token_modes import CORE_HELPER_SKILLS, _skill_tree_sha256
 from .util import redact_text
 from .trufflehog import TRUFFLEHOG_REFERENCE, TRUFFLEHOG_VERSION
@@ -99,7 +101,12 @@ def _missing(name: str, detail: str, next_commands: list[str], *, reference: str
     }
 
 
-def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
+def _gbrain(
+    which: WhichFn,
+    runner: RunnerFn,
+    *,
+    project_commands_configured: bool = False,
+) -> dict:
     path = which("gbrain")
     if not path:
         return _missing(
@@ -151,7 +158,8 @@ def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
             "gbrain sources add YOUR_SOURCE_ID --path /absolute/path/to/folder",
             "gbrain sync --source YOUR_SOURCE_ID --json --yes",
         ])
-    configured = bool(config and doctor_probe.get("ok") and sync.get("healthy") and sync.get("source_count", 0) > 0)
+    operational = bool(config and doctor_probe.get("ok") and sync.get("healthy") and sync.get("source_count", 0) > 0)
+    configured = bool(operational or project_commands_configured)
     detail_bits = []
     if config.get("engine"):
         detail_bits.append(f"engine={config['engine']}")
@@ -161,9 +169,11 @@ def _gbrain(which: WhichFn, runner: RunnerFn) -> dict:
         detail_bits.append(f"sources={sync.get('source_count', 0)}")
     if not detail_bits:
         detail_bits.append("installed; setup probes need attention")
+    if project_commands_configured:
+        detail_bits.append("project commands configured")
     return {
         "name": "gbrain",
-        "status": "ok" if configured else "needs_action",
+        "status": "ok" if operational else "needs_action",
         "installed": True,
         "configured": configured,
         "path": path,
@@ -332,13 +342,31 @@ def _clawpatch(which: WhichFn, runner: RunnerFn, codex: dict) -> dict:
     }
 
 
-def _obsidian(which: WhichFn) -> dict:
+def _obsidian(which: WhichFn, *, vault: str = "") -> dict:
     path = which("obsidian")
+    vault_path = Path(vault).expanduser() if vault else None
+    vault_ready = bool(vault_path and vault_path.is_dir())
+    if vault_ready:
+        return {
+            "name": "obsidian",
+            "status": "ok",
+            "installed": bool(path),
+            "configured": True,
+            "path": path or "",
+            "vault": str(vault_path.resolve()),
+            "detail": (
+                "direct Markdown vault configured; Obsidian command also available"
+                if path
+                else "direct Markdown vault configured; desktop command is optional"
+            ),
+            "next_commands": [],
+            "reference": "https://obsidian.md/download",
+        }
     if not path:
         return _missing(
             "obsidian",
-            "Obsidian command not found.",
-            ["Install Obsidian from https://obsidian.md/download"],
+            "Neither a direct Markdown vault nor the Obsidian command is available.",
+            ["Configure an existing vault with `manageroo integrations configure --full --obsidian-vault PATH`."],
             reference="https://obsidian.md/download",
         )
     return {
@@ -350,6 +378,34 @@ def _obsidian(which: WhichFn) -> dict:
         "detail": "command available",
         "next_commands": [],
         "reference": "https://obsidian.md/download",
+    }
+
+
+def _document_analysis(command: object) -> dict:
+    argv = [str(item) for item in command] if isinstance(command, list) else []
+    built_in = bool(
+        len(argv) >= 4
+        and argv[1] == "document-analyze"
+        and "{document_manifest_file}" in argv
+        and "{workspace}" in argv
+    )
+    if built_in:
+        return {
+            "name": "document-analysis",
+            "status": "ok",
+            "installed": True,
+            "configured": True,
+            "detail": "built-in bounded document analyzer configured for controlled runs",
+            "next_commands": [],
+        }
+    return {
+        "name": "document-analysis",
+        "status": "missing",
+        "installed": True,
+        "configured": False,
+        "optional": True,
+        "detail": "built-in analyzer is available but this project has not enabled it",
+        "next_commands": ["manageroo integrations configure --full"],
     }
 
 
@@ -409,17 +465,33 @@ def stack_doctor(
     which: WhichFn = shutil.which,
     runner: RunnerFn = run_probe,
     home: Path | None = None,
+    repo: Path | None = None,
 ) -> dict:
     home = (home or Path.home()).expanduser()
+    integrations: dict = {}
+    repo = repo.expanduser().resolve() if repo is not None else None
+    if repo is not None and (repo / ".manageroo" / "config.toml").is_file():
+        try:
+            integrations = load_config(repo).get("integrations", {})
+        except (ConfigurationError, OSError, ValueError):
+            integrations = {}
     codex = _codex(which, runner)
     trufflehog = _trufflehog(which, runner)
     items = [
-        _gbrain(which, runner),
+        _gbrain(
+            which,
+            runner,
+            project_commands_configured=bool(
+                integrations.get("gbrain_search_command")
+                and integrations.get("gbrain_capture_command")
+            ),
+        ),
         _gitnexus(which, runner),
         trufflehog,
         _autoreview(home, trufflehog),
         _clawpatch(which, runner, codex),
-        _obsidian(which),
+        _obsidian(which, vault=str(integrations.get("obsidian_vault", ""))),
+        _document_analysis(integrations.get("document_analysis_command")),
         _skills(home),
         codex,
     ]

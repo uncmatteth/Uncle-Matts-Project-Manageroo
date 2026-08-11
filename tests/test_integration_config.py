@@ -48,6 +48,42 @@ class IntegrationConfigTests(unittest.TestCase):
             self.assertEqual(current, original)
             self.assertEqual(result["next_command"], "Install GBrain, then run `manageroo integrations configure`.")
 
+    def test_full_configuration_wires_every_recommended_lane(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            vault = root / "obsidian-vault"
+            vault.mkdir()
+            (vault / "MANAGEROO").mkdir()
+
+            def which(name):
+                if name in {"gbrain", "gitnexus", "autoreview", "clawpatch", "manageroo"}:
+                    return f"/usr/bin/{name}"
+                return None
+
+            with patch("manageroo.integration_config.shutil.which", side_effect=which):
+                result = configure_integrations(
+                    repo,
+                    full=True,
+                    obsidian_vault=vault,
+                    obsidian_export_folder="MANAGEROO",
+                    apply=True,
+                )
+
+            config = tomllib.loads(
+                (repo / ".manageroo" / "config.toml").read_text(encoding="utf-8")
+            )["integrations"]
+            self.assertTrue(result["ok"])
+            self.assertEqual(config["obsidian_vault"], str(vault.resolve()))
+            self.assertEqual(config["obsidian_export_folder"], "MANAGEROO")
+            self.assertEqual(config["gbrain_search_command"][:2], ["gbrain", "search"])
+            self.assertNotIn("--json", config["gitnexus_analyze_command"])
+            self.assertEqual(config["gitnexus_analyze_command"][-2:], ["--embedding-device", "cpu"])
+            self.assertEqual(config["gitnexus_query_command"][-2:], ["--repo", "{repo}"])
+            self.assertEqual(config["document_analysis_command"][1], "document-analyze")
+            self.assertEqual(config["autoreview_command"][0], "/usr/bin/autoreview")
+            self.assertEqual(config["clawpatch_command"][0], "/usr/bin/clawpatch")
+
 
 if __name__ == "__main__":
     unittest.main()

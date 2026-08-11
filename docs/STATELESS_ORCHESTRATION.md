@@ -104,3 +104,15 @@ manageroo status <run-id>
 Status explains what happened, what it means, and what to do next in plain
 English. Use `--json` when you explicitly need the phase, current job, completed
 job count, failed attempts, blocking reason, and other machine-readable details.
+
+## Operator Pause Is Final
+
+The host continuity hook treats direct language such as `stop`, `pause until I
+tell you`, and `stop and wait` as an operator pause, not another task. It keeps
+the saved objective but allows the current turn to end without a completion
+receipt and blocks tool use while paused. Questions do not resume that work.
+
+`Resume the saved work` reactivates the saved objective. A clear new command
+such as `Please fix only the pause behavior` starts only that new work and
+replaces the paused backlog. Manageroo must never use unfinished-work
+continuation to override an operator pause.

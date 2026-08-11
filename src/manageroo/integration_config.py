@@ -7,17 +7,25 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from .branding import PROJECT_DIR, PUBLIC_COMMAND
+from .branding import FULL_ACRONYM, PROJECT_DIR, PUBLIC_COMMAND
 from .config import DEFAULT_CONFIG, load_config
 from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
-from .util import atomic_write_text
+from .util import atomic_write_text, safe_repo_relative
 
 
 GBRAIN_SEARCH_COMMAND = ["gbrain", "search", "{query}", "--json"]
-GBRAIN_CAPTURE_COMMAND = ["gbrain", "capture", "--file", "{report_file}"]
-GITNEXUS_ANALYZE_COMMAND = ["gitnexus", "analyze", "{repo}", "--json"]
-GITNEXUS_QUERY_COMMAND = ["gitnexus", "query", "{query}", "--json"]
+GBRAIN_CAPTURE_COMMAND = ["gbrain", "capture", "--file", "{report_file}", "--json"]
+GITNEXUS_ANALYZE_COMMAND = [
+    "gitnexus",
+    "analyze",
+    "{repo}",
+    "--index-only",
+    "--embedding-device",
+    "cpu",
+]
+GITNEXUS_QUERY_COMMAND = ["gitnexus", "query", "{query}", "--repo", "{repo}"]
+DOCUMENT_ANALYSIS_COMMAND = ["manageroo", "document-analyze", "{document_manifest_file}", "{workspace}"]
 
 INTEGRATION_ORDER = [
     "obsidian_vault",
@@ -124,7 +132,26 @@ def _next_command(records: list[dict[str, Any]]) -> str:
                 return f"Install GBrain, then run `{PUBLIC_COMMAND} integrations configure`."
             if record["name"] == "gitnexus":
                 return f"Install GitNexus, then run `{PUBLIC_COMMAND} integrations configure`."
+            if record["name"] == "autoreview":
+                return f"Install AUTOREVIEW, then rerun `{PUBLIC_COMMAND} integrations configure --full`."
+            if record["name"] == "clawpatch":
+                return f"Install ClawPatch, then rerun `{PUBLIC_COMMAND} integrations configure --full`."
+            if record["name"] == "obsidian":
+                return "Supply an existing Markdown vault with `--obsidian-vault PATH`."
     return f"{PUBLIC_COMMAND} ready"
+
+
+def _autoreview_executable() -> str | None:
+    installed = shutil.which("autoreview")
+    if installed:
+        return installed
+    for candidate in (
+        Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview",
+        Path.home() / ".agents" / "skills" / "autoreview" / "scripts" / "autoreview",
+    ):
+        if candidate.is_file() and candidate.stat().st_mode & 0o111:
+            return str(candidate.resolve())
+    return None
 
 
 def configure_integrations(
@@ -134,6 +161,9 @@ def configure_integrations(
     gitnexus: bool = True,
     apply: bool = True,
     force: bool = False,
+    full: bool = False,
+    obsidian_vault: Path | None = None,
+    obsidian_export_folder: str | None = None,
 ) -> dict[str, Any]:
     config_path = repo / PROJECT_DIR / "config.toml"
     if not config_path.exists():
@@ -171,6 +201,150 @@ def configure_integrations(
                 records.append({"name": "gitnexus", "installed": True, "path": installed, "status": "configured" if changed else "kept"})
             else:
                 records.append({"name": "gitnexus", "installed": False, "status": "missing", "next": "Install GitNexus."})
+        if full:
+            manageroo = shutil.which(PUBLIC_COMMAND) or PUBLIC_COMMAND
+            document_command = [manageroo, *DOCUMENT_ANALYSIS_COMMAND[1:]]
+            document_changed = force or not values.get("document_analysis_command")
+            if document_changed:
+                values["document_analysis_command"] = document_command
+            records.append(
+                {
+                    "name": "document-analysis",
+                    "installed": True,
+                    "path": manageroo,
+                    "status": "configured" if document_changed else "kept",
+                }
+            )
+
+            autoreview = _autoreview_executable()
+            if autoreview:
+                autoreview_changed = force or not values.get("autoreview_command")
+                if autoreview_changed:
+                    values["autoreview_command"] = [
+                        autoreview,
+                        "--mode",
+                        "uncommitted",
+                        "--engine",
+                        "codex",
+                        "--no-web-search",
+                        "--max-priority",
+                        "P1",
+                        "--json-output",
+                        "{external_state_dir}/autoreview.json",
+                    ]
+                records.append(
+                    {
+                        "name": "autoreview",
+                        "installed": True,
+                        "path": autoreview,
+                        "status": "configured" if autoreview_changed else "kept",
+                    }
+                )
+            else:
+                records.append(
+                    {
+                        "name": "autoreview",
+                        "installed": False,
+                        "status": "missing",
+                        "next": "Install AUTOREVIEW.",
+                    }
+                )
+
+            clawpatch = shutil.which("clawpatch")
+            if clawpatch:
+                clawpatch_changed = force or not values.get("clawpatch_command")
+                if clawpatch_changed:
+                    values["clawpatch_command"] = [
+                        clawpatch,
+                        "--root",
+                        "{workspace}",
+                        "--state-dir",
+                        "{external_state_dir}/clawpatch",
+                        "--json",
+                        "--no-input",
+                        "ci",
+                        "--limit",
+                        "3",
+                        "--jobs",
+                        "3",
+                        "--include-dirty",
+                    ]
+                records.append(
+                    {
+                        "name": "clawpatch",
+                        "installed": True,
+                        "path": clawpatch,
+                        "status": "configured" if clawpatch_changed else "kept",
+                    }
+                )
+            else:
+                records.append(
+                    {
+                        "name": "clawpatch",
+                        "installed": False,
+                        "status": "missing",
+                        "next": "Install ClawPatch.",
+                    }
+                )
+
+            vault = obsidian_vault.expanduser().resolve(strict=False) if obsidian_vault else None
+            if vault and vault.is_dir():
+                export_folder = safe_repo_relative(
+                    obsidian_export_folder
+                    or str(values.get("obsidian_export_folder") or FULL_ACRONYM)
+                )
+                export_dir = (vault / export_folder).resolve(strict=False)
+                try:
+                    export_dir.relative_to(vault)
+                except ValueError as exc:
+                    raise ConfigurationError(
+                        "Obsidian export folder must stay beneath the configured vault."
+                    ) from exc
+                obsidian_changed = (
+                    force
+                    or values.get("obsidian_vault") != str(vault)
+                    or values.get("obsidian_export_folder") != export_folder
+                )
+                if obsidian_changed:
+                    values["obsidian_vault"] = str(vault)
+                    values["obsidian_export_folder"] = export_folder
+                records.append(
+                    {
+                        "name": "obsidian",
+                        "installed": export_dir.is_dir(),
+                        "path": str(vault),
+                        "status": (
+                            "configured"
+                            if export_dir.is_dir() and obsidian_changed
+                            else "kept"
+                            if export_dir.is_dir()
+                            else "missing"
+                        ),
+                        "next": (
+                            ""
+                            if export_dir.is_dir()
+                            else f"Create the existing-vault export folder: {export_dir}"
+                        ),
+                    }
+                )
+            elif values.get("obsidian_vault") and Path(str(values["obsidian_vault"])).is_dir():
+                records.append(
+                    {
+                        "name": "obsidian",
+                        "installed": True,
+                        "path": str(values["obsidian_vault"]),
+                        "status": "kept",
+                    }
+                )
+            else:
+                records.append(
+                    {
+                        "name": "obsidian",
+                        "installed": False,
+                        "status": "missing",
+                        "next": "Supply an existing Markdown vault.",
+                    }
+                )
         changed = any(record["status"] == "configured" for record in records)
         return values, changed
 

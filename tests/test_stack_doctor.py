@@ -25,6 +25,53 @@ from manageroo.stack_update import (
 
 
 class StackDoctorTests(unittest.TestCase):
+    def test_project_integration_config_is_reported_separately_from_tool_health(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            project_dir = repo / ".manageroo"
+            project_dir.mkdir()
+            vault = repo / "vault"
+            vault.mkdir()
+            (project_dir / "config.toml").write_text(
+                "[integrations]\n"
+                f'obsidian_vault = "{vault}"\n'
+                'gbrain_search_command = ["gbrain", "search", "{query}", "--json"]\n'
+                'gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}", "--json"]\n'
+                'document_analysis_command = ["manageroo", "document-analyze", "{document_manifest_file}", "{workspace}"]\n',
+                encoding="utf-8",
+            )
+
+            def which(name: str) -> str | None:
+                return "/usr/bin/gbrain" if name == "gbrain" else None
+
+            def runner(argv: list[str], _timeout_seconds: int = 30) -> dict:
+                args = argv[1:]
+                if args == ["config", "show"]:
+                    return {"ok": True, "exit_code": 0, "stdout": "engine: postgres\n", "stderr": ""}
+                if args == ["status", "--json", "--section", "sync"]:
+                    return {
+                        "ok": True,
+                        "exit_code": 0,
+                        "stdout": json.dumps({"sync": {"sources": [{"id": "project"}]}}),
+                        "stderr": "",
+                    }
+                if args == ["doctor", "--json"]:
+                    return {"ok": False, "exit_code": 1, "stdout": "{}", "stderr": "doctor warning"}
+                return {"ok": False, "exit_code": 1, "stdout": "", "stderr": "unexpected"}
+
+            report = stack_doctor(which=which, runner=runner, home=repo, repo=repo)
+
+        by_name = {item["name"]: item for item in report["items"]}
+        self.assertTrue(by_name["gbrain"]["configured"])
+        self.assertEqual(by_name["gbrain"]["status"], "needs_action")
+        self.assertIn("project commands configured", by_name["gbrain"]["detail"])
+        self.assertTrue(by_name["obsidian"]["configured"])
+        self.assertFalse(by_name["obsidian"]["installed"])
+        self.assertEqual(by_name["obsidian"]["status"], "ok")
+        self.assertIn("direct Markdown vault", by_name["obsidian"]["detail"])
+        self.assertTrue(by_name["document-analysis"]["configured"])
+        self.assertEqual(by_name["document-analysis"]["status"], "ok")
+
     def test_gbrain_installed_without_sources_gets_mapping_next_steps(self):
         probes = {
             ("gbrain", "config", "show"): {

@@ -1,6 +1,11 @@
 ---
 name: skill-vetter
 description: Vet a third-party agent skill before installation or trust. Use when a user or agent wants to install, import, copy, enable, or rely on a skill from ClawHub, GitHub, a ZIP, another machine, or any other external source.
+triggers:
+  - "vet this third-party skill"
+  - "review this skill before installation"
+  - "is this external skill safe to install"
+  - "check a skill from ClawHub or GitHub"
 ---
 
 # Skill Vetter

@@ -47,8 +47,9 @@ Do not call a plan best, perfect, ready, or 100% complete unless current evidenc
 
 ## Operator communication
 
-Report to the operator in plain everyday English by default. Say what happened,
-what it means for the requested work, and what to do next. Do not lead with
+Report to the operator in plain everyday English by default. Lead with the
+outcome, then say what happened, what it means for the requested work, and what
+to do next. Give one useful next action when action is required. Do not lead with
 process IDs, internal role names, state-file paths, hashes, stack traces, or
 implementation jargon. Keep technical details in saved evidence unless the
 operator explicitly asks for them or requests diagnostic or JSON output.

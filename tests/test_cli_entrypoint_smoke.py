@@ -36,6 +36,14 @@ class CliEntrypointSmokeTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 0)
         self.assertEqual(output.getvalue().strip(), __version__)
 
+    def test_document_analyze_command_accepts_manifest_and_workspace(self):
+        args = parser().parse_args(
+            ["document-analyze", "/tmp/manifest.json", "/tmp/workspace"]
+        )
+        self.assertEqual(args.command, "document-analyze")
+        self.assertEqual(args.manifest, Path("/tmp/manifest.json"))
+        self.assertEqual(args.workspace, Path("/tmp/workspace"))
+
     def test_configured_entrypoint_forwards_version_behavior(self):
         output = io.StringIO()
         with patch.object(sys, "argv", ["manageroo", "--version"]), contextlib.redirect_stdout(output):

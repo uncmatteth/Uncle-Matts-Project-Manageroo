@@ -139,7 +139,16 @@ def load_config(repo: Path) -> dict[str, Any]:
         raw["project"]["max_repair_cycles"] = 0
         raw["project"]["max_plan_review_cycles"] = 0
         raw["orchestration"]["max_worker_attempts"] = 0
-    return _merge(DEFAULT_CONFIG, raw)
+    config = _merge(DEFAULT_CONFIG, raw)
+    local_path = repo / PROJECT_DIR / "config.local.toml"
+    if local_path.exists():
+        try:
+            with local_path.open("rb") as handle:
+                local = tomllib.load(handle)
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigurationError(f"Invalid local Manageroo configuration {local_path}: {exc}") from exc
+        config = _merge(config, local)
+    return config
 
 
 def agent_preset(name: str) -> dict[str, Any]:

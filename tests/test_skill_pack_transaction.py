@@ -1,3 +1,5 @@
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,6 +101,83 @@ class SkillPackTransactionTests(unittest.TestCase):
                 if source_file.path == payload:
                     payload.unlink()
                     symlink_or_skip(self, linked_secret, payload)
+                return original_copy(source_file, destination)
+
+            with patch.object(
+                skill_pack,
+                "_copy_validated_source_file",
+                side_effect=swap_before_open,
+            ):
+                with self.assertRaisesRegex(ValueError, "Skill source changed during import"):
+                    import_skill_folder(source_root, skills_dir=skills, apply=True)
+
+            self.assertEqual(snapshot(target), before)
+            self.assertEqual(list(skills.glob(".demo-skill.manageroo-stage-*")), [])
+            installed = snapshot(target).values()
+            self.assertFalse(any(linked_secret.read_bytes() in content for content in installed))
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction regression")
+    def test_source_junction_swap_after_validation_preserves_active_destination(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            source_root = root / "source"
+            source_skill = source_root / "demo-skill"
+            source_skill.mkdir(parents=True)
+            (source_skill / "SKILL.md").write_text(
+                "---\nname: demo-skill\n---\nnew skill\n",
+                encoding="utf-8",
+            )
+            payload = source_skill / "payload.txt"
+            payload.write_text("safe payload\n", encoding="utf-8")
+
+            replacement = root / "replacement"
+            replacement.mkdir()
+            (replacement / "SKILL.md").write_text(
+                "---\nname: demo-skill\n---\nunreviewed skill\n",
+                encoding="utf-8",
+            )
+            linked_secret = replacement / "payload.txt"
+            linked_secret.write_text("must not be installed\n", encoding="utf-8")
+
+            skills = root / "skills"
+            target = skills / "demo-skill"
+            target.mkdir(parents=True)
+            (target / "SKILL.md").write_text("old skill\n", encoding="utf-8")
+            (target / "keep.txt").write_text("keep me\n", encoding="utf-8")
+            before = snapshot(target)
+
+            import manageroo.skill_pack as skill_pack
+
+            original_copy = skill_pack._copy_validated_source_file
+            original_source = source_root / "demo-skill-original"
+
+            def swap_before_open(source_file, destination):
+                if source_file.path == payload:
+                    source_skill.rename(original_source)
+                    completed = subprocess.run(
+                        [
+                            os.environ.get("COMSPEC", "cmd.exe"),
+                            "/d",
+                            "/s",
+                            "/c",
+                            'mklink /J "%MANAGEROO_TEST_JUNCTION%" '
+                            '"%MANAGEROO_TEST_JUNCTION_TARGET%"',
+                        ],
+                        check=False,
+                        capture_output=True,
+                        env={
+                            **os.environ,
+                            "MANAGEROO_TEST_JUNCTION": str(source_skill),
+                            "MANAGEROO_TEST_JUNCTION_TARGET": str(replacement),
+                        },
+                        text=True,
+                        shell=False,
+                    )
+                    if completed.returncode != 0:
+                        self.skipTest(
+                            "directory junction unavailable: "
+                            + (completed.stderr or completed.stdout).strip()
+                        )
                 return original_copy(source_file, destination)
 
             with patch.object(

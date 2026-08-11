@@ -11,9 +11,34 @@ The intended full installation can include:
 - TruffleHog for AUTOREVIEW's local pre-review secret scan;
 - AUTOREVIEW for external review;
 - Clawpatch for external review and repair;
-- Obsidian for human-readable knowledge.
+- Obsidian for human-readable knowledge;
+- Manageroo's bounded document analyzer for locked prose and PDF inputs.
 
 These integrations are first-class parts of the full Manageroo experience without becoming completion authorities.
+
+## Activate the full stack in a project
+
+Installing tools makes them available; project configuration makes controlled
+runs use them. Activate every locally supported lane with one explicit command:
+
+```bash
+manageroo integrations configure . --full \
+  --obsidian-vault /path/to/existing/vault \
+  --obsidian-export-folder Existing-Inbox
+```
+
+This configures GBrain search/capture, GitNexus index/query, bounded document
+analysis, AUTOREVIEW, ClawPatch CI review, and direct Markdown-vault
+search/export. The configurator uses the installed CLI syntax it was tested
+against; GitNexus runs in `--index-only` mode so it does not rewrite repository
+instructions and uses the portable CPU embedding path instead of assuming a
+working CUDA provider.
+
+`manageroo stack-doctor` reads the current project's integration block. It
+reports project wiring separately from provider health: a configured GBrain
+lane can still need doctor attention, while an existing direct Markdown vault
+counts as a working Obsidian lane even when the optional desktop command is not
+installed. The built-in document analyzer appears as its own stack item.
 
 ## Evidence provider boundary
 

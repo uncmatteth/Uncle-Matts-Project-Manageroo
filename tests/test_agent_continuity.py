@@ -314,7 +314,7 @@ class AgentContinuityTests(unittest.TestCase):
                     "session_id": "session",
                     "turn_id": "turn-2",
                     "cwd": "/project",
-                    "prompt": "No, use /opt/new-project. That is the repository.",
+                    "prompt": "No, use only /opt/new-project. That is the repository.",
                 },
                 state_root=root,
             )
@@ -476,7 +476,7 @@ class AgentContinuityTests(unittest.TestCase):
                 "deny",
             )
 
-    def test_bare_stop_is_an_explicit_replacement(self):
+    def test_bare_stop_pauses_the_existing_objective(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             capture_current_request(
@@ -493,8 +493,181 @@ class AgentContinuityTests(unittest.TestCase):
                 cwd="/project",
                 state_root=root,
             )
-            self.assertEqual([item["text"] for item in state["messages"]], ["stop"])
-            self.assertEqual(state["generation"], 2)
+            self.assertEqual(
+                [item["text"] for item in state["messages"]],
+                ["Keep working on the old task."],
+            )
+            self.assertEqual(state["status"], "paused")
+            self.assertEqual(state["generation"], 1)
+
+    def test_natural_stop_and_wait_language_pauses_until_operator_resumes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the release.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            paused = capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="Stop and just wait. I will tell you when you can work again.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(paused["status"], "paused")
+            self.assertEqual([item["text"] for item in paused["messages"]], ["Complete the release."])
+            stopped = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "last_assistant_message": "Stopped. I will wait.",
+                },
+                state_root=root,
+            )
+            self.assertEqual(stopped, {})
+
+    def test_question_during_pause_does_not_resume_saved_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="I told you to stop.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            paused = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt="Why did Manageroo ignore my instruction?",
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(paused["status"], "paused")
+            self.assertEqual([item["text"] for item in paused["messages"]], ["Complete the release."])
+
+    def test_explicit_resume_reactivates_the_saved_objective(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="Pause until I tell you to resume.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            resumed = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt="Resume the saved work now.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(resumed["status"], "active")
+            self.assertEqual([item["text"] for item in resumed["messages"]], ["Complete the release."])
+
+    def test_clear_new_work_request_replaces_paused_backlog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the entire release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="Stop and wait until I tell you what to do.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            resumed = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt="Please fix only the pause behavior.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(resumed["status"], "active")
+            self.assertEqual(
+                [item["text"] for item in resumed["messages"]],
+                ["Please fix only the pause behavior."],
+            )
+            self.assertEqual(resumed["generation"], 2)
+
+    def test_paused_state_blocks_tools_and_uses_plain_pause_context(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Complete the release.",
+                },
+                state_root=root,
+            )
+            paused = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "prompt": "I told you to stop and wait.",
+                },
+                state_root=root,
+            )
+            context = paused["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("Manageroo update", context)
+            self.assertIn("will not resume, monitor, or use tools", context)
+            self.assertNotIn("Finish every request below", context)
+
+            denied = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "pwd"},
+                },
+                state_root=root,
+            )
+            self.assertEqual(
+                denied["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+            self.assertIn("has not explicitly resumed", denied["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_internal_stop_continuation_is_not_added_as_operator_intent(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -515,9 +688,10 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(initial["messages"], continued["messages"])
 
-    def test_prompt_hook_never_blocks_operator_and_injects_full_objective(self):
+    def test_prompt_hook_keeps_exact_objective_private_and_prints_compact_status(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            long_detail = "terminal-output-that-must-not-be-replayed " * 80
             first = process_codex_continuity_hook(
                 {
                     "hook_event_name": "UserPromptSubmit",
@@ -534,16 +708,141 @@ class AgentContinuityTests(unittest.TestCase):
                     "session_id": "session",
                     "turn_id": "turn-2",
                     "cwd": "/project",
-                    "prompt": "Answer this side question, then continue.",
+                    "prompt": f"Also improve the progress messages. {long_detail}",
                 },
                 state_root=root,
             )
             self.assertNotIn("decision", first)
             self.assertNotIn("decision", second)
             context = second["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("Finish the existing job.", context)
-            self.assertIn("Answer this side question, then continue.", context)
-            self.assertIn("resume the unfinished work", context)
+            self.assertIn("🦘 Manageroo update", context)
+            self.assertIn("🎯 You asked:", context)
+            self.assertIn("🛠️ Manageroo is doing:", context)
+            self.assertIn("📍 Status:", context)
+            self.assertNotIn(long_detail, context)
+            self.assertLessEqual(len(context), 1200)
+            self.assertIn("[🎉 Manageroo: request complete]", context)
+            self.assertIn("(#manageroo-continuity-", context)
+            self.assertNotIn("<!-- manageroo-continuity:", context)
+
+            state = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
+            self.assertEqual(
+                state["messages"][1]["text"],
+                f"Also improve the progress messages. {long_detail}".strip(),
+            )
+
+    def test_continuity_messages_use_fun_scan_markers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Finish the active request.",
+                },
+                state_root=root,
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "prompt": "Also make the messages fun.",
+                },
+                state_root=root,
+            )
+
+            context = result["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("🦘 Manageroo update", context)
+            self.assertIn("🎯 You asked:", context)
+            self.assertIn("🛠️ Manageroo is doing:", context)
+            self.assertIn("📍 Status:", context)
+            self.assertIn("[🎉 Manageroo: request complete]", context)
+            self.assertIn("[🚧 Manageroo: waiting on an external blocker]", context)
+
+    def test_side_question_does_not_expand_the_active_objective(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Repair the continuity output and verify it.",
+                },
+                state_root=root,
+            )
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "prompt": "Why did Manageroo print the whole request again?",
+                },
+                state_root=root,
+            )
+
+            state = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
+            self.assertEqual(
+                [item["text"] for item in state["messages"]],
+                ["Repair the continuity output and verify it."],
+            )
+            self.assertIn("1 active work item", result["hookSpecificOutput"]["additionalContext"])
+
+    def test_compact_status_projection_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            event = {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "session",
+                "turn_id": "turn-1",
+                "cwd": "/project",
+                "prompt": "Fix the useful progress summary.",
+            }
+            first = process_codex_continuity_hook(event, state_root=root)
+            second = process_codex_continuity_hook(event, state_root=root)
+            self.assertEqual(
+                first["hookSpecificOutput"]["additionalContext"],
+                second["hookSpecificOutput"]["additionalContext"],
+            )
+
+    def test_pre_tool_reminder_names_the_active_task(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Fix the Manageroo prompt partitioning and publish the release.",
+                },
+                state_root=root,
+            )
+
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "pwd"},
+                },
+                state_root=root,
+            )
+
+            context = result["hookSpecificOutput"]["additionalContext"]
+            self.assertIn(
+                "You asked: Fix the Manageroo prompt partitioning and publish the release.",
+                context,
+            )
+            self.assertNotIn("Stay with the current Manageroo request", context)
 
     def test_stop_hook_continues_agent_until_current_objective_is_marked_complete(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -557,11 +856,10 @@ class AgentContinuityTests(unittest.TestCase):
             }
             response = process_codex_continuity_hook(prompt, state_root=root)
             context = response["hookSpecificOutput"]["additionalContext"]
-            marker = next(
-                line
-                for line in context.splitlines()
-                if line.startswith("<!-- manageroo-continuity:") and line.endswith(":complete -->")
+            marker_line = next(
+                line for line in context.splitlines() if "[🎉 Manageroo: request complete]" in line
             )
+            marker = marker_line[marker_line.index("[🎉 Manageroo: request complete]") :]
             stopped = process_codex_continuity_hook(
                 {
                     "hook_event_name": "Stop",
@@ -575,6 +873,8 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(stopped["decision"], "block")
             self.assertIn("resume and finish", stopped["reason"])
+            self.assertNotIn("# 🦘 Manageroo: current request", stopped["reason"])
+            self.assertLessEqual(len(stopped["reason"]), 1600)
             completed = process_codex_continuity_hook(
                 {
                     "hook_event_name": "Stop",
@@ -582,6 +882,68 @@ class AgentContinuityTests(unittest.TestCase):
                     "turn_id": "turn-1",
                     "cwd": "/project",
                     "last_assistant_message": f"Verified completion.\n{marker}",
+                    "stop_hook_active": True,
+                },
+                state_root=root,
+            )
+            self.assertEqual(completed, {})
+
+    def test_stop_hook_accepts_legacy_hidden_marker_during_upgrade(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Finish and verify the job.",
+                },
+                state_root=root,
+            )
+            state = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
+            legacy_marker = (
+                "<!-- manageroo-continuity:"
+                f"{state['objective_sha256']}:complete -->"
+            )
+            completed = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "last_assistant_message": f"Verified completion.\n{legacy_marker}",
+                    "stop_hook_active": True,
+                },
+                state_root=root,
+            )
+            self.assertEqual(completed, {})
+
+    def test_stop_hook_accepts_previous_plain_badge_during_upgrade(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Finish and verify the job.",
+                },
+                state_root=root,
+            )
+            state = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
+            previous_marker = (
+                "[Manageroo: request complete](#manageroo-continuity-"
+                f"{state['objective_sha256']}-complete)"
+            )
+            completed = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "last_assistant_message": f"Verified completion.\n{previous_marker}",
                     "stop_hook_active": True,
                 },
                 state_root=root,
@@ -612,6 +974,75 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+
+    def test_external_copy_source_is_read_only_when_destination_is_in_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            external_input = root / "image-library" / "CONTENT_IMAGE.png"
+            external_input.parent.mkdir()
+            external_input.write_bytes(b"fixture")
+
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                "Use the supplied content image in this project.",
+                f"cp {external_input} input/CONTENT_IMAGE.png",
+            )
+
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
+
+    def test_copy_destination_outside_explicit_scope_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            outside = root / "other-repo"
+            outside.mkdir()
+            (outside / ".git").mkdir()
+
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                "Work only in this repository. Copy the generated image into it.",
+                f"cp generated.png {outside / 'CONTENT_IMAGE.png'}",
+            )
+
+            self.assertEqual(
+                result["hookSpecificOutput"]["permissionDecision"],
+                "deny",
+            )
+
+    def test_python_copy_source_is_read_only_when_destination_is_in_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            external_input = root / "image-library" / "CONTENT_IMAGE.png"
+            external_input.parent.mkdir()
+            external_input.write_bytes(b"fixture")
+
+            result = self._shell_decision(
+                root / "state",
+                repo,
+                "Use the supplied content image in this project.",
+                (
+                    "python3 -c \"import shutil; "
+                    f"shutil.copy({str(external_input)!r}, 'input/CONTENT_IMAGE.png')\""
+                ),
+            )
+
             self.assertNotEqual(
                 result.get("hookSpecificOutput", {}).get("permissionDecision"),
                 "deny",
@@ -681,7 +1112,7 @@ class AgentContinuityTests(unittest.TestCase):
                         "deny",
                     )
 
-    def test_tool_cwd_cannot_rebind_scope_to_another_repository(self):
+    def test_tool_cwd_cannot_escape_an_explicit_repository_scope(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -693,7 +1124,7 @@ class AgentContinuityTests(unittest.TestCase):
             result = self._shell_decision(
                 root / "state",
                 repo,
-                "Fix this repository and verify it.",
+                "Work only in this repository. Fix and verify it.",
                 "touch drift.py",
                 event_cwd=other_repo,
             )
@@ -737,7 +1168,7 @@ class AgentContinuityTests(unittest.TestCase):
                 "deny",
             )
 
-    def test_redirect_to_unrelated_external_path_is_still_rejected(self):
+    def test_external_target_is_allowed_without_an_explicit_scope_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -766,8 +1197,8 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root / "state",
             )
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"],
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
                 "deny",
             )
 
@@ -799,7 +1230,7 @@ class AgentContinuityTests(unittest.TestCase):
                 result["hookSpecificOutput"]["permissionDecision"], "deny"
             )
 
-    def test_current_git_root_is_scope_without_magic_path_phrase(self):
+    def test_current_git_root_is_not_an_implicit_operator_scope_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -826,8 +1257,9 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root / "state",
             )
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"], "deny"
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
             )
 
     def test_agent_mutation_of_different_named_target_is_rejected(self):
@@ -859,7 +1291,11 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(
                 result["hookSpecificOutput"]["permissionDecision"], "deny"
             )
-            self.assertIn("agent's unrelated mutation", result["hookSpecificOutput"]["permissionDecisionReason"])
+            reason = result["hookSpecificOutput"]["permissionDecisionReason"]
+            self.assertIn("Manageroo stopped this agent action.", reason)
+            self.assertIn("Target:", reason)
+            self.assertIn("Why:", reason)
+            self.assertIn("Next:", reason)
 
     def test_sentence_punctuation_does_not_change_named_external_path(self):
         with tempfile.TemporaryDirectory() as temp:

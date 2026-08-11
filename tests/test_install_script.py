@@ -319,9 +319,12 @@ class InstallScriptTests(unittest.TestCase):
                 patch.object(install, "run", return_value=command_result),
                 patch.object(install, "tree_hash", return_value="a" * 64),
                 patch.object(install, "uninstall_plan", return_value={"paths": []}),
-                redirect_stdout(io.StringIO()),
+                redirect_stdout(output := io.StringIO()),
             ):
                 self.assertEqual(install.main(), 0)
+
+            self.assertIn("PRESERVED recommended-stack", output.getvalue())
+            self.assertNotIn("ACTION recommended-stack", output.getvalue())
 
             lock = json.loads((prefix / "install-lock.json").read_text(encoding="utf-8"))
             self.assertEqual(lock["detected_coding_agents"], detected)

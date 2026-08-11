@@ -31,12 +31,17 @@ pretend it understood images.
 ```toml
 [integrations]
 document_analysis_command = [
-  "python3",
-  "scripts/document_intel.py",
+  "manageroo",
+  "document-analyze",
   "{document_manifest_file}",
-  "{document_state_dir}"
+  "{workspace}"
 ]
 ```
+
+The bundled command performs bounded, hash-checked extraction of headings and
+opening/closing excerpts. When `pdftotext` is available it extracts only the
+first three PDF pages. It does not embed a model runtime or claim visual
+understanding.
 
 Supported placeholders:
 

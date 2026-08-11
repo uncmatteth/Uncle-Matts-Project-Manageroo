@@ -22,7 +22,8 @@ The controller, not an agent, owns phase transitions, task scope, context budget
 verification gates, review acceptance, and completion status.
 
 When reporting back to the operator, use plain everyday English by default.
-Explain what happened, what it means, and what to do next. Do not lead with
+Lead with the outcome, then explain what happened, what it means, and what to do next.
+Give one useful next action when action is required. Do not lead with
 process IDs, internal role names, state-file paths, hashes, stack traces, or
 implementation jargon. Keep those details in the saved evidence unless the operator explicitly asks
 for them or requests diagnostic or JSON output.

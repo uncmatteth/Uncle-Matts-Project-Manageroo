@@ -74,7 +74,17 @@ operator-requested Git commits and pushes remain available. An explicit
 `only <file>` clause still narrows mutations to that file. The stop hook
 continues the agent until it marks the complete active objective verified or
 reports one concrete external blocker. The installer preserves unrelated Codex
-hooks.
+hooks. Completion stays bound to the exact active request, but normal replies
+show only a short `Manageroo: request complete` badge. The request hash lives in
+the badge's Markdown link target instead of appearing as a long raw HTML
+comment. Existing sessions carrying the older comment form remain valid during
+an upgrade.
+
+Manageroo's normal human-facing output follows one rule: say the outcome first,
+then explain what happened, what it means, and the one useful next action.
+Internal IDs, hashes, state paths, and raw records belong in `--json` output or
+diagnostic evidence unless they are necessary to solve the problem. See
+[`docs/OPERATOR_OUTPUT.md`](docs/OPERATOR_OUTPUT.md).
 
 When the source, targets, exclusions, and proof are already known, use the
 exact-task path. It skips model-driven product discovery, reuse research,
@@ -514,6 +524,19 @@ Manageroo
 ```
 
 These integrations add capabilities. They do not become the authority over Manageroo completion.
+
+Installing them and using them are separate steps. Activate the complete local
+stack for one project with:
+
+```bash
+manageroo integrations configure . --full \
+  --obsidian-vault /path/to/existing/vault \
+  --obsidian-export-folder Existing-Inbox
+```
+
+That wires GBrain, GitNexus, bounded document analysis, AUTOREVIEW, ClawPatch,
+and the Markdown vault into controlled runs. The explicit `--full` matters
+because AUTOREVIEW and ClawPatch perform real closeout reviews.
 
 Inspect what is installed and configured:
 

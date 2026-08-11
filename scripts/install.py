@@ -1354,14 +1354,19 @@ def main() -> int:
                 {
                     "name": "recommended-stack",
                     "skipped": True,
-                    "reason": "Stack install skipped. Rerun with --install-stack to install or guide GBrain, GitNexus, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian.",
+                    "preserved": True,
+                    "reason": "Existing stack preserved because --skip-stack was selected.",
                 }
             )
 
         _assert_download_sources_immutable(downloads)
         stack_summary = summarize_external_tools(external_tools)
         for item in stack_summary["items"]:
-            state = "OK" if item["installed"] and not item["needs_action"] else "ACTION"
+            state = (
+                "PRESERVED"
+                if item.get("preserved")
+                else "OK" if item["installed"] and not item["needs_action"] else "ACTION"
+            )
             print(f"  {state} {item['name']}")
             for command in item.get("next_commands", []):
                 print(f"    next: {command}")

@@ -24,6 +24,7 @@ from .checks import (
 from .chiptune import play_once
 from .config import AGENT_PRESETS, DEFAULT_CONFIG, apply_agent_preset, load_config
 from .doctor import doctor
+from .document_analysis_command import analyze_document_manifest
 from .errors import ConfigurationError, MANAGEROOError
 from .gbrain_setup import format_gbrain_setup, gbrain_setup_status
 from .ideas import IdeaInbox
@@ -469,18 +470,39 @@ def parser() -> argparse.ArgumentParser:
     gbrain_setup.add_argument("--sync", action="store_true")
     gbrain_setup.add_argument("--json", action="store_true")
 
-    integrations = sub.add_parser("integrations", help="Configure optional GBrain/GitNexus command wiring.")
+    integrations = sub.add_parser("integrations", help="Configure Manageroo's optional surrounding tools.")
     integrations_sub = integrations.add_subparsers(dest="integrations_command", required=True)
     integrations_configure = integrations_sub.add_parser(
         "configure",
-        help="Detect installed GBrain/GitNexus and write integration command templates.",
+        help="Detect installed tools and write valid integration command templates.",
     )
     integrations_configure.add_argument("repo", nargs="?", default=".")
     integrations_configure.add_argument("--no-gbrain", action="store_true")
     integrations_configure.add_argument("--no-gitnexus", action="store_true")
+    integrations_configure.add_argument(
+        "--full",
+        action="store_true",
+        help="Also configure document analysis, AUTOREVIEW, ClawPatch, and Obsidian.",
+    )
+    integrations_configure.add_argument(
+        "--obsidian-vault",
+        type=Path,
+        help="Existing Markdown vault used by the full Obsidian lane.",
+    )
+    integrations_configure.add_argument(
+        "--obsidian-export-folder",
+        help="Existing folder beneath the vault for Manageroo run reports.",
+    )
     integrations_configure.add_argument("--no-apply", action="store_true")
     integrations_configure.add_argument("--force", action="store_true")
     integrations_configure.add_argument("--json", action="store_true")
+
+    document_analyze = sub.add_parser(
+        "document-analyze",
+        help="Produce bounded document evidence from a Manageroo manifest.",
+    )
+    document_analyze.add_argument("manifest", type=Path)
+    document_analyze.add_argument("workspace", type=Path)
 
     agent = sub.add_parser("agent", help="Inspect or switch agent CLI presets.")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
@@ -837,7 +859,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "stack-doctor":
-            result = stack_doctor()
+            result = stack_doctor(repo=Path.cwd())
             if args.json:
                 print(json.dumps(result, indent=2))
             else:
@@ -1137,12 +1159,20 @@ def main(argv: list[str] | None = None) -> int:
                 gitnexus=not args.no_gitnexus,
                 apply=not args.no_apply,
                 force=args.force,
+                full=args.full,
+                obsidian_vault=args.obsidian_vault,
+                obsidian_export_folder=args.obsidian_export_folder,
             )
             if args.json:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_integration_config(result), end="")
             return 0 if result["ok"] else 2
+
+        if args.command == "document-analyze":
+            result = analyze_document_manifest(args.manifest, args.workspace)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 0
 
         if args.command == "agent":
             if args.agent_command == "list":

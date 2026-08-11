@@ -233,15 +233,16 @@ def summarize_external_tools(external_tools: list[dict[str, Any]]) -> dict[str, 
         configured_present = "configured" in tool
         configured = bool(tool.get("configured"))
         skipped = bool(tool.get("skipped"))
+        preserved = bool(tool.get("preserved"))
         next_commands = list(tool.get("next_commands") or []) + list(tool.get("guidance_commands") or [])
-        needs_action = bool(skipped or tool.get("guidance") or tool.get("error") or next_commands or not installed or (configured_present and not configured))
+        needs_action = False if preserved else bool(skipped or tool.get("guidance") or tool.get("error") or next_commands or not installed or (configured_present and not configured))
         counts["installed"] += 1 if installed else 0
         counts["configured"] += 1 if configured else 0
         counts["skipped"] += 1 if skipped else 0
         counts["needs_action"] += 1 if needs_action else 0
         items.append({
             "name": tool.get("name", "unknown"), "installed": installed, "configured": configured,
-            "skipped": skipped, "needs_action": needs_action, "path": tool.get("path"),
+            "skipped": skipped, "preserved": preserved, "needs_action": needs_action, "path": tool.get("path"),
             "version": tool.get("version"), "reason": tool.get("reason") or tool.get("guidance") or tool.get("error") or "",
             "next_commands": next_commands, "reference": tool.get("reference"),
         })

@@ -23,6 +23,7 @@ htmlcov/
 *.keystore
 .manageroo/runs/
 .manageroo/cache/
+.manageroo/config.local.toml
 .manageroo/PRODUCT-BRIEF.md
 .manageroo/PROJECT-MEMORY.md
 .manageroo/intent/

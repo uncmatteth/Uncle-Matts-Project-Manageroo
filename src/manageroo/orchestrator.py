@@ -90,6 +90,28 @@ def _compact_json(value: Any, max_chars: int = 180_000) -> str:
     return text
 
 
+def _partition_json_artifacts(
+    values: list[dict], *, max_chars: int = 90_000
+) -> list[list[dict]]:
+    """Keep every reducer input complete while bounding each serialized batch."""
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    for value in values:
+        _compact_json([value], max_chars=max_chars)
+        candidate = [*current, value]
+        try:
+            _compact_json(candidate, max_chars=max_chars)
+        except ValidationError:
+            if current:
+                batches.append(current)
+            current = [value]
+        else:
+            current = candidate
+    if current:
+        batches.append(current)
+    return batches
+
+
 def _one_line_query(text: str, max_chars: int = 1200) -> str:
     return " ".join(text.split())[:max_chars]
 
@@ -1272,20 +1294,51 @@ class Orchestrator:
             enabled=bool(self.config.get("orchestration", {}).get("parallel_mapping", True)),
         )
 
-        reduced = self._call(
-            role="map-reducer",
-            schema="system-map.schema.json",
-            capability_intent=_capability_intent(brief),
-            instructions=(
-                "# Repository map reducer\n\n"
-                "Combine the independently produced map parts into one canonical system map. "
-                "Resolve duplicates and contradictions conservatively. Preserve uncertainty. "
-                "Return integration order at the capability level, not implementation details.\n\n"
-                f"Product brief:\n{brief}\n\n"
-                f"Map parts:\n{_compact_json(maps)}"
-            ),
-            metadata={"all_paths": [item["path"] for item in inventory]},
-        )
+        layer = maps
+        reduction_level = 0
+        while True:
+            reduction_level += 1
+            batches = _partition_json_artifacts(layer)
+            reduced_layer: list[dict] = []
+            for batch_index, batch in enumerate(batches, start=1):
+                final_batch = len(batches) == 1
+                reduced_layer.append(
+                    self._call(
+                        role="map-reducer",
+                        schema="system-map.schema.json",
+                        capability_intent=_capability_intent(brief),
+                        instructions=(
+                            "# Repository map reducer\n\n"
+                            "Combine the supplied map parts into one canonical system map. "
+                            "Resolve duplicates and contradictions conservatively. Preserve uncertainty. "
+                            "Return integration order at the capability level, not implementation details. "
+                            + (
+                                "This is the final reduction."
+                                if final_batch
+                                else "This is an intermediate reduction; preserve information needed by the final reducer."
+                            )
+                            + "\n\n"
+                            f"Product brief:\n{brief}\n\n"
+                            f"Reduction batch: level-{reduction_level}-batch-{batch_index}\n\n"
+                            f"Map parts:\n{_compact_json(batch)}"
+                        ),
+                        metadata={
+                            "all_paths": [item["path"] for item in inventory],
+                            "reduction_level": reduction_level,
+                            "batch_index": batch_index,
+                            "batch_count": len(batches),
+                        },
+                    )
+                )
+            if len(reduced_layer) == 1:
+                reduced = reduced_layer[0]
+                break
+            if len(reduced_layer) >= len(layer) and all(len(batch) == 1 for batch in batches):
+                raise ValidationError(
+                    "A single system-map part exceeded the reducer batch budget after reduction. "
+                    "Reduce the mapper output size before continuing."
+                )
+            layer = reduced_layer
         self._write_or_reuse_json("planning/system-map.json", reduced, lock=True)
         write_system_map_cache(cache_path, inventory=inventory, brief=brief, system_map=reduced)
         self._write_or_reuse_json(

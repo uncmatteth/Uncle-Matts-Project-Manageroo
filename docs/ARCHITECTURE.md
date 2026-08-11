@@ -27,16 +27,15 @@ CLI
 
 Manageroo uses two distinct control layers. Codex continuity hooks preserve the
 operator-facing agent's unfinished objective across follow-up messages,
-resumption, and compaction. `UserPromptSubmit` adds the current message without
-ever blocking it; explicit cancel/replace language and an unambiguous natural
+resumption, and compaction. `UserPromptSubmit` stores actionable operator work
+without ever blocking it; side questions remain conversation instead of growing
+the active objective. Explicit cancel/replace language and an unambiguous natural
 correction such as `No, use this instead` supersede unfinished work. `PreToolUse`
-rejects only supported mutations that are clearly outside the objective
-repository and named external targets, or explicitly excluded by the operator.
-Ordinary reads, bounded temporary evidence, mutations inside the objective
-repository, explicitly named external targets, and requested Git delivery remain
-available through normal host tools. Agent-written findings, recommendations,
-cleanup ideas, and next-step language never broaden the repository or named-target
-scope. Paths
+rejects only supported mutations that violate an explicit `only` boundary or an
+explicit operator exclusion. The current repository is context, not an implicit
+permission wall: external targets remain available unless the operator narrowed
+the scope. Agent-written findings, recommendations, cleanup ideas, and next-step
+language never create an operator exclusion. Paths
 mentioned only in questions, quotations, block quotes, or historical examples
 remain context and do not enter the named mutation scope. Shell
 redirection binds only its output target; it does not turn other absolute paths
@@ -48,6 +47,19 @@ the same path boundary. `Stop`
 continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.
+
+Routine prompt, tool, and stop events render a deterministic bounded projection:
+one short `You asked` line, the action Manageroo is taking, and active/paused
+status. The exact objective stays in private continuity state and is reinjected
+only for session recovery, subagent startup, or post-compaction recovery. This
+keeps the agent on task without repeatedly spending context on the full prompt.
+
+The stop handshake is request-hash-bound but rendered as a short Markdown badge.
+The operator sees `🎉 Manageroo: request complete` or a `🚧` waiting status; the
+full request hash stays in the link target. The hook also accepts the former raw
+HTML marker so upgrading Manageroo cannot strand an already-running session.
+Hook denials use a consistent target, reason, and next-action layout instead of
+one dense implementation sentence.
 
 The stronger repository boundary controls processes launched through
 `manageroo run`. The host's normal workspace and approval policy remains the
@@ -239,6 +251,12 @@ Before the final report exists, successful lane manifests form the same command-
 an interrupted run restores its latest validated checkpoint without repeating completed lanes.
 
 These systems are capabilities, not completion authorities.
+
+`manageroo integrations configure --full` is the explicit project-level bridge
+between an installed surrounding stack and controlled-run use. It validates an
+existing Obsidian vault/export folder and writes argv-only templates for every
+available lane. Merely finding a binary in the host stack is not reported as an
+active Manageroo integration.
 
 ```text
 GitNexus / GBrain / TruffleHog / AUTOREVIEW / Clawpatch / Obsidian

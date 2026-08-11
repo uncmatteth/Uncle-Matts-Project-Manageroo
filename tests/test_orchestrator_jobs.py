@@ -13,7 +13,7 @@ from manageroo.adapters.base import AgentAdapter, AgentRequest, AgentResponse
 from manageroo.cli import main, parser
 from manageroo.errors import AgentExecutionError, BlockingDecisionError, SafetyError, ValidationError
 from manageroo.intent_lock import capture_intent_lock, read_intent_lock
-from manageroo.orchestrator import Orchestrator
+from manageroo.orchestrator import Orchestrator, _compact_json, _partition_json_artifacts
 from manageroo.project import initialize_project
 from manageroo.util import atomic_write_json, read_json
 
@@ -23,6 +23,18 @@ def _toml_array(items):
 
 
 class OrchestratorJobCliTests(unittest.TestCase):
+    def test_system_map_reducer_inputs_are_partitioned_below_the_prompt_budget(self):
+        parts = [
+            {"chunk_id": f"chunk-{index}", "modules": [{"detail": "x" * 32_000}]}
+            for index in range(8)
+        ]
+
+        batches = _partition_json_artifacts(parts, max_chars=80_000)
+
+        self.assertGreater(len(batches), 1)
+        self.assertEqual([item for batch in batches for item in batch], parts)
+        self.assertTrue(all(len(_compact_json(batch)) <= 80_000 for batch in batches))
+
     def _repo(self, root: Path) -> Path:
         repo = root / "repo"
         repo.mkdir()

@@ -204,9 +204,21 @@ Example:
 [integrations]
 gbrain_search_command = ["gbrain", "search", "{query}", "--json"]
 gbrain_capture_command = ["gbrain", "capture", "--file", "{report_file}"]
-gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--json"]
-gitnexus_query_command = ["gitnexus", "query", "{query}", "--json"]
-document_analysis_command = ["python3", "scripts/document_intel.py", "{document_manifest_file}", "{document_state_dir}"]
-autoreview_command = []
-clawpatch_command = []
+gitnexus_analyze_command = ["gitnexus", "analyze", "{repo}", "--index-only", "--embedding-device", "cpu"]
+gitnexus_query_command = ["gitnexus", "query", "{query}", "--repo", "{repo}"]
+document_analysis_command = ["manageroo", "document-analyze", "{document_manifest_file}", "{workspace}"]
+autoreview_command = ["autoreview", "--mode", "uncommitted", "--engine", "codex", "--no-web-search", "--max-priority", "P1", "--json-output", "{external_state_dir}/autoreview.json"]
+clawpatch_command = ["clawpatch", "--root", "{workspace}", "--state-dir", "{external_state_dir}/clawpatch", "--json", "--no-input", "ci", "--limit", "3", "--jobs", "3", "--include-dirty"]
 ```
+
+Use the explicit full-stack configurator to detect those local commands and an
+existing Markdown vault without hand-editing TOML:
+
+```bash
+manageroo integrations configure . --full \
+  --obsidian-vault /path/to/vault \
+  --obsidian-export-folder Existing-Inbox
+```
+
+The export folder must already exist beneath the vault. `--full` is explicit
+because AUTOREVIEW and ClawPatch run real closeout reviews on controlled runs.

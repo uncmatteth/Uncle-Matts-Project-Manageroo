@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import html
 import json
 import os
 import re
@@ -20,6 +21,14 @@ from .util import atomic_write_json, sha256_text, utc_now
 STATE_SCHEMA_VERSION = 1
 HOOK_COMMAND = "agent-continuity-hook"
 INTERNAL_CONTINUATION_PREFIX = "[MANAGEROO INTERNAL CONTINUATION]"
+MANAGEROO_MARK = "🦘"
+REQUEST_MARK = "🧭"
+ROOT_REQUEST_MARK = "🎯"
+ADDITION_REQUEST_MARK = "➕"
+FINISH_MARK = "🏁"
+COMPLETE_MARK = "🎉"
+BLOCKED_MARK = "🚧"
+STOPPED_MARK = "🛑"
 _REPLACE_REQUEST = re.compile(
     r"\b(?:cancel|drop|forget|ignore|replace|supersede)\s+(?:all\s+)?(?:the\s+)?"
     r"(?:earlier|old|prior|previous|unfinished)\s+(?:request|task|work|instructions?)\b|"
@@ -28,6 +37,43 @@ _REPLACE_REQUEST = re.compile(
     r"\b(?:do|work\s+on)\s+only\s+this\s+(?:now|instead)\b|"
     r"\bnew\s+task\s+instead\b|"
     r"^\s*(?:stop|cancel)(?:[.!]+)?\s*$",
+    re.IGNORECASE,
+)
+_PAUSE_REQUEST = re.compile(
+    r"^\s*(?:please\s+)?(?:stop|pause|wait|hold)(?:\b|[.!])|"
+    r"\b(?:i\s+(?:said|told\s+you)|did(?:n't|\s+not)\s+i\s+tell\s+you)\s+to\s+"
+    r"(?:stop|pause|wait)\b|"
+    r"\b(?:do\s+not|don't)\s+(?:continue|resume|work|run|do\s+anything)\b|"
+    r"\bstop\s+and\s+(?:just\s+)?wait\b|"
+    r"\bwait\s+until\s+i\b|"
+    r"\bi(?:'ll|\s+will)\s+tell\s+you\s+when\s+(?:to|you\s+can)\s+"
+    r"(?:resume|continue|work)\b",
+    re.IGNORECASE,
+)
+_RESUME_REQUEST = re.compile(
+    r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?(?:"
+    r"resume|continue|go\s+ahead|start\s+working\s+again|"
+    r"you\s+can\s+(?:resume|continue|work))\b",
+    re.IGNORECASE,
+)
+_CLEAR_WORK_REQUEST = re.compile(
+    r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?"
+    r"(?:(?:you\s+)?(?:need\s+to|must|should)\s+)?"
+    r"(?:fix|implement|change|edit|write|create|copy|move|rename|delete|remove|"
+    r"inspect|review|diagnose|investigate|figure\s+out|run|build|install|publish|"
+    r"commit|push|make|do)\b",
+    re.IGNORECASE,
+)
+_DIRECT_WORK_QUESTION = re.compile(
+    r"^\s*(?:(?:can|could|will|would)\s+you|do\s+you\s+want\s+to)\s+"
+    r"(?:please\s+)?(?:fix|implement|change|edit|write|create|copy|move|rename|"
+    r"delete|remove|inspect|review|diagnose|investigate|run|build|install|publish|"
+    r"commit|push|make|do)\b",
+    re.IGNORECASE,
+)
+_REPLACE_AND_CONTINUE = re.compile(
+    r"\b(?:do|work\s+on)\s+only\s+this\s+(?:now|instead)\b|"
+    r"\bnew\s+task\s+instead\b",
     re.IGNORECASE,
 )
 _NATURAL_CORRECTION = re.compile(
@@ -91,6 +137,13 @@ _CURRENT_PATH_DIRECTIVE = re.compile(
     re.IGNORECASE,
 )
 _EXCLUSIVE_PATH_PREFIX = re.compile(r"\bonly\s*$", re.IGNORECASE)
+_EXPLICIT_SCOPE_LIMIT = re.compile(
+    r"\b(?:work|edit|change|write|operate)\s+only\s+(?:in|on|inside|within)\b|"
+    r"\b(?:this|the|current)\s+(?:repo(?:sitory)?|file|path)\s+only\b|"
+    r"\bleave\s+(?:the\s+)?rest\s+alone\b|"
+    r"\b(?:do\s+not|don't)\s+(?:change|edit|touch|write\s+to)\s+anything\s+else\b",
+    re.IGNORECASE,
+)
 
 
 def continuity_state_root() -> Path:
@@ -156,6 +209,15 @@ def _message(prompt: str, turn_id: str, relation: str) -> dict[str, str]:
     }
 
 
+def _is_side_question(prompt: str) -> bool:
+    text = prompt.strip()
+    if not text.endswith("?"):
+        return False
+    return not (
+        _CLEAR_WORK_REQUEST.search(text) or _DIRECT_WORK_QUESTION.search(text)
+    )
+
+
 def capture_current_request(
     *,
     session_id: str,
@@ -171,10 +233,74 @@ def capture_current_request(
     if internal and existing is not None:
         return existing
 
+    if _PAUSE_REQUEST.search(prompt) and not _REPLACE_AND_CONTINUE.search(prompt):
+        messages = (
+            [
+                item
+                for item in existing.get("messages", [])
+                if isinstance(item, dict) and isinstance(item.get("text"), str)
+            ]
+            if existing is not None
+            else []
+        )
+        state = {
+            "schema_version": STATE_SCHEMA_VERSION,
+            "session_id": session_id,
+            "status": "paused",
+            "cwd": cwd,
+            "messages": messages,
+            "objective_sha256": _objective_hash(messages),
+            "generation": int(existing.get("generation", 1)) if existing else 1,
+            "created_at": str(existing.get("created_at") or utc_now()) if existing else utc_now(),
+            "updated_at": utc_now(),
+            "waiting_reason": prompt,
+        }
+        _save_state(root, state)
+        return state
+
+    if existing is not None and existing.get("status") == "paused":
+        if _RESUME_REQUEST.search(prompt):
+            state = dict(existing)
+            state.update(
+                {
+                    "status": "active",
+                    "cwd": cwd,
+                    "updated_at": utc_now(),
+                    "waiting_reason": "",
+                }
+            )
+            _save_state(root, state)
+            return state
+        if _CLEAR_WORK_REQUEST.search(prompt) and not prompt.rstrip().endswith("?"):
+            messages = [_message(prompt, turn_id, "replacement")]
+            state = {
+                "schema_version": STATE_SCHEMA_VERSION,
+                "session_id": session_id,
+                "status": "active",
+                "cwd": cwd,
+                "messages": messages,
+                "objective_sha256": _objective_hash(messages),
+                "generation": int(existing.get("generation", 1)) + 1,
+                "created_at": utc_now(),
+                "updated_at": utc_now(),
+                "waiting_reason": "",
+            }
+            _save_state(root, state)
+            return state
+        state = dict(existing)
+        state.update({"cwd": cwd, "updated_at": utc_now()})
+        _save_state(root, state)
+        return state
+
     natural_correction = bool(
         not prompt.rstrip().endswith("?") and _NATURAL_CORRECTION.search(prompt)
     )
     replace = bool(_REPLACE_REQUEST.search(prompt)) or natural_correction
+    if existing is not None and not replace and _is_side_question(prompt):
+        state = dict(existing)
+        state.update({"cwd": cwd, "updated_at": utc_now()})
+        _save_state(root, state)
+        return state
     if existing is None or existing.get("status") == "complete" or replace:
         messages = [_message(prompt, turn_id, "root" if not replace else "replacement")]
         created_at = utc_now()
@@ -206,28 +332,68 @@ def capture_current_request(
 
 
 def _completion_marker(state: dict[str, Any], status: str) -> str:
+    label = (
+        f"{COMPLETE_MARK} Manageroo: request complete"
+        if status == "complete"
+        else f"{BLOCKED_MARK} Manageroo: waiting on an external blocker"
+    )
+    return (
+        f"[{label}](#manageroo-continuity-"
+        f"{state['objective_sha256']}-{status})"
+    )
+
+
+def _previous_completion_marker(state: dict[str, Any], status: str) -> str:
+    """Accept the earlier readable badge while an installed hook is upgraded."""
+    label = (
+        "Manageroo: request complete"
+        if status == "complete"
+        else "Manageroo: waiting on an external blocker"
+    )
+    return (
+        f"[{label}](#manageroo-continuity-"
+        f"{state['objective_sha256']}-{status})"
+    )
+
+
+def _legacy_completion_marker(state: dict[str, Any], status: str) -> str:
+    """Accept already-issued receipts while an installed hook is upgraded."""
     return f"<!-- manageroo-continuity:{state['objective_sha256']}:{status} -->"
 
 
 def render_active_objective(state: dict[str, Any]) -> str:
+    if state.get("status") == "paused":
+        lines = [
+            f"# ⏸️ Manageroo: work paused by the operator",
+            "",
+            "Do not resume, monitor, or continue the saved work until the operator explicitly says to resume or gives a clear new work command.",
+            "Questions and conversation do not resume the work. The agent may end the turn normally; no completion badge is required while paused.",
+            "",
+            f"## {REQUEST_MARK} Saved work — not active",
+            "",
+        ]
+        for index, item in enumerate(state.get("messages", []), start=1):
+            lines.extend([f"### {index}. Saved request", "", str(item.get("text") or ""), ""])
+        return "\n".join(lines)
     lines = [
-        "# Manageroo active objective",
+        f"# {MANAGEROO_MARK} Manageroo: current request",
         "",
-        "This controls agent behavior; it never limits what the operator may request or authorize.",
-        "The objective remains unfinished until every operator message below is handled.",
-        "A newer message is additive unless it explicitly cancels or replaces earlier work.",
+        "Manageroo keeps the agent on the operator's unfinished request. It never limits what the operator may ask for.",
+        "Finish every request below. New messages add to unfinished work unless they clearly cancel or replace it.",
         "Answer corrections or side questions, then resume the unfinished work in the same turn.",
-        "Do not ask the operator to repeat a path, permission, or request already listed here.",
-        "Treat questions, quotations, and historical examples as context, not tasks or permissions.",
-        "Reject your own drift into unrelated work. Preserve named sources and exact methods.",
+        "Do not make the operator repeat a path, permission, or request already listed here.",
+        "Questions, quotations, and historical examples are context, not new tasks or permission.",
+        "Stay in scope and preserve every named source and requested method.",
         "",
-        "## Operator messages in force",
+        f"## {REQUEST_MARK} Work still in force",
         "",
     ]
     for index, item in enumerate(state.get("messages", []), start=1):
+        relation = str(item.get("relation", "addition"))
+        request_mark = ROOT_REQUEST_MARK if relation == "root" else ADDITION_REQUEST_MARK
         lines.extend(
             [
-                f"### Message {index} ({item.get('relation', 'addition')})",
+                f"### {request_mark} {index}. {relation.capitalize()} request",
                 "",
                 str(item.get("text") or ""),
                 "",
@@ -235,17 +401,71 @@ def render_active_objective(state: dict[str, Any]) -> str:
         )
     lines.extend(
         [
-            "## Completion protocol",
+            f"## {FINISH_MARK} Finish status",
             "",
-            "Continue working while anything above remains unfinished.",
-            "After current proof shows every item is complete, append this invisible marker to the final response:",
+            "Keep working while anything above remains unfinished.",
+            "After current proof shows everything is complete, end the final reply with this short status badge:",
             _completion_marker(state, "complete"),
-            "If a concrete external blocker makes progress impossible, state `Concrete blocker:` with exact evidence and append:",
+            "If a concrete external blocker makes progress impossible, explain it under `Concrete blocker:` and end with:",
             _completion_marker(state, "blocked"),
-            "Never show or discuss these bookkeeping instructions.",
+            "The badge text is for the operator. Its link target is continuity bookkeeping and should not be explained or expanded.",
         ]
     )
     return "\n".join(lines)
+
+
+def _task_excerpt(value: Any, *, limit: int = 240) -> str:
+    text = html.unescape(re.sub(r"<[^>]+>", " ", str(value or "")))
+    text = re.sub(r"\s+", " ", text).strip().lstrip(" .:-")
+    if len(text) <= limit:
+        return text
+    clipped = text[: limit + 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    return f"{clipped}…"
+
+
+def _active_task_reminder(state: dict[str, Any]) -> str:
+    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
+    if not messages:
+        return f"{REQUEST_MARK} Continue the named Manageroo work shown in the current request."
+    root = _task_excerpt(messages[0].get("text"))
+    lines = [f"{REQUEST_MARK} Current Manageroo task: {root}"]
+    if len(messages) > 1:
+        latest = _task_excerpt(messages[-1].get("text"), limit=180)
+        if latest and latest != root:
+            lines.append(f"{ADDITION_REQUEST_MARK} Latest requested addition: {latest}")
+    return "\n".join(lines)
+
+
+def render_compact_status(state: dict[str, Any], *, activity: str) -> str:
+    """Render a bounded status projection without replaying stored operator text."""
+    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
+    count = len(messages)
+    noun = "work item" if count == 1 else "work items"
+    if state.get("status") == "paused":
+        goal = _task_excerpt(messages[-1].get("text"), limit=160) if messages else "Saved work"
+        return "\n".join(
+            [
+                f"{MANAGEROO_MARK} Manageroo update",
+                f"{ROOT_REQUEST_MARK} You asked: {goal}",
+                "⏸️ Manageroo is doing: Waiting. It will not resume, monitor, or use tools until you explicitly resume or give a clear new task.",
+                f"📍 Status: Paused — {count} saved {noun}; questions and conversation do not resume it.",
+            ]
+        )
+    goal = (
+        _task_excerpt(messages[-1].get("text"), limit=160)
+        if messages
+        else "Continue the named request"
+    )
+    return "\n".join(
+        [
+            f"{MANAGEROO_MARK} Manageroo update",
+            f"{ROOT_REQUEST_MARK} You asked: {goal}",
+            f"🛠️ Manageroo is doing: {activity}",
+            f"📍 Status: Active — {count} active {noun}; exact wording remains in private continuity state.",
+            f"{FINISH_MARK} Finish only after verified completion: {_completion_marker(state, 'complete')}",
+            f"{BLOCKED_MARK} If a concrete external blocker remains: {_completion_marker(state, 'blocked')}",
+        ]
+    )
 
 
 def _path_clause(text: str, start: int, end: int) -> tuple[str, str]:
@@ -327,6 +547,14 @@ def _exclusive_paths(state: dict[str, Any]) -> list[Path]:
     return exclusive
 
 
+def _has_explicit_scope_limit(state: dict[str, Any]) -> bool:
+    return any(
+        _EXPLICIT_SCOPE_LIMIT.search(str(item.get("text") or ""))
+        for item in state.get("messages", [])
+        if isinstance(item, dict)
+    )
+
+
 def _inside(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -376,7 +604,8 @@ def _python_mutation_values(tokens: list[str]) -> list[str]:
     values: list[str] = []
     path_methods = {"write_text", "write_bytes", "unlink", "mkdir", "rename", "replace", "touch", "chmod"}
     one_path_calls = {"os.remove", "os.unlink", "os.rmdir", "os.removedirs", "os.mkdir", "os.makedirs", "shutil.rmtree"}
-    two_path_calls = {"os.rename", "os.replace", "shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.move"}
+    copy_calls = {"shutil.copy", "shutil.copy2", "shutil.copyfile"}
+    two_path_calls = {"os.rename", "os.replace", "shutil.move"}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -391,6 +620,9 @@ def _python_mutation_values(tokens: list[str]) -> list[str]:
         elif name in one_path_calls and node.args:
             if value := _literal_string(node.args[0]):
                 values.append(value)
+        elif name in copy_calls and len(node.args) >= 2:
+            if destination := _literal_string(node.args[1]):
+                values.append(destination)
         elif name in two_path_calls:
             values.extend(value for arg in node.args[:2] if (value := _literal_string(arg)))
         elif name == "open" and node.args:
@@ -411,6 +643,14 @@ def _shell_mutation_values(command: str) -> list[str]:
     executable = Path(tokens[0]).name.casefold()
     if executable in {"python", "python3", "py"} and _PYTHON_MUTATION.search(command):
         return _python_mutation_values(tokens)
+    if executable == "cp" and not re.search(r"[;&|]", command):
+        for index, token in enumerate(tokens[1:], start=1):
+            if token in {"-t", "--target-directory"} and index + 1 < len(tokens):
+                return [tokens[index + 1]]
+            if token.startswith("--target-directory="):
+                return [token.split("=", 1)[1]]
+        operands = [token for token in tokens[1:] if not token.startswith("-")]
+        return operands[-1:] if len(operands) >= 2 else []
     if executable == "git":
         return [token for token in tokens[2:] if not token.startswith("-")]
     if _MUTATING_SHELL_COMMAND.search(command):
@@ -465,6 +705,7 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
         return {}
     allowed, excluded = _named_paths(state)
     exclusive = _exclusive_paths(state)
+    scope_limited = bool(exclusive) or _has_explicit_scope_limit(state)
     objective_cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
     repo = _git_root(objective_cwd)
     temporary_roots = [Path("/tmp"), Path("/dev/shm")]
@@ -476,8 +717,11 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": (
-                        f"Manageroo rejected the agent action because {target} is explicitly excluded "
-                        "by the active operator objective. Do not ask the operator to reauthorize it."
+                        f"{STOPPED_MARK}{MANAGEROO_MARK} Manageroo stopped this agent action.\n"
+                        f"🎯 Target: {target}\n"
+                        "💡 Why: The operator explicitly excluded this target.\n"
+                        "➡️ Next: Continue the requested work without changing this target. "
+                        "Do not ask the operator to authorize it again."
                     ),
                 }
             }
@@ -498,8 +742,11 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": (
-                        f"Manageroo rejected the agent's unrelated mutation of {target} because the active "
-                        f"operator objective permits only: {', '.join(str(path) for path in exclusive)}."
+                        f"{STOPPED_MARK}{MANAGEROO_MARK} Manageroo stopped this agent action.\n"
+                        f"🎯 Target: {target}\n"
+                        "💡 Why: The operator limited changes to: "
+                        f"{', '.join(str(path) for path in exclusive)}.\n"
+                        "➡️ Next: Continue using only those named paths."
                     ),
                 }
             }
@@ -507,15 +754,16 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
             continue
         if any(_inside(target, path) or target == path for path in allowed):
             continue
-        if allowed or repo is not None:
+        if scope_limited:
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": (
-                        f"Manageroo rejected the agent's unrelated mutation of {target}. "
-                        "That target is outside the active repository and named targets. "
-                        "Follow the existing request; do not ask for another authorization phrase."
+                        f"{STOPPED_MARK}{MANAGEROO_MARK} Manageroo stopped this agent action.\n"
+                        f"🎯 Target: {target}\n"
+                        "💡 Why: The operator explicitly limited where changes may be made.\n"
+                        "➡️ Next: Continue within that explicit limit."
                     ),
                 }
             }
@@ -547,25 +795,63 @@ def process_codex_continuity_hook(
             cwd=str(event.get("cwd") or ""),
             state_root=root,
         )
-        return _additional_context(name, render_active_objective(state))
+        return _additional_context(
+            name,
+            render_compact_status(
+                state,
+                activity="Keeping the goal in scope and checking the next agent action against it.",
+            ),
+        )
     state = _read_state(root, session_id)
-    if not isinstance(state, dict) or state.get("status") not in {"active", "waiting"}:
+    if not isinstance(state, dict) or state.get("status") not in {"active", "waiting", "paused"}:
         return {}
     if name in {"SessionStart", "SubagentStart", "PostCompact"}:
         return _additional_context(name, render_active_objective(state))
     if name == "PreToolUse":
+        if state.get("status") == "paused":
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"⏸️{MANAGEROO_MARK} Manageroo paused this agent action.\n"
+                        "💡 Why: The operator said to stop and has not explicitly resumed work.\n"
+                        "➡️ Next: End the turn or answer without tools. Do not monitor or resume the saved task."
+                    ),
+                }
+            }
         decision = audit_agent_tool(event, state)
-        return decision or _additional_context(name, "Agent action remains bound to the active Manageroo objective.")
+        return decision or _additional_context(
+            name,
+            render_compact_status(
+                state,
+                activity="Checking this tool action against the active goal.",
+            ),
+        )
     if name == "Stop":
+        if state.get("status") == "paused":
+            return {}
         last = str(event.get("last_assistant_message") or "")
         complete_marker = _completion_marker(state, "complete")
         blocked_marker = _completion_marker(state, "blocked")
-        if complete_marker in last:
+        previous_complete_marker = _previous_completion_marker(state, "complete")
+        previous_blocked_marker = _previous_completion_marker(state, "blocked")
+        legacy_complete_marker = _legacy_completion_marker(state, "complete")
+        legacy_blocked_marker = _legacy_completion_marker(state, "blocked")
+        if (
+            complete_marker in last
+            or previous_complete_marker in last
+            or legacy_complete_marker in last
+        ):
             state["status"] = "complete"
             state["updated_at"] = utc_now()
             _save_state(root, state)
             return {}
-        if blocked_marker in last and "Concrete blocker:" in last:
+        if (
+            blocked_marker in last
+            or previous_blocked_marker in last
+            or legacy_blocked_marker in last
+        ) and "Concrete blocker:" in last:
             state["status"] = "waiting"
             state["waiting_reason"] = last
             state["updated_at"] = utc_now()
@@ -575,10 +861,12 @@ def process_codex_continuity_hook(
             "decision": "block",
             "reason": (
                 f"{INTERNAL_CONTINUATION_PREFIX}\n"
-                "You attempted to stop while the active operator objective is still unverified. "
-                "Do not ask the operator to repeat or reauthorize anything. Answer any side question, "
-                "then resume and finish every unfinished item. Re-read this complete objective:\n\n"
-                + render_active_objective(state)
+                f"{MANAGEROO_MARK}📣 Manageroo kept the request open because verified completion was not recorded. "
+                "Do not ask the operator to repeat or reauthorize anything; resume and finish the saved work.\n\n"
+                + render_compact_status(
+                    state,
+                    activity="Continuing the agent because verified completion has not been recorded.",
+                )
             ),
         }
     return {}
@@ -595,7 +883,10 @@ def run_codex_continuity_hook(
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, ConfigurationError) as exc:
         # Hook bookkeeping must never deny the operator or strand the agent.
         result = {
-            "systemMessage": f"Manageroo continuity context was unavailable: {exc}. Continue the current operator request normally."
+            "systemMessage": (
+                f"{MANAGEROO_MARK}⚠️ Manageroo could not load continuity state. Continue the current operator request normally. "
+                f"Details: {exc}"
+            )
         }
     if result:
         print(json.dumps(result, sort_keys=True, ensure_ascii=False), file=output_stream)
@@ -631,7 +922,7 @@ def install_codex_continuity_hooks(
         "command": command,
         "commandWindows": command_windows,
         "timeout": 10,
-        "statusMessage": "Keeping the agent on the active request",
+        "statusMessage": f"{MANAGEROO_MARK} Keeping the agent on the active request",
     }
     context_handler = {**handler, "additionalContextLimit": 10000}
     additions = {
