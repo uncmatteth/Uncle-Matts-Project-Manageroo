@@ -199,6 +199,30 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(rows[0]["status"], "passed")
 
+    def test_hyphenated_security_terms_require_bound_demonstration_gate(self):
+        outcomes = (
+            "Role-based access is enforced.",
+            "Auth-protected dashboard.",
+            "Permission-gated settings.",
+        )
+        for outcome in outcomes:
+            with self.subTest(outcome=outcome):
+                rows = build_acceptance_evidence(
+                    product={"acceptance_outcomes": [outcome]},
+                    gate_results=[
+                        {"gate": {"id": "security-unit"}, "result": {"exit_code": 0}},
+                    ],
+                    demonstration={
+                        "gates": [],
+                        "product_evidence": [
+                            {"outcome": outcome, "gate_ids": ["security-unit"]},
+                        ],
+                    },
+                    review={"status": "approved", "findings": []},
+                )
+                self.assertEqual(rows[0]["status"], "unknown")
+                self.assertIn("demonstration", rows[0]["reason"].lower())
+
     def test_failing_bound_demonstration_gate_fails_user_journey(self):
         outcome = "User can complete the browser checkout journey."
         rows = build_acceptance_evidence(

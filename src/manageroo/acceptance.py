@@ -72,7 +72,7 @@ def _term_present(text: str, term: str) -> bool:
     term_normalized = _normalized(term)
     if " " in term_normalized:
         return term_normalized in normalized
-    return bool(re.search(rf"(?<![\w-]){re.escape(term_normalized)}(?![\w-])", normalized))
+    return bool(re.search(rf"(?<!\w){re.escape(term_normalized)}(?!\w)", normalized))
 
 
 def _needs_demonstration(description: str) -> bool:
