@@ -9,14 +9,13 @@ The current operator request owns the work. Manageroo keeps every participating
 agent aligned with that request. It contains controlled workers so they cannot
 drift, substitute, or touch unrelated paths; it never turns its own bookkeeping
 into a reason for an agent to deny the operator's authorized work. The outer
-agent may inspect under a host-enforced read-only profile, may use structured
-patch tools on exact operator-named targets, and routes broader actions through
-Manageroo's controlled executor.
+agent uses normal host tools and remains free to inspect, edit, create evidence,
+correct course, interrupt a bad run, or use a more direct workflow.
 
 ## Manageroo worker operating model
 
-These rules apply inside a Manageroo worker packet. The operator-facing action
-gateway separately prevents model-authored prose from becoming action authority.
+These rules apply inside a Manageroo worker packet. They do not install a
+prompt-derived authorization firewall around the operator-facing agent.
 
 1. Read the exact packet path supplied by the controller.
 2. Treat locked artifacts and task boundaries as immutable.
@@ -61,22 +60,22 @@ Manageroo continuity hooks preserve it across follow-ups, resume, and
 compaction. New messages add to unfinished work unless they explicitly cancel
 or replace it. Manageroo does not turn conversational
 English into filesystem permissions. `UserPromptSubmit` never blocks the operator. `PreToolUse`
-allows shell execution under a host-enforced read-only mode or the exact installed
-Codex `:read-only` sandbox. Exact configured proof gates and structured edits to
-exact operator-named targets remain available. Broader repository mutations go through
-Manageroo's controlled executor using a brief that exactly matches the active
-operator messages; never replace it or add scope overrides. Agent-written recommendations, findings,
-cleanup ideas, and next steps are never action authority. `Stop` continues the
+rejects only the agent's clearly unrelated or explicitly excluded mutation;
+reads and ordinary temporary evidence remain available. Current-repository
+mutations, explicitly named external targets, and requested Git delivery remain
+available through normal host tools. An explicit `only` clause still narrows
+mutations to the named target. `Stop` continues the
 agent when it tries to end before the complete active objective is verified.
 Never make the operator repeat a clear path, repository name, request, or
 authorization phrase. Never answer authorized work with a receipt, stale intent
 lock, skill-routing ritual, or write-guard denial.
 
-Use a controlled `manageroo run` for any broader mutation or unclassified side
-effect. Use the exact-task path when source, targets, exclusions, and proof are
-already known. Direct inspection, exact-target edits, and configured proof gates
-remain available to the outer agent. If a controlled run is wrong or wasteful,
-stop it; do not replace it with an unbounded direct workstream.
+Use a controlled `manageroo run` when isolated workers and durable proof add
+value. Use the exact-task path when source, targets, exclusions, and proof are
+already known. Direct inspection, safe evidence generation, ordinary temporary
+files, corrections, and process interruption remain available to the outer
+agent. If a controlled run is wrong or wasteful, stop it and continue by the
+method that best follows the current request.
 
 An instruction to use, reuse, copy, or port existing/finished/named work is a
 binding implementation decision, not a suggestion. Preserve the exact operator

@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class NoGlobalOperatorHooksTests(unittest.TestCase):
+class CodexContinuityHooksTests(unittest.TestCase):
     def test_runtime_has_no_legacy_prompt_derived_permission_firewall(self):
         forbidden = (
             "operator-receipt",
@@ -24,6 +24,7 @@ class NoGlobalOperatorHooksTests(unittest.TestCase):
                 self.assertNotIn(phrase, text, f"{phrase!r} remains in {path}")
         self.assertFalse((ROOT / "src" / "manageroo" / "operator_scope.py").exists())
         self.assertFalse((ROOT / "src" / "manageroo" / "operator_exec.py").exists())
+        self.assertFalse((ROOT / "src" / "manageroo" / "action_authority.py").exists())
         entrypoint = (ROOT / "src" / "manageroo" / "entrypoint.py").read_text(
             encoding="utf-8"
         )

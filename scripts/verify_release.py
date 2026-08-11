@@ -249,7 +249,7 @@ def structural_checks() -> list[dict]:
         "tests/test_clawpatch_remaining_regressions.py",
         "tests/test_evidence.py", "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py",
         "tests/test_release_hardening_contract.py", "tests/test_remaining_audit_regressions.py",
-        "tests/test_no_global_operator_hooks.py",
+        "tests/test_codex_continuity_hooks.py",
         "tests/test_transactional_adapter_hardening.py", "tests/test_transactional_history_and_pristine.py",
         "tests/test_truth_contract.py", "tests/test_truth_contract_production.py",
     ]

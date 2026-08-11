@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,7 +14,15 @@ from manageroo.agent_continuity import (
 
 
 class AgentContinuityTests(unittest.TestCase):
-    def _shell_decision(self, root: Path, repo: Path, prompt: str, command: str):
+    def _shell_decision(
+        self,
+        root: Path,
+        repo: Path,
+        prompt: str,
+        command: str,
+        *,
+        event_cwd: Path | None = None,
+    ):
         process_codex_continuity_hook(
             {
                 "hook_event_name": "UserPromptSubmit",
@@ -31,7 +38,7 @@ class AgentContinuityTests(unittest.TestCase):
                 "hook_event_name": "PreToolUse",
                 "session_id": "session",
                 "turn_id": "turn-1",
-                "cwd": str(repo),
+                "cwd": str(event_cwd or repo),
                 "tool_name": "exec_command",
                 "tool_input": {"cmd": command},
             },
@@ -95,7 +102,62 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
-    def test_only_file_shell_mutation_uses_the_controlled_executor(self):
+    def test_explicit_exclusion_blocks_supported_mutation_forms(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Fix this repository but do not edit blocked.txt.",
+                },
+                state_root=root / "state",
+            )
+            events = (
+                {
+                    "tool_name": "apply_patch",
+                    "tool_input": {
+                        "patch": "*** Begin Patch\n*** Update File: blocked.txt\n*** End Patch"
+                    },
+                },
+                {
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "touch blocked.txt"},
+                },
+                {
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "rm blocked.txt"},
+                },
+                {
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": "python3 -c \"from pathlib import Path; Path('blocked.txt').write_text('x')\""
+                    },
+                },
+            )
+            for event in events:
+                with self.subTest(event=event):
+                    result = process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "session_id": "session",
+                            "turn_id": "turn-1",
+                            "cwd": str(repo),
+                            **event,
+                        },
+                        state_root=root / "state",
+                    )
+                    self.assertEqual(
+                        result["hookSpecificOutput"]["permissionDecision"],
+                        "deny",
+                    )
+
+    def test_only_file_shell_mutation_is_authorized(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -108,9 +170,12 @@ class AgentContinuityTests(unittest.TestCase):
                 f"Edit only {allowed}.",
                 f"touch {allowed}",
             )
-            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
 
-    def test_direct_relative_shell_target_does_not_bypass_action_authority(self):
+    def test_direct_relative_shell_target_is_authorized_in_current_repository(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -124,7 +189,10 @@ class AgentContinuityTests(unittest.TestCase):
                 "touch src/allowed.py",
             )
 
-            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertNotEqual(
+                result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+            )
 
     def test_exact_target_cannot_hide_an_unrequested_compound_side_effect(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -133,11 +201,14 @@ class AgentContinuityTests(unittest.TestCase):
             (repo / "src").mkdir(parents=True)
             (repo / ".git").mkdir()
 
+            other_repo = root / "other-repo"
+            other_repo.mkdir()
+            (other_repo / ".git").mkdir()
             result = self._shell_decision(
                 root / "state",
                 repo,
                 "Edit src/allowed.py and leave the rest alone.",
-                "playwright-cli close; touch src/allowed.py",
+                f"touch src/allowed.py; touch {other_repo / 'drift.py'}",
             )
 
             self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
@@ -516,7 +587,7 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(completed, {})
 
-    def test_read_only_tools_are_never_blocked_by_scope(self):
+    def test_read_only_shell_commands_run_without_a_special_permission_profile(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -535,7 +606,6 @@ class AgentContinuityTests(unittest.TestCase):
                     "session_id": "session",
                     "turn_id": "turn-1",
                     "cwd": "/repo",
-                    "permission_mode": "read-only",
                     "tool_name": "Bash",
                     "tool_input": {"command": "df -h / /home /tmp"},
                 },
@@ -546,147 +616,24 @@ class AgentContinuityTests(unittest.TestCase):
                 "deny",
             )
 
-    def test_agent_recommendation_cannot_authorize_an_unrequested_side_effect(self):
+    def test_temporary_evidence_is_authorized(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
-            process_codex_continuity_hook(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": str(repo),
-                    "prompt": "Reconcile the current state and report the truth. Do not change the product.",
-                },
-                state_root=root / "state",
-            )
-
-            result = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": str(repo),
-                    "tool_name": "exec_command",
-                    "tool_input": {
-                        "cmd": "playwright-cli close >/tmp/playwright-close.txt 2>&1"
-                    },
-                },
-                state_root=root / "state",
-            )
-
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"],
-                "deny",
-            )
-            self.assertIn(
-                "operator-authorized action contract",
-                result["hookSpecificOutput"]["permissionDecisionReason"],
-            )
-
-    def test_conceptual_only_request_cannot_authorize_a_new_repository_workstream(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            repo.mkdir()
-            (repo / ".git").mkdir()
-
             result = self._shell_decision(
                 root / "state",
                 repo,
-                "Fix the one broken music note only. Do not render anything.",
-                "mkdir generated-new-animation-stack",
+                "Inspect this repository and report the result.",
+                "touch /tmp/manageroo-bounded-proof.txt",
             )
-
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"],
-                "deny",
-            )
-            self.assertIn(
-                "controlled executor",
-                result["hookSpecificOutput"]["permissionDecisionReason"],
-            )
-
-    def test_installed_manageroo_run_is_the_broad_action_entrypoint(self):
-        manageroo = shutil.which("manageroo")
-        if manageroo is None:
-            self.skipTest("installed Manageroo command is required for this contract probe")
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            repo.mkdir()
-            (repo / ".git").mkdir()
-            prompt = "Repair this repository without broadening the request."
-            (repo / "request.md").write_text(prompt + "\n", encoding="utf-8")
-
-            result = self._shell_decision(
-                root / "state",
-                repo,
-                prompt,
-                "manageroo run --repo . --brief request.md --apply",
-            )
-
             self.assertNotEqual(
                 result.get("hookSpecificOutput", {}).get("permissionDecision"),
                 "deny",
             )
 
-    def test_manageroo_run_rejects_an_agent_written_brief(self):
-        manageroo = shutil.which("manageroo")
-        if manageroo is None:
-            self.skipTest("installed Manageroo command is required for this contract probe")
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            repo.mkdir()
-            (repo / ".git").mkdir()
-            (repo / "request.md").write_text(
-                "Build the agent's recommended next workstream.\n",
-                encoding="utf-8",
-            )
-
-            result = self._shell_decision(
-                root / "state",
-                repo,
-                "Reconcile the source and report the truth. Do not change the product.",
-                "manageroo run --repo . --brief request.md --apply",
-            )
-
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"],
-                "deny",
-            )
-
-    def test_manageroo_run_rejects_agent_added_scope_overrides(self):
-        manageroo = shutil.which("manageroo")
-        if manageroo is None:
-            self.skipTest("installed Manageroo command is required for this contract probe")
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            repo.mkdir()
-            (repo / ".git").mkdir()
-            prompt = "Repair this repository without broadening the request."
-            (repo / "request.md").write_text(prompt + "\n", encoding="utf-8")
-
-            result = self._shell_decision(
-                root / "state",
-                repo,
-                prompt,
-                "manageroo run --repo . --brief request.md --target . --apply",
-            )
-
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"],
-                "deny",
-            )
-
-    def test_installed_codex_read_only_sandbox_is_the_observation_entrypoint(self):
-        codex = shutil.which("codex")
-        if codex is None:
-            self.skipTest("installed Codex command is required for this contract probe")
+    def test_current_repository_mutation_does_not_require_controlled_executor(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -696,90 +643,51 @@ class AgentContinuityTests(unittest.TestCase):
             result = self._shell_decision(
                 root / "state",
                 repo,
-                "Inspect the current state and report the truth.",
-                "codex sandbox -P :read-only -C . -- git status --short",
+                "Fix this repository and verify it.",
+                "mkdir generated-proof",
             )
-
             self.assertNotEqual(
                 result.get("hookSpecificOutput", {}).get("permissionDecision"),
                 "deny",
             )
 
-    def test_read_only_sandbox_cannot_be_overridden_inline(self):
-        codex = shutil.which("codex")
-        if codex is None:
-            self.skipTest("installed Codex command is required for this contract probe")
+    def test_requested_current_repository_commit_and_push_are_authorized(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
+            for command in ("git commit -m scoped-fix", "git push origin main"):
+                with self.subTest(command=command):
+                    result = self._shell_decision(
+                        root / "state",
+                        repo,
+                        "Commit and push everything in this repository.",
+                        command,
+                    )
+                    self.assertNotEqual(
+                        result.get("hookSpecificOutput", {}).get("permissionDecision"),
+                        "deny",
+                    )
 
-            result = self._shell_decision(
-                root / "state",
-                repo,
-                "Inspect the current state and report the truth.",
-                "codex sandbox -P :read-only -c sandbox_mode=danger-full-access -- git status --short",
-            )
-
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"],
-                "deny",
-            )
-
-    def test_read_only_sandbox_rejects_a_second_permission_profile(self):
-        codex = shutil.which("codex")
-        if codex is None:
-            self.skipTest("installed Codex command is required for this contract probe")
+    def test_tool_cwd_cannot_rebind_scope_to_another_repository(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
+            other_repo = root / "other-repo"
             repo.mkdir()
+            other_repo.mkdir()
             (repo / ".git").mkdir()
-
+            (other_repo / ".git").mkdir()
             result = self._shell_decision(
                 root / "state",
                 repo,
-                "Inspect the current state and report the truth.",
-                "codex sandbox -P :read-only -P :danger-full-access -- git status --short",
+                "Fix this repository and verify it.",
+                "touch drift.py",
+                event_cwd=other_repo,
             )
-
             self.assertEqual(
                 result["hookSpecificOutput"]["permissionDecision"],
-                "deny",
-            )
-
-    def test_exact_configured_gate_is_authorized_as_proof(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            (repo / ".git").mkdir(parents=True)
-            (repo / ".manageroo").mkdir()
-            (repo / ".manageroo" / "config.toml").write_text(
-                """
-[safety]
-allowed_programs = ["python3"]
-
-[[verification.gates]]
-id = "exact-proof"
-kind = "test"
-required = true
-timeout_seconds = 60
-argv = ["python3", "-B", "scripts/verify.py", "--check-only"]
-""".strip()
-                + "\n",
-                encoding="utf-8",
-            )
-
-            result = self._shell_decision(
-                root / "state",
-                repo,
-                "Fix the named defect and prove only that result.",
-                "python3 -B scripts/verify.py --check-only",
-            )
-
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
                 "deny",
             )
 

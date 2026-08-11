@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
-from .action_authority import authorize_shell_action
 from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
 from .util import atomic_write_json, sha256_text, utc_now
@@ -39,7 +38,9 @@ _NATURAL_CORRECTION = re.compile(
 )
 _ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9_])(/[A-Za-z0-9._~+@%:,=/-]+)")
 _RELATIVE_PATH = re.compile(
-    r"(?<![A-Za-z0-9_./-])((?:[A-Za-z0-9._~+@%=-]+/)+[A-Za-z0-9._~+@%:=-]+)"
+    r"(?<![A-Za-z0-9_./-])((?:(?:[A-Za-z0-9._~+@%=-]+/)+"
+    r"[A-Za-z0-9._~+@%:=-]+)|(?:[A-Za-z0-9_~+@%=-][A-Za-z0-9._~+@%:=-]*\."
+    r"[A-Za-z0-9._~+@%:=-]+))"
 )
 _NEGATION_NEAR_PATH = re.compile(
     r"\b(?:do\s+not|don't|never|must\s+not|mustn't|without|leave)\b",
@@ -460,43 +461,14 @@ def _tool_mutation_paths(event: dict[str, Any]) -> list[Path]:
 
 def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     targets = _tool_mutation_paths(event)
-    cwd = Path(str(event.get("cwd") or ".")).expanduser().resolve(strict=False)
-    repo = _git_root(cwd)
-    temporary_roots = [Path("/tmp"), Path("/dev/shm")]
-    null_target = Path(os.devnull).expanduser().resolve(strict=False)
-    tool_name = str(event.get("tool_name") or "")
-    tool_input = event.get("tool_input")
-    payload = tool_input if isinstance(tool_input, dict) else {}
-    if tool_name in _SHELL_TOOLS:
-        command = str(payload.get("command") or payload.get("cmd") or "")
-        authority = authorize_shell_action(
-            command,
-            cwd=cwd,
-            repo=repo,
-            operator_brief="\n\n".join(
-                str(item.get("text") or "") for item in state.get("messages", [])
-            ),
-            permission_mode=str(event.get("permission_mode") or ""),
-        )
-        if not authority.authorized:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": (
-                        "Manageroo rejected the agent action because no operator-authorized "
-                        "action contract owns this side effect. Agent-written recommendations, "
-                        "findings, cleanup ideas, and next steps are context, never authority. "
-                        "Use the exact requested target, a configured proof gate, or Manageroo's "
-                        "controlled executor."
-                    ),
-                }
-            }
-        return {}
     if not targets:
         return {}
     allowed, excluded = _named_paths(state)
     exclusive = _exclusive_paths(state)
+    objective_cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
+    repo = _git_root(objective_cwd)
+    temporary_roots = [Path("/tmp"), Path("/dev/shm")]
+    null_target = Path(os.devnull).expanduser().resolve(strict=False)
     for target in targets:
         if any(_inside(target, path) or target == path for path in excluded):
             return {
@@ -511,12 +483,16 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
             }
         if target == null_target:
             continue
+        target_repo = _git_root(target if target.is_dir() else target.parent)
         if (
             any(_inside(target, root) or target == root for root in temporary_roots)
             and not (repo is not None and (_inside(target, repo) or target == repo))
+            and target_repo is None
         ):
             continue
-        if exclusive and target not in exclusive:
+        if exclusive and not any(
+            _inside(target, path) or target == path for path in exclusive
+        ):
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -528,20 +504,7 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
                 }
             }
         if repo is not None and (_inside(target, repo) or target == repo):
-            if any(_inside(target, path) or target == path for path in allowed):
-                continue
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": (
-                        "Manageroo rejected the agent's broad direct repository mutation because "
-                        "no exact operator-named target owns it. Use the exact requested target or "
-                        "Manageroo's controlled executor, which locks the task paths and verifies "
-                        "the actual change set before delivery."
-                    ),
-                }
-            }
+            continue
         if any(_inside(target, path) or target == path for path in allowed):
             continue
         if allowed or repo is not None:
@@ -571,13 +534,11 @@ def _additional_context(event_name: str, text: str) -> dict[str, Any]:
 def process_codex_continuity_hook(
     event: dict[str, Any], *, state_root: Path | None = None
 ) -> dict[str, Any]:
-    name = str(event.get("hook_event_name") or "")
-    if name == "PreToolUse":
-        return {}
     session_id = str(event.get("session_id") or "")
     if not session_id:
         return {}
     root = _safe_state_root(state_root or continuity_state_root())
+    name = str(event.get("hook_event_name") or "")
     if name == "UserPromptSubmit":
         state = capture_current_request(
             session_id=session_id,
@@ -592,6 +553,9 @@ def process_codex_continuity_hook(
         return {}
     if name in {"SessionStart", "SubagentStart", "PostCompact"}:
         return _additional_context(name, render_active_objective(state))
+    if name == "PreToolUse":
+        decision = audit_agent_tool(event, state)
+        return decision or _additional_context(name, "Agent action remains bound to the active Manageroo objective.")
     if name == "Stop":
         last = str(event.get("last_assistant_message") or "")
         complete_marker = _completion_marker(state, "complete")

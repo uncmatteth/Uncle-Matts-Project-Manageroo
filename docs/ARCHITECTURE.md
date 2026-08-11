@@ -30,24 +30,21 @@ operator-facing agent's unfinished objective across follow-up messages,
 resumption, and compaction. `UserPromptSubmit` adds the current message without
 ever blocking it; explicit cancel/replace language and an unambiguous natural
 correction such as `No, use this instead` supersede unfinished work. `PreToolUse`
-admits shell execution only when the host is already enforcing read-only access,
-or when the exact installed Codex executable applies its built-in `:read-only`
-permission profile. Exact configured proof gates and mutations of exact
-operator-named targets through structured patch tools remain available. A
-broader repository mutation must enter through Manageroo's controlled executor.
-That entrypoint accepts the current repository and a brief whose contents match
-the verbatim active operator messages; agent-added target, source, exclusion,
-proof, gate, exact-task, or continuation overrides are rejected. Agent-written findings,
-recommendations, cleanup ideas, and next-step language never create action
-authority. Paths
+rejects only supported mutations that are clearly outside the objective
+repository and named external targets, or explicitly excluded by the operator.
+Ordinary reads, bounded temporary evidence, mutations inside the objective
+repository, explicitly named external targets, and requested Git delivery remain
+available through normal host tools. Agent-written findings, recommendations,
+cleanup ideas, and next-step language never broaden the repository or named-target
+scope. Paths
 mentioned only in questions, quotations, block quotes, or historical examples
 remain context and do not enter the named mutation scope. Shell
 redirection binds only its output target; it does not turn other absolute paths
 read by the same command into mutation targets, and the platform null sink is
 always non-persistent. An explicit `edit only <file>` instruction narrows
-structured mutations inside the current repository to that exact file. Raw
-shell composition does not gain authority by mentioning the file; `rm`, inline
-Python writes, and compound commands must enter the controlled executor. `Stop`
+supported mutations inside the current repository to that exact file. Shell,
+structured patch, removal, inline Python write, and compound-command targets use
+the same path boundary. `Stop`
 continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.
@@ -94,8 +91,8 @@ The generated instruction to use the current Git repository as source truth is
 repository scope, not a component-reuse directive, so it does not create a
 model-owned permission gate or require the reuse worker to quote boilerplate.
 
-The standard installer removes obsolete Manageroo operator-scope hook entries,
-installs the continuity hook set, and preserves unrelated hooks.
+The standard installer removes obsolete Manageroo permission-firewall hook
+entries, installs the bounded continuity hook set, and preserves unrelated hooks.
 
 ## Source isolation
 
