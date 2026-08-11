@@ -175,7 +175,11 @@ def generate_manifest() -> None:
 
 
 def _stage_release_snapshot(snapshot_root: Path) -> Path:
-    """Copy the selected worktree bytes into one private immutable release input."""
+    """Copy Git-selected worktree bytes into one private immutable release input."""
+    if RELEASE_FILE_LIST_ENV in os.environ:
+        raise RuntimeError(
+            f"Refusing inherited {RELEASE_FILE_LIST_ENV} during release snapshot staging"
+        )
     snapshot_root.mkdir(mode=0o700)
     relative_paths: list[str] = []
     for source in included_files():

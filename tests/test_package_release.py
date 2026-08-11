@@ -394,6 +394,30 @@ class PackageReleaseTests(unittest.TestCase):
                 selected = {path.relative_to(ROOT).as_posix() for path in selector()}
                 self.assertFalse(any(path.startswith(prefix + "/") for path in selected))
 
+    def test_inherited_release_file_list_cannot_stage_untracked_private_file(self):
+        with (
+            tempfile.TemporaryDirectory(dir=ROOT, prefix="release-private-fixture-") as worktree_temp,
+            tempfile.TemporaryDirectory() as candidate_temp,
+        ):
+            private_file = Path(worktree_temp) / "customer-notes.txt"
+            private_file.write_text("private\n", encoding="utf-8")
+            private_relative = private_file.relative_to(ROOT).as_posix()
+            file_list = Path(candidate_temp) / "caller-controlled-release-files"
+            entries = sorted({*package_release._tracked_relative_paths(), private_relative})
+            file_list.write_bytes(
+                b"\0".join(package_release.os.fsencode(entry) for entry in entries) + b"\0"
+            )
+            snapshot_root = Path(candidate_temp) / "snapshot"
+
+            with patch.dict(
+                package_release.os.environ,
+                {package_release.RELEASE_FILE_LIST_ENV: str(file_list)},
+            ):
+                with self.assertRaisesRegex(RuntimeError, "during release snapshot staging"):
+                    package_release._stage_release_snapshot(snapshot_root)
+
+            self.assertFalse((snapshot_root / private_relative).exists())
+
     def test_tracked_sensitive_paths_are_still_excluded(self):
         with tempfile.TemporaryDirectory(dir=ROOT, prefix="release-tracked-sensitive-") as temp:
             fixture = Path(temp)
@@ -704,7 +728,11 @@ class PackageReleaseTests(unittest.TestCase):
                     ).decode()
                 return {"release_created": True, "warnings": []}
 
+            clean_environment = dict(package_release.os.environ)
+            clean_environment.pop(package_release.RELEASE_FILE_LIST_ENV, None)
+
             with (
+                patch.dict(package_release.os.environ, clean_environment, clear=True),
                 patch.object(package_release, "ROOT", root),
                 patch.object(package_release, "OUTPUT", root / "release.zip"),
                 patch.object(package_release, "SOURCE_OUTPUT", root / "release-source.zip"),
