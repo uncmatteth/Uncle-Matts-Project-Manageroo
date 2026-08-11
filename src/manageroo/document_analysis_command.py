@@ -51,11 +51,11 @@ def _regular_document(workspace: Path, relative: str) -> tuple[Path, bytes]:
     return resolved, data
 
 
-def _pdf_excerpt(path: Path) -> tuple[str, str]:
+def _pdf_excerpt(data: bytes) -> tuple[str, str]:
     try:
         result = subprocess.run(
-            ["pdftotext", "-f", "1", "-l", "3", str(path), "-"],
-            text=True,
+            ["pdftotext", "-f", "1", "-l", "3", "-", "-"],
+            input=data,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,
@@ -64,8 +64,10 @@ def _pdf_excerpt(path: Path) -> tuple[str, str]:
     except (OSError, subprocess.TimeoutExpired) as exc:
         return "", f"PDF text extraction unavailable: {exc}"
     if result.returncode != 0:
-        return "", f"PDF text extraction failed: {(result.stderr or '').strip()[:500]}"
-    return (result.stdout or "")[:OPENING_CHARS], ""
+        error = (result.stderr or b"").decode("utf-8", errors="replace")
+        return "", f"PDF text extraction failed: {error.strip()[:500]}"
+    opening = (result.stdout or b"").decode("utf-8", errors="replace")
+    return opening[:OPENING_CHARS], ""
 
 
 def analyze_document_manifest(manifest_path: Path, workspace_path: Path) -> dict[str, Any]:
@@ -90,7 +92,7 @@ def analyze_document_manifest(manifest_path: Path, workspace_path: Path) -> dict
         if not isinstance(item, dict) or not item.get("path"):
             raise ConfigurationError("Document manifest contains an invalid file record.")
         relative = safe_repo_relative(str(item["path"]))
-        path, data = _regular_document(workspace, relative)
+        _, data = _regular_document(workspace, relative)
         expected_hash = str(item.get("sha256") or "")
         actual_hash = hashlib.sha256(data).hexdigest()
         if expected_hash and expected_hash != actual_hash:
@@ -98,7 +100,7 @@ def analyze_document_manifest(manifest_path: Path, workspace_path: Path) -> dict
         language = str(item.get("language") or "")
         note = ""
         if language == "pdf":
-            opening, note = _pdf_excerpt(path)
+            opening, note = _pdf_excerpt(data)
             closing = ""
             headings: list[str] = []
         else:
