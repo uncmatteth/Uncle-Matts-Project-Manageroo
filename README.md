@@ -79,6 +79,11 @@ show only a short `Manageroo: request complete` badge. The request hash lives in
 the badge's Markdown link target instead of appearing as a long raw HTML
 comment. Existing sessions carrying the older comment form remain valid during
 an upgrade.
+Routine `You asked` and `Manageroo is doing` status uses Codex's display-only
+system-message channel instead of model context. Successful tool checks inject
+no reminder. One small completion handshake is added once per Codex session;
+Manageroo binds it to the current objective privately when the agent stops.
+Recovery events restore the exact saved objective when needed.
 
 Manageroo's normal human-facing output follows one rule: say the outcome first,
 then explain what happened, what it means, and the one useful next action.

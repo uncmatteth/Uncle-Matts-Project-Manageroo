@@ -1205,6 +1205,33 @@ def run_source_install_checks(
         )
 
 
+def install_app_tree(source: Path, app_root: Path) -> None:
+    """Stage a complete runtime before replacing the live import directory."""
+    parent = app_root.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    if app_root.is_symlink():
+        raise SystemExit(f"Manageroo app path must not be a symlink: {app_root}")
+    stage_root = Path(tempfile.mkdtemp(prefix=f".{app_root.name}.stage-", dir=parent))
+    staged_app = stage_root / "app"
+    previous_app = parent / f".{app_root.name}.previous-{secrets.token_hex(8)}"
+    moved_previous = False
+    try:
+        shutil.copytree(source, staged_app, symlinks=False)
+        if app_root.exists():
+            os.replace(app_root, previous_app)
+            moved_previous = True
+        try:
+            os.replace(staged_app, app_root)
+        except BaseException:
+            if moved_previous and previous_app.exists() and not app_root.exists():
+                os.replace(previous_app, app_root)
+            raise
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+    if previous_app.exists():
+        shutil.rmtree(previous_app)
+
+
 def _assert_download_sources_immutable(downloads: list[dict]) -> None:
     unsafe = [
         str(item.get("source") or "")
@@ -1373,9 +1400,7 @@ def main() -> int:
 
         if not venv_root.exists():
             venv.EnvBuilder(with_pip=False, clear=False).create(venv_root)
-        if app_root.exists():
-            shutil.rmtree(app_root)
-        shutil.copytree(ROOT / "src", app_root, symlinks=False)
+        install_app_tree(ROOT / "src", app_root)
         python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")

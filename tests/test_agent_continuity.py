@@ -318,9 +318,9 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            context = corrected["hookSpecificOutput"]["additionalContext"]
-            self.assertNotIn("/opt/old-project", context)
-            self.assertIn("/opt/new-project", context)
+            displayed = corrected["systemMessage"]
+            self.assertNotIn("/opt/old-project", displayed)
+            self.assertIn("/opt/new-project", displayed)
 
             stale_write = process_codex_continuity_hook(
                 {
@@ -647,10 +647,10 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            context = paused["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("Manageroo update", context)
-            self.assertIn("will not resume, monitor, or use tools", context)
-            self.assertNotIn("Finish every request below", context)
+            displayed = paused["systemMessage"]
+            self.assertIn("Manageroo update", displayed)
+            self.assertIn("will not resume, monitor, or use tools", displayed)
+            self.assertNotIn("Finish every request below", displayed)
 
             denied = process_codex_continuity_hook(
                 {
@@ -688,7 +688,7 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(initial["messages"], continued["messages"])
 
-    def test_prompt_hook_keeps_exact_objective_private_and_prints_compact_status(self):
+    def test_prompt_hook_displays_status_without_injecting_it_into_model_context(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             long_detail = "terminal-output-that-must-not-be-replayed " * 80
@@ -714,16 +714,19 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertNotIn("decision", first)
             self.assertNotIn("decision", second)
-            context = second["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("🦘 Manageroo update", context)
-            self.assertIn("🎯 You asked:", context)
-            self.assertIn("🛠️ Manageroo is doing:", context)
-            self.assertIn("📍 Status:", context)
-            self.assertNotIn(long_detail, context)
-            self.assertLessEqual(len(context), 1200)
-            self.assertIn("[🎉 Manageroo: request complete]", context)
-            self.assertIn("(#manageroo-continuity-", context)
-            self.assertNotIn("<!-- manageroo-continuity:", context)
+            displayed = second["systemMessage"]
+            self.assertIn("🦘 Manageroo update", displayed)
+            self.assertIn("🎯 You asked:", displayed)
+            self.assertIn("🛠️ Manageroo is doing:", displayed)
+            self.assertIn("📍 Status:", displayed)
+            self.assertNotIn(long_detail, displayed)
+            self.assertLessEqual(len(displayed), 1200)
+            receipt = first["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("🎉 Manageroo: request complete", receipt)
+            self.assertNotIn("🎯 You asked:", receipt)
+            self.assertNotIn("🛠️ Manageroo is doing:", receipt)
+            self.assertNotIn("📍 Status:", receipt)
+            self.assertNotIn(long_detail, receipt)
 
             state = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
             self.assertEqual(
@@ -734,7 +737,7 @@ class AgentContinuityTests(unittest.TestCase):
     def test_continuity_messages_use_fun_scan_markers(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            process_codex_continuity_hook(
+            first = process_codex_continuity_hook(
                 {
                     "hook_event_name": "UserPromptSubmit",
                     "session_id": "session",
@@ -755,13 +758,15 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root,
             )
 
-            context = result["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("🦘 Manageroo update", context)
-            self.assertIn("🎯 You asked:", context)
-            self.assertIn("🛠️ Manageroo is doing:", context)
-            self.assertIn("📍 Status:", context)
-            self.assertIn("[🎉 Manageroo: request complete]", context)
-            self.assertIn("[🚧 Manageroo: waiting on an external blocker]", context)
+            displayed = result["systemMessage"]
+            self.assertIn("🦘 Manageroo update", displayed)
+            self.assertIn("🎯 You asked:", displayed)
+            self.assertIn("🛠️ Manageroo is doing:", displayed)
+            self.assertIn("📍 Status:", displayed)
+            receipt = first["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("🎉 Manageroo: request complete", receipt)
+            self.assertIn("🚧 Manageroo: waiting on an external blocker", receipt)
+            self.assertNotIn("hookSpecificOutput", result)
 
     def test_side_question_does_not_expand_the_active_objective(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -792,7 +797,8 @@ class AgentContinuityTests(unittest.TestCase):
                 [item["text"] for item in state["messages"]],
                 ["Repair the continuity output and verify it."],
             )
-            self.assertIn("1 active work item", result["hookSpecificOutput"]["additionalContext"])
+            self.assertIn("1 active work item", result["systemMessage"])
+            self.assertNotIn("hookSpecificOutput", result)
 
     def test_compact_status_projection_is_deterministic(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -806,12 +812,38 @@ class AgentContinuityTests(unittest.TestCase):
             }
             first = process_codex_continuity_hook(event, state_root=root)
             second = process_codex_continuity_hook(event, state_root=root)
-            self.assertEqual(
-                first["hookSpecificOutput"]["additionalContext"],
-                second["hookSpecificOutput"]["additionalContext"],
+            self.assertEqual(first["systemMessage"], second["systemMessage"])
+            self.assertIn("hookSpecificOutput", first)
+            self.assertNotIn("hookSpecificOutput", second)
+
+    def test_completion_contract_is_injected_only_once_per_session(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Fix the first issue.",
+                },
+                state_root=root,
+            )
+            changed = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "prompt": "Also fix the second issue.",
+                },
+                state_root=root,
             )
 
-    def test_pre_tool_reminder_names_the_active_task(self):
+            self.assertIn("hookSpecificOutput", first)
+            self.assertNotIn("hookSpecificOutput", changed)
+
+    def test_successful_pre_tool_check_injects_no_prompt_context(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -837,12 +869,7 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root,
             )
 
-            context = result["hookSpecificOutput"]["additionalContext"]
-            self.assertIn(
-                "You asked: Fix the Manageroo prompt partitioning and publish the release.",
-                context,
-            )
-            self.assertNotIn("Stay with the current Manageroo request", context)
+            self.assertEqual(result, {})
 
     def test_stop_hook_continues_agent_until_current_objective_is_marked_complete(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -857,9 +884,9 @@ class AgentContinuityTests(unittest.TestCase):
             response = process_codex_continuity_hook(prompt, state_root=root)
             context = response["hookSpecificOutput"]["additionalContext"]
             marker_line = next(
-                line for line in context.splitlines() if "[🎉 Manageroo: request complete]" in line
+                line for line in context.splitlines() if "🎉 Manageroo: request complete" in line
             )
-            marker = marker_line[marker_line.index("[🎉 Manageroo: request complete]") :]
+            marker = marker_line[marker_line.index("🎉 Manageroo: request complete") :]
             stopped = process_codex_continuity_hook(
                 {
                     "hook_event_name": "Stop",

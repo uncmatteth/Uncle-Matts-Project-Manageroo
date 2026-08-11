@@ -29,6 +29,8 @@ FINISH_MARK = "🏁"
 COMPLETE_MARK = "🎉"
 BLOCKED_MARK = "🚧"
 STOPPED_MARK = "🛑"
+GENERIC_COMPLETE_RECEIPT = f"{COMPLETE_MARK} Manageroo: request complete"
+GENERIC_BLOCKED_RECEIPT = f"{BLOCKED_MARK} Manageroo: waiting on an external blocker"
 _REPLACE_REQUEST = re.compile(
     r"\b(?:cancel|drop|forget|ignore|replace|supersede)\s+(?:all\s+)?(?:the\s+)?"
     r"(?:earlier|old|prior|previous|unfinished)\s+(?:request|task|work|instructions?)\b|"
@@ -462,8 +464,17 @@ def render_compact_status(state: dict[str, Any], *, activity: str) -> str:
             f"{ROOT_REQUEST_MARK} You asked: {goal}",
             f"🛠️ Manageroo is doing: {activity}",
             f"📍 Status: Active — {count} active {noun}; exact wording remains in private continuity state.",
-            f"{FINISH_MARK} Finish only after verified completion: {_completion_marker(state, 'complete')}",
-            f"{BLOCKED_MARK} If a concrete external blocker remains: {_completion_marker(state, 'blocked')}",
+        ]
+    )
+
+
+def _completion_contract() -> str:
+    return "\n".join(
+        [
+            "Manageroo receipt — append only after verified completion:",
+            GENERIC_COMPLETE_RECEIPT,
+            "For a concrete external blocker, write `Concrete blocker:` and append:",
+            GENERIC_BLOCKED_RECEIPT,
         ]
     )
 
@@ -788,6 +799,7 @@ def process_codex_continuity_hook(
     root = _safe_state_root(state_root or continuity_state_root())
     name = str(event.get("hook_event_name") or "")
     if name == "UserPromptSubmit":
+        previous = _read_state(root, session_id)
         state = capture_current_request(
             session_id=session_id,
             turn_id=str(event.get("turn_id") or ""),
@@ -795,13 +807,24 @@ def process_codex_continuity_hook(
             cwd=str(event.get("cwd") or ""),
             state_root=root,
         )
-        return _additional_context(
-            name,
-            render_compact_status(
+        result: dict[str, Any] = {
+            "systemMessage": render_compact_status(
                 state,
                 activity="Keeping the goal in scope and checking the next agent action against it.",
-            ),
+            )
+        }
+        advertised = bool(
+            (previous or {}).get("receipt_contract_advertised")
+            or (previous or {}).get("receipt_objective_sha256")
         )
+        if not advertised and state.get("status") != "paused":
+            state["receipt_contract_advertised"] = True
+            _save_state(root, state)
+            result.update(_additional_context(name, _completion_contract()))
+        elif advertised:
+            state["receipt_contract_advertised"] = True
+            _save_state(root, state)
+        return result
     state = _read_state(root, session_id)
     if not isinstance(state, dict) or state.get("status") not in {"active", "waiting", "paused"}:
         return {}
@@ -820,14 +843,7 @@ def process_codex_continuity_hook(
                     ),
                 }
             }
-        decision = audit_agent_tool(event, state)
-        return decision or _additional_context(
-            name,
-            render_compact_status(
-                state,
-                activity="Checking this tool action against the active goal.",
-            ),
-        )
+        return audit_agent_tool(event, state)
     if name == "Stop":
         if state.get("status") == "paused":
             return {}
@@ -839,7 +855,8 @@ def process_codex_continuity_hook(
         legacy_complete_marker = _legacy_completion_marker(state, "complete")
         legacy_blocked_marker = _legacy_completion_marker(state, "blocked")
         if (
-            complete_marker in last
+            GENERIC_COMPLETE_RECEIPT in last
+            or complete_marker in last
             or previous_complete_marker in last
             or legacy_complete_marker in last
         ):
@@ -848,7 +865,8 @@ def process_codex_continuity_hook(
             _save_state(root, state)
             return {}
         if (
-            blocked_marker in last
+            GENERIC_BLOCKED_RECEIPT in last
+            or blocked_marker in last
             or previous_blocked_marker in last
             or legacy_blocked_marker in last
         ) and "Concrete blocker:" in last:
@@ -867,6 +885,8 @@ def process_codex_continuity_hook(
                     state,
                     activity="Continuing the agent because verified completion has not been recorded.",
                 )
+                + "\n\n"
+                + _completion_contract()
             ),
         }
     return {}

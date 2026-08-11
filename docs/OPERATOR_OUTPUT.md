@@ -21,7 +21,8 @@ success-looking heading.
 ## Continuity messages
 
 The continuity feature remains bound to the exact active request. Its normal
-prompt, tool, and continuation update is deliberately short:
+prompt update is deliberately short and is displayed to the operator without
+being added to model context:
 
 ```text
 🦘 Manageroo update
@@ -30,10 +31,16 @@ prompt, tool, and continuation update is deliberately short:
 📍 Status: <active or paused>
 ```
 
-This is a deterministic projection, not a copy of the full prompt. Exact
-operator wording remains in private continuity state and returns to agent context
-only when a session, subagent, or compacted conversation must recover it. A side
-question does not become another active work item.
+This is a deterministic display-only projection, not a copy of the full prompt.
+Successful tool checks add no reminder to model context. Exact operator wording
+remains in private continuity state and returns to agent context only when a
+session, subagent, compacted conversation, or premature stop must recover it. A
+side question does not become another active work item.
+
+Manageroo adds one small completion handshake to model context per Codex
+session, then binds that handshake to the current objective privately when the
+agent stops. It is not repeated for later objectives, side questions, duplicate
+prompt events, or successful tool checks.
 
 The normal
 completion receipt is a short Markdown badge:

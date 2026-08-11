@@ -45,6 +45,30 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_app_update_swaps_staged_tree_without_deleting_live_import_path(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source"
+            app = root / "prefix" / "app"
+            source.mkdir()
+            app.mkdir(parents=True)
+            (source / "new.py").write_text("NEW = True\n", encoding="utf-8")
+            (app / "stale.py").write_text("STALE = True\n", encoding="utf-8")
+            real_rmtree = shutil.rmtree
+
+            def reject_live_delete(path, *args, **kwargs):
+                if Path(path) == app:
+                    raise AssertionError("the live import path must never be recursively deleted")
+                return real_rmtree(path, *args, **kwargs)
+
+            with patch.object(install.shutil, "rmtree", side_effect=reject_live_delete):
+                install.install_app_tree(source, app)
+
+            self.assertEqual((app / "new.py").read_text(encoding="utf-8"), "NEW = True\n")
+            self.assertFalse((app / "stale.py").exists())
+            self.assertEqual(list((root / "prefix").glob(".app.*")), [])
+
     def test_install_removes_only_legacy_manageroo_operator_hooks(self):
         install = load_install_script()
         with tempfile.TemporaryDirectory() as temp:

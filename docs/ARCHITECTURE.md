@@ -48,11 +48,16 @@ continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.
 
-Routine prompt, tool, and stop events render a deterministic bounded projection:
-one short `You asked` line, the action Manageroo is taking, and active/paused
-status. The exact objective stays in private continuity state and is reinjected
-only for session recovery, subagent startup, or post-compaction recovery. This
-keeps the agent on task without repeatedly spending context on the full prompt.
+Routine prompt events render a deterministic bounded status projection through
+Codex's display-only system-message channel: one short `You asked` line, the
+action Manageroo is taking, and active/paused status. Successful tool checks
+return no prompt context. The exact objective stays in private continuity state
+and is reinjected only for session recovery, subagent startup, post-compaction
+recovery, or a premature stop. Manageroo injects one small completion handshake
+per Codex session and binds it to the current objective privately at stop time;
+later objectives, side questions, and repeated tool actions do not inject it
+again. This keeps status visible without
+repeatedly spending model context on status text or the full prompt.
 
 The stop handshake is request-hash-bound but rendered as a short Markdown badge.
 The operator sees `🎉 Manageroo: request complete` or a `🚧` waiting status; the
@@ -105,6 +110,9 @@ model-owned permission gate or require the reuse worker to quote boilerplate.
 
 The standard installer removes obsolete Manageroo permission-firewall hook
 entries, installs the bounded continuity hook set, and preserves unrelated hooks.
+It stages the complete Manageroo runtime beside the live installation before a
+directory swap, so concurrently executing hooks cannot repopulate a directory
+that the installer is recursively deleting.
 
 ## Source isolation
 
