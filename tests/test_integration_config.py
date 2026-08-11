@@ -48,6 +48,37 @@ class IntegrationConfigTests(unittest.TestCase):
             self.assertEqual(current, original)
             self.assertEqual(result["next_command"], "Install GBrain, then run `manageroo integrations configure`.")
 
+    def test_configuration_preserves_commented_tables_after_integrations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            config_path = repo / ".manageroo" / "config.toml"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(
+                "[integrations]\n"
+                "gbrain_search_command = []\n"
+                "\n"
+                "[safety] # policy\n"
+                'allowed_programs = ["git"]\n'
+                "\n"
+                "[custom] # preserve this table too\n"
+                'message = "keep me"\n',
+                encoding="utf-8",
+            )
+
+            def which(name):
+                return "/usr/bin/gbrain" if name == "gbrain" else None
+
+            with patch("manageroo.integration_config.shutil.which", side_effect=which):
+                result = configure_integrations(repo, gitnexus=False, apply=True)
+
+            current = config_path.read_text(encoding="utf-8")
+            config = tomllib.loads(current)
+            self.assertTrue(result["applied"])
+            self.assertIn("[safety] # policy", current)
+            self.assertIn("[custom] # preserve this table too", current)
+            self.assertEqual(config["safety"]["allowed_programs"], ["git"])
+            self.assertEqual(config["custom"]["message"], "keep me")
+
     def test_full_configuration_wires_every_recommended_lane(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -39,6 +39,7 @@ INTEGRATION_ORDER = [
     "clawpatch_command",
 ]
 _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_TABLE_HEADER_RE = re.compile(r"^\s*(?P<header>\[\[.*?\]\]|\[.*?\])\s*(?:#.*)?$")
 
 
 def _toml_key(value: str) -> str:
@@ -86,22 +87,30 @@ def _integrations_block(values: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _toml_table_header(line: str) -> str | None:
+    match = _TABLE_HEADER_RE.fullmatch(line)
+    return match.group("header") if match else None
+
+
 def _is_integrations_header(line: str) -> bool:
-    stripped = line.strip()
-    if not stripped.startswith("[") or not stripped.endswith("]"):
+    header = _toml_table_header(line)
+    if header is None:
         return False
-    inner = stripped.strip("[]").strip()
+    inner = header.strip("[]").strip()
     return inner == "integrations" or inner.startswith("integrations.") or inner.startswith('"integrations".')
 
 
 def replace_integrations_block(text: str, values: dict[str, Any]) -> str:
+    try:
+        original = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigurationError(f"Cannot replace integrations in invalid TOML: {exc}") from exc
     lines = text.splitlines()
     kept: list[str] = []
     skipping = False
     inserted = False
     for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
+        if _toml_table_header(line) is not None:
             if _is_integrations_header(line):
                 if not inserted:
                     kept.extend(_integrations_block(values).splitlines())
@@ -119,9 +128,13 @@ def replace_integrations_block(text: str, values: dict[str, Any]) -> str:
             kept.extend(_integrations_block(values).splitlines())
     updated = "\n".join(kept).rstrip() + "\n"
     try:
-        tomllib.loads(updated)
+        parsed = tomllib.loads(updated)
     except tomllib.TOMLDecodeError as exc:
         raise ConfigurationError(f"Refusing to write invalid integration configuration: {exc}") from exc
+    original_other = {key: value for key, value in original.items() if key != "integrations"}
+    parsed_other = {key: value for key, value in parsed.items() if key != "integrations"}
+    if parsed_other != original_other:
+        raise ConfigurationError("Refusing to alter non-integration configuration")
     return updated
 
 
