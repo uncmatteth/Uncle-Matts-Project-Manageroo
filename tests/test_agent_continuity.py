@@ -7,6 +7,7 @@ from pathlib import Path
 
 from manageroo.agent_continuity import (
     INTERNAL_CONTINUATION_PREFIX,
+    _git_root,
     capture_current_request,
     install_codex_continuity_hooks,
     process_codex_continuity_hook,
@@ -622,11 +623,21 @@ class AgentContinuityTests(unittest.TestCase):
             repo = root / "repo"
             repo.mkdir()
             (repo / ".git").mkdir()
+            temporary_root = next(
+                (
+                    candidate
+                    for candidate in (Path("/tmp"), Path("/dev/shm"))
+                    if candidate.is_dir() and _git_root(candidate) is None
+                ),
+                None,
+            )
+            if temporary_root is None:
+                self.skipTest("No supported temporary root is outside another Git repository.")
             result = self._shell_decision(
                 root / "state",
                 repo,
                 "Inspect this repository and report the result.",
-                "touch /tmp/manageroo-bounded-proof.txt",
+                f"touch {temporary_root / 'manageroo-bounded-proof.txt'}",
             )
             self.assertNotEqual(
                 result.get("hookSpecificOutput", {}).get("permissionDecision"),
