@@ -53,8 +53,9 @@ Codex's display-only system-message channel: one short `You asked` line, a local
 derived action summary of the current task, and active/paused status. The action
 summary uses no worker or model call and never replays the full prompt. Successful tool checks
 return no prompt context. The exact objective stays in private continuity state
-and is reinjected only for session recovery, subagent startup, post-compaction
-recovery, or a premature stop. Manageroo injects one small completion handshake
+and is reinjected only for session recovery, subagent startup, or post-compaction
+recovery. A premature stop receives only a bounded current-task excerpt and the
+completion line instead of another status block and receipt explanation. Manageroo injects one small completion handshake
 per Codex session and binds it to the current objective privately at stop time;
 later objectives, side questions, and repeated tool actions do not inject it
 again. This keeps status visible without

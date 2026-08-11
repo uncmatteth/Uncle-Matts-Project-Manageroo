@@ -86,6 +86,8 @@ it makes no model call and spends no model-context tokens. Successful tool check
 no reminder. One small completion handshake is added once per Codex session;
 Manageroo binds it to the current objective privately when the agent stops.
 Recovery events restore the exact saved objective when needed.
+Premature-stop feedback contains only a short current-task line and the
+completion line; it does not repeat the normal status block or receipt explanation.
 
 Manageroo's normal human-facing output follows one rule: say the outcome first,
 then explain what happened, what it means, and the one useful next action.

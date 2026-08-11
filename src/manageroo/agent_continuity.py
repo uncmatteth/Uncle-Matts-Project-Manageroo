@@ -540,6 +540,23 @@ def _completion_contract() -> str:
     )
 
 
+def _stop_recovery_message(state: dict[str, Any]) -> str:
+    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
+    goal = (
+        _task_excerpt(messages[-1].get("text"), limit=180)
+        if messages
+        else "the saved request"
+    )
+    return "\n".join(
+        [
+            INTERNAL_CONTINUATION_PREFIX,
+            f"{MANAGEROO_MARK} Missing the completion line, so Manageroo continued this turn.",
+            f"{ROOT_REQUEST_MARK} Finish: {goal}",
+            f"{FINISH_MARK} When done, end with: {GENERIC_COMPLETE_RECEIPT}",
+        ]
+    )
+
+
 def _path_clause(text: str, start: int, end: int) -> tuple[str, str]:
     clause_start = max(text.rfind(mark, 0, start) for mark in _CLAUSE_BOUNDARIES) + 1
     following = [
@@ -938,17 +955,7 @@ def process_codex_continuity_hook(
             return {}
         return {
             "decision": "block",
-            "reason": (
-                f"{INTERNAL_CONTINUATION_PREFIX}\n"
-                f"{MANAGEROO_MARK}📣 Manageroo kept the request open because verified completion was not recorded. "
-                "Do not ask the operator to repeat or reauthorize anything; resume and finish the saved work.\n\n"
-                + render_compact_status(
-                    state,
-                    activity="Continuing the agent because verified completion has not been recorded.",
-                )
-                + "\n\n"
-                + _completion_contract()
-            ),
+            "reason": _stop_recovery_message(state),
         }
     return {}
 

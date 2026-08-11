@@ -37,9 +37,19 @@ action wording such as `Fixing`, `Reviewing`, or `Publishing`; it does not call 
 model or add the status text to model context. If no clear action verb is present,
 it says that the task summarized above is starting instead of inventing work.
 Successful tool checks add no reminder to model context. Exact operator wording
-remains in private continuity state and returns to agent context only when a
-session, subagent, compacted conversation, or premature stop must recover it. A
-side question does not become another active work item.
+remains in private continuity state and returns to agent context when a session,
+subagent, or compacted conversation must recover it. A premature stop gets only
+a short current-task excerpt and the completion line; it does not replay the
+normal status block or completion-contract explanation. A side question does
+not become another active work item.
+
+Premature-stop feedback is intentionally compact:
+
+```text
+🦘 Missing the completion line, so Manageroo continued this turn.
+🎯 Finish: <short current task>
+🏁 When done, end with: 🎉 Manageroo: request complete
+```
 
 Manageroo adds one small completion handshake to model context per Codex
 session, then binds that handshake to the current objective privately when the

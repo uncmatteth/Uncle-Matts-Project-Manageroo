@@ -938,9 +938,21 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root,
             )
             self.assertEqual(stopped["decision"], "block")
-            self.assertIn("resume and finish", stopped["reason"])
-            self.assertNotIn("# 🦘 Manageroo: current request", stopped["reason"])
-            self.assertLessEqual(len(stopped["reason"]), 1600)
+            self.assertEqual(
+                stopped["reason"],
+                "\n".join(
+                    [
+                        INTERNAL_CONTINUATION_PREFIX,
+                        "🦘 Missing the completion line, so Manageroo continued this turn.",
+                        "🎯 Finish: Finish and verify the job.",
+                        "🏁 When done, end with: 🎉 Manageroo: request complete",
+                    ]
+                ),
+            )
+            self.assertNotIn("Manageroo update", stopped["reason"])
+            self.assertNotIn("Manageroo is doing", stopped["reason"])
+            self.assertNotIn("📍 Status", stopped["reason"])
+            self.assertLessEqual(len(stopped["reason"]), 500)
             completed = process_codex_continuity_hook(
                 {
                     "hook_event_name": "Stop",
