@@ -27,11 +27,15 @@ being added to model context:
 ```text
 🦘 Manageroo update
 🎯 You asked: <one-line goal>
-🛠️ Manageroo is doing: <current continuity action>
+🛠️ Manageroo is doing: <short action summary of the current task>
 📍 Status: <active or paused>
 ```
 
 This is a deterministic display-only projection, not a copy of the full prompt.
+The activity line is derived locally from the newest active request using bounded
+action wording such as `Fixing`, `Reviewing`, or `Publishing`; it does not call a
+model or add the status text to model context. If no clear action verb is present,
+it says that the task summarized above is starting instead of inventing work.
 Successful tool checks add no reminder to model context. Exact operator wording
 remains in private continuity state and returns to agent context only when a
 session, subagent, compacted conversation, or premature stop must recover it. A

@@ -813,8 +813,46 @@ class AgentContinuityTests(unittest.TestCase):
             first = process_codex_continuity_hook(event, state_root=root)
             second = process_codex_continuity_hook(event, state_root=root)
             self.assertEqual(first["systemMessage"], second["systemMessage"])
+            self.assertIn(
+                "🛠️ Manageroo is doing: Fixing the useful progress summary.",
+                first["systemMessage"],
+            )
             self.assertIn("hookSpecificOutput", first)
             self.assertNotIn("hookSpecificOutput", second)
+
+    def test_prompt_status_names_the_actual_requested_work_without_model_context(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": (
+                        "Manageroo is doing: keep the agent in line. That generic line is "
+                        "useless; make it say what the current work actually is without "
+                        "passing extra tokens."
+                    ),
+                },
+                state_root=root,
+            )
+
+            displayed = result["systemMessage"]
+            self.assertIn(
+                "🛠️ Manageroo is doing: Making the activity line describe the actual "
+                "current task without spending model-context tokens.",
+                displayed,
+            )
+            self.assertNotIn(
+                "Keeping the goal in scope and checking the next agent action against it.",
+                displayed,
+            )
+            self.assertIn("additionalContext", result["hookSpecificOutput"])
+            self.assertNotIn(
+                "Making the activity line describe",
+                result["hookSpecificOutput"]["additionalContext"],
+            )
 
     def test_completion_contract_is_injected_only_once_per_session(self):
         with tempfile.TemporaryDirectory() as temp:

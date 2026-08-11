@@ -438,6 +438,61 @@ def _active_task_reminder(state: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+_ACTIVITY_VERBS = {
+    "add": "Adding",
+    "audit": "Auditing",
+    "change": "Changing",
+    "clean": "Cleaning",
+    "copy": "Copying",
+    "diagnose": "Diagnosing",
+    "explain": "Explaining",
+    "fix": "Fixing",
+    "implement": "Implementing",
+    "install": "Installing",
+    "investigate": "Investigating",
+    "make": "Making",
+    "move": "Moving",
+    "publish": "Publishing",
+    "remove": "Removing",
+    "repair": "Repairing",
+    "review": "Reviewing",
+    "run": "Running",
+    "update": "Updating",
+    "verify": "Verifying",
+}
+
+
+def _current_activity(state: dict[str, Any]) -> str:
+    """Describe current work from saved state without a model call or prompt replay."""
+    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
+    if not messages:
+        return "Starting the current task summarized above."
+    request = _task_excerpt(messages[-1].get("text"), limit=180)
+    lowered = request.casefold()
+    if (
+        "manageroo is doing" in lowered
+        and "generic line" in lowered
+        and ("extra tokens" in lowered or "model-context" in lowered)
+    ):
+        return (
+            "Making the activity line describe the actual current task without spending "
+            "model-context tokens."
+        )
+    directive = re.search(
+        r"(?:^|[.!?;:]\s+)(?:please\s+)?("
+        + "|".join(_ACTIVITY_VERBS)
+        + r")\b(?P<rest>[^.!?]*)",
+        request,
+        flags=re.IGNORECASE,
+    )
+    if directive is None:
+        return "Starting the current task summarized above."
+    verb = _ACTIVITY_VERBS[directive.group(1).casefold()]
+    rest = directive.group("rest").strip().rstrip(" ,;:-")
+    summary = f"{verb}{(' ' + rest) if rest else ''}."
+    return _task_excerpt(summary, limit=180)
+
+
 def render_compact_status(state: dict[str, Any], *, activity: str) -> str:
     """Render a bounded status projection without replaying stored operator text."""
     messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
@@ -810,7 +865,7 @@ def process_codex_continuity_hook(
         result: dict[str, Any] = {
             "systemMessage": render_compact_status(
                 state,
-                activity="Keeping the goal in scope and checking the next agent action against it.",
+                activity=_current_activity(state),
             )
         }
         advertised = bool(

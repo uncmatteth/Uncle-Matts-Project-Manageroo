@@ -80,7 +80,9 @@ the badge's Markdown link target instead of appearing as a long raw HTML
 comment. Existing sessions carrying the older comment form remain valid during
 an upgrade.
 Routine `You asked` and `Manageroo is doing` status uses Codex's display-only
-system-message channel instead of model context. Successful tool checks inject
+system-message channel instead of model context. The activity line is derived
+locally from the current task instead of repeating one generic purpose slogan;
+it makes no model call and spends no model-context tokens. Successful tool checks inject
 no reminder. One small completion handshake is added once per Codex session;
 Manageroo binds it to the current objective privately when the agent stops.
 Recovery events restore the exact saved objective when needed.

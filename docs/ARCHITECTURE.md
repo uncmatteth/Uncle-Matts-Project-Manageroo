@@ -49,8 +49,9 @@ concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.
 
 Routine prompt events render a deterministic bounded status projection through
-Codex's display-only system-message channel: one short `You asked` line, the
-action Manageroo is taking, and active/paused status. Successful tool checks
+Codex's display-only system-message channel: one short `You asked` line, a locally
+derived action summary of the current task, and active/paused status. The action
+summary uses no worker or model call and never replays the full prompt. Successful tool checks
 return no prompt context. The exact objective stays in private continuity state
 and is reinjected only for session recovery, subagent startup, post-compaction
 recovery, or a premature stop. Manageroo injects one small completion handshake
