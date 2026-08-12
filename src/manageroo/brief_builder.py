@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .branding import PROJECT_DIR
+from .config_lock import config_mutation_lock
 from .util import atomic_write_text
 
 DEFAULT_STOP_RULE = (
@@ -84,7 +85,8 @@ def default_brief_path(repo: Path) -> Path:
 
 
 def write_product_brief(path: Path, markdown: str, *, force: bool = False) -> Path:
-    if path.exists() and not force:
-        raise ValueError(f"Refusing to overwrite existing brief without --force: {path}")
-    atomic_write_text(path, markdown)
+    with config_mutation_lock(path):
+        if path.exists() and not force:
+            raise ValueError(f"Refusing to overwrite existing brief without --force: {path}")
+        atomic_write_text(path, markdown)
     return path

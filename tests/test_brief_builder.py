@@ -1,7 +1,10 @@
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import manageroo.brief_builder as brief_builder_module
 from manageroo.brief_builder import build_product_brief, write_product_brief
 
 
@@ -43,6 +46,43 @@ class BriefBuilderTests(unittest.TestCase):
                 write_product_brief(path, "new\n")
             write_product_brief(path, "new\n", force=True)
             self.assertEqual(path.read_text(encoding="utf-8"), "new\n")
+
+    def test_concurrent_non_forced_brief_creation_has_one_winner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "PRODUCT-BRIEF.md"
+            markdowns = ["writer one\n", "writer two\n"]
+            writes_ready = threading.Barrier(2)
+            errors: list[BaseException] = []
+            real_atomic_write = brief_builder_module.atomic_write_text
+
+            def synchronized_atomic_write(*args, **kwargs):
+                try:
+                    writes_ready.wait(timeout=0.25)
+                except threading.BrokenBarrierError:
+                    pass
+                return real_atomic_write(*args, **kwargs)
+
+            def write(markdown: str) -> None:
+                try:
+                    write_product_brief(path, markdown)
+                except BaseException as exc:
+                    errors.append(exc)
+
+            with mock.patch.object(
+                brief_builder_module,
+                "atomic_write_text",
+                side_effect=synchronized_atomic_write,
+            ):
+                threads = [threading.Thread(target=write, args=(markdown,)) for markdown in markdowns]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=5)
+
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], ValueError)
+            self.assertIn(path.read_text(encoding="utf-8"), markdowns)
 
 
 if __name__ == "__main__":
