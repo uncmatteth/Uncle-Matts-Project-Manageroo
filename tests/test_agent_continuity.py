@@ -409,16 +409,17 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            real_save_state = agent_continuity_module._save_state
-            stop_save_started = threading.Event()
-            allow_stop_save = threading.Event()
+            real_read_state = agent_continuity_module._read_state
+            stop_read_complete = threading.Event()
+            prompt_persisted = threading.Event()
             errors: list[BaseException] = []
 
-            def delayed_stop_save(state_root, state):
-                stop_save_started.set()
-                if not allow_stop_save.wait(timeout=5):
-                    raise TimeoutError("new operator request was not persisted")
-                real_save_state(state_root, state)
+            def synchronized_read(*args, **kwargs):
+                state = real_read_state(*args, **kwargs)
+                if threading.current_thread().name == "continuity-stop":
+                    stop_read_complete.set()
+                    prompt_persisted.wait(timeout=0.25)
+                return state
 
             def stop() -> None:
                 try:
@@ -437,16 +438,7 @@ class AgentContinuityTests(unittest.TestCase):
                 except BaseException as exc:
                     errors.append(exc)
 
-            with mock.patch.object(
-                agent_continuity_module,
-                "_save_state",
-                side_effect=delayed_stop_save,
-            ):
-                thread = threading.Thread(target=stop)
-                thread.start()
-                stale_save_reached = stop_save_started.wait(timeout=0.25)
-                if not stale_save_reached:
-                    thread.join(timeout=5)
+            def submit() -> None:
                 try:
                     process_codex_continuity_hook(
                         {
@@ -458,13 +450,27 @@ class AgentContinuityTests(unittest.TestCase):
                         },
                         state_root=root,
                     )
-                finally:
-                    allow_stop_save.set()
-                thread.join(timeout=5)
+                    prompt_persisted.set()
+                except BaseException as exc:
+                    errors.append(exc)
 
-            self.assertFalse(thread.is_alive())
+            with mock.patch.object(
+                agent_continuity_module,
+                "_read_state",
+                side_effect=synchronized_read,
+            ):
+                stop_thread = threading.Thread(target=stop, name="continuity-stop")
+                stop_thread.start()
+                self.assertTrue(stop_read_complete.wait(timeout=5))
+                prompt_thread = threading.Thread(target=submit)
+                prompt_thread.start()
+                stop_thread.join(timeout=5)
+                prompt_thread.join(timeout=5)
+
+            self.assertFalse(stop_thread.is_alive())
+            self.assertFalse(prompt_thread.is_alive())
             self.assertEqual(errors, [])
-            state = agent_continuity_module._read_state(root, "session")
+            state = real_read_state(root, "session")
             self.assertIsNotNone(state)
             self.assertEqual(
                 [item["turn_id"] for item in state["messages"]],
