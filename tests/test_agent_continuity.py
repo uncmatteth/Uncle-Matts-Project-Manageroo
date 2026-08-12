@@ -16,6 +16,7 @@ from manageroo.agent_continuity import (
     install_codex_continuity_hooks,
     process_codex_continuity_hook,
 )
+from manageroo.errors import ConfigurationError
 
 
 class AgentContinuityTests(unittest.TestCase):
@@ -277,6 +278,58 @@ class AgentContinuityTests(unittest.TestCase):
                 ["root", "addition"],
             )
             self.assertIn("Edit the named TXT", second["messages"][0]["text"])
+
+    def test_malformed_state_blocks_capture_without_overwriting_original_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Preserve this unfinished request.",
+                cwd="/project",
+                state_root=root,
+            )
+            state_path = next(root.glob("*.json"))
+            malformed = b'{"schema_version": 1, "messages": ['
+            state_path.write_bytes(malformed)
+
+            with self.assertRaisesRegex(ConfigurationError, "invalid JSON"):
+                capture_current_request(
+                    session_id="session",
+                    turn_id="turn-2",
+                    prompt="Do not replace corrupt state.",
+                    cwd="/project",
+                    state_root=root,
+                )
+
+            self.assertEqual(state_path.read_bytes(), malformed)
+
+    def test_unsupported_state_version_blocks_capture_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Preserve this unfinished request.",
+                cwd="/project",
+                state_root=root,
+            )
+            state_path = next(root.glob("*.json"))
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["schema_version"] = 2
+            unsupported = json.dumps(state, sort_keys=True).encode("utf-8")
+            state_path.write_bytes(unsupported)
+
+            with self.assertRaisesRegex(ConfigurationError, "unsupported schema version"):
+                capture_current_request(
+                    session_id="session",
+                    turn_id="turn-2",
+                    prompt="Do not replace unsupported state.",
+                    cwd="/project",
+                    state_root=root,
+                )
+
+            self.assertEqual(state_path.read_bytes(), unsupported)
 
     def test_concurrent_additions_preserve_both_operator_requests(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -196,14 +196,33 @@ def _state_path(root: Path, session_id: str) -> Path:
 
 def _read_state(root: Path, session_id: str) -> dict[str, Any] | None:
     path = _state_path(root, session_id)
-    if not path.is_file():
-        return None
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return None
-    if not isinstance(value, dict) or value.get("schema_version") != STATE_SCHEMA_VERSION:
-        return None
+    except UnicodeDecodeError as exc:
+        raise ConfigurationError(
+            f"Manageroo continuity state is not valid UTF-8: {path}"
+        ) from exc
+    except OSError as exc:
+        raise ConfigurationError(
+            f"Manageroo continuity state could not be read: {path}"
+        ) from exc
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError(
+            f"Manageroo continuity state contains invalid JSON: {path}"
+        ) from exc
+    if not isinstance(value, dict):
+        raise ConfigurationError(
+            f"Manageroo continuity state must contain a JSON object: {path}"
+        )
+    if value.get("schema_version") != STATE_SCHEMA_VERSION:
+        raise ConfigurationError(
+            "Manageroo continuity state has an unsupported schema version: "
+            f"{path}"
+        )
     return value
 
 

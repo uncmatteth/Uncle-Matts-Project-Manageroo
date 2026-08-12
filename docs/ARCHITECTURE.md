@@ -48,6 +48,9 @@ continues the agent until the complete active objective is marked verified or a
 concrete external blocker is recorded. These hooks control agent behavior, not
 operator authority.
 
+Missing continuity state starts a new session. Unreadable, malformed, non-object,
+or unsupported-version state fails closed without replacing the original file.
+
 Routine prompt events render a deterministic bounded status projection through
 Codex's display-only system-message channel: one short `You asked` line, a locally
 derived action summary of the current task, and active/paused status. The action
