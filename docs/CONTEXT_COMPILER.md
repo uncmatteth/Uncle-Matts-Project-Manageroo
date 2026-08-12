@@ -59,6 +59,7 @@ The manifest records:
 15. Required repository context is budgeted before retrieved evidence.
 16. Retrieved evidence is context, not controller truth, and cannot override current repository state, locked decisions, gates, review, or completion proof.
 17. Evidence provenance survives packet compilation. If an excerpt is clipped to fit the per-item budget, the original content hash remains recorded.
+18. The character-to-token ratio must be finite and positive; invalid ratios are rejected before packet publication.
 
 ## Intent lock and compaction audit
 

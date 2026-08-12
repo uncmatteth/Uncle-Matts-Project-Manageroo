@@ -1,4 +1,5 @@
 import hashlib
+import math
 import os
 import tempfile
 import unittest
@@ -66,6 +67,20 @@ class ContextTests(unittest.TestCase):
         )
         with self.assertRaises(SafetyError):
             self.compiler().validate_freshness(manifest)
+
+    def test_invalid_chars_per_token_is_rejected(self):
+        for chars_per_token in (0.0, -1.0, math.nan, math.inf):
+            with self.subTest(chars_per_token=chars_per_token):
+                with self.assertRaises(ContextBudgetError):
+                    ContextCompiler(
+                        self.repo,
+                        self.root / "packets",
+                        max_input_tokens=1000,
+                        reserve_output_tokens=20,
+                        chars_per_token=chars_per_token,
+                        max_single_file_tokens=100,
+                    )
+        self.assertFalse((self.root / "packets").exists())
 
     def test_manifest_contains_exact_source_hash_and_lines(self):
         source = self.repo / "a.txt"

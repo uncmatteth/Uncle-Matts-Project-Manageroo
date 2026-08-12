@@ -206,6 +206,8 @@ class ContextCompiler:
         chars_per_token: float,
         max_single_file_tokens: int,
     ):
+        if not math.isfinite(chars_per_token) or chars_per_token <= 0:
+            raise ContextBudgetError("Context chars_per_token must be finite and positive.")
         self.repo = repo.resolve()
         self.packet_root = packet_root.expanduser().resolve()
         self._repo_descriptor = _open_rooted_directory(self.repo)
