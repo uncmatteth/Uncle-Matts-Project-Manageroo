@@ -201,6 +201,152 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual((repo / "b.txt").read_bytes(), b"second before\n")
             self.assertEqual((repo / "b.txt").stat().st_mode & 0o777, original_mode)
 
+    def test_apply_preserves_edit_racing_rollback_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, setup_runner = self._repo(root)
+            second = repo / "b.txt"
+            second.write_bytes(b"second before\n")
+            self.assertTrue(setup_runner.run(["git", "add", "b.txt"], cwd=repo).passed)
+            self.assertTrue(
+                setup_runner.run(
+                    [
+                        "git",
+                        "-c",
+                        "commit.gpgSign=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "commit",
+                        "-m",
+                        "add second file",
+                    ],
+                    cwd=repo,
+                ).passed
+            )
+
+            runner = _PostApplyMutatingRunner(repo / "a.txt", b"post-apply conflict\n")
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            (workspace / "a.txt").write_bytes(b"workspace after\n")
+            (workspace / "b.txt").write_bytes(b"second after\n")
+            mirror.checkpoint("controller")
+            final_patch = mirror.write_patch(root / "final.patch")
+
+            concurrent_edit = b"edit during rollback replacement\n"
+            real_identity = mirror._preserved_path_identity
+            real_unlink = Path.unlink
+            preserved_descriptor = None
+            edit_injected = False
+
+            def identity_with_open_descriptor(preserved: Path):
+                nonlocal preserved_descriptor
+                identity = real_identity(preserved)
+                if preserved_descriptor is None and preserved.name.startswith(
+                    ".b.txt.manageroo-preserved-"
+                ):
+                    preserved_descriptor = os.open(preserved, os.O_WRONLY)
+                return identity
+
+            def unlink_with_concurrent_edit(path: Path, *args, **kwargs):
+                nonlocal edit_injected, preserved_descriptor
+                if preserved_descriptor is not None and path.name.startswith(
+                    ".b.txt.manageroo-preserved-"
+                ):
+                    try:
+                        os.ftruncate(preserved_descriptor, 0)
+                        os.write(preserved_descriptor, concurrent_edit)
+                    finally:
+                        os.close(preserved_descriptor)
+                        preserved_descriptor = None
+                    edit_injected = True
+                real_unlink(path, *args, **kwargs)
+
+            try:
+                with (
+                    patch.object(
+                        mirror,
+                        "_preserved_path_identity",
+                        side_effect=identity_with_open_descriptor,
+                    ),
+                    patch(
+                        "pathlib.Path.unlink",
+                        autospec=True,
+                        side_effect=unlink_with_concurrent_edit,
+                    ),
+                ):
+                    with self.assertRaisesRegex(SafetyError, "changed during patch application"):
+                        mirror.apply_patch_to_source(final_patch)
+            finally:
+                if preserved_descriptor is not None:
+                    os.close(preserved_descriptor)
+
+            self.assertTrue(edit_injected)
+            self.assertEqual(second.read_bytes(), concurrent_edit)
+
+    def test_apply_preserves_edit_racing_rollback_unlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, _ = self._repo(root)
+            added = repo / "added.txt"
+            runner = _PostApplyMutatingRunner(repo / "a.txt", b"post-apply conflict\n")
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            (workspace / "a.txt").write_bytes(b"workspace after\n")
+            (workspace / "added.txt").write_bytes(b"manageroo addition\n")
+            mirror.checkpoint("controller")
+            final_patch = mirror.write_patch(root / "final.patch")
+
+            concurrent_edit = b"edit during rollback unlink\n"
+            real_identity = mirror._preserved_path_identity
+            real_unlink = Path.unlink
+            preserved_descriptor = None
+            edit_injected = False
+
+            def identity_with_open_descriptor(preserved: Path):
+                nonlocal preserved_descriptor
+                identity = real_identity(preserved)
+                if preserved_descriptor is None and preserved.name.startswith(
+                    ".added.txt.manageroo-preserved-"
+                ):
+                    preserved_descriptor = os.open(preserved, os.O_WRONLY)
+                return identity
+
+            def unlink_with_concurrent_edit(path, *args, **kwargs):
+                nonlocal edit_injected, preserved_descriptor
+                if preserved_descriptor is not None and path.name.startswith(
+                    ".added.txt.manageroo-preserved-"
+                ):
+                    try:
+                        os.ftruncate(preserved_descriptor, 0)
+                        os.write(preserved_descriptor, concurrent_edit)
+                    finally:
+                        os.close(preserved_descriptor)
+                        preserved_descriptor = None
+                    edit_injected = True
+                real_unlink(path, *args, **kwargs)
+
+            try:
+                with (
+                    patch.object(
+                        mirror,
+                        "_preserved_path_identity",
+                        side_effect=identity_with_open_descriptor,
+                    ),
+                    patch(
+                        "pathlib.Path.unlink",
+                        autospec=True,
+                        side_effect=unlink_with_concurrent_edit,
+                    ),
+                ):
+                    with self.assertRaisesRegex(SafetyError, "changed during patch application"):
+                        mirror.apply_patch_to_source(final_patch)
+            finally:
+                if preserved_descriptor is not None:
+                    os.close(preserved_descriptor)
+
+            self.assertTrue(edit_injected)
+            self.assertEqual(added.read_bytes(), concurrent_edit)
+
     def test_second_create_does_not_replace_original_source_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

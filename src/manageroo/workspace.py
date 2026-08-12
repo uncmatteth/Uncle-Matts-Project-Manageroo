@@ -313,6 +313,35 @@ class WorkspaceMirror:
             raise SafetyError(f"Repository tree contains an unsupported path: {relative}")
         return sha256_file(path), metadata.st_mode & 0o777
 
+    def _restore_preserved_path(self, preserved: Path, path: Path) -> bool:
+        try:
+            os.link(preserved, path, follow_symlinks=False)
+            preserved.unlink()
+        except OSError:
+            return False
+        return True
+
+    def _preserved_path_identity(self, preserved: Path) -> tuple[str, int] | None:
+        metadata = preserved.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            return None
+        return sha256_file(preserved), metadata.st_mode & 0o777
+
+    def _retain_preserved_path(self, preserved: Path, path: Path) -> Path | None:
+        recovery_directory = Path(
+            tempfile.mkdtemp(prefix="source-rollback-recovery-", dir=self.run_root)
+        )
+        recovery = recovery_directory / path.name
+        try:
+            os.link(preserved, recovery, follow_symlinks=False)
+        except OSError:
+            try:
+                recovery_directory.rmdir()
+            except OSError:
+                pass
+            return None
+        return recovery
+
     def _restore_unchanged_source_paths(
         self,
         expected_source: dict[str, tuple[str, int]],
@@ -332,10 +361,35 @@ class WorkspaceMirror:
                     unrestored.append(relative)
                     continue
                 if original is None:
-                    if self._source_path_identity(relative) != current_identity:
+                    descriptor, preserved_name = tempfile.mkstemp(
+                        prefix=f".{path.name}.manageroo-preserved-",
+                        dir=path.parent,
+                    )
+                    os.close(descriptor)
+                    preserved = Path(preserved_name)
+                    try:
+                        os.replace(path, preserved)
+                    except OSError:
+                        preserved.unlink(missing_ok=True)
+                        raise
+                    preserved_identity = self._preserved_path_identity(preserved)
+                    if preserved_identity != current_identity:
+                        self._restore_preserved_path(preserved, path)
                         unrestored.append(relative)
                         continue
-                    path.unlink()
+                    recovery = self._retain_preserved_path(preserved, path)
+                    if recovery is None:
+                        self._restore_preserved_path(preserved, path)
+                        unrestored.append(relative)
+                        continue
+                    if self._preserved_path_identity(recovery) != current_identity:
+                        self._restore_preserved_path(preserved, path)
+                        unrestored.append(relative)
+                        continue
+                    preserved.unlink()
+                    if self._preserved_path_identity(recovery) != current_identity:
+                        self._restore_preserved_path(recovery, path)
+                        unrestored.append(relative)
                 elif current_identity is None:
                     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, original[1])
                     with os.fdopen(descriptor, "wb") as handle:
@@ -351,10 +405,41 @@ class WorkspaceMirror:
                         with os.fdopen(descriptor, "wb") as handle:
                             handle.write(original[0])
                         temporary.chmod(original[1])
-                        if self._source_path_identity(relative) != current_identity:
+                        preserved_descriptor, preserved_name = tempfile.mkstemp(
+                            prefix=f".{path.name}.manageroo-preserved-",
+                            dir=path.parent,
+                        )
+                        os.close(preserved_descriptor)
+                        preserved = Path(preserved_name)
+                        try:
+                            os.replace(path, preserved)
+                        except OSError:
+                            preserved.unlink(missing_ok=True)
+                            raise
+                        preserved_identity = self._preserved_path_identity(preserved)
+                        if preserved_identity != current_identity:
+                            self._restore_preserved_path(preserved, path)
                             unrestored.append(relative)
                             continue
-                        os.replace(temporary, path)
+                        recovery = self._retain_preserved_path(preserved, path)
+                        if recovery is None:
+                            self._restore_preserved_path(preserved, path)
+                            unrestored.append(relative)
+                            continue
+                        if self._preserved_path_identity(recovery) != current_identity:
+                            self._restore_preserved_path(preserved, path)
+                            unrestored.append(relative)
+                            continue
+                        try:
+                            os.link(temporary, path, follow_symlinks=False)
+                        except OSError:
+                            self._restore_preserved_path(preserved, path)
+                            unrestored.append(relative)
+                            continue
+                        preserved.unlink()
+                        if self._preserved_path_identity(recovery) != current_identity:
+                            os.replace(recovery, path)
+                            unrestored.append(relative)
                     finally:
                         if temporary.exists():
                             temporary.unlink()
