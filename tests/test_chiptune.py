@@ -130,6 +130,45 @@ class ChiptuneTests(unittest.TestCase):
             [call(timeout=1.5), call(timeout=1.5)],
         )
 
+    def test_stop_preserves_ownership_until_process_can_be_reaped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            owned = Path(temp) / "manageroo-owned"
+            owned.mkdir()
+            process = Mock()
+            process.poll.return_value = None
+            process.wait.side_effect = [
+                subprocess.TimeoutExpired("player", 1.5),
+                subprocess.TimeoutExpired("player", 1.5),
+                None,
+            ]
+            with (
+                patch("manageroo.chiptune.sys.stdout.isatty", return_value=True),
+                patch("manageroo.chiptune.tempfile.mkdtemp", return_value=str(owned)),
+                patch("manageroo.chiptune.generate_theme", side_effect=lambda path, **_: path),
+                patch("manageroo.chiptune._player_command", return_value=["player"]),
+                patch("manageroo.chiptune.subprocess.Popen", return_value=process),
+            ):
+                playback = ThemePlayback(cue="success")
+                self.assertTrue(playback.start())
+
+            playback.stop()
+
+            self.assertIs(playback.process, process)
+            self.assertEqual(playback.temp_root, owned.resolve())
+            self.assertTrue(owned.exists())
+
+            playback.stop()
+
+            self.assertIsNone(playback.process)
+            self.assertIsNone(playback.temp_root)
+            self.assertFalse(owned.exists())
+            self.assertEqual(process.terminate.call_count, 2)
+            process.kill.assert_called_once_with()
+            self.assertEqual(
+                process.wait.call_args_list,
+                [call(timeout=1.5), call(timeout=1.5), call(timeout=1.5)],
+            )
+
     def test_play_once_cleans_up_when_process_wait_raises(self):
         with tempfile.TemporaryDirectory() as temp:
             owned = Path(temp) / "manageroo-owned"

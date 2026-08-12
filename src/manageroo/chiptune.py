@@ -251,24 +251,22 @@ class ThemePlayback:
     def stop(self) -> None:
         process = self._process
         temp_directory = self._temp_directory
-        try:
-            if process and process.poll() is None:
-                process.terminate()
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=1.5)
+            except subprocess.TimeoutExpired:
+                process.kill()
                 try:
                     process.wait(timeout=1.5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    try:
-                        process.wait(timeout=1.5)
-                    except (subprocess.TimeoutExpired, OSError):
-                        pass
-        finally:
-            self._path = None
-            self._temp_root = None
-            self._temp_directory = None
-            self._process = None
-            if temp_directory:
-                temp_directory.cleanup()
+                except (subprocess.TimeoutExpired, OSError):
+                    return
+        if temp_directory:
+            temp_directory.cleanup()
+        self._path = None
+        self._temp_root = None
+        self._temp_directory = None
+        self._process = None
 
     def __enter__(self) -> "ThemePlayback":
         self.start()
