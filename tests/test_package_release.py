@@ -427,22 +427,32 @@ class PackageReleaseTests(unittest.TestCase):
                 "client-secret.json": "{}\n",
                 "private.pem": "secret\n",
                 "nested/service-credential.txt": "secret\n",
+                "credentials/config.json": "{}\n",
+                "secrets/prod.json": "{}\n",
+                ".ssh/config": "Host example\n",
+                ".aws/config": "[default]\n",
+                ".azure/profile.json": "{}\n",
+                ".config/gcloud/settings.json": "{}\n",
             }
-            benign = "benign.txt"
+            benign = {"benign.txt", "examples/.env.example"}
             for relative, content in sensitive.items():
                 path = fixture / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
-            (fixture / benign).write_text("safe\n", encoding="utf-8")
+            for relative in benign:
+                path = fixture / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("safe\n", encoding="utf-8")
             fixture_prefix = fixture.relative_to(ROOT).as_posix()
             real_tracked = package_release._tracked_relative_paths()
             mocked_tracked = set(real_tracked)
             mocked_tracked.update(f"{fixture_prefix}/{relative}" for relative in sensitive)
-            mocked_tracked.add(f"{fixture_prefix}/{benign}")
+            mocked_tracked.update(f"{fixture_prefix}/{relative}" for relative in benign)
             with patch.object(package_release, "_tracked_relative_paths", return_value=mocked_tracked):
                 for selector in (package_release.included_files, package_release.end_user_files):
                     selected = {path.relative_to(ROOT).as_posix() for path in selector()}
-                    self.assertIn(f"{fixture_prefix}/{benign}", selected)
+                    for relative in benign:
+                        self.assertIn(f"{fixture_prefix}/{relative}", selected)
                     for relative in sensitive:
                         self.assertNotIn(f"{fixture_prefix}/{relative}", selected)
 

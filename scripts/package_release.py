@@ -35,6 +35,7 @@ EXCLUDED_PARTS = {
 }
 EXPLICIT_TRACKED_POLICY_FILES = {".manageroo/config.toml"}
 SENSITIVE_FILENAMES = {".env", "credentials.json", "service-account.json", "id_rsa", "id_ed25519"}
+SENSITIVE_DIRECTORY_NAMES = {"credentials", "secrets", ".ssh", ".aws", ".azure", "gcloud"}
 SAFE_ENV_EXAMPLES = {".env.example", ".env.sample", ".env.template"}
 SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}
 CHECKSUM_EXCLUDED = {"SHA256SUMS.txt", "BUILD-VALIDATION.json"}
@@ -86,6 +87,8 @@ def release_file_allowed(path: Path) -> bool:
         return False
     relative_text = relative.as_posix()
     if any(part in EXCLUDED_PARTS for part in relative.parts) and relative_text not in EXPLICIT_TRACKED_POLICY_FILES:
+        return False
+    if any(part.casefold() in SENSITIVE_DIRECTORY_NAMES for part in relative.parts[:-1]):
         return False
     lowered = path.name.lower()
     if lowered in SENSITIVE_FILENAMES or path.suffix.lower() in SENSITIVE_SUFFIXES:
