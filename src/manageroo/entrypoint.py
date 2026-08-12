@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
-import errno
 import hashlib
 import json
 import os
@@ -280,44 +278,6 @@ def _directory_flags() -> int:
     )
 
 
-def _rename_noreplace(
-    source: str,
-    destination: str,
-    *,
-    src_dir_fd: int,
-    dst_dir_fd: int,
-) -> None:
-    libc = ctypes.CDLL(None, use_errno=True)
-    if sys.platform.startswith("linux"):
-        rename = getattr(libc, "renameat2", None)
-        flags = 1  # RENAME_NOREPLACE
-    elif sys.platform == "darwin":
-        rename = getattr(libc, "renameatx_np", None)
-        flags = 4  # RENAME_EXCL
-    else:
-        rename = None
-        flags = 0
-    if rename is None:
-        raise OSError(errno.ENOSYS, "atomic no-replace rename is unavailable")
-    rename.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_uint,
-    ]
-    rename.restype = ctypes.c_int
-    if rename(
-        src_dir_fd,
-        os.fsencode(source),
-        dst_dir_fd,
-        os.fsencode(destination),
-        flags,
-    ) != 0:
-        error_number = ctypes.get_errno()
-        raise OSError(error_number, os.strerror(error_number), destination)
-
-
 @contextmanager
 def _pinned_planning_directory(
     run_root: Path,
@@ -416,18 +376,9 @@ def _republish_pinned_artifacts(
     planning: Path,
     blocking_decisions_sha256: str,
 ) -> None:
-    claimed_name = f".artifacts.answer-{secrets.token_hex(16)}"
-    claimed = False
     try:
-        os.rename(
-            "artifacts",
-            claimed_name,
-            src_dir_fd=run_descriptor,
-            dst_dir_fd=run_descriptor,
-        )
-        claimed = True
         current_artifacts = os.stat(
-            claimed_name,
+            "artifacts",
             dir_fd=run_descriptor,
             follow_symlinks=False,
         )
@@ -503,13 +454,8 @@ def _republish_pinned_artifacts(
             serialized=blocking_bytes,
             expected_sha256=blocking_bytes_sha256,
         )
-        _rename_noreplace(
-            claimed_name,
-            "artifacts",
-            src_dir_fd=run_descriptor,
-            dst_dir_fd=run_descriptor,
-        )
-        claimed = False
+        os.fsync(planning_descriptor)
+        os.fsync(artifacts_descriptor)
         os.fsync(run_descriptor)
         published = os.stat(
             "artifacts",
@@ -542,35 +488,6 @@ def _republish_pinned_artifacts(
         raise SafetyError(
             f"Cannot publish decision artifacts safely: {planning}: {exc}"
         ) from exc
-    finally:
-        if claimed:
-            try:
-                os.stat(
-                    "artifacts",
-                    dir_fd=run_descriptor,
-                    follow_symlinks=False,
-                )
-            except FileNotFoundError:
-                try:
-                    _rename_noreplace(
-                        claimed_name,
-                        "artifacts",
-                        src_dir_fd=run_descriptor,
-                        dst_dir_fd=run_descriptor,
-                    )
-                    os.fsync(run_descriptor)
-                except OSError as exc:
-                    raise SafetyError(
-                        f"Cannot restore decision artifacts safely: {planning}: {exc}"
-                    ) from exc
-            except OSError as exc:
-                raise SafetyError(
-                    f"Cannot inspect decision artifacts during restoration: {planning}: {exc}"
-                ) from exc
-            else:
-                raise SafetyError(
-                    f"Cannot restore decision artifacts because the path was replaced: {planning}"
-                )
 
 
 def _stable_regular_file_snapshot(state: os.stat_result) -> tuple[int, ...]:
@@ -1231,21 +1148,32 @@ def _decisions_main(argv: list[str]) -> int:
                     if resolution_written:
                         _remove_resolution(planning_descriptor, resolved)
                     raise
+                try:
+                    _validate_pinned_planning(
+                        run_root,
+                        planning,
+                        planning_descriptor,
+                        planning_state,
+                    )
+                    _republish_pinned_artifacts(
+                        run_descriptor,
+                        artifacts_descriptor,
+                        artifacts_state,
+                        planning_descriptor,
+                        planning_state,
+                        planning,
+                        blocking_decisions_sha256,
+                    )
+                except BaseException:
+                    if resolution_written:
+                        _remove_resolution(planning_descriptor, resolved)
+                    raise
             try:
                 _validate_pinned_planning(
                     run_root,
                     planning,
                     planning_descriptor,
                     planning_state,
-                )
-                _republish_pinned_artifacts(
-                    run_descriptor,
-                    artifacts_descriptor,
-                    artifacts_state,
-                    planning_descriptor,
-                    planning_state,
-                    planning,
-                    blocking_decisions_sha256,
                 )
             except BaseException:
                 if resolution_written:

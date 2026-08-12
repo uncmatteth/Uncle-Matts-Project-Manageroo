@@ -627,33 +627,42 @@ class DecisionRegressionTests(unittest.TestCase):
             def swap_after_republish_identity_snapshot(descriptor):
                 nonlocal swapped
                 opened = original_fstat(descriptor)
-                claimed_artifacts = list(run_root.glob(".artifacts.answer-*"))
                 if (
                     not swapped
-                    and claimed_artifacts
                     and (opened.st_dev, opened.st_ino)
                     == (planning_state.st_dev, planning_state.st_ino)
                 ):
-                    claimed_planning = claimed_artifacts[0] / "planning"
-                    claimed_planning.rename(claimed_artifacts[0] / displaced.name)
+                    planning.rename(displaced)
                     try:
-                        claimed_planning.symlink_to(external, target_is_directory=True)
+                        planning.symlink_to(external, target_is_directory=True)
                     except OSError as exc:
                         self.skipTest(f"Symlink creation is unavailable: {exc}")
                     swapped = True
                 return opened
 
-            stderr = io.StringIO()
-            with patch("builtins.input", return_value="1"), patch(
+            expected_sha256 = entrypoint.sha256_json(
+                {
+                    "decisions": [
+                        {"id": "deployment", "question": "Choose", "options": ["one"]}
+                    ]
+                }
+            )
+            with entrypoint._pinned_planning_directory(run_root) as pinned, patch(
                 "manageroo.entrypoint.os.fstat",
                 side_effect=swap_after_republish_identity_snapshot,
             ):
-                with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
-                    code = _decisions_main(["answer", run_id, "--repo", str(repo)])
+                with self.assertRaises(entrypoint.SafetyError):
+                    entrypoint._republish_pinned_artifacts(
+                        pinned[5],
+                        pinned[3],
+                        pinned[4],
+                        pinned[1],
+                        pinned[2],
+                        pinned[0],
+                        expected_sha256,
+                    )
 
             self.assertTrue(swapped)
-            self.assertEqual(code, 2)
-            self.assertIn("Cannot save decision answers", stderr.getvalue())
             self.assertFalse((external / "resolved-decisions.json").exists())
             self.assertFalse((displaced / "resolved-decisions.json").exists())
 
@@ -721,6 +730,69 @@ class DecisionRegressionTests(unittest.TestCase):
             self.assertTrue(mutated)
             self.assertEqual(read_json(blocking), replacement)
 
+    def test_artifact_republish_sigkill_never_strands_canonical_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp) / "run"
+            planning = run_root / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            payload = {
+                "decisions": [
+                    {"id": "deployment", "question": "Choose", "options": ["one"]}
+                ]
+            }
+            atomic_write_json(blocking, payload)
+            marker = run_root / "republish-renamed"
+            script = """
+import os
+import sys
+import time
+from pathlib import Path
+from manageroo import entrypoint
+
+run_root = Path(sys.argv[1])
+marker = Path(sys.argv[2])
+original_rename = os.rename
+
+def rename_then_pause(source, destination, *args, **kwargs):
+    result = original_rename(source, destination, *args, **kwargs)
+    if source == "artifacts":
+        marker.write_text("renamed", encoding="utf-8")
+        while True:
+            time.sleep(0.05)
+    return result
+
+planning = run_root / "artifacts" / "planning"
+payload = entrypoint.read_json(planning / "blocking-decisions.json")
+expected_sha256 = entrypoint.sha256_json({"decisions": payload["decisions"]})
+with entrypoint._pinned_planning_directory(run_root) as pinned:
+    entrypoint.os.rename = rename_then_pause
+    entrypoint._republish_pinned_artifacts(
+        pinned[5],
+        pinned[3],
+        pinned[4],
+        pinned[1],
+        pinned[2],
+        pinned[0],
+        expected_sha256,
+    )
+"""
+            process = subprocess.Popen(
+                [sys.executable, "-c", script, str(run_root), str(marker)]
+            )
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.assertTrue(marker.exists())
+                process.kill()
+                process.wait(timeout=2)
+            else:
+                self.assertEqual(process.returncode, 0)
+
+            self.assertTrue((run_root / "artifacts").is_dir())
+            self.assertEqual(read_json(blocking), payload)
+            self.assertEqual(list(run_root.glob(".artifacts.answer-*")), [])
+
     def test_artifact_republish_does_not_replace_concurrent_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp) / "run"
@@ -737,21 +809,22 @@ class DecisionRegressionTests(unittest.TestCase):
                 {"decisions": payload["decisions"]}
             )
             original_write = entrypoint._atomic_write_json_at
-            concurrent_state = None
+            collision_returncode = None
 
             def create_concurrent_directory(*args, **kwargs):
-                nonlocal concurrent_state
+                nonlocal collision_returncode
                 result = original_write(*args, **kwargs)
-                subprocess.run(
+                collision = subprocess.run(
                     [
                         sys.executable,
                         "-c",
                         "import sys; from pathlib import Path; Path(sys.argv[1]).mkdir()",
                         str(run_root / "artifacts"),
                     ],
-                    check=True,
+                    check=False,
+                    stderr=subprocess.DEVNULL,
                 )
-                concurrent_state = (run_root / "artifacts").stat()
+                collision_returncode = collision.returncode
                 return result
 
             with entrypoint._pinned_planning_directory(run_root) as (
@@ -765,30 +838,24 @@ class DecisionRegressionTests(unittest.TestCase):
                 "manageroo.entrypoint._atomic_write_json_at",
                 side_effect=create_concurrent_directory,
             ):
-                with self.assertRaises(entrypoint.SafetyError):
-                    entrypoint._republish_pinned_artifacts(
-                        run_descriptor,
-                        artifacts_descriptor,
-                        artifacts_state,
-                        planning_descriptor,
-                        planning_state,
-                        pinned_planning,
-                        expected_sha256,
-                    )
+                entrypoint._republish_pinned_artifacts(
+                    run_descriptor,
+                    artifacts_descriptor,
+                    artifacts_state,
+                    planning_descriptor,
+                    planning_state,
+                    pinned_planning,
+                    expected_sha256,
+                )
 
-            self.assertIsNotNone(concurrent_state)
+            self.assertNotEqual(collision_returncode, 0)
             current_state = (run_root / "artifacts").stat()
             self.assertEqual(
                 (current_state.st_dev, current_state.st_ino),
-                (concurrent_state.st_dev, concurrent_state.st_ino),
+                (artifacts_state.st_dev, artifacts_state.st_ino),
             )
-            self.assertEqual(list((run_root / "artifacts").iterdir()), [])
-            recoverable = list(run_root.glob(".artifacts.answer-*"))
-            self.assertEqual(len(recoverable), 1)
-            self.assertEqual(
-                read_json(recoverable[0] / "planning" / blocking.name),
-                payload,
-            )
+            self.assertEqual(read_json(blocking), payload)
+            self.assertEqual(list(run_root.glob(".artifacts.answer-*")), [])
 
     def test_planning_directory_swap_after_republish_validation_cannot_report_success(self):
         with tempfile.TemporaryDirectory() as temp:
