@@ -13,6 +13,37 @@ from manageroo.errors import SafetyError
 
 
 class ArtifactStoreTests(unittest.TestCase):
+    def test_symlinked_artifact_root_does_not_create_external_ledger(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            external = base / "external"
+            external.mkdir()
+            root = base / "artifacts"
+            symlink_or_skip(self, external, root, target_is_directory=True)
+
+            with self.assertRaises(SafetyError):
+                ArtifactStore(root)
+
+            self.assertEqual(list(external.iterdir()), [])
+
+    def test_symlinked_artifact_root_ancestor_does_not_create_external_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            external = base / "external"
+            external.mkdir()
+            linked_parent = base / "linked-parent"
+            symlink_or_skip(
+                self,
+                external,
+                linked_parent,
+                target_is_directory=True,
+            )
+
+            with self.assertRaises(SafetyError):
+                ArtifactStore(linked_parent / "artifacts")
+
+            self.assertEqual(list(external.iterdir()), [])
+
     def test_symlinked_transaction_lock_cannot_modify_external_tree(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

@@ -28,9 +28,13 @@ class ArtifactRecord:
 
 class ArtifactStore:
     def __init__(self, root: Path):
-        self.root = root.expanduser().resolve()
+        expanded_root = root.expanduser()
+        self.root = (
+            expanded_root
+            if expanded_root.is_absolute()
+            else Path.cwd() / expanded_root
+        )
         self._lock = threading.RLock()
-        self.root.mkdir(parents=True, exist_ok=True)
         self._root_descriptor = self._open_root_descriptor()
         self.ledger_path = self.root / "artifact-ledger.json"
         self.lock_path = self.root / ".artifact-ledger.lock"
@@ -85,16 +89,77 @@ class ArtifactStore:
             )
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         flags |= getattr(os, "O_CLOEXEC", 0)
-        descriptor = os.open(self.root, flags)
+        if not self.root.anchor:
+            raise SafetyError(f"Artifact root is not absolute: {self.root}")
         try:
-            descriptor_state = os.fstat(descriptor)
-            path_state = os.stat(self.root, follow_symlinks=False)
-            if (
-                not stat.S_ISDIR(descriptor_state.st_mode)
-                or (descriptor_state.st_dev, descriptor_state.st_ino)
-                != (path_state.st_dev, path_state.st_ino)
-            ):
-                raise SafetyError(f"Artifact root changed while opening: {self.root}")
+            descriptor = os.open(self.root.anchor, flags)
+        except OSError as exc:
+            raise SafetyError(f"Could not open artifact storage base: {self.root}") from exc
+        try:
+            for component in self.root.parts[1:]:
+                if component in {"", ".", ".."}:
+                    raise SafetyError(f"Artifact root is unsafe: {self.root}")
+                try:
+                    observed = os.stat(
+                        component,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                except FileNotFoundError:
+                    try:
+                        os.mkdir(component, 0o777, dir_fd=descriptor)
+                    except FileExistsError:
+                        pass
+                    except OSError as exc:
+                        raise SafetyError(
+                            f"Could not create artifact root: {self.root}"
+                        ) from exc
+                    observed = os.stat(
+                        component,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                except OSError as exc:
+                    raise SafetyError(
+                        f"Could not inspect artifact root: {self.root}"
+                    ) from exc
+
+                reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+                if (
+                    stat.S_ISLNK(observed.st_mode)
+                    or bool(
+                        getattr(observed, "st_file_attributes", 0) & reparse_point
+                    )
+                    or not stat.S_ISDIR(observed.st_mode)
+                ):
+                    raise SafetyError(
+                        f"Artifact root contains a symlink or unsafe directory: {self.root}"
+                    )
+
+                child_descriptor = self._open_directory_at(
+                    descriptor,
+                    component,
+                    str(self.root),
+                )
+                try:
+                    opened = os.fstat(child_descriptor)
+                    current = os.stat(
+                        component,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                    if (
+                        not self._same_object(observed, opened)
+                        or not self._same_object(opened, current)
+                    ):
+                        raise SafetyError(
+                            f"Artifact root changed while opening: {self.root}"
+                        )
+                except BaseException:
+                    os.close(child_descriptor)
+                    raise
+                os.close(descriptor)
+                descriptor = child_descriptor
             return descriptor
         except BaseException:
             os.close(descriptor)
