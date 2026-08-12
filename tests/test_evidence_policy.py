@@ -116,6 +116,47 @@ class EvidencePolicyTests(unittest.TestCase):
                         1,
                     )
 
+    def test_new_evidence_is_validated_for_both_installer_orders(self):
+        sequences = (
+            (install_evidence_policy, install_evidence_artifact_guard),
+            (install_evidence_artifact_guard, install_evidence_policy),
+        )
+        for installers in sequences:
+            with self.subTest(order=[installer.__name__ for installer in installers]):
+                class Fake(_FakeOrchestrator):
+                    pass
+
+                module = SimpleNamespace(Orchestrator=Fake)
+                for installer in installers:
+                    installer(module)
+
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    repo = root / "repo"
+                    run_root = root / "run"
+                    repo.mkdir()
+                    run_root.mkdir()
+                    instance = Fake(repo, run_root)
+                    original_write_json = instance.artifacts.write_json
+
+                    def corrupt_write_json(relative, data, *, lock=False):
+                        result = original_write_json(relative, data, lock=lock)
+                        path = instance.artifacts.root / relative
+                        persisted = json.loads(path.read_text(encoding="utf-8"))
+                        persisted["discovery_identity"] = "invalid"
+                        path.write_text(json.dumps(persisted), encoding="utf-8")
+                        return result
+
+                    with (
+                        patch.object(
+                            instance.artifacts,
+                            "write_json",
+                            side_effect=corrupt_write_json,
+                        ),
+                        self.assertRaises(SafetyError),
+                    ):
+                        instance._external_intelligence("brief", {})
+
     def test_discovery_writes_ranked_evidence_and_planning_call_receives_bounded_items(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -20,6 +20,7 @@ from .evidence import (
     normalize_external_payload,
     rank_evidence,
 )
+from .evidence_artifact_guard import _validate_existing_evidence
 
 
 PLANNING_EVIDENCE_ROLES = {
@@ -229,6 +230,10 @@ def install_evidence_policy(orchestrator_module) -> None:
             "controller_authority": True,
         }
         self.artifacts.write_json("discovery/evidence.json", evidence_payload)
+        _validate_existing_evidence(
+            self.artifacts.root / "discovery" / "evidence.json",
+            brief,
+        )
         self._planning_evidence_items = _planning_items(evidence_payload)
         return {
             **payload,
