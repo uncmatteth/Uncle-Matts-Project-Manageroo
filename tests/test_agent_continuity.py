@@ -591,6 +591,69 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(resumed["status"], "active")
             self.assertEqual([item["text"] for item in resumed["messages"]], ["Complete the release."])
 
+    def test_operator_reaffirmation_reactivates_paused_work_without_replacing_it(self):
+        prompts = (
+            "I have told it to do what I said and it is blocking me.",
+            "Jesus Christ, I told you what to do next, don't tell me no.",
+            "Do what I said.",
+        )
+        for prompt in prompts:
+            with self.subTest(prompt=prompt), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                capture_current_request(
+                    session_id="session",
+                    turn_id="turn-1",
+                    prompt="Complete the release.",
+                    cwd="/project",
+                    state_root=root,
+                )
+                capture_current_request(
+                    session_id="session",
+                    turn_id="turn-2",
+                    prompt="Stop and wait until I tell you what to do.",
+                    cwd="/project",
+                    state_root=root,
+                )
+
+                resumed = capture_current_request(
+                    session_id="session",
+                    turn_id="turn-3",
+                    prompt=prompt,
+                    cwd="/project",
+                    state_root=root,
+                )
+
+                self.assertEqual(resumed["status"], "active")
+                self.assertEqual(
+                    [item["text"] for item in resumed["messages"]],
+                    ["Complete the release."],
+                )
+
+    def test_operator_stop_reaffirmation_remains_paused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the release.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            paused = capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="I told you to stop and wait.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(paused["status"], "paused")
+            self.assertEqual(
+                [item["text"] for item in paused["messages"]],
+                ["Complete the release."],
+            )
+
     def test_clear_new_work_request_replaces_paused_backlog(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -621,6 +684,39 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(
                 [item["text"] for item in resumed["messages"]],
                 ["Please fix only the pause behavior."],
+            )
+            self.assertEqual(resumed["generation"], 2)
+
+    def test_first_clear_now_do_instruction_replaces_paused_backlog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Use the wrong old scene workflow.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="Stop. Do not run anything else.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            resumed = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt="I know, now do the first fucking chapter.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(resumed["status"], "active")
+            self.assertEqual(
+                [item["text"] for item in resumed["messages"]],
+                ["I know, now do the first fucking chapter."],
             )
             self.assertEqual(resumed["generation"], 2)
 

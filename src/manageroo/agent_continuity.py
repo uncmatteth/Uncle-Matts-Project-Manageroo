@@ -60,9 +60,24 @@ _RESUME_REQUEST = re.compile(
     r"you\s+can\s+(?:resume|continue|work))\b",
     re.IGNORECASE,
 )
+_REAFFIRM_ACTIVE_WORK = re.compile(
+    r"\bi\s+(?:(?:already|just)\s+|have\s+)?(?:told|asked)\s+(?:you|it)\s+to\s+"
+    r"(?!(?:stop|pause|wait|hold)\b)|"
+    r"\bi\s+(?:(?:already|just)\s+|have\s+)?told\s+you\s+what\s+to\s+do\b|"
+    r"\b(?:do|finish|continue|resume)\s+what\s+i\s+(?:said|asked|told\s+you)\b|"
+    r"\bi\s+(?:have\s+)?told\s+it\s+to\s+do\s+what\s+i\s+said\b",
+    re.IGNORECASE,
+)
 _CLEAR_WORK_REQUEST = re.compile(
     r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?"
     r"(?:(?:you\s+)?(?:need\s+to|must|should)\s+)?"
+    r"(?:fix|implement|change|edit|write|create|copy|move|rename|delete|remove|"
+    r"inspect|review|diagnose|investigate|figure\s+out|run|build|install|publish|"
+    r"commit|push|make|do)\b",
+    re.IGNORECASE,
+)
+_CLEAR_WORK_AFTER_PREAMBLE = re.compile(
+    r"(?:\bnow\b|[.!?;:,])\s*(?:please\s+)?"
     r"(?:fix|implement|change|edit|write|create|copy|move|rename|delete|remove|"
     r"inspect|review|diagnose|investigate|figure\s+out|run|build|install|publish|"
     r"commit|push|make|do)\b",
@@ -263,7 +278,7 @@ def capture_current_request(
         return state
 
     if existing is not None and existing.get("status") == "paused":
-        if _RESUME_REQUEST.search(prompt):
+        if _RESUME_REQUEST.search(prompt) or _REAFFIRM_ACTIVE_WORK.search(prompt):
             state = dict(existing)
             state.update(
                 {
@@ -275,7 +290,10 @@ def capture_current_request(
             )
             _save_state(root, state)
             return state
-        if _CLEAR_WORK_REQUEST.search(prompt) and not prompt.rstrip().endswith("?"):
+        clear_new_work = bool(
+            _CLEAR_WORK_REQUEST.search(prompt) or _CLEAR_WORK_AFTER_PREAMBLE.search(prompt)
+        )
+        if clear_new_work and not prompt.rstrip().endswith("?"):
             messages = [_message(prompt, turn_id, "replacement")]
             state = {
                 "schema_version": STATE_SCHEMA_VERSION,
