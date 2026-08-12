@@ -7,7 +7,12 @@ from collections.abc import Iterable
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 _CLAUSE_SPLIT_RE = re.compile(r"[;,.!?]\s*")
 _DENIAL_SAFE_TOKEN = (
-    r"(?!(?:lack(?:s|ed|ing)?|fail(?:s|ed|ing)?|den(?:y|ies|ied|ying)|no|not|never|only)\b)"
+    r"(?!(?:"
+    r"lack(?:s|ed|ing)?|fail(?:s|ed|ing)?|den(?:y|ies|ied|ying)|"
+    r"claim(?:s|ed|ing)?|pretend(?:s|ed|ing)?|promis(?:e|es|ed|ing)|"
+    r"say|says|said|saying|understat(?:e|es|ed|ing)|"
+    r"no|not|never|only|just|merely"
+    r")\b)"
     r"[a-z0-9_-]+"
 )
 _DENIAL_SUFFIX_PATTERNS = (

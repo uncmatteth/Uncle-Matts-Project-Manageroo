@@ -170,6 +170,9 @@ class TruthContractTests(unittest.TestCase):
             "Manageroo does not fail to provide full vision support.",
             "Manageroo does not not provide full vision support.",
             "Manageroo does not deny having full vision support.",
+            "Manageroo does not merely claim full vision support; it delivers it.",
+            "Manageroo does not pretend to have full vision support; it delivers it.",
+            "Manageroo does not just promise full vision support; it delivers it.",
         ]
         for sentence in sentences:
             with self.subTest(sentence=sentence):
