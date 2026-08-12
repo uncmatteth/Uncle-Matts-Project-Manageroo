@@ -656,7 +656,7 @@ class DecisionRegressionTests(unittest.TestCase):
             self.assertFalse((external / "resolved-decisions.json").exists())
             self.assertFalse((displaced / "resolved-decisions.json").exists())
 
-    def test_artifact_republish_rejects_in_place_mutation_after_snapshot_read(self):
+    def test_artifact_republish_preserves_replacement_after_snapshot_read(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
             run_root = repo / ".manageroo" / "runs" / "republish-in-place-race"
@@ -678,53 +678,47 @@ class DecisionRegressionTests(unittest.TestCase):
                 {"decisions": original["decisions"]}
             )
             original_match = entrypoint._blocking_decisions_payload_matches
-            held_descriptor = os.open(blocking, os.O_WRONLY)
             mutated = False
 
             def mutate_after_snapshot_read(payload, expected):
                 nonlocal mutated
                 matches = original_match(payload, expected)
                 if not mutated:
-                    changed = (
-                        json.dumps(replacement, indent=2, sort_keys=True) + "\n"
-                    ).encode("utf-8")
-                    os.ftruncate(held_descriptor, 0)
-                    os.lseek(held_descriptor, 0, os.SEEK_SET)
-                    os.write(held_descriptor, changed)
-                    os.fsync(held_descriptor)
+                    entrypoint._atomic_write_json_at(
+                        planning_descriptor,
+                        blocking.name,
+                        replacement,
+                    )
                     mutated = True
                 return matches
 
-            try:
-                with entrypoint._pinned_planning_directory(run_root) as (
-                    pinned_planning,
-                    planning_descriptor,
-                    planning_state,
-                    artifacts_descriptor,
-                    artifacts_state,
-                    run_descriptor,
-                ), patch(
-                    "manageroo.entrypoint._blocking_decisions_payload_matches",
-                    side_effect=mutate_after_snapshot_read,
+            with entrypoint._pinned_planning_directory(run_root) as (
+                pinned_planning,
+                planning_descriptor,
+                planning_state,
+                artifacts_descriptor,
+                artifacts_state,
+                run_descriptor,
+            ), patch(
+                "manageroo.entrypoint._blocking_decisions_payload_matches",
+                side_effect=mutate_after_snapshot_read,
+            ):
+                with self.assertRaisesRegex(
+                    entrypoint.SafetyError,
+                    "changed during decision persistence",
                 ):
-                    with self.assertRaisesRegex(
-                        entrypoint.SafetyError,
-                        "changed during decision persistence",
-                    ):
-                        entrypoint._republish_pinned_artifacts(
-                            run_descriptor,
-                            artifacts_descriptor,
-                            artifacts_state,
-                            planning_descriptor,
-                            planning_state,
-                            pinned_planning,
-                            expected_sha256,
-                        )
-            finally:
-                os.close(held_descriptor)
+                    entrypoint._republish_pinned_artifacts(
+                        run_descriptor,
+                        artifacts_descriptor,
+                        artifacts_state,
+                        planning_descriptor,
+                        planning_state,
+                        pinned_planning,
+                        expected_sha256,
+                    )
 
             self.assertTrue(mutated)
-            self.assertEqual(read_json(blocking), original)
+            self.assertEqual(read_json(blocking), replacement)
 
     def test_planning_directory_swap_after_republish_validation_cannot_report_success(self):
         with tempfile.TemporaryDirectory() as temp:

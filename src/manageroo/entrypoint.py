@@ -452,6 +452,10 @@ def _republish_pinned_artifacts(
             blocking_state,
             current_blocking,
         )
+        if blocking_changed:
+            raise SafetyError(
+                f"Blocking decision artifact changed during decision persistence: {blocking}"
+            )
         _atomic_write_json_at(
             planning_descriptor,
             blocking.name,
@@ -459,10 +463,6 @@ def _republish_pinned_artifacts(
             serialized=blocking_bytes,
             expected_sha256=blocking_bytes_sha256,
         )
-        if blocking_changed:
-            raise SafetyError(
-                f"Blocking decision artifact changed during decision persistence: {blocking}"
-            )
         os.rename(
             claimed_name,
             "artifacts",
