@@ -139,6 +139,29 @@ class StackUpdateTests(unittest.TestCase):
         self.assertEqual(tool["commands"][1][-1], CLAWPATCH_SUPERVISOR_SOURCE)
         self.assertEqual(tool["commands"][2], [str(executable.resolve()), "--version"])
 
+    def test_plan_rejects_native_supervisor_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            scripts = home / ".local" / "share" / "clawpatch-supervise" / "venv" / "bin"
+            scripts.mkdir(parents=True)
+            external_scripts = home / "unrelated-venv" / "bin"
+            external_scripts.mkdir(parents=True)
+            external_executable = external_scripts / "clawpatch-supervise"
+            external_python = external_scripts / "python"
+            external_executable.write_text("", encoding="utf-8")
+            external_python.write_text("", encoding="utf-8")
+            executable = scripts / "clawpatch-supervise"
+            symlink_or_skip(self, external_executable, executable)
+            with patch("manageroo.stack_update.Path.home", return_value=home), patch(
+                "manageroo.stack_update.shutil.which",
+                side_effect=lambda name: str(executable) if name == "clawpatch-supervise" else None,
+            ):
+                plan = stack_update_plan(["clawpatch-supervise"])
+
+        tool = plan["tools"][0]
+        self.assertEqual(tool["commands"], [])
+        self.assertIn("ownership", tool["note"])
+
     def test_plan_does_not_update_an_unowned_supervisor_path(self):
         with tempfile.TemporaryDirectory() as temp:
             executable = Path(temp) / "unowned" / "clawpatch-supervise"

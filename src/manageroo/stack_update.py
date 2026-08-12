@@ -367,38 +367,140 @@ def _pinned_package_commands(
     return []
 
 
+def _safe_supervisor_path_states(path: Path, root: Path) -> dict[Path, os.stat_result] | None:
+    """Return stable lexical path states without accepting links or reparse points."""
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return None
+    states: dict[Path, os.stat_result] = {}
+    current = root
+    for part in ("", *relative.parts):
+        if part:
+            current /= part
+        try:
+            state = current.lstat()
+        except OSError:
+            return None
+        if stat.S_ISLNK(state.st_mode) or bool(
+            getattr(state, "st_file_attributes", 0) & reparse_point
+        ):
+            return None
+        if current == path:
+            if not stat.S_ISREG(state.st_mode):
+                return None
+        elif not stat.S_ISDIR(state.st_mode):
+            return None
+        states[current] = state
+    return states
+
+
 def _supervisor_update_commands(executable: str | None) -> tuple[list[list[str]], str]:
     if not executable:
         return [], "The standalone ClawPatch supervisor was not detected."
     try:
-        active = Path(executable).expanduser().resolve(strict=True)
+        detected = Path(executable).expanduser()
+        active = detected.parent.resolve(strict=True) / detected.name
+        home = Path.home().resolve(strict=True)
     except OSError:
         return [], "The detected supervisor executable could not be resolved."
-    home = Path.home().resolve()
     candidates = {
-        home / ".local" / "share" / "clawpatch-supervise" / "venv" / "bin" / "clawpatch-supervise",
-        home / "Library" / "Application Support" / "ManagerooClawPatchSupervisor" / "venv" / "bin" / "clawpatch-supervise",
+        home
+        / ".local"
+        / "share"
+        / "clawpatch-supervise"
+        / "venv"
+        / "bin"
+        / "clawpatch-supervise": home,
+        home
+        / "Library"
+        / "Application Support"
+        / "ManagerooClawPatchSupervisor"
+        / "venv"
+        / "bin"
+        / "clawpatch-supervise": home,
     }
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
-        candidates.add(
-            Path(local_app_data)
-            / "ManagerooClawPatchSupervisor"
-            / "venv-f59afab"
-            / "Scripts"
-            / "clawpatch-supervise.exe"
-        )
-    resolved_candidates = {candidate.resolve(strict=False) for candidate in candidates}
-    if active not in resolved_candidates:
+        try:
+            local_app_root = Path(local_app_data).expanduser().resolve(strict=True)
+        except OSError:
+            local_app_root = None
+        if local_app_root is not None:
+            candidate = (
+                local_app_root
+                / "ManagerooClawPatchSupervisor"
+                / "venv-f59afab"
+                / "Scripts"
+                / "clawpatch-supervise.exe"
+            )
+            candidates[candidate] = local_app_root
+    candidate = next(
+        (
+            path
+            for path in candidates
+            if os.path.normcase(str(path)) == os.path.normcase(str(active))
+        ),
+        None,
+    )
+    if candidate is None:
         return [], (
             "Automatic update skipped because the active supervisor is not in a "
             "Manageroo native-installer location."
         )
-    scripts = active.parent
-    python_names = ("python.exe",) if active.suffix.casefold() == ".exe" else ("python", "python3")
-    python = next((scripts / name for name in python_names if (scripts / name).is_file()), None)
+    path_states = _safe_supervisor_path_states(candidate, candidates[candidate])
+    if path_states is None:
+        return [], (
+            "Automatic update skipped because native-installer supervisor ownership "
+            "could not be proven without symlinks or reparse points."
+        )
+    scripts = candidate.parent
+    python_names = (
+        ("python.exe",) if candidate.suffix.casefold() == ".exe" else ("python", "python3")
+    )
+    python = None
+    python_state = None
+    for name in python_names:
+        interpreter = scripts / name
+        try:
+            state = interpreter.lstat()
+        except OSError:
+            continue
+        reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        if (
+            stat.S_ISREG(state.st_mode)
+            and not stat.S_ISLNK(state.st_mode)
+            and not bool(getattr(state, "st_file_attributes", 0) & reparse_point)
+        ):
+            python = interpreter
+            python_state = state
+            break
     if python is None:
-        return [], "Automatic update skipped because the owned supervisor venv has no interpreter."
+        return [], (
+            "Automatic update skipped because the owned supervisor venv has no interpreter."
+        )
+    current_states = _safe_supervisor_path_states(candidate, candidates[candidate])
+    try:
+        current_python_state = python.lstat()
+    except OSError:
+        current_python_state = None
+    if (
+        current_states is None
+        or current_python_state is None
+        or python_state is None
+        or any(
+            (current_states[path].st_dev, current_states[path].st_ino)
+            != (state.st_dev, state.st_ino)
+            for path, state in path_states.items()
+        )
+        or (current_python_state.st_dev, current_python_state.st_ino)
+        != (python_state.st_dev, python_state.st_ino)
+    ):
+        return [], (
+            "Automatic update skipped because native-installer supervisor ownership "
+            "changed during validation."
+        )
     gate_source = asset_path("supervisor_gate")
     commands = [
         [
@@ -418,7 +520,7 @@ def _supervisor_update_commands(executable: str | None) -> tuple[list[list[str]]
             _SUPERVISOR_TARGET_UPDATE,
             CLAWPATCH_SUPERVISOR_SOURCE,
         ],
-        [str(active), "--version"],
+        [str(candidate), "--version"],
     ]
     return commands, (
         "Installs the shared runtime gate, then updates only the proven native-installer "
