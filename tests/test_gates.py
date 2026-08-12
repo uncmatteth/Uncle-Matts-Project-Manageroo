@@ -41,6 +41,42 @@ class GateRunnerTests(unittest.TestCase):
             self.assertTrue(outcomes[0].result.passed)
             self.assertEqual((repo / "fixture.txt").read_text(encoding="utf-8"), "original\n")
 
+    def test_gate_sees_current_git_visible_working_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            (repo / "staged.txt").write_text("committed\n", encoding="utf-8")
+            (repo / "deleted.txt").write_text("delete me\n", encoding="utf-8")
+            subprocess.run(["git", "add", "staged.txt", "deleted.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "more fixtures"], cwd=repo, check=True)
+
+            (repo / "fixture.txt").write_text("unstaged\n", encoding="utf-8")
+            (repo / "staged.txt").write_text("staged\n", encoding="utf-8")
+            subprocess.run(["git", "add", "staged.txt"], cwd=repo, check=True)
+            (repo / "deleted.txt").unlink()
+            (repo / "untracked.txt").write_text("untracked\n", encoding="utf-8")
+            runner = GateRunner(
+                CommandRunner(root / "logs"),
+                CommandPolicy((sys.executable,)),
+                root / "logs",
+            )
+            command = (
+                "from pathlib import Path; "
+                "current = ("
+                "Path('fixture.txt').read_text() == 'unstaged\\n' and "
+                "Path('staged.txt').read_text() == 'staged\\n' and "
+                "not Path('deleted.txt').exists() and "
+                "Path('untracked.txt').read_text() == 'untracked\\n'"
+                "); raise SystemExit(1 if current else 0)"
+            )
+
+            with self.assertRaisesRegex(GateFailure, "Required gates failed: current-tree"):
+                runner.run(
+                    [Gate("current-tree", "test", [sys.executable, "-c", command])],
+                    repo,
+                    scratch_root=root / "scratch",
+                )
+
     def test_gate_mutation_is_rejected_and_discarded(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

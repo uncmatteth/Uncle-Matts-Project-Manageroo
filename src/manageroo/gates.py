@@ -11,6 +11,7 @@ from typing import Iterable
 from .errors import GateFailure
 from .policy import CommandPolicy
 from .runner import CommandResult, CommandRunner
+from .util import safe_repo_relative
 
 
 @dataclass(frozen=True)
@@ -77,10 +78,12 @@ class GateRunner:
             raise GateFailure(f"Gate {gate.id} timeout_seconds must be greater than zero.")
         scratch_root.mkdir(parents=True, exist_ok=True)
         destination = scratch_root / gate.id
+        patch_path = scratch_root / f".{destination.name}.working-tree.patch"
         suffix = 0
-        while destination.exists() or destination.is_symlink():
+        while destination.exists() or destination.is_symlink() or patch_path.exists():
             suffix += 1
             destination = scratch_root / f"{gate.id}-{suffix}"
+            patch_path = scratch_root / f".{destination.name}.working-tree.patch"
         clone = self.runner.run(
             ["git", "clone", "--no-hardlinks", "--quiet", str(source), str(destination)],
             cwd=scratch_root,
@@ -92,6 +95,59 @@ class GateRunner:
                 + (clone.stderr or "git clone failed")
             )
         try:
+            snapshot = self.runner.run(
+                [
+                    "git",
+                    "diff",
+                    "--no-ext-diff",
+                    "--binary",
+                    "HEAD",
+                    f"--output={patch_path}",
+                    "--",
+                ],
+                cwd=source,
+                timeout_seconds=300,
+            )
+            if not snapshot.passed:
+                raise GateFailure(
+                    f"Gate {gate.id} could not snapshot working-tree changes: "
+                    + (snapshot.stderr or "git diff failed")
+                )
+            if patch_path.stat().st_size:
+                applied = self.runner.run(
+                    ["git", "apply", "--binary", str(patch_path)],
+                    cwd=destination,
+                    timeout_seconds=300,
+                )
+                if not applied.passed:
+                    raise GateFailure(
+                        f"Gate {gate.id} could not apply working-tree changes: "
+                        + (applied.stderr or "git apply failed")
+                    )
+            untracked = self.runner.run(
+                ["git", "ls-files", "-z", "--others", "--exclude-standard", "--"],
+                cwd=source,
+                timeout_seconds=120,
+            )
+            if not untracked.passed:
+                raise GateFailure(
+                    f"Gate {gate.id} could not enumerate untracked files: "
+                    + (untracked.stderr or "git ls-files failed")
+                )
+            for raw_relative in sorted(item for item in untracked.stdout.split("\0") if item):
+                relative = safe_repo_relative(raw_relative)
+                source_path = source / relative
+                destination_path = destination / relative
+                metadata = source_path.lstat()
+                destination_path.parent.mkdir(parents=True, exist_ok=True)
+                if stat.S_ISLNK(metadata.st_mode):
+                    os.symlink(os.readlink(source_path), destination_path)
+                elif stat.S_ISREG(metadata.st_mode):
+                    shutil.copy2(source_path, destination_path, follow_symlinks=False)
+                else:
+                    raise GateFailure(
+                        f"Gate {gate.id} cannot snapshot unsupported path: {relative}"
+                    )
             before_tree = self._checkout_identity(destination)
             before_head = self.runner.run(
                 ["git", "rev-parse", "HEAD"], cwd=destination, timeout_seconds=60
@@ -132,6 +188,7 @@ class GateRunner:
                 )
             return GateRun(gate, result)
         finally:
+            patch_path.unlink(missing_ok=True)
             shutil.rmtree(destination, ignore_errors=True)
 
     def run(
