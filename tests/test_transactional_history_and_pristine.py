@@ -9,6 +9,12 @@ from manageroo.errors import SafetyError
 from manageroo.runner import CommandRunner
 
 
+class _TrustedTestAdapter(AgentAdapter):
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return True
+
+
 def git(repo: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", "-c", "core.hooksPath=/dev/null", *args],
@@ -56,7 +62,7 @@ def request(repo: Path, *, sandbox: str = "read-only") -> AgentRequest:
     )
 
 
-class _CommitWorker(AgentAdapter):
+class _CommitWorker(_TrustedTestAdapter):
     def doctor(self, cwd: Path) -> dict:
         return {"ok": True}
 
@@ -67,7 +73,7 @@ class _CommitWorker(AgentAdapter):
         return AgentResponse(request.role, {"ok": True}, '{"ok":true}', ["worker"])
 
 
-class _NeverRunWorker(AgentAdapter):
+class _NeverRunWorker(_TrustedTestAdapter):
     def __init__(self):
         self.called = False
 

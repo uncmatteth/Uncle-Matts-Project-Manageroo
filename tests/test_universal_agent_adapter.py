@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from manageroo.adapters.base import AgentRequest
+from manageroo.adapters.base import AgentAdapter, AgentRequest
 from manageroo.adapters.budget import BudgetedAdapter
 from manageroo.adapters.factory import build_adapter
 from manageroo.adapters.generic import GenericAdapter
@@ -85,6 +85,21 @@ def _request(root: Path) -> AgentRequest:
 
 
 class UniversalAgentAdapterTests(unittest.TestCase):
+    def test_transactional_adapter_rejects_subclass_without_explicit_isolation(self):
+        class UnverifiedAdapter(AgentAdapter):
+            def doctor(self, cwd: Path) -> dict:
+                return {"ok": True}
+
+            def run(self, request: AgentRequest):
+                raise AssertionError("unverified adapter must not run")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            adapter = TransactionalAdapter(UnverifiedAdapter(), _Runner())
+
+            with self.assertRaisesRegex(SafetyError, "host filesystem isolation"):
+                adapter.run(_request(root))
+
     def test_concurrent_file_path_requests_use_distinct_protocol_prompts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -15,7 +15,13 @@ from manageroo.util import atomic_write_json
 from manageroo.workspace import WorkspaceMirror
 
 
-class _DirtyFailure(AgentAdapter):
+class _TrustedTestAdapter(AgentAdapter):
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return True
+
+
+class _DirtyFailure(_TrustedTestAdapter):
     def doctor(self, cwd: Path):
         return {"ok": True}
 
@@ -30,7 +36,7 @@ class _DirtyFailure(AgentAdapter):
         raise AgentExecutionError("worker died after editing")
 
 
-class _DirtySuccess(AgentAdapter):
+class _DirtySuccess(_TrustedTestAdapter):
     def doctor(self, cwd: Path):
         return {"ok": True}
 
@@ -39,7 +45,7 @@ class _DirtySuccess(AgentAdapter):
         return AgentResponse(role=request.role, data={"ok": True}, raw_text='{"ok": true}', command=["dirty-worker"])
 
 
-class _IgnoredSuccess(AgentAdapter):
+class _IgnoredSuccess(_TrustedTestAdapter):
     def doctor(self, cwd: Path):
         return {"ok": True}
 
@@ -50,7 +56,7 @@ class _IgnoredSuccess(AgentAdapter):
         return AgentResponse(role=request.role, data={"ok": True}, raw_text='{"ok": true}', command=["ignored-worker"])
 
 
-class _LaunchHookSuccess(AgentAdapter):
+class _LaunchHookSuccess(_TrustedTestAdapter):
     def __init__(self):
         self.before_launch = None
 

@@ -13,6 +13,12 @@ from manageroo.errors import AgentExecutionError, SafetyError
 from manageroo.runner import CommandRunner
 
 
+class TrustedTestAdapter(AgentAdapter):
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return True
+
+
 def git(repo: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-c", "commit.gpgSign=false", "-c", "core.hooksPath=/dev/null", *args],
@@ -59,7 +65,7 @@ def request(repo: Path, sandbox: str) -> AgentRequest:
     )
 
 
-class CommitMutationWorker(AgentAdapter):
+class CommitMutationWorker(TrustedTestAdapter):
     def doctor(self, cwd: Path):
         return {"ok": True}
 
@@ -70,7 +76,7 @@ class CommitMutationWorker(AgentAdapter):
         return AgentResponse(role=req.role, data={"ok": True}, raw_text="{}", command=["fake"])
 
 
-class FailingWorker(AgentAdapter):
+class FailingWorker(TrustedTestAdapter):
     def __init__(self):
         self.called = False
 
@@ -82,7 +88,7 @@ class FailingWorker(AgentAdapter):
         raise AgentExecutionError("should never run on a dirty non-disposable workspace")
 
 
-class GitMetadataMutationWorker(AgentAdapter):
+class GitMetadataMutationWorker(TrustedTestAdapter):
     def doctor(self, cwd: Path):
         return {"ok": True}
 
@@ -98,7 +104,7 @@ class GitMetadataMutationWorker(AgentAdapter):
         return AgentResponse(role=req.role, data={"ok": True}, raw_text="{}", command=["fake"])
 
 
-class ControllerDirectorySymlinkWorker(AgentAdapter):
+class ControllerDirectorySymlinkWorker(TrustedTestAdapter):
     def __init__(self, protected_directory: Path, external_directory: Path):
         self.protected_directory = protected_directory
         self.external_directory = external_directory
@@ -112,7 +118,7 @@ class ControllerDirectorySymlinkWorker(AgentAdapter):
         return AgentResponse(role=req.role, data={"ok": True}, raw_text="{}", command=["fake"])
 
 
-class BlockingWriteWorker(AgentAdapter):
+class BlockingWriteWorker(TrustedTestAdapter):
     def __init__(self, entered, release):
         self.entered = entered
         self.release = release
@@ -128,7 +134,7 @@ class BlockingWriteWorker(AgentAdapter):
         return AgentResponse(role=req.role, data={"ok": True}, raw_text="{}", command=["fake"])
 
 
-class FailingConcurrentWorker(AgentAdapter):
+class FailingConcurrentWorker(TrustedTestAdapter):
     def __init__(self, entered):
         self.entered = entered
 

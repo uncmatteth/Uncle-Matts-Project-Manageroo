@@ -36,9 +36,9 @@ class AgentAdapter(ABC):
     @property
     def has_host_filesystem_isolation(self) -> bool:
         """Whether the provider prevents writes outside the assigned workspace."""
-        # In-process adapters are controller-trusted by definition. External
-        # process adapters must override this and prove their boundary.
-        return True
+        # Isolation must be asserted explicitly by trusted in-process adapters
+        # and by external-process adapters that prove their boundary.
+        return False
 
     @property
     def requires_host_capability_catalog(self) -> bool:
