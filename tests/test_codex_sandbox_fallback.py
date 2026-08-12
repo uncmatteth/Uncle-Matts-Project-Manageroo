@@ -101,6 +101,21 @@ def _run_prompt_input_or_skip(
 
 
 class CodexSandboxFallbackTests(unittest.TestCase):
+    def test_caller_cannot_request_unprotected_codex_sandbox(self):
+        for sandbox in ("danger-full-access", "unknown-mode"):
+            with self.subTest(sandbox=sandbox), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                request = _request(root)
+                request.sandbox = sandbox
+                request.output_path = root / "output" / "result.json"
+                runner = _Runner([])
+
+                with self.assertRaisesRegex(AgentExecutionError, "protected sandbox mode"):
+                    CodexAdapter("codex", runner).run(request)
+
+                self.assertEqual(runner.calls, [])
+                self.assertFalse(request.output_path.parent.exists())
+
     def test_doctor_preflights_the_native_codex_sandbox_on_every_supported_platform(self):
         help_output = " ".join(CodexAdapter.REQUIRED_FLAGS)
         for system_name, native_sandbox in (

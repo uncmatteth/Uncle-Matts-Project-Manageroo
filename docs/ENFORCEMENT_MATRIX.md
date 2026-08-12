@@ -44,6 +44,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
 | Concurrent project-memory updates discard one writer's entries | Cross-platform interprocess lock held across destination revalidation, existence detection, read, merge, atomic replacement, and final read | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
+| A caller requests unrestricted or unknown Codex sandbox access directly | `CodexAdapter.run` accepts only `read-only` and `workspace-write`; the exact-error, operator-opted-in unrestricted retry remains internal | Preventive before provider launch |
 | Reviewer mutation by any route | Disposable clone + before/after inventory | Detective, original protected |
 | Locked requirements cannot change, including through an in-root symlink alias | Symlink-free artifact paths plus artifact hash ledger | Preventive and detective, blocks next phase |
 | Failed or interrupted artifact replacement desynchronizes content and ledger metadata | Write-ahead staging with prior-artifact and prior-ledger recovery under the transaction lock | Preventive and recoverable |

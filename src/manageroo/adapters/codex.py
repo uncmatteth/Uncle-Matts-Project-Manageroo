@@ -24,6 +24,7 @@ from ..util import atomic_write_json
 _BWRAP_LOOPBACK_FAILURE = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
 _DANGER_FALLBACK_ENV = "MANAGEROO_CODEX_DANGER_FULL_ACCESS_FALLBACK"
 _CODEX_SANDBOX_REFERENCE = "https://learn.chatgpt.com/docs/sandboxing"
+_PROTECTED_SANDBOX_MODES = {"read-only", "workspace-write"}
 _MAX_PROFILE_SKILLS = 512
 _MAX_PROFILE_BYTES = 1_000_000
 
@@ -365,6 +366,13 @@ class CodexAdapter(AgentAdapter):
                 raise AgentExecutionError(f"Could not clear stale Codex output before launch: {path}: {exc}") from exc
 
     def run(self, request: AgentRequest) -> AgentResponse:
+        if (
+            not isinstance(request.sandbox, str)
+            or request.sandbox not in _PROTECTED_SANDBOX_MODES
+        ):
+            raise AgentExecutionError(
+                f"Codex requests must use a protected sandbox mode; got {request.sandbox!r}."
+            )
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
         self._clear_prior_outputs(request)
         packet_text = request.prompt_path.read_text(encoding="utf-8", errors="replace")
