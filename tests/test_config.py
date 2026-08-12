@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from manageroo.config import apply_agent_preset, config_template, load_config
+from manageroo.config import apply_agent_preset, config_template, load_config, write_config
 from manageroo.config_lock import config_mutation_lock
 from manageroo.errors import SafetyError
 
@@ -45,32 +45,83 @@ def _enter_config_lock(config_path, lock_opened, entered) -> None:
 def _write_config_while_pausing_write(repo, write_started, release) -> None:
     import manageroo.config as config
 
-    original_write = config.atomic_write_text
+    original_write = config._atomic_write_locked_config
 
-    def delayed_write(path, text):
+    def delayed_write(path, text, directory_descriptor):
         write_started.set()
         if not release.wait(timeout=5):
             raise TimeoutError("test did not release initial config write")
-        original_write(path, text)
+        original_write(path, text, directory_descriptor)
 
-    config.atomic_write_text = delayed_write
+    config._atomic_write_locked_config = delayed_write
     config.write_config(Path(repo), "codex", [])
 
 
 def _write_config_and_record_write(repo, write_attempted) -> None:
     import manageroo.config as config
 
-    original_write = config.atomic_write_text
+    original_write = config._atomic_write_locked_config
 
-    def observed_write(path, text):
+    def observed_write(path, text, directory_descriptor):
         write_attempted.set()
-        original_write(path, text)
+        original_write(path, text, directory_descriptor)
 
-    config.atomic_write_text = observed_write
+    config._atomic_write_locked_config = observed_write
     config.write_config(Path(repo), "gemini", [])
 
 
 class ConfigTests(unittest.TestCase):
+    def test_write_config_rejects_symlinked_project_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            external = root / "external"
+            repo.mkdir()
+            external.mkdir()
+            try:
+                (repo / ".manageroo").symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable on this platform")
+
+            with self.assertRaisesRegex(SafetyError, "Config directory"):
+                write_config(repo, "codex", [])
+
+            self.assertFalse((external / "config.toml").exists())
+            self.assertFalse((external / "cache").exists())
+
+    def test_apply_agent_preset_rejects_symlinked_project_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            external = root / "external"
+            repo.mkdir()
+            external.mkdir()
+            config_path = external / "config.toml"
+            original = config_template("codex", [])
+            config_path.write_text(original, encoding="utf-8")
+            try:
+                (repo / ".manageroo").symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable on this platform")
+
+            with self.assertRaisesRegex(SafetyError, "Config directory"):
+                apply_agent_preset(repo, "gemini")
+
+            self.assertEqual(config_path.read_text(encoding="utf-8"), original)
+            self.assertFalse((external / "cache").exists())
+
+    def test_config_lock_rejects_reparse_project_directory_before_creating_cache(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config_path = root / "config.toml"
+
+            with mock.patch("manageroo.config_lock._is_reparse_point", return_value=True):
+                with self.assertRaisesRegex(SafetyError, "Config directory is unsafe"):
+                    with config_mutation_lock(config_path):
+                        self.fail("reparse-point config directory must not be used")
+
+            self.assertFalse((root / "cache").exists())
+
     @unittest.skipIf(os.name == "nt", "POSIX directory permissions")
     def test_config_lock_rejects_writable_existing_cache_before_creating_lock(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -353,7 +404,7 @@ nested = [
             with mock.patch("manageroo.config.config_mutation_lock", wraps=config_mutation_lock) as lock:
                 apply_agent_preset(repo, "gemini")
 
-            lock.assert_called_once_with(config_path)
+            lock.assert_called_once_with(config_path, repository=repo)
 
     def test_concurrent_write_config_preserves_first_configuration(self):
         with tempfile.TemporaryDirectory() as temp:

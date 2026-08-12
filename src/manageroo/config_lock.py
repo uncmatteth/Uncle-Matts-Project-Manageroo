@@ -40,12 +40,72 @@ def _is_reparse_point(state: os.stat_result) -> bool:
     return bool(getattr(state, "st_file_attributes", 0) & reparse_point)
 
 
-def _validate_lock_directory(
-    descriptor: int | None, lock_directory: Path
+def _validate_config_directory(
+    descriptor: int | None,
+    config_directory: Path,
+    repository: Path | None,
 ) -> os.stat_result:
     directory_state = os.fstat(descriptor) if descriptor is not None else None
     try:
-        path_state = lock_directory.lstat()
+        path_state = config_directory.lstat()
+    except OSError as exc:
+        raise SafetyError(
+            f"Could not validate config directory: {config_directory}: {exc}"
+        ) from exc
+    if directory_state is None:
+        directory_state = path_state
+    if (
+        stat.S_ISLNK(path_state.st_mode)
+        or _is_reparse_point(path_state)
+        or not stat.S_ISDIR(directory_state.st_mode)
+        or not stat.S_ISDIR(path_state.st_mode)
+        or (directory_state.st_dev, directory_state.st_ino)
+        != (path_state.st_dev, path_state.st_ino)
+    ):
+        raise SafetyError(f"Config directory is unsafe: {config_directory}")
+    if repository is not None:
+        try:
+            relative = config_directory.resolve(strict=True).relative_to(
+                repository.resolve(strict=True)
+            )
+        except (OSError, ValueError) as exc:
+            raise SafetyError(
+                f"Config directory escapes repository: {config_directory}"
+            ) from exc
+        if len(relative.parts) != 1:
+            raise SafetyError(f"Config directory is unsafe: {config_directory}")
+        try:
+            final_path_state = config_directory.lstat()
+        except OSError as exc:
+            raise SafetyError(
+                f"Could not revalidate config directory: {config_directory}: {exc}"
+            ) from exc
+        if (
+            stat.S_ISLNK(final_path_state.st_mode)
+            or _is_reparse_point(final_path_state)
+            or (directory_state.st_dev, directory_state.st_ino)
+            != (final_path_state.st_dev, final_path_state.st_ino)
+        ):
+            raise SafetyError(f"Config directory is unsafe: {config_directory}")
+    return directory_state
+
+
+def _validate_lock_directory(
+    descriptor: int | None,
+    lock_directory: Path,
+    *,
+    parent_descriptor: int | None = None,
+) -> os.stat_result:
+    directory_state = os.fstat(descriptor) if descriptor is not None else None
+    try:
+        if parent_descriptor is None:
+            path_state = lock_directory.lstat()
+        else:
+            path_state = os.stat(
+                lock_directory.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
     except OSError as exc:
         raise SafetyError(
             f"Could not validate config lock directory: {lock_directory}: {exc}"
@@ -113,16 +173,59 @@ def _validate_lock_file(
 
 @contextmanager
 def config_mutation_lock(
-    config_path: Path, *, timeout_seconds: float = 30.0
-) -> Iterator[None]:
+    config_path: Path,
+    *,
+    timeout_seconds: float = 30.0,
+    repository: Path | None = None,
+) -> Iterator[int | None]:
+    config_directory = config_path.parent
+    config_directory_descriptor = None
+    if os.name == "nt":
+        _validate_config_directory(None, config_directory, repository)
+    else:
+        _validate_config_directory(None, config_directory, repository)
+        config_directory_flags = os.O_RDONLY
+        config_directory_flags |= getattr(os, "O_CLOEXEC", 0)
+        config_directory_flags |= getattr(os, "O_DIRECTORY", 0)
+        config_directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            config_directory_descriptor = os.open(
+                config_directory,
+                config_directory_flags,
+            )
+        except OSError as exc:
+            raise SafetyError(
+                f"Could not open config directory: {config_directory}: {exc}"
+            ) from exc
+        try:
+            _validate_config_directory(
+                config_directory_descriptor,
+                config_directory,
+                repository,
+            )
+        except BaseException:
+            os.close(config_directory_descriptor)
+            raise
+
     lock_directory = config_path.parent / "cache"
     try:
-        lock_directory.mkdir(mode=0o700, exist_ok=True)
+        if config_directory_descriptor is None:
+            lock_directory.mkdir(mode=0o700, exist_ok=True)
+        else:
+            try:
+                os.mkdir(
+                    lock_directory.name,
+                    mode=0o700,
+                    dir_fd=config_directory_descriptor,
+                )
+            except FileExistsError:
+                pass
     except OSError as exc:
+        if config_directory_descriptor is not None:
+            os.close(config_directory_descriptor)
         raise SafetyError(
             f"Could not create config lock directory: {lock_directory}: {exc}"
         ) from exc
-    lock_directory = lock_directory.parent.resolve(strict=True) / lock_directory.name
     directory_descriptor = None
     if os.name == "nt":
         _validate_lock_directory(None, lock_directory)
@@ -132,15 +235,27 @@ def config_mutation_lock(
         directory_flags |= getattr(os, "O_DIRECTORY", 0)
         directory_flags |= getattr(os, "O_NOFOLLOW", 0)
         try:
-            directory_descriptor = os.open(lock_directory, directory_flags)
+            directory_descriptor = os.open(
+                lock_directory.name,
+                directory_flags,
+                dir_fd=config_directory_descriptor,
+            )
         except OSError as exc:
+            if config_directory_descriptor is not None:
+                os.close(config_directory_descriptor)
             raise SafetyError(
                 f"Could not open config lock directory: {lock_directory}: {exc}"
             ) from exc
         try:
-            _validate_lock_directory(directory_descriptor, lock_directory)
+            _validate_lock_directory(
+                directory_descriptor,
+                lock_directory,
+                parent_descriptor=config_directory_descriptor,
+            )
         except BaseException:
             os.close(directory_descriptor)
+            if config_directory_descriptor is not None:
+                os.close(config_directory_descriptor)
             raise
 
     lock_path = lock_directory / (config_path.name + ".manageroo.lock")
@@ -166,6 +281,8 @@ def config_mutation_lock(
     except OSError as exc:
         if directory_descriptor is not None:
             os.close(directory_descriptor)
+        if config_directory_descriptor is not None:
+            os.close(config_directory_descriptor)
         raise SafetyError(f"Could not open config mutation lock: {lock_path}: {exc}") from exc
 
     acquired = False
@@ -195,7 +312,16 @@ def config_mutation_lock(
                     ) from exc
                 time.sleep(0.05)
 
-        _validate_lock_directory(directory_descriptor, lock_directory)
+        _validate_config_directory(
+            config_directory_descriptor,
+            config_directory,
+            repository,
+        )
+        _validate_lock_directory(
+            directory_descriptor,
+            lock_directory,
+            parent_descriptor=config_directory_descriptor,
+        )
         _validate_lock_file(
             descriptor,
             lock_path,
@@ -206,7 +332,12 @@ def config_mutation_lock(
         os.write(descriptor, owner_payload)
         os.ftruncate(descriptor, len(owner_payload))
         os.fsync(descriptor)
-        yield
+        yield config_directory_descriptor
+        _validate_config_directory(
+            config_directory_descriptor,
+            config_directory,
+            repository,
+        )
     finally:
         try:
             if acquired:
@@ -219,3 +350,5 @@ def config_mutation_lock(
             os.close(descriptor)
             if directory_descriptor is not None:
                 os.close(directory_descriptor)
+            if config_directory_descriptor is not None:
+                os.close(config_directory_descriptor)

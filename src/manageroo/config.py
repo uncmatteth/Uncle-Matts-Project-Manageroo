@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
+import stat
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from .branding import FULL_ACRONYM, PROJECT_DIR, PUBLIC_COMMAND
 from .config_lock import config_mutation_lock
-from .errors import ConfigurationError
+from .errors import ConfigurationError, SafetyError
 from .util import atomic_write_text
 
 
@@ -288,22 +290,106 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _locked_config_exists(path: Path, directory_descriptor: int | None) -> bool:
+    if directory_descriptor is None:
+        return path.exists()
+    try:
+        os.stat(path.name, dir_fd=directory_descriptor, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise SafetyError(f"Could not inspect Manageroo configuration {path}: {exc}") from exc
+    return True
+
+
+def _read_locked_config(path: Path, directory_descriptor: int | None) -> str:
+    if directory_descriptor is None:
+        return path.read_text(encoding="utf-8")
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path.name, flags, dir_fd=directory_descriptor)
+    except OSError as exc:
+        raise SafetyError(f"Could not open Manageroo configuration {path}: {exc}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise SafetyError(f"Manageroo configuration is unsafe: {path}")
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = -1
+            return handle.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _atomic_write_locked_config(
+    path: Path,
+    text: str,
+    directory_descriptor: int | None,
+) -> None:
+    if directory_descriptor is None:
+        atomic_write_text(path, text)
+        return
+    temp_name = f".{path.name}.{os.urandom(8).hex()}"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(
+            temp_name,
+            flags,
+            0o600,
+            dir_fd=directory_descriptor,
+        )
+    except OSError as exc:
+        raise SafetyError(f"Could not stage Manageroo configuration {path}: {exc}") from exc
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            descriptor = -1
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(
+            temp_name,
+            path.name,
+            src_dir_fd=directory_descriptor,
+            dst_dir_fd=directory_descriptor,
+        )
+    except OSError as exc:
+        raise SafetyError(f"Could not write Manageroo configuration {path}: {exc}") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.unlink(temp_name, dir_fd=directory_descriptor)
+        except FileNotFoundError:
+            pass
+
+
 def write_config(repo: Path, agent: str, gates: list[dict[str, Any]]) -> Path:
     path = repo / PROJECT_DIR / "config.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with config_mutation_lock(path):
-        if not path.exists():
-            atomic_write_text(path, config_template(agent, gates))
+    with config_mutation_lock(path, repository=repo) as directory_descriptor:
+        if not _locked_config_exists(path, directory_descriptor):
+            _atomic_write_locked_config(
+                path,
+                config_template(agent, gates),
+                directory_descriptor,
+            )
     return path
 
 
 def apply_agent_preset(repo: Path, preset_name: str) -> dict[str, Any]:
     path = repo / PROJECT_DIR / "config.toml"
-    with config_mutation_lock(path):
-        if not path.exists():
+    with config_mutation_lock(path, repository=repo) as directory_descriptor:
+        if not _locked_config_exists(path, directory_descriptor):
             raise ConfigurationError(f"Missing {path}. Run `{PUBLIC_COMMAND} init` first.")
-        updated = replace_agent_block(path.read_text(encoding="utf-8"), preset_name)
-        atomic_write_text(path, updated)
+        updated = replace_agent_block(
+            _read_locked_config(path, directory_descriptor),
+            preset_name,
+        )
+        _atomic_write_locked_config(path, updated, directory_descriptor)
     return {"repo": str(repo), "config": str(path), "preset": preset_name, "agent": agent_preset(preset_name)}
 
 
