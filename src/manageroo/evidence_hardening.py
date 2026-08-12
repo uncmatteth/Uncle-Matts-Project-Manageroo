@@ -271,9 +271,10 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
         return items
 
     evidence_module.normalize_external_payload = normalize_external_payload_hardened
-    if _descriptor_traversal_supported():
-        evidence_module.ProjectMemoryEvidenceProvider.retrieve = project_memory_retrieve
-        evidence_module.RunArtifactEvidenceProvider.retrieve = run_artifact_retrieve
+    # Install these unconditionally: they already fail closed when descriptor traversal
+    # is unavailable, instead of leaving pathname-based provider fallbacks active.
+    evidence_module.ProjectMemoryEvidenceProvider.retrieve = project_memory_retrieve
+    evidence_module.RunArtifactEvidenceProvider.retrieve = run_artifact_retrieve
     if evidence_policy_module is not None:
         evidence_policy_module.normalize_external_payload = normalize_external_payload_hardened
     evidence_module._manageroo_evidence_hardening_installed = True

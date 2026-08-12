@@ -66,43 +66,30 @@ def _query_terms(query: str) -> set[str]:
     return {item.lower() for item in re.findall(r"[A-Za-z0-9_.:/-]{3,}", query)}
 
 
-def _read_bounded_text(path: Path, *, max_bytes: int = MAX_EVIDENCE_INPUT_BYTES) -> tuple[str, float] | None:
-    """Read a bounded UTF-8 prefix without rejecting a split trailing code point."""
+def _read_bounded_text(
+    path: Path,
+    *,
+    max_bytes: int = MAX_EVIDENCE_INPUT_BYTES,
+) -> tuple[str, float] | None:
+    """Read a bounded UTF-8 prefix from a caller-trusted path."""
     try:
         if path.is_symlink():
             return None
         with path.open("rb") as handle:
             payload = handle.read(max_bytes + 1)
-        stat = path.stat()
+            opened = os.fstat(handle.fileno())
     except OSError:
         return None
-    if len(payload) > max_bytes:
-        payload = payload[:max_bytes]
+    payload = payload[:max_bytes]
     try:
-        return payload.decode("utf-8"), stat.st_mtime
+        return payload.decode("utf-8"), opened.st_mtime
     except UnicodeDecodeError as exc:
-        # A valid UTF-8 file may be cut in the middle of the final code point. Only
-        # tolerate an incomplete sequence at the byte boundary; reject earlier corruption.
         if exc.reason == "unexpected end of data" and exc.start >= max(0, len(payload) - 4):
             try:
-                return payload[: exc.start].decode("utf-8"), stat.st_mtime
+                return payload[: exc.start].decode("utf-8"), opened.st_mtime
             except UnicodeDecodeError:
                 return None
         return None
-
-
-def _safe_contained_file(root: Path, candidate: Path) -> Path | None:
-    """Reject links and resolved paths that escape a trusted root."""
-    try:
-        if candidate.is_symlink():
-            return None
-        resolved = candidate.resolve(strict=True)
-        resolved.relative_to(root)
-        if resolved.stat().st_nlink != 1:
-            return None
-    except (OSError, ValueError):
-        return None
-    return resolved if resolved.is_file() else None
 
 
 def _is_derived_run_artifact(run_root: Path, candidate: Path) -> bool:
@@ -242,35 +229,9 @@ class ProjectMemoryEvidenceProvider:
         self.repo = repo.expanduser().resolve()
 
     def retrieve(self, query: str, *, limit: int = 12) -> list[EvidenceItem]:
-        lexical = self.repo / PROJECT_DIR / "PROJECT-MEMORY.md"
-        path = _safe_contained_file(self.repo, lexical)
-        if path is None:
-            return []
-        record = _read_bounded_text(path)
-        if record is None:
-            return []
-        content, mtime = record
-        terms = _query_terms(query)
-        lowered = content.lower()
-        relevance = sum(lowered.count(term) for term in terms)
-        if terms and relevance == 0:
-            return []
-        return [
-            EvidenceItem(
-                content=content[:MAX_EVIDENCE_CONTENT_CHARS],
-                source=self.name,
-                location=lexical.relative_to(self.repo).as_posix(),
-                authority="project_memory",
-                confidence=0.90,
-                freshness=0.85,
-                created_at=datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
-                metadata={
-                    "relevance_hits": relevance,
-                    "provider": self.name,
-                    "input_byte_limit": MAX_EVIDENCE_INPUT_BYTES,
-                },
-            )
-        ]
+        # The hardening installer replaces this with descriptor-anchored retrieval.
+        # Pathname validation followed by a separate open is raceable, so fail closed.
+        return []
 
 
 class RunArtifactEvidenceProvider:
@@ -287,81 +248,9 @@ class RunArtifactEvidenceProvider:
         limit: int = 12,
         allowed_location_prefixes: Iterable[str] | None = None,
     ) -> list[EvidenceItem]:
-        if not self.artifact_root.is_dir() or self.artifact_root.is_symlink():
-            return []
-        try:
-            resolved_artifact_root = self.artifact_root.resolve(strict=True)
-            resolved_artifact_root.relative_to(self.run_root)
-        except (OSError, ValueError):
-            return []
-        terms = _query_terms(query)
-        allowed_prefixes = (
-            tuple(str(prefix) for prefix in allowed_location_prefixes)
-            if allowed_location_prefixes is not None
-            else None
-        )
-        candidates: list[tuple[int, float, Path, str]] = []
-        verified_seen = 0
-        verified_cap = max(limit * 20, 100)
-        read_seen = 0
-        read_cap = verified_cap * 2
-        for current, dirs, files in os.walk(resolved_artifact_root, topdown=True, followlinks=False):
-            dirs[:] = sorted(
-                name for name in dirs if not (Path(current) / name).is_symlink()
-            )
-            for name in sorted(files):
-                if read_seen >= read_cap or verified_seen >= verified_cap:
-                    break
-                lexical = Path(current) / name
-                location = lexical.relative_to(self.run_root).as_posix()
-                if allowed_prefixes is not None and not location.startswith(allowed_prefixes):
-                    continue
-                if lexical.suffix.lower() not in EVIDENCE_SUFFIXES:
-                    continue
-                if _is_derived_run_artifact(self.run_root, lexical):
-                    continue
-                read_seen += 1
-                path = _safe_contained_file(resolved_artifact_root, lexical)
-                if path is None:
-                    continue
-                record = _read_bounded_text(path)
-                if record is None:
-                    continue
-                text, mtime = record
-                if not text.strip():
-                    continue
-                lowered = (path.as_posix() + "\n" + text).lower()
-                relevance = sum(lowered.count(term) for term in terms)
-                if terms and relevance == 0:
-                    continue
-                verified_seen += 1
-                candidates.append((relevance, mtime, path, text))
-            if read_seen >= read_cap or verified_seen >= verified_cap:
-                break
-        candidates.sort(key=lambda row: (row[0], row[1], row[2].as_posix()), reverse=True)
-        items: list[EvidenceItem] = []
-        for relevance, mtime, path, text in candidates[:limit]:
-            try:
-                location = str(path.relative_to(self.run_root))
-            except ValueError:
-                continue
-            items.append(
-                EvidenceItem(
-                    content=text[:MAX_EVIDENCE_CONTENT_CHARS],
-                    source=self.name,
-                    location=location,
-                    authority="manageroo_run",
-                    confidence=0.98,
-                    freshness=0.95,
-                    created_at=datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
-                    metadata={
-                        "relevance_hits": relevance,
-                        "provider": self.name,
-                        "input_byte_limit": MAX_EVIDENCE_INPUT_BYTES,
-                    },
-                )
-            )
-        return items
+        # The hardening installer replaces this with descriptor-anchored retrieval.
+        # Pathname validation followed by a separate open is raceable, so fail closed.
+        return []
 
 
 class ExternalCommandEvidenceProvider:

@@ -210,7 +210,7 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(items[0].authority, "project_memory")
             self.assertEqual(items[0].location, ".manageroo/PROJECT-MEMORY.md")
 
-    def test_hardening_install_preserves_local_providers_without_descriptor_traversal(self):
+    def test_hardening_install_disables_local_providers_without_descriptor_traversal(self):
         class PortableProjectMemoryProvider:
             def __init__(self, repo: Path):
                 self.repo = repo
@@ -255,11 +255,11 @@ class EvidenceTests(unittest.TestCase):
                 evidence_hardening.install_evidence_hardening(isolated_evidence)
                 self.assertEqual(
                     PortableProjectMemoryProvider(root).retrieve("project memory"),
-                    ["portable project memory\n"],
+                    [],
                 )
                 self.assertEqual(
                     PortableRunArtifactProvider(root / "run").retrieve("run artifact"),
-                    ["portable run artifact\n"],
+                    [],
                 )
 
     def test_project_memory_rejects_symlink_escape(self):
