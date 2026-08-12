@@ -211,12 +211,17 @@ def _objective_hash(messages: list[dict[str, str]]) -> str:
     return sha256_text("\n\n".join(item["text"] for item in messages))
 
 
+def _save_state_locked(root: Path, state: dict[str, Any]) -> None:
+    path = _state_path(root, str(state["session_id"]))
+    atomic_write_json(path, state)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+
+
 def _save_state(root: Path, state: dict[str, Any]) -> None:
     path = _state_path(root, str(state["session_id"]))
     with config_mutation_lock(path):
-        atomic_write_json(path, state)
-    if os.name != "nt":
-        os.chmod(path, 0o600)
+        _save_state_locked(root, state)
 
 
 def _message(prompt: str, turn_id: str, relation: str) -> dict[str, str]:
@@ -246,6 +251,24 @@ def capture_current_request(
     state_root: Path | None = None,
 ) -> dict[str, Any]:
     root = _safe_state_root(state_root or continuity_state_root())
+    with config_mutation_lock(_state_path(root, session_id)):
+        return _capture_current_request_locked(
+            session_id=session_id,
+            turn_id=turn_id,
+            prompt=prompt,
+            cwd=cwd,
+            root=root,
+        )
+
+
+def _capture_current_request_locked(
+    *,
+    session_id: str,
+    turn_id: str,
+    prompt: str,
+    cwd: str,
+    root: Path,
+) -> dict[str, Any]:
     prompt = prompt.strip()
     existing = _read_state(root, session_id)
     internal = prompt.startswith(INTERNAL_CONTINUATION_PREFIX)
@@ -274,7 +297,7 @@ def capture_current_request(
             "updated_at": utc_now(),
             "waiting_reason": prompt,
         }
-        _save_state(root, state)
+        _save_state_locked(root, state)
         return state
 
     if existing is not None and existing.get("status") == "paused":
@@ -288,7 +311,7 @@ def capture_current_request(
                     "waiting_reason": "",
                 }
             )
-            _save_state(root, state)
+            _save_state_locked(root, state)
             return state
         clear_new_work = bool(
             _CLEAR_WORK_REQUEST.search(prompt) or _CLEAR_WORK_AFTER_PREAMBLE.search(prompt)
@@ -307,11 +330,11 @@ def capture_current_request(
                 "updated_at": utc_now(),
                 "waiting_reason": "",
             }
-            _save_state(root, state)
+            _save_state_locked(root, state)
             return state
         state = dict(existing)
         state.update({"cwd": cwd, "updated_at": utc_now()})
-        _save_state(root, state)
+        _save_state_locked(root, state)
         return state
 
     natural_correction = bool(
@@ -321,7 +344,7 @@ def capture_current_request(
     if existing is not None and not replace and _is_side_question(prompt):
         state = dict(existing)
         state.update({"cwd": cwd, "updated_at": utc_now()})
-        _save_state(root, state)
+        _save_state_locked(root, state)
         return state
     if existing is None or existing.get("status") == "complete" or replace:
         messages = [_message(prompt, turn_id, "root" if not replace else "replacement")]
@@ -349,7 +372,7 @@ def capture_current_request(
         "updated_at": utc_now(),
         "waiting_reason": "",
     }
-    _save_state(root, state)
+    _save_state_locked(root, state)
     return state
 
 
@@ -912,32 +935,75 @@ def process_codex_continuity_hook(
     root = _safe_state_root(state_root or continuity_state_root())
     name = str(event.get("hook_event_name") or "")
     if name == "UserPromptSubmit":
-        previous = _read_state(root, session_id)
-        state = capture_current_request(
-            session_id=session_id,
-            turn_id=str(event.get("turn_id") or ""),
-            prompt=str(event.get("prompt") or ""),
-            cwd=str(event.get("cwd") or ""),
-            state_root=root,
-        )
-        result: dict[str, Any] = {
-            "systemMessage": render_compact_status(
-                state,
-                activity=_current_activity(state),
+        with config_mutation_lock(_state_path(root, session_id)):
+            previous = _read_state(root, session_id)
+            state = _capture_current_request_locked(
+                session_id=session_id,
+                turn_id=str(event.get("turn_id") or ""),
+                prompt=str(event.get("prompt") or ""),
+                cwd=str(event.get("cwd") or ""),
+                root=root,
             )
-        }
-        advertised = bool(
-            (previous or {}).get("receipt_contract_advertised")
-            or (previous or {}).get("receipt_objective_sha256")
-        )
-        if not advertised and state.get("status") != "paused":
-            state["receipt_contract_advertised"] = True
-            _save_state(root, state)
-            result.update(_additional_context(name, _completion_contract()))
-        elif advertised:
-            state["receipt_contract_advertised"] = True
-            _save_state(root, state)
+            result: dict[str, Any] = {
+                "systemMessage": render_compact_status(
+                    state,
+                    activity=_current_activity(state),
+                )
+            }
+            advertised = bool(
+                (previous or {}).get("receipt_contract_advertised")
+                or (previous or {}).get("receipt_objective_sha256")
+            )
+            if not advertised and state.get("status") != "paused":
+                state["receipt_contract_advertised"] = True
+                _save_state_locked(root, state)
+                result.update(_additional_context(name, _completion_contract()))
+            elif advertised:
+                state["receipt_contract_advertised"] = True
+                _save_state_locked(root, state)
         return result
+    if name == "Stop":
+        with config_mutation_lock(_state_path(root, session_id)):
+            state = _read_state(root, session_id)
+            if (
+                not isinstance(state, dict)
+                or state.get("status") not in {"active", "waiting", "paused"}
+                or state.get("status") == "paused"
+            ):
+                return {}
+            last = str(event.get("last_assistant_message") or "")
+            complete_marker = _completion_marker(state, "complete")
+            blocked_marker = _completion_marker(state, "blocked")
+            previous_complete_marker = _previous_completion_marker(state, "complete")
+            previous_blocked_marker = _previous_completion_marker(state, "blocked")
+            legacy_complete_marker = _legacy_completion_marker(state, "complete")
+            legacy_blocked_marker = _legacy_completion_marker(state, "blocked")
+            if (
+                _has_specific_completion_result(last)
+                or GENERIC_COMPLETE_RECEIPT in last
+                or complete_marker in last
+                or previous_complete_marker in last
+                or legacy_complete_marker in last
+            ):
+                state["status"] = "complete"
+                state["updated_at"] = utc_now()
+                _save_state_locked(root, state)
+                return {}
+            if (
+                GENERIC_BLOCKED_RECEIPT in last
+                or blocked_marker in last
+                or previous_blocked_marker in last
+                or legacy_blocked_marker in last
+            ) and "Concrete blocker:" in last:
+                state["status"] = "waiting"
+                state["waiting_reason"] = last
+                state["updated_at"] = utc_now()
+                _save_state_locked(root, state)
+                return {}
+            return {
+                "decision": "block",
+                "reason": _stop_recovery_message(state),
+            }
     state = _read_state(root, session_id)
     if not isinstance(state, dict) or state.get("status") not in {"active", "waiting", "paused"}:
         return {}
@@ -957,42 +1023,6 @@ def process_codex_continuity_hook(
                 }
             }
         return audit_agent_tool(event, state)
-    if name == "Stop":
-        if state.get("status") == "paused":
-            return {}
-        last = str(event.get("last_assistant_message") or "")
-        complete_marker = _completion_marker(state, "complete")
-        blocked_marker = _completion_marker(state, "blocked")
-        previous_complete_marker = _previous_completion_marker(state, "complete")
-        previous_blocked_marker = _previous_completion_marker(state, "blocked")
-        legacy_complete_marker = _legacy_completion_marker(state, "complete")
-        legacy_blocked_marker = _legacy_completion_marker(state, "blocked")
-        if (
-            _has_specific_completion_result(last)
-            or GENERIC_COMPLETE_RECEIPT in last
-            or complete_marker in last
-            or previous_complete_marker in last
-            or legacy_complete_marker in last
-        ):
-            state["status"] = "complete"
-            state["updated_at"] = utc_now()
-            _save_state(root, state)
-            return {}
-        if (
-            GENERIC_BLOCKED_RECEIPT in last
-            or blocked_marker in last
-            or previous_blocked_marker in last
-            or legacy_blocked_marker in last
-        ) and "Concrete blocker:" in last:
-            state["status"] = "waiting"
-            state["waiting_reason"] = last
-            state["updated_at"] = utc_now()
-            _save_state(root, state)
-            return {}
-        return {
-            "decision": "block",
-            "reason": _stop_recovery_message(state),
-        }
     return {}
 
 

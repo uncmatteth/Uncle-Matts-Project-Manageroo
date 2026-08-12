@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import manageroo.agent_continuity as agent_continuity_module
 
 from manageroo.agent_continuity import (
     INTERNAL_CONTINUATION_PREFIX,
@@ -273,6 +277,200 @@ class AgentContinuityTests(unittest.TestCase):
                 ["root", "addition"],
             )
             self.assertIn("Edit the named TXT", second["messages"][0]["text"])
+
+    def test_concurrent_additions_preserve_both_operator_requests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Repair the continuity state.",
+                cwd="/project",
+                state_root=root,
+            )
+            real_read_state = agent_continuity_module._read_state
+            reads_complete = threading.Barrier(2)
+            errors: list[BaseException] = []
+
+            def synchronized_read(*args, **kwargs):
+                state = real_read_state(*args, **kwargs)
+                try:
+                    reads_complete.wait(timeout=0.25)
+                except threading.BrokenBarrierError:
+                    pass
+                return state
+
+            def capture(turn_id: str, prompt: str) -> None:
+                try:
+                    capture_current_request(
+                        session_id="session",
+                        turn_id=turn_id,
+                        prompt=prompt,
+                        cwd="/project",
+                        state_root=root,
+                    )
+                except BaseException as exc:
+                    errors.append(exc)
+
+            with mock.patch.object(
+                agent_continuity_module,
+                "_read_state",
+                side_effect=synchronized_read,
+            ):
+                threads = [
+                    threading.Thread(target=capture, args=("turn-2", "Add request two.")),
+                    threading.Thread(target=capture, args=("turn-3", "Add request three.")),
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=5)
+
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(errors, [])
+            state = real_read_state(root, "session")
+            self.assertIsNotNone(state)
+            self.assertCountEqual(
+                [item["turn_id"] for item in state["messages"]],
+                ["turn-1", "turn-2", "turn-3"],
+            )
+
+    def test_concurrent_prompt_hooks_preserve_both_operator_requests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Repair the continuity state.",
+                cwd="/project",
+                state_root=root,
+            )
+            real_save_state = agent_continuity_module._save_state
+            newer_state_saved = threading.Event()
+            errors: list[BaseException] = []
+
+            def ordered_save(state_root, state):
+                if len(state["messages"]) == 2:
+                    if not newer_state_saved.wait(timeout=5):
+                        raise TimeoutError("newer prompt state was not ready")
+                    real_save_state(state_root, state)
+                    return
+                real_save_state(state_root, state)
+                newer_state_saved.set()
+
+            def submit(turn_id: str, prompt: str) -> None:
+                try:
+                    process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "UserPromptSubmit",
+                            "session_id": "session",
+                            "turn_id": turn_id,
+                            "cwd": "/project",
+                            "prompt": prompt,
+                        },
+                        state_root=root,
+                    )
+                except BaseException as exc:
+                    errors.append(exc)
+
+            with mock.patch.object(
+                agent_continuity_module,
+                "_save_state",
+                side_effect=ordered_save,
+            ):
+                threads = [
+                    threading.Thread(target=submit, args=("turn-2", "Add request two.")),
+                    threading.Thread(target=submit, args=("turn-3", "Add request three.")),
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=10)
+
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(errors, [])
+            state = agent_continuity_module._read_state(root, "session")
+            self.assertIsNotNone(state)
+            self.assertCountEqual(
+                [item["turn_id"] for item in state["messages"]],
+                ["turn-1", "turn-2", "turn-3"],
+            )
+
+    def test_concurrent_stop_cannot_discard_new_operator_request(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": "Repair the continuity state.",
+                },
+                state_root=root,
+            )
+            real_save_state = agent_continuity_module._save_state
+            stop_save_started = threading.Event()
+            allow_stop_save = threading.Event()
+            errors: list[BaseException] = []
+
+            def delayed_stop_save(state_root, state):
+                stop_save_started.set()
+                if not allow_stop_save.wait(timeout=5):
+                    raise TimeoutError("new operator request was not persisted")
+                real_save_state(state_root, state)
+
+            def stop() -> None:
+                try:
+                    process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "Stop",
+                            "session_id": "session",
+                            "turn_id": "turn-1",
+                            "cwd": "/project",
+                            "last_assistant_message": (
+                                "✅ Done — Repaired the continuity state."
+                            ),
+                        },
+                        state_root=root,
+                    )
+                except BaseException as exc:
+                    errors.append(exc)
+
+            with mock.patch.object(
+                agent_continuity_module,
+                "_save_state",
+                side_effect=delayed_stop_save,
+            ):
+                thread = threading.Thread(target=stop)
+                thread.start()
+                stale_save_reached = stop_save_started.wait(timeout=0.25)
+                if not stale_save_reached:
+                    thread.join(timeout=5)
+                try:
+                    process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "UserPromptSubmit",
+                            "session_id": "session",
+                            "turn_id": "turn-2",
+                            "cwd": "/project",
+                            "prompt": "Also preserve this operator request.",
+                        },
+                        state_root=root,
+                    )
+                finally:
+                    allow_stop_save.set()
+                thread.join(timeout=5)
+
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(errors, [])
+            state = agent_continuity_module._read_state(root, "session")
+            self.assertIsNotNone(state)
+            self.assertEqual(
+                [item["turn_id"] for item in state["messages"]],
+                ["turn-2"],
+            )
+            self.assertEqual(state["status"], "active")
 
     def test_only_explicit_replacement_discards_unfinished_messages(self):
         with tempfile.TemporaryDirectory() as temp:
