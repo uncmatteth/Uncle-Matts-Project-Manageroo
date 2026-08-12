@@ -460,6 +460,50 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
             self.assertTrue(standalone["ok"], standalone)
             self.assertFalse(standalone["missing"])
 
+    def test_audit_treats_intent_lock_read_errors_as_context_warnings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Build the release helper.")
+            summary = "Current work continues from the operator request."
+
+            for error in (PermissionError("denied"), FileNotFoundError("vanished")):
+                with self.subTest(error=type(error).__name__):
+                    with mock.patch.object(Path, "read_bytes", side_effect=error):
+                        report = audit_compaction_text(repo, summary)
+
+                    self.assertTrue(report["ok"], report)
+                    self.assertEqual(report["status"], "context-warning")
+                    self.assertEqual(report["missing"], [])
+                    self.assertFalse(report["repair_applied"])
+                    self.assertEqual(report["repaired_summary"], summary)
+                    self.assertEqual(
+                        report["warnings"][0]["code"],
+                        "repository_intent_unavailable",
+                    )
+
+    def test_retry_read_error_returns_an_invalid_lock_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            capture_intent_lock(repo, want="Build the release helper.")
+            lock = intent_lock_path(repo)
+            lock.with_suffix(".md").unlink()
+            original_read_bytes = Path.read_bytes
+            lock_reads = 0
+
+            def fail_retry(path):
+                nonlocal lock_reads
+                if path == lock:
+                    lock_reads += 1
+                    if lock_reads == 2:
+                        raise PermissionError("denied during retry")
+                return original_read_bytes(path)
+
+            with mock.patch.object(Path, "read_bytes", autospec=True, side_effect=fail_retry):
+                report = read_intent_lock(repo)
+
+            self.assertFalse(report["ok"])
+            self.assertIn("could not be read: denied during retry", report["error"])
+
     def test_malformed_intent_locks_are_blocked_configuration_reports(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))

@@ -320,6 +320,8 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
         )
     except UnicodeDecodeError:
         return _invalid_intent_lock(repo, path, "file must contain UTF-8 encoded JSON")
+    except OSError as exc:
+        return _invalid_intent_lock(repo, path, f"could not be read: {exc}")
     if not isinstance(lock, dict):
         return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
     problem = _validate_intent_lock_payload(lock)
@@ -337,6 +339,8 @@ def read_intent_lock(repo_path: Path) -> dict[str, Any]:
                 )
             except UnicodeDecodeError:
                 return _invalid_intent_lock(repo, path, "file must contain UTF-8 encoded JSON")
+            except OSError as exc:
+                return _invalid_intent_lock(repo, path, f"could not be read: {exc}")
             if not isinstance(lock, dict):
                 return _invalid_intent_lock(repo, path, "top-level value must be a JSON object")
             problem = _validate_intent_lock_payload(lock)
