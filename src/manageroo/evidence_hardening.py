@@ -120,6 +120,37 @@ def _verified_bounded_text(
         os.close(fd)
 
 
+def _bounded_relevant_excerpt(
+    text: str,
+    terms: set[str],
+    *,
+    max_chars: int,
+) -> tuple[str, int, bool] | None:
+    """Return a bounded excerpt containing the earliest query-term match."""
+    if max_chars <= 0:
+        return None
+    if not terms:
+        excerpt = text[:max_chars]
+        return excerpt, 0, len(excerpt) < len(text)
+
+    lowered = text.lower()
+    matches = [
+        (position, term)
+        for term in terms
+        if len(term) <= max_chars
+        for position in [lowered.find(term)]
+        if position >= 0
+    ]
+    if not matches:
+        return None
+    position, term = min(matches)
+    context_chars = max_chars - len(term)
+    start = max(0, position - (context_chars // 2))
+    start = min(start, max(0, len(text) - max_chars))
+    excerpt = text[start : start + max_chars]
+    return excerpt, start, start > 0 or len(excerpt) < len(text)
+
+
 def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any | None = None) -> None:
     if getattr(evidence_module, "_manageroo_evidence_hardening_installed", False):
         return
@@ -162,9 +193,17 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
         relevance = sum(lowered.count(term) for term in terms)
         if terms and relevance == 0:
             return []
+        excerpt_record = _bounded_relevant_excerpt(
+            content,
+            terms,
+            max_chars=evidence_module.MAX_EVIDENCE_CONTENT_CHARS,
+        )
+        if excerpt_record is None:
+            return []
+        excerpt, excerpt_start, excerpt_truncated = excerpt_record
         return [
             evidence_module.EvidenceItem(
-                content=content[: evidence_module.MAX_EVIDENCE_CONTENT_CHARS],
+                content=excerpt,
                 source=self.name,
                 location=str(lexical.relative_to(self.repo)),
                 authority="project_memory",
@@ -176,6 +215,8 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                     "provider": self.name,
                     "input_byte_limit": evidence_module.MAX_EVIDENCE_INPUT_BYTES,
                     "descriptor_verified": True,
+                    "excerpt_start_char": excerpt_start,
+                    "excerpt_truncated": excerpt_truncated,
                 },
             )
         ]
@@ -204,7 +245,7 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                 return []
             try:
                 terms = evidence_module._query_terms(query)
-                candidates: list[tuple[int, float, Path, str]] = []
+                candidates: list[tuple[int, float, Path, str, int, bool]] = []
                 verified_seen = 0
                 verified_cap = max(limit * 20, 100)
                 read_seen = 0
@@ -242,8 +283,25 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                         relevance = sum(lowered.count(term) for term in terms)
                         if terms and relevance == 0:
                             continue
+                        excerpt_record = _bounded_relevant_excerpt(
+                            text,
+                            terms,
+                            max_chars=evidence_module.MAX_EVIDENCE_CONTENT_CHARS,
+                        )
+                        if excerpt_record is None:
+                            continue
+                        excerpt, excerpt_start, excerpt_truncated = excerpt_record
                         verified_seen += 1
-                        candidates.append((relevance, mtime, lexical, text))
+                        candidates.append(
+                            (
+                                relevance,
+                                mtime,
+                                lexical,
+                                excerpt,
+                                excerpt_start,
+                                excerpt_truncated,
+                            )
+                        )
                 finally:
                     walker.close()
             finally:
@@ -252,11 +310,13 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
             os.close(run_fd)
         candidates.sort(key=lambda row: (row[0], row[1], row[2].as_posix()), reverse=True)
         items = []
-        for relevance, mtime, path, text in candidates[:limit]:
+        for relevance, mtime, path, excerpt, excerpt_start, excerpt_truncated in candidates[
+            :limit
+        ]:
             try:
                 items.append(
                     evidence_module.EvidenceItem(
-                        content=text[: evidence_module.MAX_EVIDENCE_CONTENT_CHARS],
+                        content=excerpt,
                         source=self.name,
                         location=path.as_posix(),
                         authority="manageroo_run",
@@ -268,6 +328,8 @@ def install_evidence_hardening(evidence_module: Any, evidence_policy_module: Any
                             "provider": self.name,
                             "input_byte_limit": evidence_module.MAX_EVIDENCE_INPUT_BYTES,
                             "descriptor_verified": True,
+                            "excerpt_start_char": excerpt_start,
+                            "excerpt_truncated": excerpt_truncated,
                         },
                     )
                 )

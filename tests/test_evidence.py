@@ -9,6 +9,7 @@ from unittest.mock import patch
 from manageroo import evidence_hardening
 from manageroo.context import ContextCompiler, ContextRequest
 from manageroo.evidence import (
+    MAX_EVIDENCE_CONTENT_CHARS,
     MAX_EVIDENCE_INPUT_BYTES,
     EvidenceItem,
     EvidenceRouter,
@@ -345,6 +346,21 @@ class EvidenceTests(unittest.TestCase):
             items = ProjectMemoryEvidenceProvider(repo).retrieve("needle-beyond-boundary")
             self.assertEqual(items, [])
 
+    def test_project_memory_excerpt_contains_match_beyond_output_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            memory = repo / ".manageroo" / "PROJECT-MEMORY.md"
+            memory.parent.mkdir(parents=True)
+            memory.write_text("x" * 20_000 + " unique-memory-needle\n", encoding="utf-8")
+
+            items = ProjectMemoryEvidenceProvider(repo).retrieve("unique-memory-needle")
+
+            self.assertEqual(len(items), 1)
+            self.assertIn("unique-memory-needle", items[0].content)
+            self.assertLessEqual(len(items[0].content), MAX_EVIDENCE_CONTENT_CHARS)
+            self.assertGreater(items[0].metadata["excerpt_start_char"], 0)
+            self.assertTrue(items[0].metadata["excerpt_truncated"])
+
     def test_run_artifact_never_scans_beyond_bounded_input_prefix(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp) / "run"
@@ -353,6 +369,21 @@ class EvidenceTests(unittest.TestCase):
             artifact.write_bytes(b"x" * MAX_EVIDENCE_INPUT_BYTES + b"\nneedle-beyond-boundary\n")
             items = RunArtifactEvidenceProvider(run_root).retrieve("needle-beyond-boundary")
             self.assertEqual(items, [])
+
+    def test_run_artifact_excerpt_contains_match_beyond_output_prefix(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp) / "run"
+            artifact = run_root / "artifacts" / "large.txt"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("x" * 20_000 + " unique-artifact-needle\n", encoding="utf-8")
+
+            items = RunArtifactEvidenceProvider(run_root).retrieve("unique-artifact-needle")
+
+            self.assertEqual(len(items), 1)
+            self.assertIn("unique-artifact-needle", items[0].content)
+            self.assertLessEqual(len(items[0].content), MAX_EVIDENCE_CONTENT_CHARS)
+            self.assertGreater(items[0].metadata["excerpt_start_char"], 0)
+            self.assertTrue(items[0].metadata["excerpt_truncated"])
 
     def test_run_artifact_rejects_hard_link_escape(self):
         with tempfile.TemporaryDirectory() as temp:
