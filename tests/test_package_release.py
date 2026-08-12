@@ -700,6 +700,54 @@ class PackageReleaseTests(unittest.TestCase):
                     package_release.write_archive(output, files)
             self.assertEqual(output.read_bytes(), b"known-good")
 
+    def test_concurrent_staging_mutation_stops_before_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            files = {
+                ".manageroo/config.toml": "# release policy fixture\n",
+                "README.md": "original readme\n",
+                "pyproject.toml": "[project]\nname = 'fixture'\nversion = '1'\n",
+                "install.sh": "#!/bin/sh\n",
+                "install.ps1": "# fixture\n",
+                "src/manageroo/__init__.py": "__version__ = '1'\n",
+            }
+            for relative, content in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            original_copy2 = package_release.shutil.copy2
+            mutation_done = False
+
+            def mutate_during_staging(source, destination, *args, **kwargs):
+                nonlocal mutation_done
+                result = original_copy2(source, destination, *args, **kwargs)
+                if not mutation_done:
+                    mutation_done = True
+                    (root / "README.md").write_text("concurrent readme\n", encoding="utf-8")
+                    (root / "pyproject.toml").write_text(
+                        "[project]\nname = 'fixture'\nversion = '2'\n",
+                        encoding="utf-8",
+                    )
+                return result
+
+            clean_environment = dict(package_release.os.environ)
+            clean_environment.pop(package_release.RELEASE_FILE_LIST_ENV, None)
+            with (
+                patch.dict(package_release.os.environ, clean_environment, clear=True),
+                patch.object(package_release, "ROOT", root),
+                patch.object(package_release, "_tracked_relative_paths", return_value=set(files)),
+                patch.object(package_release.shutil, "copy2", side_effect=mutate_during_staging),
+                patch.object(package_release, "_publish_release") as publish,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "source changed during release snapshot staging",
+                ):
+                    package_release.main()
+
+            publish.assert_not_called()
+
     def test_packaging_uses_staged_bytes_after_live_worktree_mutations(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "project"
@@ -735,6 +783,11 @@ class PackageReleaseTests(unittest.TestCase):
                 real_write_archive(output, selected)
 
             def capture_publish(candidate_output, candidate_source, _drop_dir):
+                captured["installer_name"] = candidate_output.name
+                captured["source_name"] = candidate_source.name
+                captured["published_installer_name"] = package_release.OUTPUT.name
+                captured["published_source_name"] = package_release.SOURCE_OUTPUT.name
+                captured["drop_name"] = package_release.DEFAULT_DROP_DIR.name
                 with zipfile.ZipFile(candidate_output) as archive:
                     captured["installer_readme"] = archive.read(
                         f"{package_release.ARCHIVE_ROOT}/README.md"
@@ -765,6 +818,20 @@ class PackageReleaseTests(unittest.TestCase):
                 self.assertEqual(package_release.main(), 0)
 
             expected_hash = hashlib.sha256(expected).hexdigest()
+            self.assertEqual(captured["installer_name"], "uncle-matts-project-manageroo-v1.zip")
+            self.assertEqual(
+                captured["source_name"],
+                "uncle-matts-project-manageroo-v1-source.zip",
+            )
+            self.assertEqual(
+                captured["published_installer_name"],
+                "uncle-matts-project-manageroo-v1.zip",
+            )
+            self.assertEqual(
+                captured["published_source_name"],
+                "uncle-matts-project-manageroo-v1-source.zip",
+            )
+            self.assertEqual(captured["drop_name"], "uncle-matts-project-manageroo-v1")
             self.assertEqual(captured["installer_readme"], expected)
             self.assertEqual(captured["source_readme"], expected)
             self.assertIn(f"{expected_hash}  README.md\n", captured["checksums"])

@@ -19,14 +19,33 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from manageroo.config_lock import config_mutation_lock  # noqa: E402
 
+
+def _release_artifact_values(root: Path) -> tuple[str, str, str, str, str, str]:
+    project_version = str(
+        tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    )
+    version_tag = f"v{project_version}"
+    artifact_basename = f"uncle-matts-project-manageroo-{version_tag}"
+    return (
+        project_version,
+        version_tag,
+        artifact_basename,
+        artifact_basename,
+        f"{artifact_basename}.zip",
+        f"{artifact_basename}-source.zip",
+    )
+
+
 ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
-PROJECT_VERSION = str(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
-VERSION_TAG = f"v{PROJECT_VERSION}"
-ARTIFACT_BASENAME = f"uncle-matts-project-manageroo-{VERSION_TAG}"
-DROP_ROOT = ARTIFACT_BASENAME
+(
+    PROJECT_VERSION,
+    VERSION_TAG,
+    ARTIFACT_BASENAME,
+    DROP_ROOT,
+    INSTALLER_ZIP,
+    SOURCE_ZIP,
+) = _release_artifact_values(ROOT)
 DEFAULT_DROP_DIR = ROOT.parent / DROP_ROOT
-INSTALLER_ZIP = f"{ARTIFACT_BASENAME}.zip"
-SOURCE_ZIP = f"{ARTIFACT_BASENAME}-source.zip"
 OUTPUT = ROOT.parent / INSTALLER_ZIP
 SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
 EXCLUDED_PARTS = {
@@ -177,15 +196,30 @@ def generate_manifest() -> None:
     (ROOT / "docs" / "FILE_MANIFEST.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _files_fingerprint(files: list[Path], root: Path) -> tuple:
+    records = []
+    for path in files:
+        try:
+            relative = path.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise RuntimeError(f"Refusing release file outside source root: {path}") from exc
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"Release source changed while fingerprinting: {path}")
+        records.append((relative, hashlib.sha256(path.read_bytes()).hexdigest()))
+    return tuple(records)
+
+
 def _stage_release_snapshot(snapshot_root: Path) -> Path:
     """Copy Git-selected worktree bytes into one private immutable release input."""
     if RELEASE_FILE_LIST_ENV in os.environ:
         raise RuntimeError(
             f"Refusing inherited {RELEASE_FILE_LIST_ENV} during release snapshot staging"
         )
+    sources = included_files()
+    expected_fingerprint = _files_fingerprint(sources, ROOT)
     snapshot_root.mkdir(mode=0o700)
     relative_paths: list[str] = []
-    for source in included_files():
+    for source in sources:
         try:
             relative = source.relative_to(ROOT)
         except ValueError as exc:
@@ -205,6 +239,16 @@ def _stage_release_snapshot(snapshot_root: Path) -> Path:
             raise RuntimeError(f"Release file became unsafe while staging: {source}")
         relative_paths.append(relative.as_posix())
 
+    current_fingerprint = _files_fingerprint(included_files(), ROOT)
+    snapshot_fingerprint = _files_fingerprint(
+        [snapshot_root / relative for relative in relative_paths],
+        snapshot_root,
+    )
+    if current_fingerprint != expected_fingerprint or snapshot_fingerprint != expected_fingerprint:
+        raise RuntimeError(
+            "Release source changed during release snapshot staging; refusing publication."
+        )
+
     file_list = snapshot_root.parent / ".manageroo-release-files"
     file_list.write_bytes(b"\0".join(os.fsencode(path) for path in relative_paths) + b"\0")
     return file_list
@@ -212,16 +256,54 @@ def _stage_release_snapshot(snapshot_root: Path) -> Path:
 
 @contextmanager
 def _use_release_snapshot(snapshot_root: Path, file_list: Path):
-    """Bind all release selectors and child validators to the staged snapshot."""
-    global ROOT
+    """Bind release selectors, names, and child validators to the staged snapshot."""
+    global ARTIFACT_BASENAME, DEFAULT_DROP_DIR, DROP_ROOT, INSTALLER_ZIP
+    global OUTPUT, PROJECT_VERSION, ROOT, SOURCE_OUTPUT, SOURCE_ZIP, VERSION_TAG
     original_root = ROOT
     original_file_list = os.environ.get(RELEASE_FILE_LIST_ENV)
+    original_artifacts = (
+        PROJECT_VERSION,
+        VERSION_TAG,
+        ARTIFACT_BASENAME,
+        DROP_ROOT,
+        INSTALLER_ZIP,
+        SOURCE_ZIP,
+        DEFAULT_DROP_DIR,
+        OUTPUT,
+        SOURCE_OUTPUT,
+    )
+    output_parent = OUTPUT.parent
+    source_output_parent = SOURCE_OUTPUT.parent
+    drop_parent = DEFAULT_DROP_DIR.parent
+    snapshot_artifacts = _release_artifact_values(snapshot_root)
     ROOT = snapshot_root
+    (
+        PROJECT_VERSION,
+        VERSION_TAG,
+        ARTIFACT_BASENAME,
+        DROP_ROOT,
+        INSTALLER_ZIP,
+        SOURCE_ZIP,
+    ) = snapshot_artifacts
+    DEFAULT_DROP_DIR = drop_parent / DROP_ROOT
+    OUTPUT = output_parent / INSTALLER_ZIP
+    SOURCE_OUTPUT = source_output_parent / SOURCE_ZIP
     os.environ[RELEASE_FILE_LIST_ENV] = str(file_list)
     try:
         yield
     finally:
         ROOT = original_root
+        (
+            PROJECT_VERSION,
+            VERSION_TAG,
+            ARTIFACT_BASENAME,
+            DROP_ROOT,
+            INSTALLER_ZIP,
+            SOURCE_ZIP,
+            DEFAULT_DROP_DIR,
+            OUTPUT,
+            SOURCE_OUTPUT,
+        ) = original_artifacts
         if original_file_list is None:
             os.environ.pop(RELEASE_FILE_LIST_ENV, None)
         else:
@@ -542,9 +624,9 @@ def main() -> int:
         candidate_root = Path(temp)
         snapshot_root = candidate_root / "snapshot"
         file_list = _stage_release_snapshot(snapshot_root)
-        candidate_output = candidate_root / INSTALLER_ZIP
-        candidate_source = candidate_root / SOURCE_ZIP
         with _use_release_snapshot(snapshot_root, file_list):
+            candidate_output = candidate_root / INSTALLER_ZIP
+            candidate_source = candidate_root / SOURCE_ZIP
             result = subprocess.run(
                 [sys.executable, "scripts/verify_release.py"], cwd=ROOT, shell=False
             )
@@ -591,11 +673,14 @@ def main() -> int:
                 return smoke.returncode
             _assert_release_fingerprint(archive_source, "smoke testing", exclude=set())
             publication = _publish_release(candidate_output, candidate_source, DEFAULT_DROP_DIR)
+            published_output = OUTPUT
+            published_source_output = SOURCE_OUTPUT
+            published_drop_dir = DEFAULT_DROP_DIR
     for warning in publication["warnings"]:
         print(f"WARNING: {warning}", file=sys.stderr)
-    print(OUTPUT)
-    print(SOURCE_OUTPUT)
-    print(DEFAULT_DROP_DIR)
+    print(published_output)
+    print(published_source_output)
+    print(published_drop_dir)
     print(PACKAGE_RESULT_PREFIX + json.dumps(publication, sort_keys=True))
     return 0
 
