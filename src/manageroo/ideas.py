@@ -101,6 +101,8 @@ class IdeaInbox:
                 "id": idea_id,
                 "text": text,
                 "category": category,
+                "classification": category,
+                "disposition": "pending-product-analysis",
                 "status": "captured",
                 "created_at": utc_now(),
                 "linked_run": None,
@@ -125,6 +127,10 @@ class IdeaInbox:
                     continue
                 item["status"] = "attached"
                 item["linked_run"] = run_id
+                item["classification"] = str(
+                    item.get("classification") or item.get("category") or "unclassified"
+                )
+                item["disposition"] = "context-only-not-authorized"
                 atomic_write_json(path, item)
                 attached.append(item)
         return attached

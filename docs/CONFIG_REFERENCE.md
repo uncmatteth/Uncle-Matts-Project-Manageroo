@@ -40,13 +40,12 @@ Built-in presets:
 ```bash
 manageroo agent list
 manageroo agent preset codex
-manageroo agent preset gemini
 manageroo agent preset generic
 ```
 
 `mock` exists only for deterministic harness validation. Non-Codex presets are
-starter command templates; edit `argv_template` when your agent CLI needs a
-different invocation.
+non-runnable extension templates until an independently verified host filesystem
+boundary is implemented; editing `argv_template` alone does not satisfy it.
 
 ## Token Mode
 

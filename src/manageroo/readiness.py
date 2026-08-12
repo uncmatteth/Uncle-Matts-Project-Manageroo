@@ -73,7 +73,6 @@ EXPLICIT_EXTERNAL_MEMORY_TERMS = (
     "gbrain",
     "brain page",
     "obsidian",
-    "knowledge base",
 )
 DOCUMENT_SUFFIXES = {
     ".pdf",
@@ -128,6 +127,20 @@ def _mentions(text: str, terms: tuple[str, ...]) -> list[str]:
     return [term for term in terms if _term_pattern(term).search(text)]
 
 
+def requested_intelligence_lanes(brief_text: str) -> dict[str, bool]:
+    """Return only explicit task requirements, without scanning machine state."""
+    request_text = re.sub(
+        r"\b(?:docker|container|oci)\s+images?\b",
+        "container artifact",
+        brief_text,
+        flags=re.IGNORECASE,
+    )
+    return {
+        "document-analysis": bool(_mentions(request_text, DOCUMENT_REQUEST_TERMS)),
+        "gbrain-search": bool(_mentions(brief_text, EXPLICIT_EXTERNAL_MEMORY_TERMS)),
+    }
+
+
 def _repo_document_examples(
     repo: Path,
     *,
@@ -179,7 +192,14 @@ def _document_lane_items(
     config: dict[str, Any],
     brief_text: str,
 ) -> list[dict[str, Any]]:
-    requested_terms = _mentions(brief_text, DOCUMENT_REQUEST_TERMS)
+    # Product/container terminology is not a request to inspect media.
+    request_text = re.sub(
+        r"\b(?:docker|container|oci)\s+images?\b",
+        "container artifact",
+        brief_text,
+        flags=re.IGNORECASE,
+    )
+    requested_terms = _mentions(request_text, DOCUMENT_REQUEST_TERMS)
     repo_examples = _repo_document_examples(repo)
     command = config.get("integrations", {}).get("document_analysis_command", [])
     configured = bool(command)
@@ -446,7 +466,7 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
 
     gbrain = gbrain_setup_status()
     gbrain_ok = bool(gbrain.get("ok") and gbrain.get("status", {}).get("source_count", 0) > 0)
-    external_memory_requested = bool(_mentions(brief_text, EXPLICIT_EXTERNAL_MEMORY_TERMS))
+    external_memory_requested = requested_intelligence_lanes(brief_text)["gbrain-search"]
     gbrain_required = require_gbrain or external_memory_requested
     gbrain_next = (
         "manageroo gbrain-setup --source-id my-project --path /absolute/path/to/repo --apply --sync"

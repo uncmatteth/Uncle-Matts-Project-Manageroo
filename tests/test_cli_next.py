@@ -87,6 +87,23 @@ class CliNextTests(unittest.TestCase):
                 ["manageroo", "run", "--repo", str(repo), "--mode", "repair", "--no-apply"],
             )
 
+    def test_next_action_defaults_to_no_apply(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            initialize_project(repo, agent="mock")
+            (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(
+                "# Product brief\n\nRepair the login flow.\n", encoding="utf-8"
+            )
+            add_check_gate(repo, gate_id="smoke", argv=["python3", "-m", "compileall", "."])
+            with patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ):
+                from manageroo.next_action import next_action
+
+                payload = next_action(repo)
+            self.assertEqual(shlex.split(payload["command"])[-1], "--no-apply")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -129,14 +129,22 @@ normalized into a different file identity during workspace mirroring.
 After successful delivery:
 
 1. Manageroo generates a binary-capable Git patch from isolated baseline to final checkpoint.
-2. Manageroo writes `delivery/final-result.json`, `delivery/FINAL-REPORT.md`, and `delivery/final.patch` with `applied_to_source: false`.
+2. Manageroo writes only pending result/report artifacts while optional capture and export run.
 3. Manageroo verifies that every source file still matches the original source manifest.
 4. `git apply --check` verifies the patch.
 5. Manageroo revalidates the source immediately before applying the patch.
-6. The controller applies the patch when `--apply` or project policy allows it.
+6. The controller applies the patch only when `--apply` was explicit or an existing project policy allows it; new configs default to no apply.
 7. Manageroo verifies the applied tree against the reviewed workspace; if a concurrent edit is
    detected, it reverse-checks and reverses only its patch while preserving that edit.
-8. The controller rewrites the final result and report with `applied_to_source: true`.
+8. Only after delivery and the durable state transition succeed does the controller publish `COMPLETE` in the final result and report. A late failure overwrites stale success evidence and reverses the exact applied patch.
+
+Every deterministic gate runs in its own disposable checkout at the reviewed
+checkpoint. Any tracked, untracked, ignored, mode, symlink, or HEAD mutation is
+rejected and discarded; gate output can never become the delivery patch.
+
+Command output remains exact inside the controller. Secret redaction happens only
+when logs, reports, or machine-readable command records are persisted or displayed,
+so a Git patch is never rewritten into literal `<REDACTED>` content.
 
 A concurrent source change blocks application instead of guessing.
 

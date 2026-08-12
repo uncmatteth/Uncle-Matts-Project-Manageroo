@@ -12,6 +12,7 @@ from .install_status import (
     LAUNCHER_MARKER,
     _launcher_descriptor_is_manageroo_owned,
     _validated_launcher_value,
+    installation_is_manageroo_owned,
     launcher_is_manageroo_owned,
 )
 from .token_modes import CORE_HELPER_SKILLS, install_core_helper_skills, token_mode_skills_dir
@@ -132,6 +133,12 @@ def repair_install(*, prefix: Path | None = None, bin_dir: Path | None = None, a
         return _invalid_report(prefix, f"malformed or unreadable: {exc}", bin_dir=fallback_bin_dir)
     if not isinstance(lock, dict):
         return _invalid_report(prefix, "must contain a JSON object", bin_dir=fallback_bin_dir)
+    if not installation_is_manageroo_owned(prefix):
+        return _invalid_report(
+            prefix,
+            "installation ownership could not be verified; refusing to repair from an untrusted lock",
+            bin_dir=fallback_bin_dir,
+        )
 
     raw_launcher = lock.get("launcher")
     validated_launcher, launcher_problem = _validated_launcher_value(raw_launcher)

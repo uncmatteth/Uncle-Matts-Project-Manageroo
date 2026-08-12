@@ -62,12 +62,29 @@ class InstallScriptTests(unittest.TestCase):
                     raise AssertionError("the live import path must never be recursively deleted")
                 return real_rmtree(path, *args, **kwargs)
 
-            with patch.object(install.shutil, "rmtree", side_effect=reject_live_delete):
+            with (
+                patch.object(install.shutil, "rmtree", side_effect=reject_live_delete),
+                patch.object(install, "installation_is_manageroo_owned", return_value=True),
+            ):
                 install.install_app_tree(source, app)
 
             self.assertEqual((app / "new.py").read_text(encoding="utf-8"), "NEW = True\n")
             self.assertFalse((app / "stale.py").exists())
             self.assertEqual(list((root / "prefix").glob(".app.*")), [])
+
+    def test_app_update_refuses_unowned_existing_directory(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source"
+            app = root / "prefix" / "app"
+            source.mkdir()
+            app.mkdir(parents=True)
+            sentinel = app / "unrelated.txt"
+            sentinel.write_text("keep me\n", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "unowned app directory"):
+                install.install_app_tree(source, app)
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep me\n")
 
     def test_install_removes_only_legacy_manageroo_operator_hooks(self):
         install = load_install_script()
@@ -167,6 +184,17 @@ class InstallScriptTests(unittest.TestCase):
                 launcher = install.install_launcher(root / "windows-bin", python, app_root, prefix)
             self.assertTrue(launcher_is_manageroo_owned(launcher))
 
+    def test_launcher_update_refuses_unowned_existing_file(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            launcher = root / "bin" / "manageroo"
+            launcher.parent.mkdir()
+            launcher.write_text("#!/bin/sh\necho unrelated\n", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "unowned launcher"):
+                install.install_launcher(root / "bin", root / "python", root / "app", root)
+            self.assertIn("unrelated", launcher.read_text(encoding="utf-8"))
+
     def test_windows_launcher_rejects_percent_expansion_in_each_interpolated_path(self):
         install = load_install_script()
         with tempfile.TemporaryDirectory() as temp:
@@ -197,7 +225,15 @@ class InstallScriptTests(unittest.TestCase):
                         "preset": "codex",
                         "name": "Codex",
                         "executable": "codex",
+                        "controlled_run": True,
                         "path": "/tools/codex",
+                    },
+                    {
+                        "preset": "claude-code",
+                        "name": "Claude Code",
+                        "executable": "claude",
+                        "controlled_run": False,
+                        "path": "/tools/claude",
                     },
                 ],
             )
@@ -217,12 +253,12 @@ class InstallScriptTests(unittest.TestCase):
             with patch("builtins.input") as prompt:
                 with redirect_stdout(output):
                     result = install.choose_agent_setup("ask", False, False, detected)
-        self.assertEqual(result, {"preference": "auto", "install_codex": False})
-        prompt.assert_not_called()
+        self.assertEqual(result, {"preference": "codex", "install_codex": True})
+        prompt.assert_called_once()
         self.assertIn("Found Gemini CLI", output.getvalue())
-        self.assertIn("use it automatically", output.getvalue())
+        self.assertIn("not enabled for controlled runs", output.getvalue())
 
-    def test_agent_setup_lets_people_choose_when_multiple_tools_are_detected(self):
+    def test_agent_setup_uses_only_safely_isolated_detected_tools(self):
         install = load_install_script()
         detected = [
             {"preset": "codex", "name": "Codex", "executable": "codex", "path": "/tools/codex"},
@@ -235,12 +271,12 @@ class InstallScriptTests(unittest.TestCase):
         ]
         output = io.StringIO()
         with patch.object(install.sys.stdin, "isatty", return_value=True):
-            with patch("builtins.input", return_value="3"):
+            with patch("builtins.input") as prompt:
                 with redirect_stdout(output):
                     result = install.choose_agent_setup("ask", False, False, detected)
-        self.assertEqual(result, {"preference": "claude-code", "install_codex": False})
-        self.assertIn("Automatic selection (recommended)", output.getvalue())
-        self.assertIn("Claude Code", output.getvalue())
+        self.assertEqual(result, {"preference": "auto", "install_codex": False})
+        prompt.assert_not_called()
+        self.assertIn("required host filesystem boundary", output.getvalue())
 
     def test_agent_setup_offers_codex_when_no_supported_tool_is_found(self):
         install = load_install_script()
@@ -250,7 +286,7 @@ class InstallScriptTests(unittest.TestCase):
                 with redirect_stdout(output):
                     result = install.choose_agent_setup("ask", False, False, [])
         self.assertEqual(result, {"preference": "codex", "install_codex": True})
-        self.assertIn("did not find a supported coding-agent CLI", output.getvalue())
+        self.assertIn("did not find a safely isolated coding-agent CLI", output.getvalue())
 
     def test_agent_setup_noninteractive_does_not_silently_install_codex(self):
         install = load_install_script()
@@ -262,7 +298,7 @@ class InstallScriptTests(unittest.TestCase):
         install = load_install_script()
         self.assertEqual(
             install.choose_agent_setup("gemini", False, False, []),
-            {"preference": "gemini", "install_codex": False},
+            {"preference": "auto", "install_codex": False},
         )
         self.assertEqual(
             install.choose_agent_setup("codex", True, False, []),
@@ -876,8 +912,8 @@ class InstallScriptTests(unittest.TestCase):
                 self.assertIn("Linux", text)
                 self.assertIn("Windows", text)
                 self.assertIn("Codex, Claude Code, and Gemini CLI", text)
-                self.assertIn("If it finds several", text)
-                self.assertIn("If it finds none", text)
+                self.assertIn("controlled", text.lower())
+                self.assertIn("Codex", text)
 
     def test_skill_pack_is_recommended_default_but_can_be_skipped(self):
         install = load_install_script()

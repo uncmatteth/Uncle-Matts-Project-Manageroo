@@ -47,9 +47,10 @@ from .report import write_report
 from .review import inventory_hashes, validate_review_evidence
 from .reuse_policy import operator_reuse_directives, operator_reuse_findings, reuse_binding_findings
 from .runner import CommandRunner
+from .readiness import requested_intelligence_lanes
 from .state import Phase, RunState
 from .token_modes import token_mode_prompt
-from .util import atomic_write_json, atomic_write_text, new_run_id, read_json, safe_repo_relative, sha256_text, utc_now
+from .util import atomic_write_json, atomic_write_text, new_run_id, read_json, safe_repo_relative, sha256_file, sha256_json, utc_now
 from .workspace import WorkspaceMirror
 
 T = TypeVar("T")
@@ -214,7 +215,11 @@ def _artifact_fragment(value: str) -> str:
 _RUN_INTENT_MARKER = "# Manageroo current-request contract"
 
 
-def _run_intent_payload(brief: str, exact_task: dict[str, Any] | None) -> dict[str, Any]:
+def _run_intent_payload(
+    brief: str,
+    mode: str,
+    exact_task: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Capture current authority without consulting a stale repository lock."""
     exact = exact_task if isinstance(exact_task, dict) else {}
 
@@ -225,17 +230,33 @@ def _run_intent_payload(brief: str, exact_task: dict[str, Any] | None) -> dict[s
             if str(value).strip()
         ]
 
-    return {
-        "schema_version": 1,
+    payload = {
+        "schema_version": 2,
         "current_request": brief,
-        "request_sha256": sha256_text(brief),
+        "mode": mode,
         "targets": clean_list("targets"),
         "named_sources": clean_list("sources"),
         "must_not": clean_list("exclusions"),
         "proof_required": clean_list("proofs"),
+        "gate_ids": clean_list("gate_ids"),
         "authority": "current-run-request",
         "older_repository_intent_is_context_only": True,
     }
+    payload["request_sha256"] = sha256_json(
+        {
+            key: payload[key]
+            for key in (
+                "current_request",
+                "mode",
+                "targets",
+                "named_sources",
+                "must_not",
+                "proof_required",
+                "gate_ids",
+            )
+        }
+    )
+    return payload
 
 
 def _render_run_intent(intent: dict[str, Any]) -> str:
@@ -244,7 +265,7 @@ def _render_run_intent(intent: dict[str, Any]) -> str:
         raise SafetyError("The current run intent has no operator request.")
     structured = {
         key: intent.get(key, [])
-        for key in ("targets", "named_sources", "must_not", "proof_required")
+        for key in ("mode", "targets", "named_sources", "must_not", "proof_required", "gate_ids")
     }
     return (
         f"{_RUN_INTENT_MARKER}\n\n"
@@ -324,6 +345,39 @@ class Orchestrator:
         self._call_index = self._initial_call_index()
         self._call_lock = threading.Lock()
 
+    def _delivery_transaction_path(self) -> Path:
+        return self.run_root / "delivery" / "delivery-transaction.json"
+
+    def _recover_incomplete_delivery(self) -> None:
+        """Rollback an exact patch left between apply and the COMPLETE receipt."""
+        transaction_path = self._delivery_transaction_path()
+        if not transaction_path.is_file():
+            return
+        final_path = self.run_root / "delivery" / "final-result.json"
+        final = read_json(final_path) if final_path.is_file() else {}
+        if (
+            self.state.phase == Phase.COMPLETE.value
+            and isinstance(final, dict)
+            and final.get("applied_to_source") is True
+            and final.get("status") in {"COMPLETE", "DELIVERED_PENDING_RECEIPT"}
+        ):
+            # The source and durable state agree. Leave the transaction receipt
+            # for the release-proof wrapper to certify or roll back.
+            return
+        transaction = read_json(transaction_path)
+        if not isinstance(transaction, dict):
+            raise SafetyError("Delivery transaction record is invalid.")
+        patch_value = str(transaction.get("patch") or "")
+        patch_path = Path(patch_value) if patch_value else self.run_root / "delivery" / "final.patch"
+        expected = str(transaction.get("patch_sha256") or "")
+        if not patch_path.is_file() or not expected or sha256_file(patch_path) != expected:
+            raise SafetyError("Delivery transaction patch is missing or changed; recovery stopped.")
+        if self.mirror.patch_already_applied_to_source(patch_path):
+            self.mirror.rollback_patch_from_source(patch_path)
+        else:
+            self.mirror.assert_source_unchanged()
+        transaction_path.unlink()
+
     def _transition(self, phase: Phase, reason: str) -> None:
         previous = self.state.phase
         if previous != phase.value:
@@ -398,6 +452,11 @@ class Orchestrator:
         if path.is_file():
             data = read_json(path)
             if isinstance(data, dict):
+                if data.get("status") == "DELIVERED_PENDING_RECEIPT":
+                    data["status"] = "COMPLETE"
+                    data["finished_at"] = utc_now()
+                    atomic_write_json(path, data)
+                    write_report(self.run_root / "delivery" / "FINAL-REPORT.md", data)
                 return data
         return None
 
@@ -416,8 +475,27 @@ class Orchestrator:
     def _apply_pending_delivery(self, result: dict[str, Any]) -> dict[str, Any]:
         patch_value = result.get("evidence_paths", {}).get("patch")
         patch_path = Path(patch_value) if patch_value else self.run_root / "delivery" / "final.patch"
+        transaction_path = self._delivery_transaction_path()
         if not self.mirror.patch_already_applied_to_source(patch_path):
+            atomic_write_json(
+                transaction_path,
+                {
+                    "status": "APPLYING",
+                    "patch": str(patch_path),
+                    "patch_sha256": sha256_file(patch_path),
+                    "started_at": utc_now(),
+                },
+            )
             self.mirror.apply_patch_to_source(patch_path)
+            atomic_write_json(
+                transaction_path,
+                {
+                    "status": "APPLIED_PENDING_RECEIPT",
+                    "patch": str(patch_path),
+                    "patch_sha256": sha256_file(patch_path),
+                    "started_at": utc_now(),
+                },
+            )
         result["applied_to_source"] = True
         result["finished_at"] = utc_now()
         report_path = self.run_root / "delivery" / "FINAL-REPORT.md"
@@ -848,7 +926,14 @@ class Orchestrator:
     def _run_gates(self, gates: list[Gate], workspace: Path) -> list[dict]:
         policy = CommandPolicy(tuple(self.config["safety"]["allowed_programs"]))
         gate_runner = GateRunner(self.runner, policy, self.logs)
-        return [item.to_dict() for item in gate_runner.run(gates, workspace)]
+        return [
+            item.to_dict()
+            for item in gate_runner.run(
+                gates,
+                workspace,
+                scratch_root=self.run_root / "gate-workspaces",
+            )
+        ]
 
     def _external_values(self, *, brief: str) -> dict[str, str]:
         assert self.workspace is not None
@@ -930,6 +1015,17 @@ class Orchestrator:
             cwd=self.run_root,
             timeout_seconds=600,
         )
+        required = requested_intelligence_lanes(brief)["document-analysis"]
+        if required and not record.get("enabled"):
+            raise ValidationError(
+                "The current request explicitly requires document or media analysis, but "
+                "[integrations].document_analysis_command is not configured."
+            )
+        if required and not record.get("ok"):
+            detail = str(record.get("error") or record.get("stderr") or "command failed")
+            raise ValidationError(
+                "The required document-analysis lane failed: " + detail
+            )
         records = [record] if record.get("enabled") else []
         skipped_reason = ""
         if not record.get("enabled"):
@@ -994,6 +1090,19 @@ class Orchestrator:
             )
             for name, provider_id, argv_template in commands
         )
+        if requested_intelligence_lanes(brief)["gbrain-search"]:
+            gbrain = next(
+                (item for item in records if item.get("name") == "gbrain-search"),
+                {"enabled": False, "ok": False},
+            )
+            if not gbrain.get("enabled"):
+                raise ValidationError(
+                    "The current request explicitly requires GBrain context, but "
+                    "[integrations].gbrain_search_command is not configured."
+                )
+            if not gbrain.get("ok"):
+                detail = str(gbrain.get("error") or gbrain.get("stderr") or "command failed")
+                raise ValidationError("The required GBrain search lane failed: " + detail)
         summary = {
             "enabled": [item["name"] for item in records if item.get("enabled")],
             "passed": [item["name"] for item in records if item.get("ok")],
@@ -1164,7 +1273,7 @@ class Orchestrator:
             name="gbrain-capture",
             argv_template=argv_template,
             values=values,
-            cwd=self.source_repo,
+            cwd=self.run_root,
         )
         payload = {
             "summary": {
@@ -1498,22 +1607,22 @@ class Orchestrator:
         self,
         *,
         brief_path: Path,
-        mode: str,
+        mode: str | None,
         apply_on_success: bool | None = None,
         exact_task: dict[str, Any] | None = None,
     ) -> dict:
         result: dict[str, Any] = {
             "run_id": self.run_id,
             "status": "BLOCKED",
-            "mode": mode,
+            "mode": mode or "build",
             "started_at": utc_now(),
         }
         raw_inventory: dict[str, Any] | None = None
         external_intelligence: dict[str, Any] | None = None
         external_review_repair: dict[str, Any] | None = None
+        delivery_patch_applied = False
+        delivery_patch_path: Path | None = None
         try:
-            if mode not in {"build", "repair"}:
-                raise ValidationError("Mode must be 'build' or 'repair'.")
             brief_path = brief_path.resolve()
             if not brief_path.is_file():
                 raise ValidationError(f"Product brief not found: {brief_path}")
@@ -1521,8 +1630,30 @@ class Orchestrator:
             if not brief:
                 raise ValidationError("Product brief is empty.")
 
-            current_intent = _run_intent_payload(brief, exact_task)
+            self._recover_incomplete_delivery()
+
             bound_intent = self._artifact_json("intake/run-intent.json")
+            if mode is None:
+                mode = (
+                    str(bound_intent.get("mode"))
+                    if isinstance(bound_intent, dict) and bound_intent.get("mode")
+                    else "build"
+                )
+            if mode not in {"build", "repair"}:
+                raise ValidationError("Mode must be 'build' or 'repair'.")
+            result["mode"] = mode
+            if exact_task is None and isinstance(bound_intent, dict) and any(
+                bound_intent.get(key)
+                for key in ("targets", "named_sources", "must_not", "proof_required", "gate_ids")
+            ):
+                exact_task = {
+                    "targets": list(bound_intent.get("targets", []) or []),
+                    "sources": list(bound_intent.get("named_sources", []) or []),
+                    "exclusions": list(bound_intent.get("must_not", []) or []),
+                    "proofs": list(bound_intent.get("proof_required", []) or []),
+                    "gate_ids": list(bound_intent.get("gate_ids", []) or []),
+                }
+            current_intent = _run_intent_payload(brief, mode, exact_task)
             if isinstance(bound_intent, dict):
                 bound_hash = str(
                     bound_intent.get("request_sha256")
@@ -1911,9 +2042,9 @@ class Orchestrator:
                         f"Task {task['id']} changed {actual} but declared {declared}. "
                         "Undeclared edits are blocked."
                     )
+                checkpoint = self.mirror.checkpoint(f"MANAGEROO controller checkpoint {task['id']}")
                 task_gates = self._gates_for_ids(task["gate_ids"])
                 gate_results = self._run_gates(task_gates, self.workspace)
-                checkpoint = self.mirror.checkpoint(f"MANAGEROO controller checkpoint {task['id']}")
                 evidence_entry = {
                     "task": task,
                     "implementation": implementation,
@@ -2123,9 +2254,10 @@ class Orchestrator:
                 if apply_on_success is None
                 else apply_on_success
             )
+            delivery_patch_path = patch_path
             result.update(
                 {
-                    "status": "COMPLETE",
+                    "status": "VERIFIED_PENDING_DELIVERY",
                     "product_summary": product.get("goal", ""),
                     "acceptance": acceptance,
                     "reuse": reuse.get("decisions", []),
@@ -2162,30 +2294,72 @@ class Orchestrator:
             )
             report_path = self.run_root / "delivery" / "FINAL-REPORT.md"
             final_result_path = self.run_root / "delivery" / "final-result.json"
-            markdown = write_report(report_path, result)
-            atomic_write_json(final_result_path, result)
-            if should_apply:
-                self.mirror.apply_patch_to_source(patch_path)
-                result["applied_to_source"] = True
-                result["finished_at"] = utc_now()
-                markdown = write_report(report_path, result)
-                atomic_write_json(final_result_path, result)
+            pending_result_path = self.run_root / "delivery" / "pending-result.json"
+            pending_report_path = self.run_root / "delivery" / "PENDING-REPORT.md"
+            markdown = write_report(pending_report_path, result)
+            atomic_write_json(pending_result_path, result)
             external_capture = self._capture_external_outcome(
-                report_path=report_path,
-                result_path=final_result_path,
+                report_path=pending_report_path,
+                result_path=pending_result_path,
                 patch_path=patch_path,
                 result=result,
             )
             if external_capture is not None:
                 result["external_capture"] = external_capture
-                markdown = write_report(report_path, result)
-                atomic_write_json(final_result_path, result)
+                markdown = write_report(pending_report_path, result)
+                atomic_write_json(pending_result_path, result)
             if obsidian is not None:
                 obsidian.export(f"{self.run_id}.md", markdown)
+            self.mirror.assert_source_unchanged()
+            if should_apply:
+                transaction_path = self._delivery_transaction_path()
+                atomic_write_json(
+                    transaction_path,
+                    {
+                        "status": "APPLYING",
+                        "patch": str(patch_path),
+                        "patch_sha256": sha256_file(patch_path),
+                        "started_at": utc_now(),
+                    },
+                )
+                self.mirror.apply_patch_to_source(patch_path)
+                delivery_patch_applied = patch_path.stat().st_size > 0
+                result["applied_to_source"] = True
+                atomic_write_json(
+                    transaction_path,
+                    {
+                        "status": "APPLIED_PENDING_RECEIPT",
+                        "patch": str(patch_path),
+                        "patch_sha256": sha256_file(patch_path),
+                        "started_at": utc_now(),
+                    },
+                )
+            result["status"] = "DELIVERED_PENDING_RECEIPT"
+            result["finished_at"] = utc_now()
+            write_report(report_path, result)
+            atomic_write_json(final_result_path, result)
             self._transition(Phase.COMPLETE, "All required evidence passed; delivery complete")
+            result["status"] = "COMPLETE"
+            result["finished_at"] = utc_now()
+            write_report(report_path, result)
+            atomic_write_json(final_result_path, result)
+            pending_result_path.unlink(missing_ok=True)
+            pending_report_path.unlink(missing_ok=True)
             return result
 
         except Exception as exc:
+            rollback_error = ""
+            if (
+                delivery_patch_applied
+                and delivery_patch_path is not None
+                and self.state.phase != Phase.COMPLETE.value
+            ):
+                try:
+                    self.mirror.rollback_patch_from_source(delivery_patch_path)
+                    result["applied_to_source"] = False
+                    self._delivery_transaction_path().unlink(missing_ok=True)
+                except Exception as rollback_exc:
+                    rollback_error = f"{type(rollback_exc).__name__}: {rollback_exc}"
             if self.state.phase not in {
                 Phase.BLOCKED.value,
                 Phase.COMPLETE.value,
@@ -2209,6 +2383,8 @@ class Orchestrator:
                     },
                 }
             )
+            if rollback_error:
+                result["rollback_error"] = rollback_error
             try:
                 result["learning"] = self._record_learning(
                     result=result,
@@ -2221,5 +2397,7 @@ class Orchestrator:
             failure_dir = self.run_root / "delivery"
             failure_dir.mkdir(parents=True, exist_ok=True)
             atomic_write_json(failure_dir / "failure.json", result)
+            if self.state.phase != Phase.COMPLETE.value:
+                atomic_write_json(failure_dir / "final-result.json", result)
             write_report(failure_dir / "FINAL-REPORT.md", result)
             raise

@@ -6,11 +6,11 @@ Manageroo core uses:
 
 - Python 3.11 or newer;
 - Git;
-- a normal terminal or PowerShell environment.
+- a Linux or macOS terminal, including Linux inside WSL2.
 
-The platform launcher checks these requirements and, in an interactive terminal, offers to install missing ones using a normal platform path. Windows uses winget. Linux supports Homebrew, apt, dnf, yum, pacman, and zypper. On macOS, the launcher first recognizes Homebrew in its standard Apple Silicon and Intel locations even when the current shell omits Homebrew from `PATH`. If Python is still missing, macOS uses an integrity-checked, release-pinned Python installer; if Git is missing, it uses Homebrew when available or opens Apple's Command Line Tools installer and tells the operator to rerun after Apple finishes.
+The platform launcher checks these requirements and, in an interactive terminal, offers to install missing ones using a normal platform path. Linux supports Homebrew, apt, dnf, yum, pacman, and zypper. On macOS, the launcher first recognizes Homebrew in its standard Apple Silicon and Intel locations even when the current shell omits Homebrew from `PATH`. If Python is still missing, macOS uses an integrity-checked, release-pinned Python installer; if Git is missing, it uses Homebrew when available or opens Apple's Command Line Tools installer and tells the operator to rerun after Apple finishes.
 
-For real AI work, at least one compatible agent path must also be available, such as Codex, Claude Code, Gemini, or a configured generic CLI. The installer detects the three built-in CLI paths. One detected tool requires no question; several detected tools produce a short preference choice; no detected tool produces an optional Codex install offer. Installing Codex also installs Node.js/npm through a supported platform package path when needed.
+For real AI work, Codex is currently the supported controlled-run worker because its native sandbox supplies the required host filesystem boundary. The installer reports Claude Code and Gemini when present, but does not call them usable controlled workers from provider permission flags alone. Installing Codex also installs Node.js/npm through a supported platform package path when needed.
 
 When Codex is detected or installed, Manageroo runs Codex's native sandbox helper
 before recording it as configured. The helper is selected by the host platform:
@@ -19,9 +19,7 @@ before recording it as configured. The helper is selected by the host platform:
   bubblewrap and usable unprivileged user namespaces; Ubuntu 24.04 may also need
   the `bwrap-userns-restrict` AppArmor profile.
 - macOS uses the built-in Seatbelt sandbox. Linux setup commands never apply.
-- native Windows uses the Windows sandbox from PowerShell; the elevated mode is
-  preferred when available. WSL2 follows the Linux path, while WSL1 is not
-  supported by current Codex releases.
+- WSL2 follows the Linux path. Native Windows Manageroo execution is not supported.
 
 A failed native sandbox preflight leaves Codex marked as needing action and prints
 only the remediation for that platform. Manageroo never silently disables Codex
@@ -56,14 +54,13 @@ Unix-like systems:
 ./install.sh
 ```
 
-Windows PowerShell:
+Windows users run the Unix installer inside WSL2:
 
 ```powershell
-.\install.ps1
+./install.sh
 ```
 
-The launchers install the same Manageroo product.
-On Windows, paths written into the generated command launcher cannot contain `%`, which batch files interpret as variable expansion.
+Native Windows installation fails with a direct WSL2 instruction because the secure artifact backend requires descriptor-relative no-follow filesystem primitives that native Windows CPython does not provide.
 
 If Manageroo is already cloned, rerun the platform installer from that existing folder. Do not run the clone command from inside the clone; that creates a nested repository copy.
 
@@ -206,8 +203,6 @@ Common options include:
 ./install.sh --install-codex
 ./install.sh --agent auto
 ./install.sh --agent codex
-./install.sh --agent claude-code
-./install.sh --agent gemini
 ./install.sh --install-stack
 ./install.sh --skip-stack
 ./install.sh --skill-pack install
@@ -218,7 +213,8 @@ Common options include:
 ./install.sh --run-developer-tests
 ```
 
-PowerShell exposes equivalent parameters.
+The native PowerShell launcher exits with the WSL2 instruction instead of
+pretending the current artifact backend can run safely on Windows.
 
 A normal install runs the short source compile check and the installed product self-test. It does not run Manageroo's complete developer test suite. `--run-developer-tests` is the explicit contributor and release-validation option; `--skip-tests` skips the source compile check as well.
 
@@ -249,7 +245,8 @@ manageroo solo /absolute/path/to/new-product \
   --want "Describe the result"
 ```
 
-Use the default provider-neutral worker pool unless you need to force a specific agent.
+Use the default automatic worker selection. It currently selects only Codex,
+because that is the controlled worker with a verified host filesystem boundary.
 
 ## Validate the install
 

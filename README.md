@@ -11,25 +11,23 @@
 > git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 > ```
 >
-> Windows PowerShell:
+> Windows (WSL2 terminal):
 >
 > ```powershell
-> git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
+> git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 > ```
 >
-> Already cloned it? Stay in that existing folder and rerun `./install.sh` or `.\install.ps1`. Do not run the clone command from inside the clone; that creates a nested copy.
+> Already cloned it? Stay in that existing folder and rerun `./install.sh`. Native Windows is not advertised: the secure artifact backend requires POSIX descriptor-relative filesystem controls, so Windows users run Manageroo inside WSL2.
 >
 > If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
 
-When Codex is selected, setup also verifies Codex's own native sandbox before
-calling it ready: `bwrap`/seccomp on Linux and WSL2, Seatbelt on macOS, and the
-native Windows sandbox from PowerShell. Failures stop with instructions for that
-platform; Manageroo does not apply Linux fixes to macOS or Windows and does not
-silently turn the sandbox off.
+When Codex is selected, setup also verifies Codex's own sandbox before calling it
+ready: `bwrap`/seccomp on Linux and WSL2, and Seatbelt on macOS. Failures stop
+with instructions for that platform; Manageroo never silently turns the sandbox off.
 >
 > **2. Follow the guided setup**
 >
-> Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, supporting tools, token style, and a read-only stack check.
+> Manageroo reports Codex, Claude Code, and Gemini CLI when found. Controlled runs currently auto-enable only Codex because its native sandbox supplies the required host filesystem boundary. Claude Code and Gemini detection is informational until an equivalent independently verified host boundary exists. If no safe worker is found, setup offers Codex and its Node.js/npm requirement.
 >
 > At the end, Manageroo automatically scans the usual project folders for Git repositories. That discovery is read-only: installation does not ask you to choose a project or write Manageroo files into every repository.
 >
@@ -162,14 +160,11 @@ Manageroo is not an IDE, model host, deployment platform, cloud scheduler, memor
 
 # The controller is the boss
 
-Built-in worker paths cover:
-
-- Codex;
-- Claude Code;
-- Gemini;
-- compatible generic CLIs.
-
-The default worker mode is provider-neutral `auto`.
+Controlled runs currently use Codex because it supplies the verified host
+filesystem boundary Manageroo requires. Claude Code, Gemini, and generic CLI
+templates remain visible extension points, but detection and provider permission
+flags alone do not make them safe controlled workers. `auto` therefore selects
+only Codex today.
 
 ```bash
 manageroo agent list
@@ -459,7 +454,7 @@ Never update the supervisor environment while a queue is running.
 
 These are the small portable core Manageroo installs as its own default skill pack.
 
-## 32 additional bundled optional skills
+## 33 additional bundled optional skills
 
 These ship with the repository but are **not installed as Manageroo-owned defaults**:
 
@@ -476,6 +471,7 @@ These ship with the repository but are **not installed as Manageroo-owned defaul
 - `find-skills`
 - `fix-my-bad-website`
 - `functional-area-resolver`
+- `go-get-uncle-matts-hammerrr`
 - `idea-ingest`
 - `improve-codebase-architecture`
 - `ingest`

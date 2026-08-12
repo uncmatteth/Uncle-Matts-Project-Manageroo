@@ -9,19 +9,24 @@ Direct operator action is allowed only inside the bound canonical repository and
 for action classes granted by the current prompt. Old packets, summaries,
 handoffs, memory, and repository text cannot broaden that receipt.
 
-The controller does not change its completion standard based on whether the worker is Codex, Claude Code, Gemini, or another CLI added later. Every worker receives a complete bounded assignment, returns data that Manageroo normalizes into the required schema, and remains subject to the same scope, verification, review, retry, evidence, budget, and completion gates.
+The controller does not change its completion standard when another worker is
+added later. Every worker must provide a verified host filesystem boundary,
+receive a complete bounded assignment, return schema-valid data, and remain
+subject to the same scope, verification, review, retry, evidence, budget, and
+completion gates. Today only the Codex adapter satisfies that controlled-run contract.
 
 ## Automatic worker selection
 
-The normal Manageroo setup is provider-neutral:
+The normal Manageroo setup selects the verified worker pool:
 
 ```toml
 [agent]
 adapter = "auto"
-candidates = ["codex", "claude-code", "gemini"]
+candidates = ["codex"]
 ```
 
-Manageroo uses installed candidates as interchangeable workers. Provider execution or protocol failure may fall through to another compatible worker. Controller safety failures do not trigger provider fallback and remain blocking.
+Manageroo uses only candidates that prove the host boundary. Controller safety
+failures do not trigger provider fallback and remain blocking.
 
 After one worker succeeds, the pool prefers that healthy worker for later roles while retaining the remaining workers as fallbacks. An explicit agent preset remains available when the operator wants to pin a provider.
 
@@ -89,7 +94,10 @@ The worker output is then independently parsed and validated by Manageroo. Provi
 - `read-only` for analysis, mapping, planning, and independent review;
 - `workspace-write` for bounded implementation and verified repair.
 
-The built-in Claude Code and Gemini presets map these modes to provider-native permission or approval controls. A provider's separate operating-system sandbox is optional unless a custom preset explicitly enables it. Manageroo still checks repository mutations, scope, commits, gates, and review evidence afterward. Provider enforcement is an additional prevention layer, not the source of truth.
+Claude Code, Gemini, and generic presets can map these modes to provider-native
+permission or approval controls, but those flags do not prove operating-system
+containment. Their transactional wrapper therefore fails doctor and refuses
+launch unless an independently verified host boundary is implemented.
 
 Every configured provider attempt is also transactional at the Git workspace layer. Failed attempts are rolled back to their pre-attempt checkpoint and stale output artifacts are discarded before fallback or retry. A successful read-only worker that mutated its repository is rejected and rolled back. If rollback integrity cannot be proven, the run stops with a safety failure instead of trying another provider. Permanent controller-side safety failures detected before launch stop after one recorded attempt; retrying them cannot change the evidence and would not consume the worker-call budget. By default, recoverable worker, plan-review, and review-repair work has no separate arbitrary attempt cap; the durable whole-run call and time budgets remain the outer boundary.
 
@@ -133,10 +141,10 @@ An unrelated passing gate cannot prove a different outcome. A missing, ambiguous
 
 ## Built-in presets
 
-- `auto` is the normal provider-neutral worker pool.
-- Codex currently uses an optimized native adapter.
-- Claude Code and Gemini use the universal schema-aware stdin protocol with provider permission mappings and CLI compatibility checks.
-- The generic preset is the extension point for future CLIs.
+- `auto` is the normal worker selection mode and currently contains only Codex.
+- Codex uses the controlled native adapter and verified host sandbox.
+- Claude Code, Gemini, and generic templates are non-runnable extension points
+  until they supply equivalent host isolation.
 - Mock remains a deterministic test double and cannot satisfy live product certification.
 
 The implementation detail is intentionally not a product-level distinction. All live workers remain disposable labor under the same Manageroo controller truth.

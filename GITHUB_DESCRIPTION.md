@@ -17,19 +17,19 @@ A local project controller for AI coding agents: one brief in, repo-aware build 
 > git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 > ```
 >
-> Windows PowerShell:
+> Windows (WSL2 terminal):
 >
 > ```powershell
-> git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
+> git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 > ```
 >
-> Already cloned it? Stay in that existing folder and rerun `./install.sh` or `.\install.ps1`. Do not run the clone command from inside the clone; that creates a nested copy.
+> Already cloned it? Stay in that existing folder and rerun `./install.sh`. Native Windows is not supported by the secure artifact backend; use WSL2.
 >
-> If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
+> If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a Linux/macOS or WSL2 terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git.
 >
 > **2. Follow the guided setup**
 >
-> Manageroo checks for Codex, Claude Code, and Gemini CLI. If it finds one, it uses it automatically. If it finds several, you can keep automatic selection or choose your preferred tool. If it finds none, it offers to install Codex and its Node.js/npm requirement. It does not guess or replace the account or model configured inside your coding tool. The installer then walks through the portable skill pack, supporting tools, token style, and a read-only stack check.
+> Manageroo reports Codex, Claude Code, and Gemini CLI when found. Controlled runs currently enable only Codex because its native sandbox supplies the required host filesystem boundary. Claude Code and Gemini detection is informational. If no controlled worker is found, setup offers Codex and its Node.js/npm requirement.
 >
 > At the end, Manageroo scans the usual project folders read-only. It does not make you select one project during installation.
 >
@@ -52,7 +52,7 @@ The human defines the mission. Manageroo preserves the mission, maps the reposit
 
 The worker does the work. The controller owns the mission, state, boundaries, review, proof, and definition of done.
 
-Built-in worker paths cover Codex, Claude Code, Gemini, and compatible generic CLIs. The worker layer is replaceable by design.
+Controlled runs currently use Codex. Other CLI templates remain extension points, but Manageroo refuses them until they can prove an equivalent host filesystem boundary.
 
 ## Discovery, decisions, and hardware
 
@@ -75,34 +75,38 @@ manageroo capacity --json
 
 ## Skills: exact public boundary
 
-The repository currently contains **50 bundled skill packages**.
+The repository currently contains **55 bundled skill packages**.
 
-- **18 portable core skills** are the recommended/default Manageroo-owned pack.
-- **32 additional bundled skills** are optional and are not silently installed as Manageroo-owned defaults.
+- **22 portable core skills** are the recommended/default Manageroo-owned pack.
+- **33 additional bundled skills** are optional and are not silently installed as Manageroo-owned defaults.
 - Existing host-installed skills can also be discovered and used when relevant without Manageroo claiming ownership of the user's entire skill environment.
 
-### 18 portable core skills
+### 22 portable core skills
 
 - `uncle-matts-project-manageroo`
 - `use-installed-skills-first`
 - `skill-vetter`
 - `pimp-my-prompt`
-- `to-prd`
-- `to-issues`
+- `setup-matt-pocock-skills`
+- `to-spec`
+- `to-tickets`
 - `grill-me`
+- `grilling`
 - `grill-with-docs`
-- `diagnose`
+- `domain-modeling`
+- `codebase-design`
+- `diagnosing-bugs`
 - `tdd`
 - `testing`
 - `security-review`
 - `handoff`
-- `write-a-skill`
+- `writing-for-agents`
 - `edit-skill`
 - `skillify`
 - `caveman`
 - `uncle-matts-caveman-curse`
 
-### 32 bundled optional skills
+### 33 bundled optional skills
 
 - `academic-verify`
 - `article-enrichment`
@@ -117,6 +121,7 @@ The repository currently contains **50 bundled skill packages**.
 - `find-skills`
 - `fix-my-bad-website`
 - `functional-area-resolver`
+- `go-get-uncle-matts-hammerrr`
 - `idea-ingest`
 - `improve-codebase-architecture`
 - `ingest`
@@ -170,11 +175,11 @@ Manageroo's contribution is the controller above those pieces: the layer that ow
 ```text
 Manageroo controller
     -> owns mission, state, jobs, proof, review, repair, and completion
-    -> installs only the 18-skill portable core by default
-    -> can use different compatible coding-agent providers
+    -> installs only the 22-skill portable core by default
+    -> currently runs Codex workers with a verified host filesystem sandbox
 
 Bundled optional library
-    -> contains 32 additional skill packages
+    -> contains 33 additional skill packages
     -> available without becoming default Manageroo-owned installs
 
 Host environment

@@ -246,6 +246,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["orchestration"]["max_worker_attempts"], 0)
         self.assertEqual(config["project"]["max_plan_review_cycles"], 0)
         self.assertEqual(config["project"]["max_repair_cycles"], 0)
+        self.assertFalse(config["project"]["apply_on_success"])
 
     def test_exact_legacy_generated_caps_migrate_in_memory_without_rewriting_file(self):
         with tempfile.TemporaryDirectory() as temp:

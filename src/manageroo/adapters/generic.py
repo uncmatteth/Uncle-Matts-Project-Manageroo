@@ -18,6 +18,11 @@ PROTECTED_SANDBOX_MODES = {"read-only", "workspace-write"}
 class GenericAdapter(AgentAdapter):
     """Universal CLI adapter for interchangeable coding-agent workers."""
 
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        # Provider approval flags are not a host filesystem sandbox.
+        return False
+
     def __init__(
         self,
         argv_template: Sequence[str],

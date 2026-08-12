@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import tomllib
 import unittest
+from types import SimpleNamespace
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -342,3 +343,27 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
     def test_supervisor_argv_rejects_invalid_push_mode(self):
         with self.assertRaises(SafetyError):
             supervisor_argv(Path("."), push_mode="sometimes")
+
+    def test_windows_cmd_wrapper_rejects_branch_command_injection(self):
+        def run(*_args, **_kwargs):
+            self.fail("unsafe Windows branch text must be rejected before process launch")
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value=r"C:\Tools\clawpatch-supervise.cmd",
+        ), patch(
+            "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
+            return_value=True,
+        ), patch(
+            "manageroo.runner.os",
+            SimpleNamespace(name="nt", path=__import__("os").path, environ={}),
+        ), self.assertRaisesRegex(
+            SafetyError, "metacharacters"
+        ):
+            release_sweep(
+                Path(temp),
+                apply=True,
+                branch="review&whoami",
+                run=run,
+                version_run=matching_version_run,
+            )

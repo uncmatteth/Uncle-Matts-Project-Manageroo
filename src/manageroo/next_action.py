@@ -41,7 +41,7 @@ def next_action(
     repo_path: Path,
     *,
     mode: str = "build",
-    apply_on_success: bool = True,
+    apply_on_success: bool = False,
 ) -> dict[str, Any]:
     requested = repo_path.expanduser().resolve()
     if not requested.exists():

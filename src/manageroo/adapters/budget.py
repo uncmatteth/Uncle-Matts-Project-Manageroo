@@ -47,6 +47,10 @@ class BudgetedAdapter(AgentAdapter):
     def requires_host_capability_catalog(self) -> bool:
         return self.inner.requires_host_capability_catalog
 
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return self.inner.has_host_filesystem_isolation
+
     def _install_launch_hook(self, adapter: Any, seen: set[int] | None = None) -> bool:
         seen = seen or set()
         identity = id(adapter)

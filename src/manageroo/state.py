@@ -100,3 +100,12 @@ class RunState:
     def reopen_for_continue(self, reason: str) -> None:
         self.phase = Phase.CREATED.value
         self.history.append(StateEvent(Phase.CREATED.value, utc_now(), reason))
+
+    def invalidate_completion(self, reason: str) -> None:
+        """Record a late proof failure without preserving contradictory COMPLETE state."""
+        if self.phase != Phase.COMPLETE.value:
+            raise StateTransitionError(
+                f"Only COMPLETE can be invalidated, not {self.phase}"
+            )
+        self.phase = Phase.BLOCKED.value
+        self.history.append(StateEvent(Phase.BLOCKED.value, utc_now(), reason))

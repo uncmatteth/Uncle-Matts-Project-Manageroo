@@ -512,6 +512,30 @@ class WorkspaceMirror:
             return True
         return self.runner.run(["git", "apply", "--reverse", "--check", "--binary", str(patch)], cwd=self.source_repo, timeout_seconds=300).passed
 
+    def rollback_patch_from_source(self, patch: Path) -> None:
+        """Reverse only Manageroo's exact patch after a late delivery failure."""
+        if not patch.exists() or patch.stat().st_size == 0:
+            self.assert_source_unchanged()
+            return
+        check = self.runner.run(
+            ["git", "apply", "--reverse", "--check", "--binary", str(patch)],
+            cwd=self.source_repo,
+            timeout_seconds=300,
+        )
+        if not check.passed:
+            raise SafetyError(
+                "Manageroo could not prove that only its exact delivery patch remains applied; "
+                "automatic rollback stopped.\n" + check.stderr
+            )
+        reverted = self.runner.run(
+            ["git", "apply", "--reverse", "--binary", str(patch)],
+            cwd=self.source_repo,
+            timeout_seconds=300,
+        )
+        if not reverted.passed:
+            raise SafetyError("Manageroo could not reverse its delivery patch.\n" + reverted.stderr)
+        self.assert_source_unchanged()
+
     def clone_for_review(self, destination: Path) -> Path:
         lexical = destination.expanduser()
         if lexical.exists() or lexical.is_symlink():

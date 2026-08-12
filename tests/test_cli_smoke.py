@@ -64,6 +64,20 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("controller truth", rendered)
         self.assertIn("budget.json", rendered)
 
+    def test_plain_failure_surfaces_the_actual_non_sensitive_error(self):
+        controller = unittest.mock.Mock()
+        controller.run_id = "run-visible-error"
+        controller.run.side_effect = SafetyError("configured gate unit-tests failed")
+        output = io.StringIO()
+        with (
+            patch("manageroo.cli._repo", return_value=Path("/tmp/example")),
+            patch("manageroo.cli.Orchestrator", return_value=controller),
+            redirect_stderr(output),
+        ):
+            code = cli_main(["run", "--repo", "/tmp/example"])
+        self.assertEqual(code, 1)
+        self.assertIn("configured gate unit-tests failed", output.getvalue())
+
     def test_report_defaults_to_plain_english_and_hides_internal_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
@@ -133,6 +147,24 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("Manageroo stopped safely", rendered)
         self.assertNotIn("product-analyst", rendered)
         self.assertNotIn("budget.json", rendered)
+
+    def test_active_run_is_not_reported_as_stopped(self):
+        store = unittest.mock.Mock()
+        store.status_summary.return_value = {
+            "current_job": "implementer",
+            "completed_jobs": 1,
+            "failed_attempts": 0,
+            "next_action": "continue",
+            "blocking_reason": "",
+        }
+        output = io.StringIO()
+        with patch("manageroo.cli._repo", return_value=Path("/tmp/example")), patch(
+            "manageroo.cli.read_json", return_value={"status": "IMPLEMENTING"}
+        ), patch("manageroo.cli.JobStore", return_value=store), redirect_stdout(output):
+            code = cli_main(["status", "run-active", "--repo", "/tmp/example"])
+        self.assertEqual(code, 0)
+        self.assertIn("Manageroo is working", output.getvalue())
+        self.assertNotIn("stopped safely", output.getvalue())
 
     def test_console_script_points_to_public_entrypoint(self):
         with (ROOT / "pyproject.toml").open("rb") as handle:

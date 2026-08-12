@@ -95,10 +95,15 @@ Not every control is equally strong. This document distinguishes prevention from
 | Non-login macOS shell hides an existing Homebrew installation | Probe `/opt/homebrew/bin/brew` and `/usr/local/bin/brew` before declaring Homebrew unavailable | Preventive |
 | Launcher repair overwrites or changes permissions on a path replacement | Create missing launchers exclusively without following an existing entry; reopen permission targets with no-follow semantics, validate regular single-link Manageroo content through that descriptor, and use descriptor-based chmod | Preventive |
 | Uninstall plan targets a lookalike or dangerously broad prefix | Reject prefixes that contain home or the current working directory; require a matching resolved install lock plus SHA-256-bound random ownership marker; require the launcher to embed that resolved prefix; old locks require matching app digest, launcher, venv, and prefix | Preventive |
-| Crash during final apply loses proof | Final result/report/patch are written before source apply; continue retries apply only | Detective and recoverable |
+| Gate commands add generated or unauthorized files | Run each gate from the reviewed checkpoint in a disposable checkout; compare complete non-Git bytes/modes and HEAD afterward; reject and discard every mutation | Preventive |
+| Secret redaction corrupts a patch or internal proof | Keep raw command stdout/stderr inside the controller; redact only serialized logs and display records | Preventive |
+| Crash during final apply creates contradictory success proof | Publish pending evidence first; run capture/export before apply; reverse the exact patch on a late failure; publish final `COMPLETE` only after the durable COMPLETE transition | Preventive and recoverable |
+| New project config applies without explicit permission | Generated config, `solo`, and `next` default to `--no-apply`; only explicit `--apply` or deliberately edited existing project policy permits source mutation | Preventive |
+| A direct run bypasses an explicitly requested GBrain or document lane | Derive required lanes from exact request terms at runtime; absent or failed required commands block before planning evidence is accepted | Preventive |
+| Installer replaces unowned application or launcher data | Require a matching ownership marker and bound installation record before replacement; refuse unowned existing destinations | Preventive |
 | Acceptance cannot be auto-passed | `verification/acceptance-evidence.json` binds outcomes to gates, demo evidence, and review | Preventive in controller |
 | Release-ready cannot ship without a valid Manageroo run | Fail-closed final-result schema validation, latest completed run proof, post-gate HEAD and source-tree proof, approved review, final report, final patch, and boolean applied-source status | Preventive release gate |
-| Generic worker receives requested read-only/workspace-write enforcement | Explicit non-empty provider argv required per mode; launch and doctor fail closed when missing | Provider enforcement for configured modes; use Codex adapter for a tested native sandbox |
+| Generic worker can mutate the source repo or run ledger outside its workspace | Transactional doctor and launch require an independently verified host filesystem boundary; current generic, Claude, and Gemini templates are refused | Preventive; current controlled worker is Codex |
 
 ## Critical limitation
 

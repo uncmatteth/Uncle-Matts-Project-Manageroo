@@ -14,14 +14,12 @@ Run the complete proof directly:
 manageroo prove
 ```
 
-Manageroo automatically selects any supported live coding-agent command it can find locally. The worker may be Codex, Claude Code, or Gemini. The vendor is not the certification boundary; the configured adapter protocol and resulting evidence are.
+Manageroo automatically selects an available supported live coding-agent command. Today that controlled proof worker is Codex because its native sandbox supplies the required host filesystem boundary.
 
 To force a particular installed worker:
 
 ```bash
 manageroo prove --live-agent codex
-manageroo prove --live-agent claude-code
-manageroo prove --live-agent gemini
 ```
 
 Machine-readable output:
@@ -72,8 +70,8 @@ The certification command exercises these areas directly or through its required
 12. Continuation-safe command-owned AUTOREVIEW and Clawpatch checkpoints without duplicate execution.
 13. Outcome-specific acceptance evidence and rejection of unrelated proof.
 14. Fail-fast outcome-proof validation during plan review.
-15. Automatic worker selection and provider fallback without swallowing controller safety failures.
-16. Universal schema-aware prompt transport and provider permission mapping.
+15. Automatic Codex selection without swallowing controller safety failures.
+16. Schema-aware prompt transport and rejection of workers without host filesystem isolation.
 17. Thread-safe controller budgets, provider preference, and unique parallel-worker logs.
 18. Critical controller-truth tamper detection and restoration during worker execution.
 19. Optional external-tool failure without corruption of controller truth.
@@ -92,7 +90,10 @@ The live-agent fixture is disposable. The selected worker must create an exact f
 
 Manageroo owns the worker protocol. The coding-agent provider is replaceable labor.
 
-The normal configuration uses an automatic worker pool. A provider execution or protocol failure may fall through to another compatible installed worker. A Manageroo safety violation remains blocking and is never converted into a provider fallback.
+The normal configuration uses automatic selection, currently bounded to Codex.
+A Manageroo safety violation remains blocking and is never converted into a
+provider fallback. Other provider templates cannot enter controlled runs until
+they supply an independently verified host filesystem boundary.
 
 Every configured provider attempt is transactional. A failed attempt is rolled back before another worker or retry receives the workspace. A read-only worker that mutates its repository is rejected and rolled back even if it returns otherwise valid structured output. Worker-created ignored state is never accepted as part of a verified result.
 

@@ -50,13 +50,33 @@ class ReleaseReadyTests(unittest.TestCase):
         )
 
     def _completed_run(self, repo: Path, *, run_id: str = "20260622T120000-complete") -> Path:
+        base_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        delivered = repo / "manageroo-delivery.txt"
+        delivered.write_text("reviewed delivery\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-N", "manageroo-delivery.txt"], cwd=repo, check=True)
+        patch_bytes = subprocess.run(
+            ["git", "diff", "--binary", "--no-ext-diff", base_head, "--"],
+            cwd=repo,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout
         run_root = repo / ".manageroo" / "runs" / run_id
         delivery = run_root / "delivery"
         delivery.mkdir(parents=True)
         patch_path = delivery / "final.patch"
         report_path = delivery / "FINAL-REPORT.md"
-        patch_path.write_text("diff --git a/README.md b/README.md\n", encoding="utf-8")
+        patch_path.write_text(patch_bytes, encoding="utf-8")
         report_path.write_text("# Final Report\n", encoding="utf-8")
+        verified_tree = source_tree_digest(repo, CommandRunner())
+        subprocess.run(["git", "add", "manageroo-delivery.txt"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "Manageroo delivery"], cwd=repo, check=True)
         atomic_write_json(
             delivery / "final-result.json",
             {
@@ -68,14 +88,9 @@ class ReleaseReadyTests(unittest.TestCase):
                     "run_root": str(run_root),
                 },
                 "applied_to_source": True,
-                "verified_git_head": subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=repo,
-                    check=True,
-                    text=True,
-                    stdout=subprocess.PIPE,
-                ).stdout.strip(),
-                "verified_source_tree_sha256": source_tree_digest(repo, CommandRunner()),
+                "verified_base_git_head": base_head,
+                "verified_git_head": base_head,
+                "verified_source_tree_sha256": verified_tree,
                 "final_patch_sha256": sha256_file(patch_path),
             },
         )
@@ -119,6 +134,30 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertEqual(result["status"], "BLOCKED")
             self.assertIn("HEAD changed", result["error"])
             self.assertEqual(read_json(delivery / "final-result.json")["status"], "BLOCKED")
+
+    def test_late_release_proof_failure_invalidates_durable_complete_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            from manageroo.adapters.mock import MockAdapter
+            from manageroo.orchestrator import Orchestrator
+
+            controller = Orchestrator(repo, adapter=MockAdapter())
+            with patch(
+                "manageroo.release_proof_policy._stable_source_tree_digest",
+                side_effect=RuntimeError("forced late proof failure"),
+            ):
+                result = controller.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=True,
+                )
+            self.assertEqual(result["status"], "BLOCKED")
+            self.assertEqual(read_json(controller.state_path)["phase"], "BLOCKED")
+            self.assertEqual(
+                read_json(controller.run_root / "delivery" / "final-result.json")["status"],
+                "BLOCKED",
+            )
+            self.assertFalse((repo / "manageroo_fixture.txt").exists())
 
     def test_completed_run_proof_rejects_source_mutation_with_preexisting_proof(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -222,7 +261,7 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn("manual production deploy", handoff_text)
             self.assertIn("revert the release commit and redeploy", handoff_text)
             self.assertIn(shlex.join([sys.executable, "-c", "print('ok')"]), handoff_text)
-            self.assertIn("ready fixture", handoff_text)
+            self.assertIn("Manageroo delivery", handoff_text)
             self.assertIn("Manageroo run", handoff_text)
             self.assertIn(run_root.name, handoff_text)
             self.assertIn("## Project Memory", handoff_text)
@@ -371,7 +410,7 @@ class ReleaseReadyTests(unittest.TestCase):
                 "verification gates pass"
             ]
             self.assertFalse(gate_item["ok"])
-            self.assertIn("mutated its disposable release checkout", gate_item["detail"])
+            self.assertIn("mutated its disposable checkout", gate_item["detail"])
             current_head = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=repo,

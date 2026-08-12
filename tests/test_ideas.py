@@ -99,6 +99,8 @@ class IdeaTests(unittest.TestCase):
             self.assertEqual(len(inbox.list("captured")), 1)
             attached = inbox.attach_pending("run-1")
             self.assertEqual(attached[0]["linked_run"], "run-1")
+            self.assertEqual(attached[0]["classification"], "future-feature")
+            self.assertEqual(attached[0]["disposition"], "context-only-not-authorized")
             self.assertEqual(len(inbox.list("attached")), 1)
 
     def test_symlinked_lock_does_not_overwrite_target_without_o_nofollow(self):

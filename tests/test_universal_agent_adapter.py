@@ -11,7 +11,7 @@ from manageroo.adapters.factory import build_adapter
 from manageroo.adapters.generic import GenericAdapter
 from manageroo.adapters.transactional import TransactionalAdapter
 from manageroo.config import AGENT_PRESETS
-from manageroo.errors import ConfigurationError
+from manageroo.errors import ConfigurationError, SafetyError
 
 
 PROTECTED_SANDBOX_ARGV = {
@@ -313,6 +313,27 @@ class UniversalAgentAdapterTests(unittest.TestCase):
             doctor["missing_provider_sandbox_modes"],
             ["read-only", "workspace-write"],
         )
+
+    def test_transactional_generic_worker_is_rejected_without_host_isolation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runner = _Runner()
+            adapter = build_adapter(
+                {
+                    "agent": {
+                        "adapter": "generic",
+                        "argv_template": ["future-agent", "--structured"],
+                        "prompt_transport": "stdin",
+                        "sandbox_read_only_argv": ["--mode", "plan"],
+                        "sandbox_workspace_write_argv": ["--mode", "edit"],
+                    },
+                    "budget": {},
+                },
+                runner,
+            )
+            with self.assertRaisesRegex(SafetyError, "host filesystem isolation"):
+                adapter.run(_request(root))
+            self.assertEqual(runner.calls, [])
 
     def test_claude_and_gemini_presets_use_stdin_and_provider_safety_modes(self):
         claude = AGENT_PRESETS["claude-code"]

@@ -34,6 +34,22 @@ DEMONSTRATION_TERMS = (
     "end user",
 )
 
+DEMONSTRATION_GATE_KINDS = frozenset(
+    {
+        "acceptance",
+        "auth",
+        "authorization",
+        "browser",
+        "deployment",
+        "e2e",
+        "journey",
+        "security",
+        "screenshot",
+        "system",
+        "visual",
+    }
+)
+
 
 def _normalized(value: object) -> str:
     return " ".join(str(value or "").split()).casefold()
@@ -65,6 +81,18 @@ def _gate_result_ids(gates: list[dict]) -> tuple[set[str], set[str], set[str]]:
         ):
             passed.add(gate_id)
     return observed, passed, duplicates
+
+
+def _gate_kinds(gates: list[dict]) -> dict[str, str]:
+    kinds: dict[str, str] = {}
+    for item in gates:
+        gate = item.get("gate", {}) if isinstance(item, dict) else {}
+        if not isinstance(gate, dict):
+            continue
+        gate_id = str(gate.get("id") or "").strip()
+        if gate_id:
+            kinds[gate_id] = _normalized(gate.get("kind"))
+    return kinds
 
 
 def _term_present(text: str, term: str) -> bool:
@@ -118,6 +146,7 @@ def build_acceptance_evidence(
     demo_gate_ids, demo_gates, duplicate_demo_gates = _gate_result_ids(
         list(demonstration.get("gates", []) or [])
     )
+    demo_gate_kinds = _gate_kinds(list(demonstration.get("gates", []) or []))
     duplicate_gate_ids = duplicate_gates | duplicate_demo_gates
     cross_lane_conflicts = {
         gate_id
@@ -203,6 +232,27 @@ def build_acceptance_evidence(
                 }
             )
             continue
+
+        if _needs_demonstration(description):
+            semantic_demo_gates = {
+                gate_id
+                for gate_id in required_gate_ids & demo_gates
+                if demo_gate_kinds.get(gate_id) in DEMONSTRATION_GATE_KINDS
+            }
+            if not semantic_demo_gates:
+                rows.append(
+                    {
+                        "description": description,
+                        "status": "unknown",
+                        "evidence": [f"gate:{gate_id}" for gate_id in sorted(required_gate_ids)],
+                        "reason": (
+                            "The demonstration lane used only generic build, check, or unit-test "
+                            "gates. This outcome requires a browser, end-to-end, security, visual, "
+                            "deployment, journey, or system evidence kind."
+                        ),
+                    }
+                )
+                continue
 
         if not review_approved:
             rows.append(

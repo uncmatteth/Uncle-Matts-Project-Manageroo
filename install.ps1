@@ -29,6 +29,7 @@ param(
     [string]$ObsidianMethod = "auto"
 )
 $ErrorActionPreference = "Stop"
+throw "Native Windows Manageroo runs are not supported by the current secure artifact backend. Install and run Manageroo inside WSL2 instead."
 $Root = $PSScriptRoot
 $PythonExe = $null
 $PythonPrefixArgs = @()

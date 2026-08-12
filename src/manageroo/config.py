@@ -18,7 +18,7 @@ from .util import atomic_write_text
 DEFAULT_CONFIG: dict[str, Any] = {
     "policy_version": 2,
     "project": {
-        "apply_on_success": True,
+        "apply_on_success": False,
         "max_repair_cycles": 0,
         "max_plan_review_cycles": 0,
         "require_demonstration": True,
@@ -230,7 +230,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "policy_version = 2",
         "",
         "[project]",
-        "apply_on_success = true",
+        "apply_on_success = false",
         "max_repair_cycles = 0",
         "max_plan_review_cycles = 0",
         "require_demonstration = true",

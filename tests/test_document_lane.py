@@ -9,6 +9,7 @@ from manageroo.adapters.mock import MockAdapter
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 from manageroo.util import read_json
+from manageroo.errors import ValidationError
 
 
 def _toml_array(items):
@@ -124,6 +125,20 @@ class DocumentLaneTests(unittest.TestCase):
             document = read_json(run_root / "artifacts" / "discovery" / "document-intelligence.json")
             self.assertIn("document-analysis", document["summary"]["failed_optional"])
             self.assertIn("DOC FAIL", document["records"][0]["stdout"])
+
+    def test_direct_run_cannot_bypass_explicit_document_requirement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(
+                "# Product request\n\nReview the novel and preserve exact wording.\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValidationError, "document_analysis_command"):
+                Orchestrator(repo, adapter=MockAdapter()).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
 
 
 if __name__ == "__main__":

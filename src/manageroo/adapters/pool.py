@@ -32,6 +32,12 @@ class WorkerPoolAdapter(AgentAdapter):
     def requires_host_capability_catalog(self) -> bool:
         return any(adapter.requires_host_capability_catalog for _, adapter in self.workers)
 
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return bool(self.workers) and all(
+            adapter.has_host_filesystem_isolation for _, adapter in self.workers
+        )
+
     @staticmethod
     def _install_worker_hook(
         adapter: Any,
@@ -106,8 +112,8 @@ class WorkerPoolAdapter(AgentAdapter):
     def run(self, request: AgentRequest) -> AgentResponse:
         if not self.workers:
             raise AgentExecutionError(
-                "Manageroo has no usable live coding worker. Install or configure Codex, "
-                "Claude Code, Gemini, or another compatible agent preset."
+                "Manageroo has no usable live coding worker for a controlled run. Install "
+                "or configure Codex with its verified host filesystem sandbox."
             )
         failures: list[str] = []
         retryable = (AgentExecutionError, ConfigurationError, ValidationError)

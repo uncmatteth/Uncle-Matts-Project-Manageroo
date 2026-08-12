@@ -140,7 +140,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--live-agent",
-        choices=("codex", "claude-code", "gemini"),
+        choices=("codex",),
         help="Force one installed live worker. Omit to use Manageroo automatic selection.",
     )
     parser.add_argument(

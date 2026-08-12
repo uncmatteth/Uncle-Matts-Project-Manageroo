@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from manageroo import entrypoint
-from manageroo.adapters.base import AgentResponse
 from manageroo.prove import (
     _configure_proof_project,
     _git_fixture,
@@ -21,95 +20,48 @@ from manageroo.prove import (
 
 
 class ProductProofTests(unittest.TestCase):
-    @staticmethod
-    def _live_proof_response() -> AgentResponse:
-        return AgentResponse(
-            role="live-proof-implementer",
-            data={
-                "status": "implemented",
-                "summary": "Updated the authorized proof target.",
+    def test_live_proof_uses_the_real_orchestrator_and_requires_complete(self):
+        class ProofAdapter:
+            def doctor(self, cwd):
+                return {"ok": True, "adapter": "codex", "version": "test"}
+
+        def completed_run(controller, **kwargs):
+            del kwargs
+            (controller.source_repo / "manageroo_live_agent_proof.txt").write_text(
+                "MANAGEROO live agent proof completed\n", encoding="utf-8"
+            )
+            return {
+                "status": "COMPLETE",
+                "run_id": "proof-run",
+                "applied_to_source": True,
                 "files_changed": ["manageroo_live_agent_proof.txt"],
-                "risks": [],
-                "scope_expansion_requested": [],
-            },
-            raw_text="",
-            command=["adversarial-test-adapter"],
-        )
+                "gates": [{"id": "product-proof-check", "passed": True}],
+                "review": {"status": "approved"},
+                "evidence_paths": {"run_root": "/proof"},
+            }
 
-    def test_live_proof_rejects_worker_commit_hidden_by_expected_dirty_target(self):
-        class CommittingAdapter:
-            def doctor(self, cwd):
-                return {"ok": True, "adapter": "codex", "version": "test"}
-
-            def run(inner_self, request):
-                del inner_self
-                (request.cwd / "unauthorized.txt").write_text(
-                    "committed outside the authorized scope\n",
-                    encoding="utf-8",
-                )
-                subprocess.run(["git", "add", "unauthorized.txt"], cwd=request.cwd, check=True)
-                subprocess.run(
-                    ["git", "commit", "-m", "unauthorized worker commit"],
-                    cwd=request.cwd,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-                (request.cwd / "manageroo_live_agent_proof.txt").write_text(
-                    "MANAGEROO live agent proof completed\n",
-                    encoding="utf-8",
-                )
-                return ProductProofTests._live_proof_response()
-
-        with patch("manageroo.prove.build_adapter", return_value=CommittingAdapter()):
-            result = _live_agent_case("codex")
-
-        self.assertFalse(result["ok"], result)
-        self.assertIn("manageroo_live_agent_proof.txt", result["changed_paths"])
-        self.assertFalse(result["head_unchanged"])
-
-    def test_live_proof_rejects_ignored_file_created_outside_authorized_target(self):
-        class IgnoredFileAdapter:
-            def doctor(self, cwd):
-                return {"ok": True, "adapter": "codex", "version": "test"}
-
-            def run(inner_self, request):
-                del inner_self
-                ignored = request.cwd / ".manageroo" / "cache" / "worker-secret.txt"
-                ignored.parent.mkdir(parents=True, exist_ok=True)
-                ignored.write_text("ignored worker residue\n", encoding="utf-8")
-                (request.cwd / "manageroo_live_agent_proof.txt").write_text(
-                    "MANAGEROO live agent proof completed\n",
-                    encoding="utf-8",
-                )
-                return ProductProofTests._live_proof_response()
-
-        with patch("manageroo.prove.build_adapter", return_value=IgnoredFileAdapter()):
-            result = _live_agent_case("codex")
-
-        self.assertFalse(result["ok"], result)
-        self.assertIn(".manageroo/cache/", result["ignored_paths"])
-        self.assertFalse(result["workspace_unchanged_outside_target"])
-
-    def test_live_proof_accepts_only_the_authorized_unstaged_target_edit(self):
-        class CompliantAdapter:
-            def doctor(self, cwd):
-                return {"ok": True, "adapter": "codex", "version": "test"}
-
-            def run(inner_self, request):
-                del inner_self
-                (request.cwd / "manageroo_live_agent_proof.txt").write_text(
-                    "MANAGEROO live agent proof completed\n",
-                    encoding="utf-8",
-                )
-                return ProductProofTests._live_proof_response()
-
-        with patch("manageroo.prove.build_adapter", return_value=CompliantAdapter()):
+        with patch("manageroo.prove.build_adapter", return_value=ProofAdapter()), patch(
+            "manageroo.prove.Orchestrator.run", autospec=True, side_effect=completed_run
+        ) as run:
             result = _live_agent_case("codex")
 
         self.assertTrue(result["ok"], result)
-        self.assertEqual(result["changed_paths"], ["manageroo_live_agent_proof.txt"])
-        self.assertTrue(result["metadata_unchanged"])
+        self.assertEqual(result["run_status"], "COMPLETE")
+        self.assertTrue(result["independent_review_approved"])
+        self.assertEqual(run.call_args.kwargs["exact_task"]["targets"], ["manageroo_live_agent_proof.txt"])
+
+    def test_live_proof_rejects_noncomplete_orchestrator_result(self):
+        class ProofAdapter:
+            def doctor(self, cwd):
+                return {"ok": True, "adapter": "codex", "version": "test"}
+
+        with patch("manageroo.prove.build_adapter", return_value=ProofAdapter()), patch(
+            "manageroo.prove.Orchestrator.run",
+            return_value={"status": "BLOCKED", "files_changed": []},
+        ):
+            result = _live_agent_case("codex")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["run_status"], "BLOCKED")
 
     def test_live_proof_fixture_is_pristine_before_transactional_worker(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -183,7 +135,7 @@ class ProductProofTests(unittest.TestCase):
         self.assertEqual(payload["status"], "COMPLETE")
         self.assertEqual(payload["live_agent_selection"], "explicit")
 
-    def test_manageroo_prove_auto_selects_any_available_live_agent(self):
+    def test_manageroo_prove_auto_selects_supported_live_agent(self):
         fake_report = {
             "ok": True,
             "status": "COMPLETE",
@@ -192,7 +144,7 @@ class ProductProofTests(unittest.TestCase):
         }
         output = io.StringIO()
         with patch.object(sys, "argv", ["manageroo", "prove", "--json"]):
-            with patch("manageroo.entrypoint._auto_live_agent", return_value="gemini"):
+            with patch("manageroo.entrypoint._auto_live_agent", return_value="codex"):
                 with patch(
                     "manageroo.entrypoint.run_product_proof",
                     return_value=fake_report,
@@ -200,7 +152,7 @@ class ProductProofTests(unittest.TestCase):
                     with redirect_stdout(output):
                         code = entrypoint.main()
         self.assertEqual(code, 0)
-        run.assert_called_once_with(include_regression=True, live_agent="gemini")
+        run.assert_called_once_with(include_regression=True, live_agent="codex")
         payload = json.loads(output.getvalue())
         self.assertEqual(payload["live_agent_selection"], "automatic")
 
@@ -247,7 +199,7 @@ class ProductProofTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("Product certification:", text)
         self.assertIn("prove", text)
-        self.assertIn("any available supported live coding agent", text)
+        self.assertIn("available supported live coding agent", text)
 
     def test_prove_help_surfaces_optional_agent_override(self):
         output = io.StringIO()

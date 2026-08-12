@@ -172,6 +172,10 @@ def _is_exact_host_bwrap_failure(request: AgentRequest, result: Any) -> bool:
 
 
 class CodexAdapter(AgentAdapter):
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return True
+
     """Runs one fresh Codex process per role.
 
     Workspace-write is always attempted first. A second danger-full-access launch is permitted

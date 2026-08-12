@@ -492,6 +492,33 @@ def _has_manageroo_install_marker(prefix: Path, lock: dict[str, Any]) -> bool:
         return False
 
 
+def installation_is_manageroo_owned(prefix: Path) -> bool:
+    """Return true only for a lock and marker bound to this exact prefix."""
+    try:
+        resolved = prefix.expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    loaded = read_install_lock(resolved / "install-lock.json")
+    if not loaded.get("ok"):
+        return False
+    lock = loaded["lock"]
+    recorded = lock.get("prefix")
+    try:
+        bound = (
+            isinstance(recorded, str)
+            and Path(recorded).expanduser().resolve(strict=False) == resolved
+        )
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return bool(
+        bound
+        and (
+            _has_manageroo_install_marker(resolved, lock)
+            or _has_verified_legacy_install(resolved, lock)
+        )
+    )
+
+
 def uninstall_plan(prefix: Path | None = None, bin_dir: Path | None = None) -> dict[str, Any]:
     requested_prefix = prefix.expanduser() if prefix else default_prefix()
     prefix, prefix_problem = _safe_uninstall_prefix(requested_prefix)

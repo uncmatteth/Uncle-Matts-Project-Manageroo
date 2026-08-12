@@ -241,6 +241,34 @@ class ReadinessTests(unittest.TestCase):
             self.assertTrue(gbrain["required"])
             self.assertIn("explicitly asks", gbrain["detail"])
 
+    def test_product_knowledge_base_api_does_not_require_gbrain(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._ready_repo(
+                Path(temp),
+                "# Product brief\n\nBuild the knowledge base API endpoint.\n",
+            )
+            with patch("manageroo.readiness.helper_skill_items", return_value=[]), patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ):
+                report = readiness(repo)
+            gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
+            self.assertFalse(gbrain["required"])
+
+    def test_docker_image_does_not_require_document_analysis(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._ready_repo(
+                Path(temp),
+                "# Product brief\n\nBuild and publish the Docker image.\n",
+            )
+            with patch("manageroo.readiness.helper_skill_items", return_value=[]), patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ):
+                report = readiness(repo)
+            lanes = [item for item in report["items"] if item["name"] == "document/prose lane"]
+            self.assertEqual(lanes, [])
+
     def test_selected_agent_uses_adapter_doctor_not_only_executable_presence(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._ready_repo(Path(temp), "# Product brief\n\nMake it work.\n")

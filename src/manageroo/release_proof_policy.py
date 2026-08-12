@@ -4,7 +4,9 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from .util import atomic_write_json, read_json, sha256_file
+from .report import write_report
+from .state import Phase
+from .util import atomic_write_json, read_json, sha256_file, utc_now
 
 
 def _tracked_index_entries(repo: Path, runner: Any) -> dict[str, tuple[str, str]]:
@@ -52,18 +54,6 @@ def _worktree_status(repo: Path, runner: Any) -> str:
     return result.stdout
 
 
-def _git_head_tree_digest(repo: Path, runner: Any) -> str:
-    result = runner.run(
-        ["git", "rev-parse", "--verify", "HEAD^{tree}"],
-        cwd=repo,
-        timeout_seconds=120,
-    )
-    tree = result.stdout.strip() if result.passed else ""
-    if not tree:
-        raise RuntimeError(result.stderr or "Could not resolve Git HEAD tree for release proof")
-    return hashlib.sha256(b"git-tree\0" + tree.encode("ascii")).hexdigest()
-
-
 def _path_states(repo: Path, paths: list[str]) -> dict[str, tuple[int, ...] | None]:
     states: dict[str, tuple[int, ...] | None] = {}
     for relative in paths:
@@ -89,53 +79,36 @@ def _path_states(repo: Path, paths: list[str]) -> dict[str, tuple[int, ...] | No
 
 
 def source_tree_digest(repo: Path, runner: Any) -> str:
-    """Hash Git-visible source state, using immutable Git identity when clean."""
+    """Hash Git-visible content identically before and after it is committed."""
     repo = repo.expanduser().resolve()
-    if not _worktree_status(repo, runner):
-        return _git_head_tree_digest(repo, runner)
     digest = hashlib.sha256()
     tracked = _tracked_index_entries(repo, runner)
     untracked = _untracked_paths(repo, runner)
     paths = sorted(set(tracked) | set(untracked))
     states_before = _path_states(repo, paths)
 
-    for relative in sorted(tracked):
-        mode_text, object_id = tracked[relative]
+    for relative in paths:
         path = repo / relative
-        if mode_text == "160000":
+        tracked_entry = tracked.get(relative)
+        if tracked_entry is not None and tracked_entry[0] == "160000":
             # A submodule is represented by its pinned commit in the Git index. Hashing
             # that gitlink makes release proof change whenever the dependency revision changes.
             kind = b"gitlink"
-            content_hash = object_id
+            content_hash = tracked_entry[1]
         elif path.is_symlink():
-            kind = b"symlink"
+            kind = b"120000"
             target = path.readlink().as_posix().encode("utf-8", errors="surrogateescape")
             content_hash = hashlib.sha256(target).hexdigest()
         elif path.is_file():
-            kind = mode_text.encode("ascii")
+            executable = bool(path.stat().st_mode & 0o111)
+            kind = b"100755" if executable else b"100644"
             content_hash = sha256_file(path)
         else:
             # Missing tracked paths are part of the current source state too.
-            kind = ("missing:" + mode_text).encode("ascii")
-            content_hash = object_id
-        digest.update(relative.encode("utf-8", errors="surrogateescape"))
-        digest.update(b"\0")
-        digest.update(kind)
-        digest.update(b"\0")
-        digest.update(content_hash.encode("ascii"))
-        digest.update(b"\0")
-
-    for relative in untracked:
-        path = repo / relative
-        if path.is_symlink():
-            kind = b"untracked-symlink"
-            target = path.readlink().as_posix().encode("utf-8", errors="surrogateescape")
-            content_hash = hashlib.sha256(target).hexdigest()
-        elif path.is_file():
-            kind = b"untracked-file"
-            content_hash = sha256_file(path)
-        else:
-            continue
+            if tracked_entry is None:
+                continue
+            kind = ("missing:" + tracked_entry[0]).encode("ascii")
+            content_hash = tracked_entry[1]
         digest.update(relative.encode("utf-8", errors="surrogateescape"))
         digest.update(b"\0")
         digest.update(kind)
@@ -273,9 +246,7 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
                 )
             ):
                 block("Completed result does not match the existing run-bound proof.")
-            elif saved_head != run_git_head:
-                block("Existing completed run was verified at another Git HEAD.")
-            elif current_head_before != saved_head or current_head_after != saved_head:
+            elif current_head_before != run_git_head or current_head_after != run_git_head:
                 block("Source repository HEAD changed after existing completed-run proof.")
             elif digest_error:
                 block(digest_error)
@@ -316,6 +287,9 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
                 block("Source repository HEAD changed while completed-run proof was bound.")
             else:
                 result["verified_source_tree_sha256"] = digest
+                result["verified_base_git_head"] = run_git_head
+                # Kept for backward-readable reports. This is the reviewed
+                # base commit, not the future operator-owned delivery commit.
                 result["verified_git_head"] = run_git_head
                 result["final_patch_sha256"] = expected_patch_digest
         if final_result_path.is_file():
@@ -323,6 +297,35 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
             if isinstance(persisted, dict):
                 persisted.update(result)
                 atomic_write_json(final_result_path, persisted)
+        transaction_path = self.run_root / "delivery" / "delivery-transaction.json"
+        if result.get("status") == "BLOCKED":
+            rollback_error = ""
+            if transaction_path.is_file() and result.get("applied_to_source") is True:
+                transaction = read_json(transaction_path)
+                patch_value = str(transaction.get("patch") or "") if isinstance(transaction, dict) else ""
+                transaction_patch = Path(patch_value) if patch_value else None
+                try:
+                    if transaction_patch is not None:
+                        self.mirror.rollback_patch_from_source(transaction_patch)
+                        result["applied_to_source"] = False
+                        transaction_path.unlink(missing_ok=True)
+                except Exception as exc:
+                    rollback_error = f"{type(exc).__name__}: {exc}"
+            if rollback_error:
+                result["rollback_error"] = rollback_error
+            state = getattr(self, "state", None)
+            if state is not None and state.phase == Phase.COMPLETE.value:
+                self.state.invalidate_completion(
+                    "Completed-run release proof failed: " + str(result.get("error") or "unknown")
+                )
+                self.state.save(self.state_path)
+            result["finished_at"] = utc_now()
+            atomic_write_json(final_result_path, result)
+            atomic_write_json(self.run_root / "delivery" / "failure.json", result)
+            if result.get("run_id"):
+                write_report(self.run_root / "delivery" / "FINAL-REPORT.md", result)
+        elif result.get("status") == "COMPLETE":
+            transaction_path.unlink(missing_ok=True)
         return result
 
     orchestrator_class.run = run_with_bound_proof

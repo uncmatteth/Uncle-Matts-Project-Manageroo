@@ -11,6 +11,10 @@ from ..util import atomic_write_json, safe_repo_relative
 class MockAdapter(AgentAdapter):
     """Deterministic adapter used by the harness's own tests and simulation."""
 
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return True
+
     def doctor(self, cwd: Path) -> dict:
         return {"ok": True, "adapter": "mock", "version": "deterministic-test-double"}
 

@@ -4,7 +4,7 @@ import os
 import shutil
 import signal
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -31,7 +31,19 @@ class CommandResult:
         return self.exit_code == 0 and not self.timed_out
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        # Command output is an internal data channel: callers such as the
+        # workspace patch writer must receive the exact bytes emitted by git.
+        # Redaction belongs only at persistence/display boundaries.
+        return {
+            "argv": redact_argv(self.argv),
+            "cwd": self.cwd,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "exit_code": self.exit_code,
+            "stdout": redact_text(self.stdout),
+            "stderr": redact_text(self.stderr),
+            "timed_out": self.timed_out,
+        }
 
 
 def _timeout_text(value: str | bytes | None) -> str:
@@ -123,6 +135,15 @@ def _platform_argv(argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
     return resolved
 
 
+def platform_argv(
+    argv: Sequence[str], env: Mapping[str, str] | None = None
+) -> list[str]:
+    """Render an argv safely for the current platform, including Windows wrappers."""
+    if not argv or not str(argv[0]).strip():
+        raise SafetyError("Command argv must contain a non-empty executable.")
+    return _platform_argv([str(item) for item in argv], env or os.environ)
+
+
 class CommandRunner:
     """Executes argv directly. shell=True is intentionally unavailable."""
 
@@ -196,8 +217,8 @@ class CommandRunner:
                 started_at=started_at,
                 finished_at=utc_now(),
                 exit_code=124 if timed_out else completed.returncode,
-                stdout=redact_text(completed.stdout),
-                stderr=redact_text(completed.stderr),
+                stdout=completed.stdout,
+                stderr=completed.stderr,
                 timed_out=timed_out,
             )
         except subprocess.TimeoutExpired as exc:
@@ -207,8 +228,8 @@ class CommandRunner:
                 started_at=started_at,
                 finished_at=utc_now(),
                 exit_code=124,
-                stdout=redact_text(_timeout_text(exc.stdout)),
-                stderr=redact_text(_timeout_text(exc.stderr)),
+                stdout=_timeout_text(exc.stdout),
+                stderr=_timeout_text(exc.stderr),
                 timed_out=True,
             )
         except OSError as exc:
@@ -219,7 +240,7 @@ class CommandRunner:
                 finished_at=utc_now(),
                 exit_code=127,
                 stdout="",
-                stderr=redact_text(f"Could not launch command: {exc}"),
+                stderr=f"Could not launch command: {exc}",
                 timed_out=False,
             )
         if log_path is not None:

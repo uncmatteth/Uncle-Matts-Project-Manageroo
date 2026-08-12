@@ -107,6 +107,10 @@ class TransactionalAdapter(AgentAdapter):
     def requires_host_capability_catalog(self) -> bool:
         return self.inner.requires_host_capability_catalog
 
+    @property
+    def has_host_filesystem_isolation(self) -> bool:
+        return self.inner.has_host_filesystem_isolation
+
     def doctor(self, cwd: Path) -> dict:
         result = dict(self.inner.doctor(cwd))
         result["transactional_attempts"] = True
@@ -116,7 +120,21 @@ class TransactionalAdapter(AgentAdapter):
         result["pristine_workspace_required"] = True
         result["ignored_worker_state_discarded"] = True
         result["critical_controller_truth_guard"] = True
+        result["host_filesystem_isolation"] = self.has_host_filesystem_isolation
+        if not self.has_host_filesystem_isolation:
+            result["ok"] = False
+            result["error"] = (
+                "This worker does not provide a verified host filesystem boundary; "
+                "Manageroo will not run it against a real project."
+            )
         return result
+
+    def _require_host_isolation(self) -> None:
+        if not self.has_host_filesystem_isolation:
+            raise SafetyError(
+                "Manageroo refuses a worker without verified host filesystem isolation. "
+                "Use the Codex adapter or an independently isolated worker host."
+            )
 
     def _head(self, cwd: Path) -> str:
         result = self.runner.run(["git", "rev-parse", "HEAD"], cwd=cwd, timeout_seconds=30)
@@ -889,6 +907,7 @@ class TransactionalAdapter(AgentAdapter):
         )
 
     def run(self, request: AgentRequest) -> AgentResponse:
+        self._require_host_isolation()
         with self._repository_transaction_lock(
             request.cwd,
             timeout_seconds=self.repository_lock_timeout_seconds,

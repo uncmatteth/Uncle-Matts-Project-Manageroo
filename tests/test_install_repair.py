@@ -49,6 +49,14 @@ def _launcher_path(bin_dir: Path) -> Path:
 
 
 class InstallRepairTests(unittest.TestCase):
+    def setUp(self):
+        self.ownership = patch(
+            "manageroo.install_repair.installation_is_manageroo_owned",
+            return_value=True,
+        )
+        self.ownership.start()
+        self.addCleanup(self.ownership.stop)
+
     def test_missing_lock_reports_reinstall_next_command(self):
         with tempfile.TemporaryDirectory() as temp:
             result = repair_install(prefix=Path(temp) / "missing", apply=False)
@@ -64,6 +72,23 @@ class InstallRepairTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertTrue(result["next_commands"])
             self.assertIn("install", " ".join(result["next_commands"]).lower())
+
+    def test_forged_lock_cannot_authorize_install_repair(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            prefix.mkdir()
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"launcher": str(Path(temp) / "bin" / "manageroo")}) + "\n",
+                encoding="utf-8",
+            )
+            with patch(
+                "manageroo.install_repair.installation_is_manageroo_owned",
+                return_value=False,
+            ):
+                result = repair_install(prefix=prefix, apply=True)
+            self.assertFalse(result["ok"])
+            self.assertIn("ownership", result["checks"][0]["detail"])
+            self.assertFalse((Path(temp) / "bin" / "manageroo").exists())
 
     def test_apply_recreates_missing_launcher_from_lock(self):
         with tempfile.TemporaryDirectory() as temp:

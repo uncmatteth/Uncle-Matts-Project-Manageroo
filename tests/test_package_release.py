@@ -366,6 +366,16 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn("scripts/verify_distribution.py", end_user)
         self.assertNotEqual(source, end_user)
 
+    def test_end_user_verifier_selects_files_without_release_publisher(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "scripts").mkdir()
+            (root / "README.md").write_text("fixture\n", encoding="utf-8")
+            (root / "scripts" / "verify_release.py").write_text("# verifier\n", encoding="utf-8")
+            with patch.object(verify_release, "ROOT", root):
+                selected = {path.relative_to(root).as_posix() for path in verify_release.source_files()}
+            self.assertEqual(selected, {"README.md", "scripts/verify_release.py"})
+
     def test_local_clawpatch_state_is_not_packaged_by_either_selector(self):
         for selector in (package_release.included_files, package_release.end_user_files):
             selected = {path.relative_to(ROOT).as_posix() for path in selector()}

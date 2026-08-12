@@ -15,7 +15,7 @@ from manageroo.errors import AgentExecutionError, BlockingDecisionError, SafetyE
 from manageroo.intent_lock import capture_intent_lock, read_intent_lock
 from manageroo.orchestrator import Orchestrator, _compact_json, _partition_json_artifacts
 from manageroo.project import initialize_project
-from manageroo.util import atomic_write_json, read_json
+from manageroo.util import atomic_write_json, read_json, sha256_file
 
 
 def _toml_array(items):
@@ -100,6 +100,87 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertEqual(payload["phase"], "COMPLETE")
             self.assertGreater(payload["jobs"]["completed_jobs"], 0)
             self.assertEqual(payload["jobs"]["failed_attempts"], 0)
+
+    def test_obsidian_export_failure_cannot_leave_applied_source_or_complete_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            with patch(
+                "manageroo.orchestrator.ObsidianIntegration.export",
+                side_effect=RuntimeError("forced export failure"),
+            ), self.assertRaisesRegex(RuntimeError, "forced export failure"):
+                controller = Orchestrator(repo, adapter=MockAdapter())
+                controller.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=True,
+                )
+            self.assertFalse((repo / "manageroo_fixture.txt").exists())
+            final = read_json(controller.run_root / "delivery" / "final-result.json")
+            self.assertEqual(final["status"], "BLOCKED")
+            self.assertFalse(final.get("applied_to_source", False))
+            self.assertEqual(read_json(controller.state_path)["phase"], "BLOCKED")
+
+    def test_late_complete_transition_failure_rolls_back_exact_applied_patch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            controller = Orchestrator(repo, adapter=MockAdapter())
+            real_transition = controller._transition
+
+            def fail_complete(phase, reason):
+                if phase.value == "COMPLETE":
+                    raise RuntimeError("forced receipt failure")
+                return real_transition(phase, reason)
+
+            with patch.object(controller, "_transition", side_effect=fail_complete), self.assertRaisesRegex(
+                RuntimeError, "forced receipt failure"
+            ):
+                controller.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=True,
+                )
+            self.assertFalse((repo / "manageroo_fixture.txt").exists())
+            final = read_json(controller.run_root / "delivery" / "final-result.json")
+            self.assertEqual(final["status"], "BLOCKED")
+            self.assertFalse(final["applied_to_source"])
+
+    def test_interrupted_apply_transaction_is_recovered_before_continuation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            run_root = Path(result["evidence_paths"]["run_root"])
+            patch_path = run_root / "delivery" / "final.patch"
+            subprocess.run(
+                ["git", "apply", "--binary", str(patch_path)], cwd=repo, check=True
+            )
+            atomic_write_json(
+                run_root / "delivery" / "delivery-transaction.json",
+                {
+                    "status": "APPLYING",
+                    "patch": str(patch_path),
+                    "patch_sha256": sha256_file(patch_path),
+                },
+            )
+            state = read_json(run_root / "state.json")
+            state["phase"] = "DELIVERING"
+            atomic_write_json(run_root / "state.json", state)
+
+            controller = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=result["run_id"],
+                continue_existing=True,
+            )
+            controller._recover_incomplete_delivery()
+
+            self.assertFalse((repo / "manageroo_fixture.txt").exists())
+            self.assertFalse(
+                (run_root / "delivery" / "delivery-transaction.json").exists()
+            )
 
     def test_exact_task_skips_model_discovery_mapping_and_planning(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -295,6 +376,7 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 "# Product request\n\nCreate the fixture file.",
             )
             self.assertRegex(bound["request_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(bound["mode"], "build")
             self.assertEqual(bound["authority"], "current-run-request")
 
             prompts = list(Path(result["evidence_paths"]["run_root"]).glob("packets/**/prompt.md"))
@@ -351,6 +433,43 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 / "run-intent.json"
             )
             self.assertIn("Latest correction", replacement_intent["current_request"])
+
+    def test_changed_mode_or_exact_contract_supersedes_saved_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            first = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=brief,
+                mode="build",
+                apply_on_success=False,
+            )
+            replacement = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=first["run_id"],
+                continue_existing=True,
+            ).run(
+                brief_path=brief,
+                mode="repair",
+                apply_on_success=False,
+                exact_task={
+                    "targets": ["manageroo_fixture.txt"],
+                    "sources": [],
+                    "exclusions": ["Do not touch anything else"],
+                    "proofs": ["Fixture exists"],
+                    "gate_ids": ["fixture-check"],
+                },
+            )
+            self.assertNotEqual(replacement["run_id"], first["run_id"])
+            self.assertEqual(replacement["supersedes_run_id"], first["run_id"])
+            intent = read_json(
+                Path(replacement["evidence_paths"]["run_root"])
+                / "artifacts"
+                / "intake"
+                / "run-intent.json"
+            )
+            self.assertEqual(intent["mode"], "repair")
+            self.assertEqual(intent["targets"], ["manageroo_fixture.txt"])
 
     def test_existing_repo_intent_does_not_block_new_current_run(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -937,6 +1056,16 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertEqual(
                 (repo / "manageroo_fixture.txt").read_text(encoding="utf-8"),
                 "MANAGEROO deterministic fixture completed\n",
+            )
+            self.assertFalse(
+                (
+                    repo
+                    / ".manageroo"
+                    / "runs"
+                    / result["run_id"]
+                    / "delivery"
+                    / "delivery-transaction.json"
+                ).exists()
             )
 
 

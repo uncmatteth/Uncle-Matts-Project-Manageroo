@@ -29,6 +29,8 @@ from manageroo.credits import format_special_thanks  # noqa: E402
 from manageroo.install_status import (  # noqa: E402
     INSTALL_OWNERSHIP_MARKER,
     LAUNCHER_MARKER,
+    installation_is_manageroo_owned,
+    launcher_is_manageroo_owned,
     summarize_external_tools,
     uninstall_plan,
 )
@@ -65,7 +67,9 @@ CLAWPATCH_PACKAGE = f"clawpatch@{CLAWPATCH_VERSION}"
 CLAWPATCH_REFERENCE = "https://github.com/openclaw/clawpatch"
 OBSIDIAN_HELP_URL = "https://obsidian.md/help/install"
 CODING_AGENT_CLIS = (
-    {"preset": "codex", "name": "Codex", "executable": "codex"},
+    {"preset": "codex", "name": "Codex", "executable": "codex", "controlled_run": True},
+    {"preset": "claude-code", "name": "Claude Code", "executable": "claude", "controlled_run": False},
+    {"preset": "gemini", "name": "Gemini CLI", "executable": "gemini", "controlled_run": False},
 )
 NODE_MACOS_PACKAGE_URL = "https://nodejs.org/dist/v22.14.0/node-v22.14.0.pkg"
 NODE_MACOS_PACKAGE_SHA256 = "3931585e6af0785f01af897d31d67b7318e724af07845ffb04d432ab1a4532b4"
@@ -196,6 +200,10 @@ def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) 
     bin_dir.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         launcher = bin_dir / "manageroo.cmd"
+        if launcher.exists() and not launcher_is_manageroo_owned(
+            launcher, expected_prefix=prefix
+        ):
+            raise SystemExit(f"Installer refuses to overwrite an unowned launcher: {launcher}")
         launcher.write_text(
             f"@rem {LAUNCHER_MARKER}\n"
             f'@set "PYTHONPATH={_safe_cmd_value(app_root)}"\n'
@@ -205,6 +213,10 @@ def install_launcher(bin_dir: Path, python: Path, app_root: Path, prefix: Path) 
         )
     else:
         launcher = bin_dir / "manageroo"
+        if launcher.exists() and not launcher_is_manageroo_owned(
+            launcher, expected_prefix=prefix
+        ):
+            raise SystemExit(f"Installer refuses to overwrite an unowned launcher: {launcher}")
         app_value = shlex.quote(str(app_root))
         prefix_value = shlex.quote(str(prefix))
         python_value = shlex.quote(str(python))
@@ -1054,40 +1066,50 @@ def choose_agent_setup(
     detected = detect_coding_agents() if detected is None else detected
     print("\nCoding agent setup:")
     print("  Manageroo controls the job. Your coding agent performs the AI coding work.")
+    compatible = [item for item in detected if item.get("controlled_run", item.get("preset") == "codex")]
     if detected:
         names = ", ".join(item["name"] for item in detected)
         print(f"  Found {names} on this computer.")
+    incompatible = [item["name"] for item in detected if item not in compatible]
+    if incompatible:
+        print(
+            "  Detected but not enabled for controlled runs because they do not "
+            "provide Manageroo's required host filesystem boundary: "
+            + ", ".join(incompatible)
+            + "."
+        )
 
     if install_codex_flag and not skip_codex_flag:
         preference = "codex" if selection == "ask" else selection
         return {"preference": preference, "install_codex": True}
 
     if selection != "ask":
-        selected = next((item for item in detected if item["preset"] == selection), None)
+        selected = next((item for item in compatible if item["preset"] == selection), None)
         if selection != "auto" and not selected:
-            print(f"  {selection} was selected but is not currently available on PATH.")
+            print(f"  {selection} cannot be used for a controlled Manageroo run on this host.")
+            return {"preference": "auto", "install_codex": False}
         return {"preference": selection, "install_codex": False}
 
     if not sys.stdin.isatty():
         return {"preference": "auto", "install_codex": False}
 
-    if len(detected) == 1:
+    if len(compatible) == 1:
         print(f"  Manageroo will use it automatically. You can change this per project later.")
         return {"preference": "auto", "install_codex": False}
 
-    if len(detected) > 1:
+    if len(compatible) > 1:
         print("  1) Automatic selection (recommended)")
-        for index, item in enumerate(detected, start=2):
+        for index, item in enumerate(compatible, start=2):
             print(f"  {index}) Always use {item['name']}")
-        answer = input(f"Choose 1-{len(detected) + 1} [1]: ").strip()
+        answer = input(f"Choose 1-{len(compatible) + 1} [1]: ").strip()
         try:
             index = int(answer) - 2
         except ValueError:
             index = -1
-        preference = detected[index]["preset"] if 0 <= index < len(detected) else "auto"
+        preference = compatible[index]["preset"] if 0 <= index < len(compatible) else "auto"
         return {"preference": preference, "install_codex": False}
 
-    print("  Manageroo did not find a supported coding-agent CLI on this computer.")
+    print("  Manageroo did not find a safely isolated coding-agent CLI on this computer.")
     if skip_codex_flag:
         print("  Coding-agent setup was skipped. You can connect one later with `manageroo agent list`.")
         return {"preference": "auto", "install_codex": False}
@@ -1205,12 +1227,17 @@ def run_source_install_checks(
         )
 
 
-def install_app_tree(source: Path, app_root: Path) -> None:
+def install_app_tree(source: Path, app_root: Path, *, prefix: Path | None = None) -> None:
     """Stage a complete runtime before replacing the live import directory."""
     parent = app_root.parent
     parent.mkdir(parents=True, exist_ok=True)
     if app_root.is_symlink():
         raise SystemExit(f"Manageroo app path must not be a symlink: {app_root}")
+    owner_prefix = (prefix or app_root.parent).expanduser()
+    if app_root.exists() and not installation_is_manageroo_owned(owner_prefix):
+        raise SystemExit(
+            f"Installer refuses to replace an unowned app directory: {app_root}"
+        )
     stage_root = Path(tempfile.mkdtemp(prefix=f".{app_root.name}.stage-", dir=parent))
     staged_app = stage_root / "app"
     previous_app = parent / f".{app_root.name}.previous-{secrets.token_hex(8)}"
@@ -1282,6 +1309,12 @@ def main() -> int:
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
     args = parser.parse_args()
+
+    if os.name == "nt":
+        raise SystemExit(
+            "Native Windows Manageroo runs are not supported by the current secure "
+            "artifact backend. Install and run Manageroo inside WSL2 instead."
+        )
 
     if args.install_stack and args.skip_stack:
         raise SystemExit("--install-stack and --skip-stack conflict. Choose one.")
@@ -1400,7 +1433,19 @@ def main() -> int:
 
         if not venv_root.exists():
             venv.EnvBuilder(with_pip=False, clear=False).create(venv_root)
-        install_app_tree(ROOT / "src", app_root)
+        owned_install = installation_is_manageroo_owned(prefix)
+        for existing_proof_path in (prefix / "tests", prefix / "pyproject.toml"):
+            if existing_proof_path.exists() and not owned_install:
+                raise SystemExit(
+                    "Installer refuses to replace an unowned proof asset: "
+                    f"{existing_proof_path}"
+                )
+        install_app_tree(ROOT / "src", app_root, prefix=prefix)
+        proof_tests = prefix / "tests"
+        if proof_tests.exists():
+            shutil.rmtree(proof_tests)
+        shutil.copytree(ROOT / "tests", proof_tests, symlinks=False)
+        shutil.copy2(ROOT / "pyproject.toml", prefix / "pyproject.toml")
         python = venv_root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         if not python.exists():
             raise SystemExit(f"Virtual-environment Python is missing: {python}")

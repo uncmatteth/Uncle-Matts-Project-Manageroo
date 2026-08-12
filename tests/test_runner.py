@@ -59,6 +59,24 @@ class CommandRunnerTests(unittest.TestCase):
             self.assertTrue(log_path.is_file())
             self.assertEqual(json.loads(log_path.read_text(encoding="utf-8"))["stdout"], "ok\n")
 
+    def test_command_result_keeps_raw_output_but_redacts_persisted_log(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            logs = root / "logs"
+            result = CommandRunner(logs).run(
+                [sys.executable, "-c", "print('password=hunter2')"],
+                cwd=root,
+                log_name="secret-output",
+                kill_process_group=False,
+            )
+
+            persisted = json.loads(
+                (logs / "secret-output.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result.stdout, "password=hunter2\n")
+            self.assertEqual(persisted["stdout"], "password=<REDACTED>\n")
+            self.assertEqual(result.to_dict()["stdout"], "password=<REDACTED>\n")
+
 
 if __name__ == "__main__":
     unittest.main()

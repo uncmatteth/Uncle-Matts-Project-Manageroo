@@ -100,9 +100,13 @@ class CliEntrypointSmokeTests(unittest.TestCase):
                 "auto",
                 "--want",
                 request,
-                "--run",
             ]
         )
+
+    def test_bare_manageroo_prepares_request_without_implicit_run_or_apply(self):
+        args = parser().parse_args(["solo", "/tmp/project", "--want", "fix it"])
+        self.assertFalse(args.run)
+        self.assertFalse(args.apply)
 
 
 if __name__ == "__main__":

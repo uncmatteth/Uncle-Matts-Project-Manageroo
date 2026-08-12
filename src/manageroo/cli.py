@@ -195,11 +195,19 @@ def _plain_failure_explanation(detail: str) -> str:
             "One of Manageroo's protected run records changed while the worker "
             "was running. Manageroo put the record back and stopped."
         )
+    compact = " ".join(detail.split())
+    if compact:
+        return f"Manageroo could not finish this run: {compact[:600]}"
     return "Manageroo could not finish this run, so it stopped."
 
 
 def _format_plain_run_summary(data: dict, *, run_id: str, repo: Path) -> str:
     status = str(data.get("status") or data.get("phase") or "UNKNOWN").upper()
+    active_phases = {
+        "CREATED", "DISCOVERING", "PLANNING", "IMPLEMENTING", "VERIFYING",
+        "REVIEWING", "REPAIRING", "VERIFIED_PENDING_DELIVERY",
+        "DELIVERED_PENDING_RECEIPT",
+    }
     if status == "COMPLETE":
         happened = "The requested work passed Manageroo's required checks and review."
         if data.get("applied_to_source"):
@@ -214,6 +222,11 @@ def _format_plain_run_summary(data: dict, *, run_id: str, repo: Path) -> str:
         meaning = "No further work was accepted while that decision is unanswered."
         next_step = f"Run `{PUBLIC_COMMAND} decisions show {shlex.quote(run_id)} --repo {shlex.quote(str(repo))}`."
         heading = "Manageroo is waiting for your decision."
+    elif status in active_phases:
+        happened = "Manageroo is still working through the saved run."
+        meaning = "The run is active; it has not failed and has not been marked complete."
+        next_step = f"Run `{PUBLIC_COMMAND} status {shlex.quote(run_id)} --repo {shlex.quote(str(repo))}` to check progress."
+        heading = "Manageroo is working."
     else:
         error_detail = str(data.get("error") or "")
         happened = _plain_failure_explanation(error_detail)
@@ -296,7 +309,7 @@ def parser() -> argparse.ArgumentParser:
     solo.add_argument("--force", action="store_true")
     solo.add_argument("--json", action="store_true")
     solo_apply = solo.add_mutually_exclusive_group()
-    solo_apply.add_argument("--apply", dest="apply", action="store_true", default=True)
+    solo_apply.add_argument("--apply", dest="apply", action="store_true", default=False)
     solo_apply.add_argument("--no-apply", dest="apply", action="store_false")
 
     ready = sub.add_parser("ready", help="Say exactly what is ready, missing, optional, and next.")
@@ -308,7 +321,7 @@ def parser() -> argparse.ArgumentParser:
     next_cmd.add_argument("repo", nargs="?", default=".")
     next_cmd.add_argument("--mode", choices=["build", "repair"], default="build")
     next_apply = next_cmd.add_mutually_exclusive_group()
-    next_apply.add_argument("--apply", dest="apply", action="store_true", default=True)
+    next_apply.add_argument("--apply", dest="apply", action="store_true", default=False)
     next_apply.add_argument("--no-apply", dest="apply", action="store_false")
     next_cmd.add_argument("--json", action="store_true")
 
@@ -522,7 +535,7 @@ def parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Run the complete one-request workflow.")
     run.add_argument("--repo", default=".")
     run.add_argument("--brief")
-    run.add_argument("--mode", choices=["build", "repair"], default="build")
+    run.add_argument("--mode", choices=["build", "repair"], default=None)
     run.add_argument("--exact", action="store_true", help="Skip model-driven discovery and planning for an already-specified task.")
     run.add_argument("--target", action="append", default=[], help="Exact repo-relative file or bounded directory scope the task may change.")
     run.add_argument("--source", action="append", default=[], help="Binding repo-relative or absolute source file; may be repeated.")
@@ -1260,7 +1273,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     + f"What to do next: Run `{PUBLIC_COMMAND} report {controller.run_id} --repo {shlex.quote(str(repo))}` for the plain run summary."
                 )
-            return 0
+            return 0 if result.get("status") == "COMPLETE" else 1
 
         if args.command == "status":
             repo = _repo(args.repo)
@@ -1295,8 +1308,14 @@ def main(argv: list[str] | None = None) -> int:
                 print((delivery / "FINAL-REPORT.md").read_text(encoding="utf-8"))
                 return 0
             result_path = delivery / "final-result.json"
-            if not result_path.is_file():
-                result_path = delivery / "failure.json"
+            failure_path = delivery / "failure.json"
+            if failure_path.is_file():
+                failure = read_json(failure_path)
+                final = read_json(result_path) if result_path.is_file() else {}
+                if final.get("status") != "COMPLETE" or failure.get("finished_at", "") >= final.get("finished_at", ""):
+                    result_path = failure_path
+            elif not result_path.is_file():
+                result_path = failure_path
             result = read_json(result_path)
             if args.json:
                 print(json.dumps(result, indent=2))

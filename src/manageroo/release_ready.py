@@ -224,7 +224,9 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
     applied = bool(data.get("applied_to_source"))
     expected_tree_digest = str(data.get("verified_source_tree_sha256") or "").strip()
     expected_patch_digest = str(data.get("final_patch_sha256") or "").strip()
-    expected_git_head = str(data.get("verified_git_head") or "").strip()
+    expected_git_head = str(
+        data.get("verified_base_git_head") or data.get("verified_git_head") or ""
+    ).strip()
     current_git_head = _git_output(repo, ["git", "rev-parse", "HEAD"])
     runner = CommandRunner()
     failures: list[str] = []
@@ -241,9 +243,35 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
     if not expected_git_head:
         failures.append("run proof is not bound to an exact Git HEAD")
     elif current_git_head != expected_git_head:
-        failures.append(
-            "current Git HEAD does not match the commit verified by the completed run"
+        ancestor = runner.run(
+            ["git", "merge-base", "--is-ancestor", expected_git_head, current_git_head],
+            cwd=repo,
+            timeout_seconds=60,
         )
+        count = runner.run(
+            ["git", "rev-list", "--count", f"{expected_git_head}..{current_git_head}"],
+            cwd=repo,
+            timeout_seconds=60,
+        )
+        delivery_diff = runner.run(
+            ["git", "diff", "--no-ext-diff", "--binary", expected_git_head, current_git_head, "--"],
+            cwd=repo,
+            timeout_seconds=120,
+        )
+        delivery_digest = (
+            __import__("hashlib").sha256(delivery_diff.stdout.encode("utf-8")).hexdigest()
+            if delivery_diff.passed
+            else ""
+        )
+        if (
+            not ancestor.passed
+            or not count.passed
+            or count.stdout.strip() != "1"
+            or delivery_digest != expected_patch_digest
+        ):
+            failures.append(
+                "current HEAD is not the single exact commit of the reviewed final patch"
+            )
     if not expected_tree_digest:
         failures.append("run proof is not bound to a verified source-tree digest")
     else:
@@ -269,6 +297,7 @@ def _latest_manageroo_run_proof(repo: Path) -> dict[str, Any]:
         "verified_source_tree_sha256": expected_tree_digest,
         "final_patch_sha256": expected_patch_digest,
         "verified_git_head": expected_git_head,
+        "release_git_head": current_git_head,
         "detail": (
             f"run {run_id}; report={report_path}; patch={patch_path}; "
             f"review={review_status}; applied={applied}; "
@@ -434,7 +463,14 @@ def release_ready(
                 gate_tree_digest = source_tree_digest(gate_repo, CommandRunner())
                 outcomes = []
                 for gate in gates:
-                    outcomes.extend(runner.run([gate], gate_repo, require_one=True))
+                    outcomes.extend(
+                        runner.run(
+                            [gate],
+                            gate_repo,
+                            scratch_root=gate_repo.parent / "gate-workspaces",
+                            require_one=True,
+                        )
+                    )
                     _assert_gate_checkout_unchanged(
                         gate_repo,
                         expected_head=initial_head,
@@ -454,7 +490,7 @@ def release_ready(
     final_head = _git_output(repo, ["git", "rev-parse", "HEAD"])
     if final_head != initial_head:
         integrity_failures.append("HEAD changed while release checks ran")
-    expected_git_head = str(run_proof.get("verified_git_head") or "").strip()
+    expected_git_head = str(run_proof.get("release_git_head") or "").strip()
     if not expected_git_head:
         integrity_failures.append("completed run proof has no verified Git HEAD")
     elif final_head != expected_git_head:

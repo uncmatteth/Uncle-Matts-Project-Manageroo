@@ -23,15 +23,15 @@ The controller, not the worker, decides whether the job is complete.
 git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 ```
 
-### Windows PowerShell
+### Windows through WSL2
 
 ```powershell
-git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git; Set-Location Uncle-Matts-Project-Manageroo; .\install.ps1
+git clone https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo.git && cd Uncle-Matts-Project-Manageroo && ./install.sh
 ```
 
 If the repository is already cloned, rerun the platform installer from that existing folder. Do not run the clone command from inside the clone; that creates a nested copy.
 
-The installer checks Python 3.11+ and Git and offers platform-appropriate setup when either is missing. It also detects Codex, Claude Code, and Gemini CLI, uses a single detected tool automatically, asks for a preference only when several are present, and offers Codex setup when none is found.
+The installer checks Python 3.11+ and Git. Native Windows Manageroo runs are not supported by the current secure artifact backend; use WSL2. Setup reports Codex, Claude Code, and Gemini CLI when present, but controlled runs currently enable only Codex because it provides the verified host filesystem boundary Manageroo requires.
 
 Useful checks after installation:
 
@@ -68,7 +68,7 @@ choice. That saved preference is applied separately from task routing.
 The repository contains **54 bundled skill packages**.
 
 - **22 portable core skills** are installed as the recommended/default Manageroo-owned pack.
-- **32 additional bundled skills** are optional capabilities and are not silently installed as Manageroo-owned defaults.
+- **33 additional bundled skills** are optional capabilities and are not silently installed as Manageroo-owned defaults.
 - Skills already installed on the user's machine remain host-owned and can be discovered separately.
 
 ## 22 portable core skills
@@ -315,7 +315,7 @@ Portable core
     18 default Manageroo-owned skills
 
 Bundled optional library
-    32 additional skills available without becoming default installs
+    33 additional skills available without becoming default installs
 
 Optional surrounding stack
     GitNexus + GBrain + TruffleHog + AUTOREVIEW + Clawpatch + Obsidian when selected

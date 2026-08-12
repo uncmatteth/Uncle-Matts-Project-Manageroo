@@ -10,19 +10,18 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
-from .adapters.base import AgentRequest
 from .adapters.factory import build_adapter
-from .assets import asset_path
 from .config import load_config
 from .errors import SafetyError
 from .intent_lock import audit_compaction_text, capture_intent_lock
 from .jobs import JobStatus, JobStore
+from .orchestrator import Orchestrator
 from .policy import CommandPolicy, ScopePolicy
 from .project import initialize_project
 from .runner import CommandRunner
 from .selftest import run_self_test
 
-LIVE_AGENT_CHOICES = ("codex", "claude-code", "gemini")
+LIVE_AGENT_CHOICES = ("codex",)
 _LIVE_PROOF_GIT_ENTRY_LIMIT = 10_000
 _LIVE_PROOF_GIT_BYTE_LIMIT = 64 * 1024 * 1024
 
@@ -180,74 +179,34 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
         doctor = adapter.doctor(repo)
         if not doctor.get("ok"):
             return {"ok": False, "detail": f"{agent} failed adapter compatibility checks", "agent": agent, "doctor": doctor}
-        baseline_identity = _live_proof_git_identity(repo, runner)
-        baseline_workspace = _live_proof_tree_inventory(repo, excluded_roots={".git"})
-        baseline_status = runner.run(
-            ["git", "status", "--porcelain", "--untracked-files=all", "--ignored=matching"],
-            cwd=repo,
-            timeout_seconds=30,
+        result = Orchestrator(repo, adapter=adapter).run(
+            brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+            mode="build",
+            apply_on_success=True,
+            exact_task={
+                "targets": ["manageroo_live_agent_proof.txt"],
+                "sources": ["test_product_proof.py"],
+                "exclusions": ["Do not modify any other path."],
+                "proofs": ["The configured product-proof-check passes."],
+                "gate_ids": ["product-proof-check"],
+            },
         )
-        if not baseline_status.passed:
-            raise RuntimeError(baseline_status.stderr or baseline_status.stdout)
-        prompt_path = root / "live-agent-prompt.md"
-        output_path = root / "live-agent-output.json"
-        prompt_path.write_text(
-            "# Bounded live-agent integration proof\n\nWork only in the assigned Git repository. The tracked file `manageroo_live_agent_proof.txt` already exists. Edit that file in place so its exact contents are `MANAGEROO live agent proof completed` followed by exactly one newline. You are explicitly authorized to make this one workspace edit. Do not modify, delete, rename, or create any other repository file. Do not commit. Return structured output with status `implemented`, files_changed containing exactly `manageroo_live_agent_proof.txt`, and truthful values for every other required schema field.\n",
-            encoding="utf-8",
-        )
-        response = adapter.run(AgentRequest(role="live-proof-implementer", prompt_path=prompt_path, schema_path=asset_path("schemas/agent-result.schema.json"), output_path=output_path, cwd=repo, sandbox="workspace-write", timeout_seconds=int(config["agent"]["timeout_seconds"]), metadata={"allowed_paths": ["manageroo_live_agent_proof.txt"]}))
         target = repo / "manageroo_live_agent_proof.txt"
         expected = "MANAGEROO live agent proof completed\n"
         actual = target.read_text(encoding="utf-8") if target.is_file() else None
-        status = runner.run(
-            ["git", "status", "--porcelain", "--untracked-files=all", "--ignored=matching"],
-            cwd=repo,
-            timeout_seconds=30,
+        declared = sorted(set(str(item) for item in result.get("files_changed", [])))
+        gate_ok = any(
+            item.get("id") == "product-proof-check" and item.get("passed")
+            for item in result.get("gates", [])
         )
-        if not status.passed:
-            raise RuntimeError(status.stderr or status.stdout)
-        changed_paths = sorted(
-            line[3:].strip()
-            for line in status.stdout.splitlines()
-            if len(line) >= 4 and not line.startswith("!! ") and line[3:].strip()
-        )
-        ignored_paths = sorted(
-            line[3:].strip()
-            for line in status.stdout.splitlines()
-            if line.startswith("!! ") and line[3:].strip()
-        )
-        final_identity = _live_proof_git_identity(repo, runner)
-        final_workspace = _live_proof_tree_inventory(repo, excluded_roots={".git"})
-        identity_checks = {
-            f"{key}_unchanged": final_identity[key] == baseline_identity[key]
-            for key in baseline_identity
-        }
-        gate = runner.run([sys.executable, "-m", "unittest", "discover"], cwd=repo, timeout_seconds=60)
-        declared = sorted(set(str(item) for item in response.data.get("files_changed", [])))
-        expected_paths = ["manageroo_live_agent_proof.txt"]
-        baseline_ignored_paths = sorted(
-            line[3:].strip()
-            for line in baseline_status.stdout.splitlines()
-            if line.startswith("!! ") and line[3:].strip()
-        )
-        baseline_nonignored_status = [
-            line for line in baseline_status.stdout.splitlines() if not line.startswith("!! ")
-        ]
-        workspace_unchanged_outside_target = {
-            path: value for path, value in final_workspace.items() if path not in expected_paths
-        } == {
-            path: value for path, value in baseline_workspace.items() if path not in expected_paths
-        }
+        review_ok = result.get("review", {}).get("status") == "approved"
         ok = (
-            response.data.get("status") == "implemented"
-            and declared == expected_paths
-            and not baseline_nonignored_status
-            and changed_paths == expected_paths
-            and ignored_paths == baseline_ignored_paths
-            and workspace_unchanged_outside_target
-            and all(identity_checks.values())
+            result.get("status") == "COMPLETE"
+            and result.get("applied_to_source") is True
+            and declared == ["manageroo_live_agent_proof.txt"]
             and actual == expected
-            and gate.passed
+            and gate_ok
+            and review_ok
         )
         detail = (
             f"{agent} completed one bounded disposable write through the production adapter"
@@ -259,23 +218,15 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
             "detail": detail,
             "agent": agent,
             "doctor": doctor,
-            "response_status": response.data.get("status"),
-            "response_summary": response.data.get("summary"),
-            "response_risks": response.data.get("risks", []),
-            "scope_expansion_requested": response.data.get("scope_expansion_requested", []),
+            "run_id": result.get("run_id"),
+            "run_status": result.get("status"),
+            "applied_to_source": result.get("applied_to_source"),
             "declared_files": declared,
-            "changed_paths": changed_paths,
-            "ignored_paths": ignored_paths,
-            "baseline_ignored_paths": baseline_ignored_paths,
-            "baseline_pristine": not baseline_nonignored_status,
-            "workspace_unchanged_outside_target": workspace_unchanged_outside_target,
-            **identity_checks,
             "target_exists": target.is_file(),
             "target_exact": actual == expected,
-            "gate_exit_code": gate.exit_code,
-            "gate_output_tail": (gate.stdout + gate.stderr)[-2000:],
-            "agent_stdout_tail": response.stdout[-4000:],
-            "agent_stderr_tail": response.stderr[-2000:],
+            "gate_passed": gate_ok,
+            "independent_review_approved": review_ok,
+            "evidence_paths": result.get("evidence_paths", {}),
         }
 
 
@@ -398,7 +349,7 @@ def run_product_proof(*, include_regression: bool = True, live_agent: str | None
     if live_agent:
         checks.append(_run_case(f"Live coding-agent integration ({live_agent})", lambda: _live_agent_case(live_agent)))
     else:
-        checks.append(_proof("Live coding-agent integration", False, "no live agent selected; run `manageroo prove --live-agent codex` (or claude-code/gemini)", {"skipped": True, "choices": list(LIVE_AGENT_CHOICES)}))
+        checks.append(_proof("Live coding-agent integration", False, "no live agent selected; run `manageroo prove --live-agent codex`", {"skipped": True, "choices": list(LIVE_AGENT_CHOICES)}))
     ok = all(item["ok"] for item in checks)
     status = "COMPLETE" if ok else "PARTIAL"
     blockers = [item["name"] for item in checks if not item["ok"]]

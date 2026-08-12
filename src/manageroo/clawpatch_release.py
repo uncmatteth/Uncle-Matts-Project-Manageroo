@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from .config_lock import config_mutation_lock
 from .errors import SafetyError
+from .runner import platform_argv
 
 
 SUPERVISOR_EXECUTABLE = "clawpatch-supervise"
@@ -33,7 +34,7 @@ def supervisor_runtime_lock(executable: str) -> AbstractContextManager[None]:
 def supervisor_runtime_gate_ready(executable: str) -> bool:
     try:
         probe = subprocess.run(
-            [executable, SUPERVISOR_GATE_VERSION_ARG],
+            platform_argv([executable, SUPERVISOR_GATE_VERSION_ARG]),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -63,7 +64,7 @@ def _verify_supervisor_version(
 ) -> None:
     try:
         result = run(
-            [executable, "--version"],
+            platform_argv([executable, "--version"]),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -167,7 +168,7 @@ def release_sweep(
     def invoke() -> subprocess.CompletedProcess[str]:
         try:
             return run(
-                argv,
+                platform_argv(argv),
                 cwd=repo.expanduser().resolve(),
                 text=True,
                 check=False,
@@ -198,7 +199,7 @@ def supervisor_state_root(
     argv = [executable, "--repo", str(resolved_repo), "--print-state-path"]
     try:
         result = run(
-            argv,
+            platform_argv(argv),
             cwd=resolved_repo,
             text=True,
             capture_output=True,

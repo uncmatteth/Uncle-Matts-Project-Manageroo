@@ -186,7 +186,7 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             ],
             demonstration={
                 "gates": [
-                    {"gate": {"id": "checkout-e2e"}, "result": {"exit_code": 0}},
+                    {"gate": {"id": "checkout-e2e", "kind": "browser"}, "result": {"exit_code": 0}},
                 ],
                 "product_evidence": [
                     {
@@ -198,6 +198,24 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             review={"status": "approved", "findings": []},
         )
         self.assertEqual(rows[0]["status"], "passed")
+
+    def test_generic_unit_test_in_demo_lane_cannot_certify_browser_login(self):
+        outcome = "User can log in through the browser"
+        rows = build_acceptance_evidence(
+            product={"acceptance_outcomes": [outcome]},
+            gate_results=[
+                {"gate": {"id": "unit-tests", "kind": "test"}, "result": {"exit_code": 0}},
+            ],
+            demonstration={
+                "gates": [
+                    {"gate": {"id": "unit-tests", "kind": "test"}, "result": {"exit_code": 0}},
+                ],
+                "product_evidence": [{"outcome": outcome, "gate_ids": ["unit-tests"]}],
+            },
+            review={"status": "approved", "findings": []},
+        )
+        self.assertEqual(rows[0]["status"], "unknown")
+        self.assertIn("generic", rows[0]["reason"].lower())
 
     def test_hyphenated_security_terms_require_bound_demonstration_gate(self):
         outcomes = (

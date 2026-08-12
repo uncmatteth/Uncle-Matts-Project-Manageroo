@@ -158,9 +158,12 @@ def _excluded(path: Path) -> bool:
 
 
 def _package_release_module():
+    module_path = ROOT / "scripts" / "package_release.py"
+    if not module_path.is_file():
+        return None
     spec = importlib.util.spec_from_file_location(
         "manageroo_package_release_for_verification",
-        ROOT / "scripts" / "package_release.py",
+        module_path,
     )
     if spec is None or spec.loader is None:
         raise RuntimeError("Could not load scripts/package_release.py for source selection.")
@@ -172,6 +175,17 @@ def _package_release_module():
 def source_files() -> list[Path]:
     """Use the exact source-archive selector so validation and packaging bind the same tree."""
     module = _package_release_module()
+    if module is None:
+        # The end-user archive deliberately excludes the release publisher. Its
+        # verifier must still be self-contained and able to validate that archive.
+        return sorted(
+            path
+            for path in ROOT.rglob("*")
+            if path.is_file()
+            and not path.is_symlink()
+            and not _excluded(path)
+            and _relative(path).as_posix() not in GENERATED
+        )
     return sorted(
         path
         for path in module.included_files()

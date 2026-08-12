@@ -9,6 +9,7 @@ from manageroo.adapters.mock import MockAdapter
 from manageroo.orchestrator import Orchestrator
 from manageroo.project import initialize_project
 from manageroo.util import read_json
+from manageroo.errors import ValidationError
 
 
 def _toml_array(items):
@@ -115,7 +116,21 @@ class ExternalIntelligenceTests(unittest.TestCase):
                 run_root / "artifacts" / "delivery" / "external-capture.json"
             )
             self.assertTrue(capture["summary"]["passed"])
-            self.assertIn("CAPTURED:COMPLETE", capture["records"][0]["stdout"])
+            self.assertIn("CAPTURED:VERIFIED_PENDING_DELIVERY", capture["records"][0]["stdout"])
+
+    def test_direct_run_cannot_bypass_explicit_gbrain_requirement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            (repo / ".manageroo" / "PRODUCT-BRIEF.md").write_text(
+                "# Product request\n\nUse GBrain context before changing this.\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValidationError, "gbrain_search_command"):
+                Orchestrator(repo, adapter=MockAdapter()).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
 
 
 if __name__ == "__main__":
