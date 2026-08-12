@@ -145,6 +145,54 @@ class ReleaseReadyTests(unittest.TestCase):
             self.assertIn("source tree", result["error"].lower())
             self.assertEqual(read_json(result_path)["status"], "BLOCKED")
 
+    def test_completed_run_proof_rejects_mid_digest_source_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            run_root = self._completed_run(repo, run_id="mid-digest-proof-race")
+            result_path = run_root / "delivery" / "final-result.json"
+            earlier_path = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            later_path = repo / "README.md"
+            earlier_path.write_text("dirty proof source\n", encoding="utf-8")
+            proof = read_json(result_path)
+            proof["verified_source_tree_sha256"] = source_tree_digest(repo, CommandRunner())
+            atomic_write_json(result_path, proof)
+            mutation_triggered = False
+            later_hashes = 0
+
+            class FakeOrchestrator:
+                def __init__(self):
+                    self.source_repo = repo
+                    self.run_root = run_root
+                    self.runner = CommandRunner()
+
+                def run(self):
+                    return read_json(result_path)
+
+            def mutate_earlier_file_after_hashing_later(path: Path) -> str:
+                nonlocal later_hashes, mutation_triggered
+                digest = sha256_file(path)
+                if path == later_path:
+                    later_hashes += 1
+                if path == later_path and later_hashes == 2:
+                    earlier_path.write_text("changed during digest\n", encoding="utf-8")
+                    mutation_triggered = True
+                return digest
+
+            module = type("FakeModule", (), {"Orchestrator": FakeOrchestrator})
+            install_release_proof_policy(module)
+
+            with patch(
+                "manageroo.release_proof_policy.sha256_file",
+                side_effect=mutate_earlier_file_after_hashing_later,
+            ):
+                result = module.Orchestrator().run()
+
+            self.assertTrue(mutation_triggered)
+            self.assertEqual(later_hashes, 2)
+            self.assertEqual(result["status"], "BLOCKED")
+            self.assertIn("source tree", result["error"].lower())
+            self.assertEqual(read_json(result_path)["status"], "BLOCKED")
+
     def _release_ready(self, repo: Path) -> dict:
         helper_patch, gbrain_patch = self._release_patches()
         with helper_patch, gbrain_patch:

@@ -41,11 +41,63 @@ def _untracked_paths(repo: Path, runner: Any) -> list[str]:
     return sorted(item for item in result.stdout.split("\0") if item)
 
 
+def _worktree_status(repo: Path, runner: Any) -> str:
+    result = runner.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=repo,
+        timeout_seconds=120,
+    )
+    if not result.passed:
+        raise RuntimeError(result.stderr or "Could not inspect source tree for release proof")
+    return result.stdout
+
+
+def _git_head_tree_digest(repo: Path, runner: Any) -> str:
+    result = runner.run(
+        ["git", "rev-parse", "--verify", "HEAD^{tree}"],
+        cwd=repo,
+        timeout_seconds=120,
+    )
+    tree = result.stdout.strip() if result.passed else ""
+    if not tree:
+        raise RuntimeError(result.stderr or "Could not resolve Git HEAD tree for release proof")
+    return hashlib.sha256(b"git-tree\0" + tree.encode("ascii")).hexdigest()
+
+
+def _path_states(repo: Path, paths: list[str]) -> dict[str, tuple[int, ...] | None]:
+    states: dict[str, tuple[int, ...] | None] = {}
+    for relative in paths:
+        try:
+            state = (repo / relative).lstat()
+        except FileNotFoundError:
+            states[relative] = None
+        except OSError as exc:
+            raise RuntimeError(
+                f"Could not inspect source path for release proof: {relative}: {exc}"
+            ) from exc
+        else:
+            states[relative] = (
+                state.st_mode,
+                state.st_dev,
+                state.st_ino,
+                state.st_nlink,
+                state.st_size,
+                state.st_mtime_ns,
+                state.st_ctime_ns,
+            )
+    return states
+
+
 def source_tree_digest(repo: Path, runner: Any) -> str:
-    """Hash Git-visible source state, including tracked gitlinks and untracked files."""
+    """Hash Git-visible source state, using immutable Git identity when clean."""
     repo = repo.expanduser().resolve()
+    if not _worktree_status(repo, runner):
+        return _git_head_tree_digest(repo, runner)
     digest = hashlib.sha256()
     tracked = _tracked_index_entries(repo, runner)
+    untracked = _untracked_paths(repo, runner)
+    paths = sorted(set(tracked) | set(untracked))
+    states_before = _path_states(repo, paths)
 
     for relative in sorted(tracked):
         mode_text, object_id = tracked[relative]
@@ -73,7 +125,7 @@ def source_tree_digest(repo: Path, runner: Any) -> str:
         digest.update(content_hash.encode("ascii"))
         digest.update(b"\0")
 
-    for relative in _untracked_paths(repo, runner):
+    for relative in untracked:
         path = repo / relative
         if path.is_symlink():
             kind = b"untracked-symlink"
@@ -90,7 +142,24 @@ def source_tree_digest(repo: Path, runner: Any) -> str:
         digest.update(b"\0")
         digest.update(content_hash.encode("ascii"))
         digest.update(b"\0")
+    if (
+        tracked != _tracked_index_entries(repo, runner)
+        or untracked != _untracked_paths(repo, runner)
+        or states_before != _path_states(repo, paths)
+    ):
+        raise RuntimeError("Source tree changed while its digest was being computed.")
     return digest.hexdigest()
+
+
+def _stable_source_tree_digest(repo: Path, runner: Any) -> str:
+    """Return a digest only when two guarded source snapshots agree."""
+    status_before = _worktree_status(repo, runner)
+    first = source_tree_digest(repo, runner)
+    second = source_tree_digest(repo, runner)
+    status_after = _worktree_status(repo, runner)
+    if first != second or status_before != status_after:
+        raise RuntimeError("Source tree changed while completed-run proof was being bound.")
+    return second
 
 
 def _git_head(repo: Path, runner: Any) -> str:
@@ -181,7 +250,12 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
             )
             current_head_before = _git_head(self.source_repo, self.runner)
             patch_digest_before = sha256_file(patch_path) if patch_path.is_file() else ""
-            digest = source_tree_digest(self.source_repo, self.runner)
+            digest_error = ""
+            try:
+                digest = _stable_source_tree_digest(self.source_repo, self.runner)
+            except RuntimeError as exc:
+                digest = ""
+                digest_error = str(exc)
             patch_digest_after = sha256_file(patch_path) if patch_path.is_file() else ""
             current_head_after = _git_head(self.source_repo, self.runner)
             if not saved_head:
@@ -203,6 +277,8 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
                 block("Existing completed run was verified at another Git HEAD.")
             elif current_head_before != saved_head or current_head_after != saved_head:
                 block("Source repository HEAD changed after existing completed-run proof.")
+            elif digest_error:
+                block(digest_error)
             elif digest != saved_tree_digest:
                 block("Source tree changed after existing completed-run proof.")
             elif (
@@ -222,9 +298,16 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
             )
             expected_patch_digest = _reviewed_patch_digest(self)
             patch_digest_before = sha256_file(patch_path) if patch_path.is_file() else ""
-            digest = source_tree_digest(self.source_repo, self.runner)
+            digest_error = ""
+            try:
+                digest = _stable_source_tree_digest(self.source_repo, self.runner)
+            except RuntimeError as exc:
+                digest = ""
+                digest_error = str(exc)
             patch_digest_after = sha256_file(patch_path) if patch_path.is_file() else ""
-            if (
+            if digest_error:
+                block(digest_error)
+            elif (
                 patch_digest_before != expected_patch_digest
                 or patch_digest_after != expected_patch_digest
             ):
