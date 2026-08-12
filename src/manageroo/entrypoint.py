@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -278,6 +280,44 @@ def _directory_flags() -> int:
     )
 
 
+def _rename_noreplace(
+    source: str,
+    destination: str,
+    *,
+    src_dir_fd: int,
+    dst_dir_fd: int,
+) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform.startswith("linux"):
+        rename = getattr(libc, "renameat2", None)
+        flags = 1  # RENAME_NOREPLACE
+    elif sys.platform == "darwin":
+        rename = getattr(libc, "renameatx_np", None)
+        flags = 4  # RENAME_EXCL
+    else:
+        rename = None
+        flags = 0
+    if rename is None:
+        raise OSError(errno.ENOSYS, "atomic no-replace rename is unavailable")
+    rename.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.restype = ctypes.c_int
+    if rename(
+        src_dir_fd,
+        os.fsencode(source),
+        dst_dir_fd,
+        os.fsencode(destination),
+        flags,
+    ) != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), destination)
+
+
 @contextmanager
 def _pinned_planning_directory(
     run_root: Path,
@@ -463,7 +503,7 @@ def _republish_pinned_artifacts(
             serialized=blocking_bytes,
             expected_sha256=blocking_bytes_sha256,
         )
-        os.rename(
+        _rename_noreplace(
             claimed_name,
             "artifacts",
             src_dir_fd=run_descriptor,
@@ -512,7 +552,7 @@ def _republish_pinned_artifacts(
                 )
             except FileNotFoundError:
                 try:
-                    os.rename(
+                    _rename_noreplace(
                         claimed_name,
                         "artifacts",
                         src_dir_fd=run_descriptor,

@@ -2,6 +2,7 @@ import io
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -719,6 +720,75 @@ class DecisionRegressionTests(unittest.TestCase):
 
             self.assertTrue(mutated)
             self.assertEqual(read_json(blocking), replacement)
+
+    def test_artifact_republish_does_not_replace_concurrent_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_root = Path(temp) / "run"
+            planning = run_root / "artifacts" / "planning"
+            planning.mkdir(parents=True)
+            blocking = planning / "blocking-decisions.json"
+            payload = {
+                "decisions": [
+                    {"id": "deployment", "question": "Choose", "options": ["one"]}
+                ]
+            }
+            atomic_write_json(blocking, payload)
+            expected_sha256 = entrypoint.sha256_json(
+                {"decisions": payload["decisions"]}
+            )
+            original_write = entrypoint._atomic_write_json_at
+            concurrent_state = None
+
+            def create_concurrent_directory(*args, **kwargs):
+                nonlocal concurrent_state
+                result = original_write(*args, **kwargs)
+                subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import sys; from pathlib import Path; Path(sys.argv[1]).mkdir()",
+                        str(run_root / "artifacts"),
+                    ],
+                    check=True,
+                )
+                concurrent_state = (run_root / "artifacts").stat()
+                return result
+
+            with entrypoint._pinned_planning_directory(run_root) as (
+                pinned_planning,
+                planning_descriptor,
+                planning_state,
+                artifacts_descriptor,
+                artifacts_state,
+                run_descriptor,
+            ), patch(
+                "manageroo.entrypoint._atomic_write_json_at",
+                side_effect=create_concurrent_directory,
+            ):
+                with self.assertRaises(entrypoint.SafetyError):
+                    entrypoint._republish_pinned_artifacts(
+                        run_descriptor,
+                        artifacts_descriptor,
+                        artifacts_state,
+                        planning_descriptor,
+                        planning_state,
+                        pinned_planning,
+                        expected_sha256,
+                    )
+
+            self.assertIsNotNone(concurrent_state)
+            current_state = (run_root / "artifacts").stat()
+            self.assertEqual(
+                (current_state.st_dev, current_state.st_ino),
+                (concurrent_state.st_dev, concurrent_state.st_ino),
+            )
+            self.assertEqual(list((run_root / "artifacts").iterdir()), [])
+            recoverable = list(run_root.glob(".artifacts.answer-*"))
+            self.assertEqual(len(recoverable), 1)
+            self.assertEqual(
+                read_json(recoverable[0] / "planning" / blocking.name),
+                payload,
+            )
 
     def test_planning_directory_swap_after_republish_validation_cannot_report_success(self):
         with tempfile.TemporaryDirectory() as temp:
