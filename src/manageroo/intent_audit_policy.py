@@ -24,8 +24,9 @@ _BEFORE_CLAIM_LINK = re.compile(
     r"\b(?:confirming|making|so|therefore|thus)\s+(?:(?:the\s+)?(?:build|release|result|status)\s+(?:is|was)\s+)?$",
     re.IGNORECASE,
 )
-_AFFIRMATIVE_CLAIM_PREFIX = re.compile(
-    r"^\s*(?:(?:the\s+)?(?:build|release|result|status)\s+(?:is|was)\s+)?$",
+_PREVIOUS_CLAIM_LINK = re.compile(
+    r"^\s*(?:so|therefore|thus)\s*,?\s+"
+    r"(?:(?:the\s+)?(?:build|release|result|status)\s+(?:is|was)\s+)?$",
     re.IGNORECASE,
 )
 _NONAFFIRMATIVE_CLAIM_STATE = re.compile(
@@ -110,7 +111,7 @@ def _affirmatively_supports_claim(evidence: str, claim: str) -> bool:
             and not _SCOPED_AWAY_EVIDENCE.search(clause_prefix)
         )
         previous_clause_support = False
-        if _AFFIRMATIVE_CLAIM_PREFIX.fullmatch(clause_prefix):
+        if _PREVIOUS_CLAIM_LINK.fullmatch(clause_prefix):
             previous_end = clause_start - 1
             if previous_end >= 0:
                 earlier = evidence[:previous_end]

@@ -768,7 +768,7 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
     def test_audit_allows_successful_outcome_before_claim(self):
         proofs = (
             "All release gates passed, therefore production-ready.",
-            "All checks passed. The build is production-ready.",
+            "All release gates passed. Therefore, the build is production-ready.",
         )
         for proof in proofs:
             with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
@@ -782,12 +782,14 @@ intent_lock.capture_intent_lock(repo, want="Replacement intent.", force=True)
 
                 self.assertTrue(report["ok"], report)
                 self.assertFalse(report["confidence_claims_blocking"])
+                self.assertTrue(report["confidence_claims_supported"])
 
     def test_audit_rejects_unrelated_success_as_completion_proof(self):
         proofs = (
             "Production-ready because an unrelated unit test passed.",
             "An unrelated unit test passed, therefore production-ready.",
             "An unrelated unit test passed. The build is production-ready.",
+            "Unit tests passed. Production-ready deployment still requires a security review.",
         )
         for proof in proofs:
             with self.subTest(proof=proof), tempfile.TemporaryDirectory() as temp:
