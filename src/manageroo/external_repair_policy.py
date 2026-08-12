@@ -84,6 +84,73 @@ def _untracked_paths(orchestrator: Any, *, ignored: bool) -> set[str]:
     return {safe_repo_relative(item) for item in result.stdout.split("\0") if item}
 
 
+def _ignored_paths(orchestrator: Any) -> set[str]:
+    """List ignored leaves and their directory hierarchy without following links."""
+
+    assert orchestrator.workspace is not None
+    leaves = _untracked_paths(orchestrator, ignored=True)
+    result = orchestrator.runner.run(
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "-z",
+            "--exclude-standard",
+            "--ignored",
+            "--directory",
+            "--",
+        ],
+        cwd=orchestrator.workspace,
+        timeout_seconds=60,
+    )
+    if not result.passed:
+        raise SafetyError("Could not inspect ignored external repair workspace directories.")
+    directory_roots = {
+        safe_repo_relative(item[:-1])
+        for item in result.stdout.split("\0")
+        if item.endswith("/")
+    }
+    directories = set(directory_roots)
+    for path in leaves | directory_roots:
+        parent = Path(path).parent
+        while parent != Path("."):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+
+    try:
+        for path in sorted(directory_roots):
+            root = orchestrator.workspace / path
+            root_state = root.lstat()
+            if stat.S_ISLNK(root_state.st_mode) or not stat.S_ISDIR(root_state.st_mode):
+                raise SafetyError(f"Ignored workspace directory changed while inspecting {path}.")
+            for current, child_directories, _files in os.walk(root, followlinks=False):
+                relative = Path(current).relative_to(orchestrator.workspace).as_posix()
+                directories.add(safe_repo_relative(relative))
+                retained: list[str] = []
+                for child_name in child_directories:
+                    child = Path(current) / child_name
+                    child_state = child.lstat()
+                    if stat.S_ISDIR(child_state.st_mode) and not stat.S_ISLNK(
+                        child_state.st_mode
+                    ):
+                        retained.append(child_name)
+                        directories.add(
+                            safe_repo_relative(
+                                child.relative_to(orchestrator.workspace).as_posix()
+                            )
+                        )
+                child_directories[:] = retained
+        for path in directories:
+            mode = (orchestrator.workspace / path).lstat().st_mode
+            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+                raise SafetyError(f"Ignored workspace directory changed while inspecting {path}.")
+    except SafetyError:
+        raise
+    except OSError as exc:
+        raise SafetyError(f"Could not inspect ignored workspace directories: {exc}") from exc
+    return leaves | directories
+
+
 def _ignored_entry_state(
     orchestrator: Any, path: str, *, root: Path | None = None
 ) -> tuple[str, int, int, int, int, str]:
@@ -130,6 +197,10 @@ def _ignored_entry_state(
                 kind = "file"
             finally:
                 os.close(descriptor)
+        elif stat.S_ISDIR(before.st_mode):
+            inspected = before
+            digest = ""
+            kind = "directory"
         else:
             inspected = before
             digest = ""
@@ -143,7 +214,7 @@ def _ignored_entry_state(
         stat.S_IMODE(inspected.st_mode),
         inspected.st_dev,
         inspected.st_ino,
-        inspected.st_size,
+        0 if kind == "directory" else inspected.st_size,
         digest,
     )
 
@@ -190,9 +261,10 @@ def _persisted_ignored_state(
         kind, mode, device, inode, size, digest = raw_entry
         if (
             not isinstance(kind, str)
-            or kind not in {"file", "symlink", "other"}
+            or kind not in {"file", "symlink", "directory", "other"}
             or any(type(value) is not int for value in (mode, device, inode, size))
             or not isinstance(digest, str)
+            or (kind == "directory" and (size != 0 or digest))
         ):
             raise SafetyError(f"Command-owned {name} checkpoint ignored state is invalid.")
         state[path] = (kind, mode, device, inode, size, digest)
@@ -206,7 +278,7 @@ def _verify_ignored_state(
     expected: dict[str, tuple[str, int, int, int, int, str]],
     require_identity: bool = True,
 ) -> None:
-    paths = _untracked_paths(orchestrator, ignored=True)
+    paths = _ignored_paths(orchestrator)
     actual = _ignored_state(orchestrator, paths)
     if paths != set(expected) or any(
         not _ignored_entry_matches(actual[path], expected[path], require_identity=require_identity)
@@ -448,8 +520,44 @@ def _replace_workspace_from_checkpoint(
                 raise SafetyError(
                     f"Command-owned {name} checkpoint ignored workspace data changed."
                 )
+
+        directories = sorted(
+            (
+                (path, expected)
+                for path, expected in preserved_ignored_state.items()
+                if expected[0] == "directory"
+            ),
+            key=lambda item: (item[0].count("/"), item[0]),
+        )
+        for path, _expected in directories:
             destination = staged / path
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                destination_state = destination.lstat()
+            except FileNotFoundError:
+                destination.mkdir(mode=0o700)
+            else:
+                if stat.S_ISLNK(destination_state.st_mode) or not stat.S_ISDIR(
+                    destination_state.st_mode
+                ):
+                    raise SafetyError(
+                        f"Command-owned {name} checkpoint collides with preserved ignored "
+                        "workspace data."
+                    )
+
+        for path, expected in sorted(preserved_ignored_state.items()):
+            if expected[0] == "directory":
+                continue
+            destination = staged / path
+            try:
+                parent_state = destination.parent.lstat()
+            except FileNotFoundError as exc:
+                raise SafetyError(
+                    f"Command-owned {name} checkpoint ignored directory hierarchy is incomplete."
+                ) from exc
+            if stat.S_ISLNK(parent_state.st_mode) or not stat.S_ISDIR(parent_state.st_mode):
+                raise SafetyError(
+                    f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
+                )
             try:
                 destination.lstat()
             except FileNotFoundError:
@@ -463,6 +571,19 @@ def _replace_workspace_from_checkpoint(
                 path=path,
                 destination_root=staged,
                 expected=expected,
+            )
+        for path, expected in reversed(directories):
+            os.chmod(staged / path, expected[1], follow_symlinks=False)
+        if any(
+            not _ignored_entry_matches(
+                _ignored_entry_state(orchestrator, path, root=staged),
+                expected,
+                require_identity=False,
+            )
+            for path, expected in preserved_ignored_state.items()
+        ):
+            raise SafetyError(
+                f"Command-owned {name} checkpoint ignored workspace data changed."
             )
         os.rename(orchestrator.workspace, previous)
         workspace_displaced = True
@@ -563,7 +684,13 @@ def _restore_checkpoint(
         require_identity=False,
     )
     collisions = _checkpoint_ignored_collisions(
-        orchestrator, checkpoint, set(preserved_ignored_state)
+        orchestrator,
+        checkpoint,
+        {
+            path
+            for path, expected in preserved_ignored_state.items()
+            if expected[0] != "directory"
+        },
     )
     if collisions:
         raise SafetyError(
@@ -654,7 +781,11 @@ def _existing_checkpoint(
     if recorded_paths != changed_paths:
         raise SafetyError(f"Command-owned {name} checkpoint manifest does not match its Git diff.")
     ignored_state = _persisted_ignored_state(payload, name=name)
-    if _checkpoint_ignored_collisions(orchestrator, checkpoint, set(ignored_state)):
+    if _checkpoint_ignored_collisions(
+        orchestrator,
+        checkpoint,
+        {path for path, expected in ignored_state.items() if expected[0] != "directory"},
+    ):
         raise SafetyError(
             f"Command-owned {name} checkpoint collides with preserved ignored workspace data."
         )
@@ -760,7 +891,7 @@ def _require_clean_lane_start(
         raise SafetyError(
             f"Command-owned {name} repair lane requires a clean controller workspace before execution."
         )
-    ignored_paths = _untracked_paths(orchestrator, ignored=True)
+    ignored_paths = _ignored_paths(orchestrator)
     return _ignored_state(orchestrator, ignored_paths)
 
 
@@ -795,8 +926,8 @@ def _rollback_lane(
         cwd=orchestrator.workspace,
         timeout_seconds=60,
     )
-    remaining_unmanaged = _untracked_paths(orchestrator, ignored=False) | _untracked_paths(
-        orchestrator, ignored=True
+    remaining_unmanaged = _untracked_paths(orchestrator, ignored=False) | _ignored_paths(
+        orchestrator
     )
     if (
         not head.passed
@@ -1100,7 +1231,13 @@ def run_external_review_repair_lanes(
                 if changed_paths:
                     approved_tree = _staged_workspace_tree(self)
                     if _checkpoint_ignored_collisions(
-                        self, approved_tree, set(preserved_ignored_state)
+                        self,
+                        approved_tree,
+                        {
+                            path
+                            for path, expected in preserved_ignored_state.items()
+                            if expected[0] != "directory"
+                        },
                     ):
                         raise SafetyError(
                             f"Command-owned {name} checkpoint collides with preserved ignored "

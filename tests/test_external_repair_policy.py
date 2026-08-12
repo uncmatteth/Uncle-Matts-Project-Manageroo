@@ -533,6 +533,64 @@ class ExternalRepairPolicyTests(unittest.TestCase):
                 git(fake.workspace, "status", "--porcelain", "--untracked-files=all"), ""
             )
 
+    def test_persisted_success_preserves_ignored_empty_directories_and_modes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = source_repo(root)
+            calls = {"count": 0}
+            holder = {}
+
+            def command(**_kwargs):
+                calls["count"] += 1
+                workspace = holder["fake"].workspace
+                (workspace / "tracked.txt").write_text("repaired\n", encoding="utf-8")
+                return {"name": "clawpatch", "ok": True, "exit_code": 0}
+
+            fake, run_root = fake_orchestrator(root, source, "run-one", command)
+            holder["fake"] = fake
+            (fake.workspace / ".git" / "info" / "exclude").write_text(
+                "ignored/\n", encoding="utf-8"
+            )
+            empty = fake.workspace / "ignored" / "empty"
+            private = fake.workspace / "ignored" / "private"
+            empty.mkdir(parents=True)
+            private.mkdir()
+            (private / "operator.cache").write_text("operator data\n", encoding="utf-8")
+            empty.chmod(0o750)
+            private.chmod(0o700)
+
+            result = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                gate_results=[],
+            )
+            baseline = result["records"][0]["baseline"]
+            checkpoint = result["records"][0]["checkpoint"]
+            report_path = run_root / "artifacts" / "review" / "external-review-repair.json"
+
+            git(fake.workspace, "reset", "--hard", baseline)
+            fake._artifact_json = lambda relative: (
+                read_json(report_path) if relative == "review/external-review-repair.json" else None
+            )
+            resumed = run_external_review_repair_lanes(
+                fake,
+                brief="repair",
+                plan={"tasks": [{"allowed_paths": ["tracked.txt"]}]},
+                gate_results=[],
+            )
+
+            self.assertEqual(calls["count"], 1)
+            self.assertEqual(resumed["records"][0]["checkpoint"], checkpoint)
+            self.assertTrue(empty.is_dir())
+            self.assertTrue(private.is_dir())
+            self.assertEqual(os.stat(empty).st_mode & 0o777, 0o750)
+            self.assertEqual(os.stat(private).st_mode & 0o777, 0o700)
+            self.assertEqual(
+                (private / "operator.cache").read_text(encoding="utf-8"),
+                "operator data\n",
+            )
+
     def test_interrupted_final_report_write_resumes_checkpoint(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

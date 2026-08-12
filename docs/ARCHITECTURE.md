@@ -243,7 +243,8 @@ The surrounding stack provides first-class capabilities without taking control a
 Successful external repair reports are reusable only for the same run, command configuration,
 approved paths, and inputs. Continuation verifies the recorded checkpoint chain and Git diffs,
 then restores the exact clean final checkpoint only from a clean workspace. Ignored paths that
-predated the lane are fingerprinted in checkpoint state, preserved across controller commits, and
+predated the lane, including empty directory hierarchy and directory modes, are fingerprinted in
+checkpoint state, preserved across controller commits, and
 must remain unchanged and disjoint from checkpoint-tracked paths during restoration; incomplete
 legacy reports and dirty or unapproved ignored resume state fail closed without restoration.
 Immediately before each external command, Manageroo captures a bounded snapshot of repository-local
