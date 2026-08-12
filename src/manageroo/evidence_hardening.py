@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 from datetime import datetime, timezone
@@ -31,7 +32,11 @@ def _open_directory_fd(path: str | Path, *, dir_fd: int | None = None) -> int | 
 
 
 def _descriptor_names(directory_fd: int) -> list[str]:
-    return sorted(os.listdir(directory_fd))
+    names = os.listdir(directory_fd)
+    return sorted(
+        names,
+        key=lambda name: (hashlib.sha256(os.fsencode(name)).digest(), name),
+    )
 
 
 def _walk_descriptor(

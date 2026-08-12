@@ -372,7 +372,7 @@ class EvidencePolicyTests(unittest.TestCase):
             run_root = Path(temp) / "run"
             artifacts = run_root / "artifacts"
             artifacts.mkdir(parents=True)
-            for index in range(100):
+            for index in range(200):
                 (artifacts / f"invalid-{index:03d}.txt").write_bytes(b"\xff")
             (artifacts / "valid.txt").write_text("target evidence\n", encoding="utf-8")
 
