@@ -149,6 +149,16 @@ class CommandRunner:
         """
         if not argv or not all(isinstance(item, str) and item for item in argv):
             raise SafetyError("Commands must be non-empty argv arrays.")
+        log_path = None
+        if self.log_root is not None and log_name is not None:
+            if not log_name or log_name in {".", ".."} or "/" in log_name or "\\" in log_name:
+                raise SafetyError("Command log names must be non-empty basenames.")
+            log_root = self.log_root.resolve()
+            log_path = (log_root / f"{log_name}.json").resolve()
+            try:
+                log_path.relative_to(log_root)
+            except ValueError as exc:
+                raise SafetyError("Command log path escapes the configured log directory.") from exc
         safe_argv = redact_argv(argv)
         started_at = utc_now()
         process_env = os.environ.copy()
@@ -212,8 +222,8 @@ class CommandRunner:
                 stderr=redact_text(f"Could not launch command: {exc}"),
                 timed_out=False,
             )
-        if self.log_root and log_name:
-            atomic_write_json(self.log_root / f"{log_name}.json", result.to_dict())
+        if log_path is not None:
+            atomic_write_json(log_path, result.to_dict())
         if check and not result.passed:
             raise subprocess.CalledProcessError(
                 result.exit_code, result.argv, result.stdout, result.stderr
