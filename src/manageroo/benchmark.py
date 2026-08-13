@@ -89,6 +89,123 @@ def run_continuity_benchmark() -> dict[str, Any]:
         }
         recovery_text = recovery_outputs["PostCompact"]
 
+        natural_root = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="resume-with-constraints",
+                turn="1",
+                cwd=repo,
+                prompt="Investigate HAAS MiniMax feasibility and exact source links.",
+            ),
+            state_root=state_root,
+        )
+        natural_pause = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="resume-with-constraints",
+                turn="2",
+                cwd=repo,
+                prompt="stop",
+            ),
+            state_root=state_root,
+        )
+        natural_resume_prompt = (
+            "ressume haas check, but don't baby sit it because that kills my tokens. please go "
+            "investigate and any of those truncated links tell me which ones you want ill "
+            "get them"
+        )
+        natural_resume = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="resume-with-constraints",
+                turn="3",
+                cwd=repo,
+                prompt=natural_resume_prompt,
+            ),
+            state_root=state_root,
+        )
+        natural_tool = process_codex_continuity_hook(
+            _event(
+                "PreToolUse",
+                session="resume-with-constraints",
+                turn="3",
+                cwd=repo,
+                tool_name="exec_command",
+                tool_input={"cmd": "pwd"},
+            ),
+            state_root=state_root,
+        )
+        natural_recovery = str(
+            process_codex_continuity_hook(
+                _event(
+                    "PostCompact",
+                    session="resume-with-constraints",
+                    turn="3",
+                    cwd=repo,
+                ),
+                state_root=state_root,
+            )
+            .get("hookSpecificOutput", {})
+            .get("additionalContext", "")
+        )
+        recovery_outputs["NaturalResume"] = natural_recovery
+
+        typo_root = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="typo-resume",
+                turn="1",
+                cwd=repo,
+                prompt="Investigate HAAS MiniMax feasibility and exact source links.",
+            ),
+            state_root=state_root,
+        )
+        typo_pause = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="typo-resume",
+                turn="2",
+                cwd=repo,
+                prompt="stop",
+            ),
+            state_root=state_root,
+        )
+        typo_resume = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="typo-resume",
+                turn="3",
+                cwd=repo,
+                prompt="ressume work",
+            ),
+            state_root=state_root,
+        )
+        typo_tool = process_codex_continuity_hook(
+            _event(
+                "PreToolUse",
+                session="typo-resume",
+                turn="3",
+                cwd=repo,
+                tool_name="exec_command",
+                tool_input={"cmd": "pwd"},
+            ),
+            state_root=state_root,
+        )
+        typo_recovery = str(
+            process_codex_continuity_hook(
+                _event(
+                    "PostCompact",
+                    session="typo-resume",
+                    turn="3",
+                    cwd=repo,
+                ),
+                state_root=state_root,
+            )
+            .get("hookSpecificOutput", {})
+            .get("additionalContext", "")
+        )
+        recovery_outputs["ShownResumeTypo"] = typo_recovery
+
         process_codex_continuity_hook(
             _event(
                 "UserPromptSubmit",
@@ -142,7 +259,20 @@ def run_continuity_benchmark() -> dict[str, Any]:
             state_root=state_root,
         )
 
-    routine_characters = sum(_text_characters(item) for item in (first, addition, question))
+    routine_events = (
+        first,
+        addition,
+        question,
+        natural_root,
+        natural_pause,
+        natural_resume,
+        natural_tool,
+        typo_root,
+        typo_pause,
+        typo_resume,
+        typo_tool,
+    )
+    routine_characters = sum(_text_characters(item) for item in routine_events)
     recovery_character_counts = {
         event_name: len(text) for event_name, text in recovery_outputs.items()
     }
@@ -154,6 +284,18 @@ def run_continuity_benchmark() -> dict[str, Any]:
             and "Also add guided uninstall." in recovery_text
         ),
         "side_question_not_added": "Why was the status output noisy?" not in recovery_text,
+        "resume_message_reactivated": natural_tool == {},
+        "resume_constraints_recovered": (
+            "Investigate HAAS MiniMax feasibility and exact source links."
+            in natural_recovery
+            and natural_resume_prompt in natural_recovery
+        ),
+        "shown_resume_typo_reactivated": (
+            typo_tool == {}
+            and "Investigate HAAS MiniMax feasibility and exact source links."
+            in typo_recovery
+            and "ressume work" not in typo_recovery
+        ),
         "excluded_mutation_blocked": (
             denied.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
         ),
@@ -168,7 +310,7 @@ def run_continuity_benchmark() -> dict[str, Any]:
         "model_calls": 0,
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
         "routine": {
-            "events": 3,
+            "events": len(routine_events),
             "emitted_characters": routine_characters,
             "estimated_tokens": _estimated_tokens(routine_characters),
         },

@@ -52,10 +52,24 @@ _PAUSE_REQUEST = re.compile(
     r"(?:resume|continue|work)\b",
     re.IGNORECASE,
 )
-_RESUME_REQUEST = re.compile(
+_DIRECT_RESUME_REQUEST = re.compile(
     r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?(?:"
-    r"resume|continue|go\s+ahead|start\s+working\s+again|"
-    r"you\s+can\s+(?:resume|continue|work))\b",
+    r"res+ume|continue|go\s+ahead|start\s+working\s+again|"
+    r"you\s+can\s+(?:res+ume|continue|work))\b|"
+    r"^\s*(?:can|could|will|would)\s+you\s+(?:please\s+)?"
+    r"res+ume\b",
+    re.IGNORECASE,
+)
+_RESUME_ONLY_REQUEST = re.compile(
+    r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?(?:"
+    r"(?:res+ume|continue)(?:\s+(?:(?:the\s+)?(?:saved\s+)?"
+    r"(?:work|task|job|request)|it))?(?:\s+now)?|"
+    r"go\s+ahead|start\s+working\s+again|"
+    r"you\s+can\s+(?:res+ume|continue|work)(?:\s+(?:now|again))?"
+    r"|(?:can|could|will|would)\s+you\s+(?:please\s+)?"
+    r"(?:res+ume|continue)(?:\s+(?:(?:the\s+)?(?:saved\s+)?"
+    r"(?:work|task|job|request)|it))?(?:\s+now)?"
+    r")(?:[.!?]+)?\s*$",
     re.IGNORECASE,
 )
 _REAFFIRM_ACTIVE_WORK = re.compile(
@@ -76,6 +90,7 @@ _CLEAR_WORK_REQUEST = re.compile(
 )
 _CLEAR_WORK_AFTER_PREAMBLE = re.compile(
     r"(?:(?:\bnow\b|[.!?;:,])\s*(?:please\s+)?|\bplease\s+)"
+    r"(?:go\s+)?"
     r"(?:fix|implement|change|edit|write|create|copy|move|rename|delete|remove|"
     r"inspect|review|diagnose|investigate|figure\s+out|run|build|install|publish|"
     r"commit|push|make|do)\b",
@@ -259,6 +274,13 @@ def _is_side_question(prompt: str) -> bool:
     )
 
 
+def _has_resume_request(prompt: str) -> bool:
+    return any(
+        not _span_is_quoted(prompt, match.start(), match.end())
+        for match in _DIRECT_RESUME_REQUEST.finditer(prompt)
+    )
+
+
 def capture_current_request(
     *,
     session_id: str,
@@ -318,12 +340,26 @@ def _capture_current_request_locked(
         return state
 
     if existing is not None and existing.get("status") == "paused":
-        if _RESUME_REQUEST.search(prompt) or _REAFFIRM_ACTIVE_WORK.search(prompt):
+        resume_requested = _has_resume_request(prompt)
+        if resume_requested or _REAFFIRM_ACTIVE_WORK.search(prompt):
             state = dict(existing)
+            messages = [
+                item
+                for item in existing.get("messages", [])
+                if isinstance(item, dict) and isinstance(item.get("text"), str)
+            ]
+            if (
+                resume_requested
+                and not _RESUME_ONLY_REQUEST.fullmatch(prompt)
+                and not any(item.get("turn_id") == turn_id for item in messages)
+            ):
+                messages.append(_message(prompt, turn_id, "addition"))
             state.update(
                 {
                     "status": "active",
                     "cwd": cwd,
+                    "messages": messages,
+                    "objective_sha256": _objective_hash(messages),
                     "updated_at": utc_now(),
                     "waiting_reason": "",
                 }
@@ -510,9 +546,9 @@ def _path_clause(text: str, start: int, end: int) -> tuple[str, str]:
     return text[clause_start:start], clause
 
 
-def _path_is_quoted(text: str, start: int, end: int) -> bool:
+def _span_is_quoted(text: str, start: int, end: int) -> bool:
     line_start = text.rfind("\n", 0, start) + 1
-    if text[line_start:start].lstrip().startswith(">"):
+    if text[line_start:start].lstrip().startswith((">", "›")):
         return True
     return any(
         span.start() <= start and end <= span.end()
@@ -529,7 +565,7 @@ def _named_paths(state: dict[str, Any]) -> tuple[list[Path], list[Path]]:
         text = str(item.get("text") or "")
         matches = [*list(_ABSOLUTE_PATH.finditer(text)), *list(_RELATIVE_PATH.finditer(text))]
         for match in matches:
-            if _path_is_quoted(text, match.start(), match.end()):
+            if _span_is_quoted(text, match.start(), match.end()):
                 continue
             prefix, clause = _path_clause(text, match.start(), match.end())
             if clause.rstrip().endswith("?"):
@@ -560,7 +596,7 @@ def _exclusive_paths(state: dict[str, Any]) -> list[Path]:
         text = str(item.get("text") or "")
         matches = [*list(_ABSOLUTE_PATH.finditer(text)), *list(_RELATIVE_PATH.finditer(text))]
         for match in matches:
-            if _path_is_quoted(text, match.start(), match.end()):
+            if _span_is_quoted(text, match.start(), match.end()):
                 continue
             prefix, clause = _path_clause(text, match.start(), match.end())
             if clause.rstrip().endswith("?") or not _EXCLUSIVE_PATH_PREFIX.search(prefix):

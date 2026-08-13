@@ -34,6 +34,10 @@ every unrelated hook. `UserPromptSubmit` never blocks an operator request.
 Routine prompt capture and successful tool checks emit no status output and add
 no model context. Recovery context appears only on session start, resume,
 subagent startup, or compaction.
+Paused work accepts direct resume wording, direct resume questions, and the
+observed `ressume` typo; the operator does not need an exact authorization
+phrase. Any new target or constraint in that resume message remains part of the
+active objective.
 Codex requires review of a new or changed non-managed hook definition before it
 runs; open `/hooks` once after installation and trust the Manageroo continuity
 hook set. Controlled `manageroo run` workers retain the stronger isolated

@@ -79,6 +79,11 @@ hooks. Completion stays bound to the exact active request, but normal replies
 end with one useful result line such as `✅ Done — Provided the local supervisor
 path.` Existing sessions carrying the former generic badge or raw comment remain
 valid during an upgrade.
+While paused, direct wording such as `resume HAAS check`, a direct question such
+as `Can you resume the HAAS check?`, and the observed `ressume work` typo
+reactivate the saved objective. A direct resume message that also adds
+constraints is kept as active work; a bare control phrase is not. Merely
+discussing or quoting the word `resume` does not reactivate anything.
 At every new ordinary Codex session, the hook also supplies one compact global
 controller contract: the agent selects relevant installed skills itself, handles
 normal scoped work directly, and reserves `manageroo run` for work that benefits

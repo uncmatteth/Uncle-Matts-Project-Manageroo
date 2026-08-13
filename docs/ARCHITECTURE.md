@@ -68,6 +68,12 @@ receives only a bounded current-task excerpt and the completion line. This keeps
 routine operation invisible and at zero prompt-token overhead while retaining
 the context needed after an actual recovery event.
 
+Paused work resumes from direct phrasing or direct questions; the observed
+doubled-s `ressume` typo is accepted too. A bare resume control reactivates the
+saved objective without becoming another task. When the same direct message adds
+a named target, method, or constraint, that full message is retained as additive
+work. Questions that only discuss or quote resume wording remain paused.
+
 At ordinary Codex `SessionStart`, the hook supplies one compact global controller
 contract even when no prior objective exists. It tells the operator-facing agent
 to select relevant installed skills automatically, do normal scoped work

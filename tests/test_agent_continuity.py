@@ -876,6 +876,184 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(paused["status"], "paused")
             self.assertEqual([item["text"] for item in paused["messages"]], ["Complete the release."])
 
+    def test_question_discussing_resume_phrase_does_not_reactivate_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="stop",
+                cwd="/project",
+                state_root=root,
+            )
+
+            paused = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt="So why did the last agent demand that I type resume work?",
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(paused["status"], "paused")
+            self.assertEqual(
+                [item["text"] for item in paused["messages"]],
+                ["Complete the release."],
+            )
+
+    def test_quoted_inline_resume_phrase_does_not_reactivate_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="stop",
+                cwd="/project",
+                state_root=root,
+            )
+
+            paused = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt='The last agent told me to say "and resume HAAS check". Why?',
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(paused["status"], "paused")
+            self.assertEqual(
+                [item["text"] for item in paused["messages"]],
+                ["Complete the release."],
+            )
+
+    def test_pasted_transcript_resume_phrase_does_not_reactivate_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="stop",
+                cwd="/project",
+                state_root=root,
+            )
+
+            paused = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt=(
+                    "Here is what happened:\n"
+                    "› i can get those and resume haas check, so please investigate\n"
+                    "Did Manageroo handle this correctly?"
+                ),
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(paused["status"], "paused")
+            self.assertEqual(
+                [item["text"] for item in paused["messages"]],
+                ["Complete the release."],
+            )
+
+    def test_conversational_resume_discussion_does_not_reactivate_work(self):
+        prompts = (
+            "Why did it pause and then resume by itself?",
+            "Does the app stop and resume correctly?",
+            "Do you think we can pause and resume safely?",
+            "The app can pause and resume correctly.",
+            "I wonder if we can pause and resume safely.",
+            "Could you continue explaining why the phrase resume work is required?",
+        )
+        for prompt in prompts:
+            with self.subTest(prompt=prompt), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                capture_current_request(
+                    session_id="session",
+                    turn_id="turn-1",
+                    prompt="Complete the release.",
+                    cwd="/project",
+                    state_root=root,
+                )
+                capture_current_request(
+                    session_id="session",
+                    turn_id="turn-2",
+                    prompt="stop",
+                    cwd="/project",
+                    state_root=root,
+                )
+
+                paused = capture_current_request(
+                    session_id="session",
+                    turn_id="turn-3",
+                    prompt=prompt,
+                    cwd="/project",
+                    state_root=root,
+                )
+
+                self.assertEqual(paused["status"], "paused")
+                self.assertEqual(
+                    [item["text"] for item in paused["messages"]],
+                    ["Complete the release."],
+                )
+
+    def test_clear_new_work_that_discusses_resume_replaces_paused_backlog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prompt = (
+                "I want to document why users say pause and resume. "
+                "Please review README.md."
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the destructive release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="stop",
+                cwd="/project",
+                state_root=root,
+            )
+
+            replacement = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt=prompt,
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(replacement["status"], "active")
+            self.assertEqual(
+                [item["text"] for item in replacement["messages"]],
+                [prompt],
+            )
+            self.assertEqual(replacement["generation"], 2)
+
     def test_explicit_resume_reactivates_the_saved_objective(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -904,6 +1082,169 @@ class AgentContinuityTests(unittest.TestCase):
 
             self.assertEqual(resumed["status"], "active")
             self.assertEqual([item["text"] for item in resumed["messages"]], ["Complete the release."])
+
+    def test_typo_resume_with_constraints_reactivates_and_preserves_new_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            initial_prompt = "Investigate HAAS MiniMax feasibility and exact source links."
+            resume_prompt = (
+                "ressume haas check, but don't baby sit it because that kills my tokens. "
+                "please go "
+                "investigate and any of those truncated links tell me which ones you want ill "
+                "get them"
+            )
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": "/project",
+                    "prompt": initial_prompt,
+                },
+                state_root=root,
+            )
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "prompt": "stop",
+                },
+                state_root=root,
+            )
+
+            resumed = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-3",
+                    "cwd": "/project",
+                    "prompt": resume_prompt,
+                },
+                state_root=root,
+            )
+            tool_check = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-3",
+                    "cwd": "/project",
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "pwd"},
+                },
+                state_root=root,
+            )
+            recovery = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PostCompact",
+                    "session_id": "session",
+                    "turn_id": "turn-3",
+                    "cwd": "/project",
+                },
+                state_root=root,
+            )["hookSpecificOutput"]["additionalContext"]
+
+            self.assertEqual(resumed, {})
+            self.assertEqual(tool_check, {})
+            self.assertIn(initial_prompt, recovery)
+            self.assertIn(resume_prompt, recovery)
+            self.assertNotIn("Manageroo continuity: paused", recovery)
+
+    def test_shown_ressume_typo_reactivates_saved_work_without_becoming_a_task(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            initial_prompt = "Investigate HAAS MiniMax feasibility and exact source links."
+            for turn_id, prompt in (
+                ("turn-1", initial_prompt),
+                ("turn-2", "stop"),
+                ("turn-3", "ressume work"),
+            ):
+                self.assertEqual(
+                    process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "UserPromptSubmit",
+                            "session_id": "session",
+                            "turn_id": turn_id,
+                            "cwd": "/project",
+                            "prompt": prompt,
+                        },
+                        state_root=root,
+                    ),
+                    {},
+                )
+
+            tool_check = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-3",
+                    "cwd": "/project",
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "pwd"},
+                },
+                state_root=root,
+            )
+            recovery = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PostCompact",
+                    "session_id": "session",
+                    "turn_id": "turn-3",
+                    "cwd": "/project",
+                },
+                state_root=root,
+            )["hookSpecificOutput"]["additionalContext"]
+
+            self.assertEqual(tool_check, {})
+            self.assertIn(initial_prompt, recovery)
+            self.assertNotIn("ressume work", recovery)
+            self.assertNotIn("Manageroo continuity: paused", recovery)
+
+    def test_direct_resume_question_reactivates_work_and_keeps_named_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            initial_prompt = "Investigate the local video pipeline."
+            resume_prompt = "Can you resume the HAAS check?"
+            for turn_id, prompt in (
+                ("turn-1", initial_prompt),
+                ("turn-2", "stop"),
+                ("turn-3", resume_prompt),
+            ):
+                process_codex_continuity_hook(
+                    {
+                        "hook_event_name": "UserPromptSubmit",
+                        "session_id": "session",
+                        "turn_id": turn_id,
+                        "cwd": "/project",
+                        "prompt": prompt,
+                    },
+                    state_root=root,
+                )
+
+            tool_check = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-3",
+                    "cwd": "/project",
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "pwd"},
+                },
+                state_root=root,
+            )
+            recovery = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PostCompact",
+                    "session_id": "session",
+                    "turn_id": "turn-3",
+                    "cwd": "/project",
+                },
+                state_root=root,
+            )["hookSpecificOutput"]["additionalContext"]
+
+            self.assertEqual(tool_check, {})
+            self.assertIn(initial_prompt, recovery)
+            self.assertIn(resume_prompt, recovery)
 
     def test_operator_reaffirmation_reactivates_paused_work_without_replacing_it(self):
         prompts = (
