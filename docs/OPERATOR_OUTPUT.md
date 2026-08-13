@@ -29,28 +29,10 @@ controller contract appears once at session start, and exact active requests
 return only when a session, subagent, or compacted conversation must recover
 them. A side question does not become another active work item.
 
-Premature-stop feedback is intentionally compact:
-
-```text
-🦘 Missing the completion line, so Manageroo continued this turn.
-🎯 Finish: <short current task>
-🏁 When done, end with: ✅ Done — <what actually finished>
-```
-
-Manageroo includes the completion rule in the session-start or recovery context,
-then binds it to the current objective privately when the agent stops. Prompt
-events and successful tool checks do not repeat it.
-
-The normal completion receipt states the actual result:
-
-```text
-✅ Done — Provided the local ClawPatch supervisor path.
-```
-
-The exact objective remains in private state rather than being replayed in the
-receipt. A blocked receipt is accepted only when the response also includes a
-concrete blocker with evidence. Older generic Markdown and raw HTML receipts
-remain accepted during an upgrade so an active session is not lost.
+Ordinary operator chat has no Manageroo completion line or `Stop` handshake.
+A saved pause is advisory recovery context and does not deny tools. Strict
+completion gates and durable receipts exist only inside explicit controlled
+Manageroo runs.
 
 When Manageroo stops an action that violates an explicit operator limit, the
 message names:
@@ -67,5 +49,5 @@ is read-only context, while the destination remains a mutation. External
 destinations are allowed unless the operator explicitly narrowed or excluded
 them.
 
-Diagnostic denials and premature-stop messages retain compact markers only when
+Diagnostic denials retain compact markers only when
 the operator needs to act on them.

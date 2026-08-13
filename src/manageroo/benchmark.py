@@ -89,123 +89,6 @@ def run_continuity_benchmark() -> dict[str, Any]:
         }
         recovery_text = recovery_outputs["PostCompact"]
 
-        natural_root = process_codex_continuity_hook(
-            _event(
-                "UserPromptSubmit",
-                session="resume-with-constraints",
-                turn="1",
-                cwd=repo,
-                prompt="Investigate HAAS MiniMax feasibility and exact source links.",
-            ),
-            state_root=state_root,
-        )
-        natural_pause = process_codex_continuity_hook(
-            _event(
-                "UserPromptSubmit",
-                session="resume-with-constraints",
-                turn="2",
-                cwd=repo,
-                prompt="stop",
-            ),
-            state_root=state_root,
-        )
-        natural_resume_prompt = (
-            "ressume haas check, but don't baby sit it because that kills my tokens. please go "
-            "investigate and any of those truncated links tell me which ones you want ill "
-            "get them"
-        )
-        natural_resume = process_codex_continuity_hook(
-            _event(
-                "UserPromptSubmit",
-                session="resume-with-constraints",
-                turn="3",
-                cwd=repo,
-                prompt=natural_resume_prompt,
-            ),
-            state_root=state_root,
-        )
-        natural_tool = process_codex_continuity_hook(
-            _event(
-                "PreToolUse",
-                session="resume-with-constraints",
-                turn="3",
-                cwd=repo,
-                tool_name="exec_command",
-                tool_input={"cmd": "pwd"},
-            ),
-            state_root=state_root,
-        )
-        natural_recovery = str(
-            process_codex_continuity_hook(
-                _event(
-                    "PostCompact",
-                    session="resume-with-constraints",
-                    turn="3",
-                    cwd=repo,
-                ),
-                state_root=state_root,
-            )
-            .get("hookSpecificOutput", {})
-            .get("additionalContext", "")
-        )
-        recovery_outputs["NaturalResume"] = natural_recovery
-
-        typo_root = process_codex_continuity_hook(
-            _event(
-                "UserPromptSubmit",
-                session="typo-resume",
-                turn="1",
-                cwd=repo,
-                prompt="Investigate HAAS MiniMax feasibility and exact source links.",
-            ),
-            state_root=state_root,
-        )
-        typo_pause = process_codex_continuity_hook(
-            _event(
-                "UserPromptSubmit",
-                session="typo-resume",
-                turn="2",
-                cwd=repo,
-                prompt="stop",
-            ),
-            state_root=state_root,
-        )
-        typo_resume = process_codex_continuity_hook(
-            _event(
-                "UserPromptSubmit",
-                session="typo-resume",
-                turn="3",
-                cwd=repo,
-                prompt="ressume work",
-            ),
-            state_root=state_root,
-        )
-        typo_tool = process_codex_continuity_hook(
-            _event(
-                "PreToolUse",
-                session="typo-resume",
-                turn="3",
-                cwd=repo,
-                tool_name="exec_command",
-                tool_input={"cmd": "pwd"},
-            ),
-            state_root=state_root,
-        )
-        typo_recovery = str(
-            process_codex_continuity_hook(
-                _event(
-                    "PostCompact",
-                    session="typo-resume",
-                    turn="3",
-                    cwd=repo,
-                ),
-                state_root=state_root,
-            )
-            .get("hookSpecificOutput", {})
-            .get("additionalContext", "")
-        )
-        recovery_outputs["ShownResumeTypo"] = typo_recovery
-
         process_codex_continuity_hook(
             _event(
                 "UserPromptSubmit",
@@ -228,7 +111,39 @@ def run_continuity_benchmark() -> dict[str, Any]:
             state_root=state_root,
         )
 
-        process_codex_continuity_hook(
+        pause_root = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="pause",
+                turn="1",
+                cwd=repo,
+                prompt="Investigate the local pipeline.",
+            ),
+            state_root=state_root,
+        )
+        paused = process_codex_continuity_hook(
+            _event(
+                "UserPromptSubmit",
+                session="pause",
+                turn="2",
+                cwd=repo,
+                prompt="stop",
+            ),
+            state_root=state_root,
+        )
+        paused_tool = process_codex_continuity_hook(
+            _event(
+                "PreToolUse",
+                session="pause",
+                turn="2",
+                cwd=repo,
+                tool_name="exec_command",
+                tool_input={"cmd": "pwd"},
+            ),
+            state_root=state_root,
+        )
+
+        finish_root = process_codex_continuity_hook(
             _event(
                 "UserPromptSubmit",
                 session="finish",
@@ -238,7 +153,7 @@ def run_continuity_benchmark() -> dict[str, Any]:
             ),
             state_root=state_root,
         )
-        premature = process_codex_continuity_hook(
+        ordinary_stop = process_codex_continuity_hook(
             _event(
                 "Stop",
                 session="finish",
@@ -248,29 +163,16 @@ def run_continuity_benchmark() -> dict[str, Any]:
             ),
             state_root=state_root,
         )
-        completed = process_codex_continuity_hook(
-            _event(
-                "Stop",
-                session="finish",
-                turn="1",
-                cwd=repo,
-                last_assistant_message="Verified.\n✅ Done — Finished and verified the job.",
-            ),
-            state_root=state_root,
-        )
 
     routine_events = (
         first,
         addition,
         question,
-        natural_root,
-        natural_pause,
-        natural_resume,
-        natural_tool,
-        typo_root,
-        typo_pause,
-        typo_resume,
-        typo_tool,
+        pause_root,
+        paused,
+        paused_tool,
+        finish_root,
+        ordinary_stop,
     )
     routine_characters = sum(_text_characters(item) for item in routine_events)
     recovery_character_counts = {
@@ -284,23 +186,11 @@ def run_continuity_benchmark() -> dict[str, Any]:
             and "Also add guided uninstall." in recovery_text
         ),
         "side_question_not_added": "Why was the status output noisy?" not in recovery_text,
-        "resume_message_reactivated": natural_tool == {},
-        "resume_constraints_recovered": (
-            "Investigate HAAS MiniMax feasibility and exact source links."
-            in natural_recovery
-            and natural_resume_prompt in natural_recovery
-        ),
-        "shown_resume_typo_reactivated": (
-            typo_tool == {}
-            and "Investigate HAAS MiniMax feasibility and exact source links."
-            in typo_recovery
-            and "ressume work" not in typo_recovery
-        ),
         "excluded_mutation_blocked": (
             denied.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
         ),
-        "premature_stop_blocked": premature.get("decision") == "block",
-        "specific_completion_accepted": completed == {},
+        "paused_tools_available": paused_tool == {},
+        "ordinary_stop_unblocked": ordinary_stop == {},
     }
     recovery_tokens = _estimated_tokens(recovery_characters)
     ok = all(controls.values()) and routine_characters == 0 and recovery_tokens <= 200

@@ -27,17 +27,15 @@ sandboxing. OpenAI's current platform setup is documented at
 <https://learn.chatgpt.com/docs/sandboxing>.
 
 Manageroo installs Codex continuity hooks for prompt capture, local-tool scope
-checks, resume/compaction recovery, subagent context, and premature-stop
-continuation. During install or update it removes obsolete Manageroo operator
-scope hook groups from the existing Codex `hooks.json` and preserves
-every unrelated hook. `UserPromptSubmit` never blocks an operator request.
+checks, resume/compaction recovery, and subagent context. During install or
+update it removes obsolete Manageroo operator-scope and `Stop` hook groups from
+the existing Codex `hooks.json` and preserves every unrelated hook.
+`UserPromptSubmit` never blocks an operator request.
 Routine prompt capture and successful tool checks emit no status output and add
 no model context. Recovery context appears only on session start, resume,
 subagent startup, or compaction.
-Paused work accepts direct resume wording, direct resume questions, and the
-observed `ressume` typo; the operator does not need an exact authorization
-phrase. Any new target or constraint in that resume message remains part of the
-active objective.
+Paused state is advisory: it does not block tools, and the operator does not
+need an exact resume or authorization phrase.
 Codex requires review of a new or changed non-managed hook definition before it
 runs; open `/hooks` once after installation and trust the Manageroo continuity
 hook set. Controlled `manageroo run` workers retain the stronger isolated

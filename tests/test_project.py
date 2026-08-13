@@ -124,7 +124,8 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertIn("operator-facing agent", agents_text)
             self.assertIn("commit, push, and deploy", agents_text)
             self.assertIn("The current operator request owns the work", agents_text)
-            self.assertIn("does not convert conversational\nEnglish into filesystem permissions", agents_text)
+            self.assertIn("installs no `Stop` hook", agents_text)
+            self.assertIn("only mutations that\nviolate an operator-written exclusion", agents_text)
             self.assertIn(".manageroo/PROJECT-MEMORY.md", context_text)
             self.assertIn("document/prose lane", context_text)
             self.assertTrue(

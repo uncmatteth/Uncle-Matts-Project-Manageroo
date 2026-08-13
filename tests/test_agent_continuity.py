@@ -39,7 +39,8 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertIn("Work directly", context)
             self.assertIn("isolation, retry, or proof", context)
             self.assertIn("never initialize home", context)
-            self.assertIn("✅ Done — <specific result>", context)
+            self.assertIn("Verify work before claiming completion", context)
+            self.assertNotIn("✅ Done", context)
 
     def test_structured_worker_mode_bypasses_continuity_hooks_and_state(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -503,7 +504,7 @@ class AgentContinuityTests(unittest.TestCase):
                 ["turn-1", "turn-2", "turn-3"],
             )
 
-    def test_concurrent_stop_cannot_discard_new_operator_request(self):
+    def test_stop_hook_does_not_touch_state_or_discard_new_operator_request(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -516,72 +517,35 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            real_read_state = agent_continuity_module._read_state
-            stop_read_complete = threading.Event()
-            prompt_persisted = threading.Event()
-            errors: list[BaseException] = []
+            self.assertEqual(
+                process_codex_continuity_hook(
+                    {
+                        "hook_event_name": "Stop",
+                        "session_id": "session",
+                        "turn_id": "turn-1",
+                        "cwd": "/project",
+                        "last_assistant_message": "Ordinary response.",
+                    },
+                    state_root=root,
+                ),
+                {},
+            )
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": "/project",
+                    "prompt": "Also preserve this operator request.",
+                },
+                state_root=root,
+            )
 
-            def synchronized_read(*args, **kwargs):
-                state = real_read_state(*args, **kwargs)
-                if threading.current_thread().name == "continuity-stop":
-                    stop_read_complete.set()
-                    prompt_persisted.wait(timeout=0.25)
-                return state
-
-            def stop() -> None:
-                try:
-                    process_codex_continuity_hook(
-                        {
-                            "hook_event_name": "Stop",
-                            "session_id": "session",
-                            "turn_id": "turn-1",
-                            "cwd": "/project",
-                            "last_assistant_message": (
-                                "✅ Done — Repaired the continuity state."
-                            ),
-                        },
-                        state_root=root,
-                    )
-                except BaseException as exc:
-                    errors.append(exc)
-
-            def submit() -> None:
-                try:
-                    process_codex_continuity_hook(
-                        {
-                            "hook_event_name": "UserPromptSubmit",
-                            "session_id": "session",
-                            "turn_id": "turn-2",
-                            "cwd": "/project",
-                            "prompt": "Also preserve this operator request.",
-                        },
-                        state_root=root,
-                    )
-                    prompt_persisted.set()
-                except BaseException as exc:
-                    errors.append(exc)
-
-            with mock.patch.object(
-                agent_continuity_module,
-                "_read_state",
-                side_effect=synchronized_read,
-            ):
-                stop_thread = threading.Thread(target=stop, name="continuity-stop")
-                stop_thread.start()
-                self.assertTrue(stop_read_complete.wait(timeout=5))
-                prompt_thread = threading.Thread(target=submit)
-                prompt_thread.start()
-                stop_thread.join(timeout=5)
-                prompt_thread.join(timeout=5)
-
-            self.assertFalse(stop_thread.is_alive())
-            self.assertFalse(prompt_thread.is_alive())
-            self.assertEqual(errors, [])
-            state = real_read_state(root, "session")
+            state = agent_continuity_module._read_state(root, "session")
             self.assertIsNotNone(state)
             self.assertEqual(
                 [item["turn_id"] for item in state["messages"]],
-                ["turn-2"],
+                ["turn-1", "turn-2"],
             )
             self.assertEqual(state["status"], "active")
 
@@ -876,184 +840,6 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(paused["status"], "paused")
             self.assertEqual([item["text"] for item in paused["messages"]], ["Complete the release."])
 
-    def test_question_discussing_resume_phrase_does_not_reactivate_work(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-1",
-                prompt="Complete the release.",
-                cwd="/project",
-                state_root=root,
-            )
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-2",
-                prompt="stop",
-                cwd="/project",
-                state_root=root,
-            )
-
-            paused = capture_current_request(
-                session_id="session",
-                turn_id="turn-3",
-                prompt="So why did the last agent demand that I type resume work?",
-                cwd="/project",
-                state_root=root,
-            )
-
-            self.assertEqual(paused["status"], "paused")
-            self.assertEqual(
-                [item["text"] for item in paused["messages"]],
-                ["Complete the release."],
-            )
-
-    def test_quoted_inline_resume_phrase_does_not_reactivate_work(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-1",
-                prompt="Complete the release.",
-                cwd="/project",
-                state_root=root,
-            )
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-2",
-                prompt="stop",
-                cwd="/project",
-                state_root=root,
-            )
-
-            paused = capture_current_request(
-                session_id="session",
-                turn_id="turn-3",
-                prompt='The last agent told me to say "and resume HAAS check". Why?',
-                cwd="/project",
-                state_root=root,
-            )
-
-            self.assertEqual(paused["status"], "paused")
-            self.assertEqual(
-                [item["text"] for item in paused["messages"]],
-                ["Complete the release."],
-            )
-
-    def test_pasted_transcript_resume_phrase_does_not_reactivate_work(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-1",
-                prompt="Complete the release.",
-                cwd="/project",
-                state_root=root,
-            )
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-2",
-                prompt="stop",
-                cwd="/project",
-                state_root=root,
-            )
-
-            paused = capture_current_request(
-                session_id="session",
-                turn_id="turn-3",
-                prompt=(
-                    "Here is what happened:\n"
-                    "› i can get those and resume haas check, so please investigate\n"
-                    "Did Manageroo handle this correctly?"
-                ),
-                cwd="/project",
-                state_root=root,
-            )
-
-            self.assertEqual(paused["status"], "paused")
-            self.assertEqual(
-                [item["text"] for item in paused["messages"]],
-                ["Complete the release."],
-            )
-
-    def test_conversational_resume_discussion_does_not_reactivate_work(self):
-        prompts = (
-            "Why did it pause and then resume by itself?",
-            "Does the app stop and resume correctly?",
-            "Do you think we can pause and resume safely?",
-            "The app can pause and resume correctly.",
-            "I wonder if we can pause and resume safely.",
-            "Could you continue explaining why the phrase resume work is required?",
-        )
-        for prompt in prompts:
-            with self.subTest(prompt=prompt), tempfile.TemporaryDirectory() as temp:
-                root = Path(temp)
-                capture_current_request(
-                    session_id="session",
-                    turn_id="turn-1",
-                    prompt="Complete the release.",
-                    cwd="/project",
-                    state_root=root,
-                )
-                capture_current_request(
-                    session_id="session",
-                    turn_id="turn-2",
-                    prompt="stop",
-                    cwd="/project",
-                    state_root=root,
-                )
-
-                paused = capture_current_request(
-                    session_id="session",
-                    turn_id="turn-3",
-                    prompt=prompt,
-                    cwd="/project",
-                    state_root=root,
-                )
-
-                self.assertEqual(paused["status"], "paused")
-                self.assertEqual(
-                    [item["text"] for item in paused["messages"]],
-                    ["Complete the release."],
-                )
-
-    def test_clear_new_work_that_discusses_resume_replaces_paused_backlog(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            prompt = (
-                "I want to document why users say pause and resume. "
-                "Please review README.md."
-            )
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-1",
-                prompt="Complete the destructive release.",
-                cwd="/project",
-                state_root=root,
-            )
-            capture_current_request(
-                session_id="session",
-                turn_id="turn-2",
-                prompt="stop",
-                cwd="/project",
-                state_root=root,
-            )
-
-            replacement = capture_current_request(
-                session_id="session",
-                turn_id="turn-3",
-                prompt=prompt,
-                cwd="/project",
-                state_root=root,
-            )
-
-            self.assertEqual(replacement["status"], "active")
-            self.assertEqual(
-                [item["text"] for item in replacement["messages"]],
-                [prompt],
-            )
-            self.assertEqual(replacement["generation"], 2)
-
     def test_explicit_resume_reactivates_the_saved_objective(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -1082,169 +868,6 @@ class AgentContinuityTests(unittest.TestCase):
 
             self.assertEqual(resumed["status"], "active")
             self.assertEqual([item["text"] for item in resumed["messages"]], ["Complete the release."])
-
-    def test_typo_resume_with_constraints_reactivates_and_preserves_new_work(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            initial_prompt = "Investigate HAAS MiniMax feasibility and exact source links."
-            resume_prompt = (
-                "ressume haas check, but don't baby sit it because that kills my tokens. "
-                "please go "
-                "investigate and any of those truncated links tell me which ones you want ill "
-                "get them"
-            )
-            process_codex_continuity_hook(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": "/project",
-                    "prompt": initial_prompt,
-                },
-                state_root=root,
-            )
-            process_codex_continuity_hook(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "session_id": "session",
-                    "turn_id": "turn-2",
-                    "cwd": "/project",
-                    "prompt": "stop",
-                },
-                state_root=root,
-            )
-
-            resumed = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "session_id": "session",
-                    "turn_id": "turn-3",
-                    "cwd": "/project",
-                    "prompt": resume_prompt,
-                },
-                state_root=root,
-            )
-            tool_check = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "session_id": "session",
-                    "turn_id": "turn-3",
-                    "cwd": "/project",
-                    "tool_name": "exec_command",
-                    "tool_input": {"cmd": "pwd"},
-                },
-                state_root=root,
-            )
-            recovery = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PostCompact",
-                    "session_id": "session",
-                    "turn_id": "turn-3",
-                    "cwd": "/project",
-                },
-                state_root=root,
-            )["hookSpecificOutput"]["additionalContext"]
-
-            self.assertEqual(resumed, {})
-            self.assertEqual(tool_check, {})
-            self.assertIn(initial_prompt, recovery)
-            self.assertIn(resume_prompt, recovery)
-            self.assertNotIn("Manageroo continuity: paused", recovery)
-
-    def test_shown_ressume_typo_reactivates_saved_work_without_becoming_a_task(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            initial_prompt = "Investigate HAAS MiniMax feasibility and exact source links."
-            for turn_id, prompt in (
-                ("turn-1", initial_prompt),
-                ("turn-2", "stop"),
-                ("turn-3", "ressume work"),
-            ):
-                self.assertEqual(
-                    process_codex_continuity_hook(
-                        {
-                            "hook_event_name": "UserPromptSubmit",
-                            "session_id": "session",
-                            "turn_id": turn_id,
-                            "cwd": "/project",
-                            "prompt": prompt,
-                        },
-                        state_root=root,
-                    ),
-                    {},
-                )
-
-            tool_check = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "session_id": "session",
-                    "turn_id": "turn-3",
-                    "cwd": "/project",
-                    "tool_name": "exec_command",
-                    "tool_input": {"cmd": "pwd"},
-                },
-                state_root=root,
-            )
-            recovery = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PostCompact",
-                    "session_id": "session",
-                    "turn_id": "turn-3",
-                    "cwd": "/project",
-                },
-                state_root=root,
-            )["hookSpecificOutput"]["additionalContext"]
-
-            self.assertEqual(tool_check, {})
-            self.assertIn(initial_prompt, recovery)
-            self.assertNotIn("ressume work", recovery)
-            self.assertNotIn("Manageroo continuity: paused", recovery)
-
-    def test_direct_resume_question_reactivates_work_and_keeps_named_target(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            initial_prompt = "Investigate the local video pipeline."
-            resume_prompt = "Can you resume the HAAS check?"
-            for turn_id, prompt in (
-                ("turn-1", initial_prompt),
-                ("turn-2", "stop"),
-                ("turn-3", resume_prompt),
-            ):
-                process_codex_continuity_hook(
-                    {
-                        "hook_event_name": "UserPromptSubmit",
-                        "session_id": "session",
-                        "turn_id": turn_id,
-                        "cwd": "/project",
-                        "prompt": prompt,
-                    },
-                    state_root=root,
-                )
-
-            tool_check = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "session_id": "session",
-                    "turn_id": "turn-3",
-                    "cwd": "/project",
-                    "tool_name": "exec_command",
-                    "tool_input": {"cmd": "pwd"},
-                },
-                state_root=root,
-            )
-            recovery = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PostCompact",
-                    "session_id": "session",
-                    "turn_id": "turn-3",
-                    "cwd": "/project",
-                },
-                state_root=root,
-            )["hookSpecificOutput"]["additionalContext"]
-
-            self.assertEqual(tool_check, {})
-            self.assertIn(initial_prompt, recovery)
-            self.assertIn(resume_prompt, recovery)
 
     def test_operator_reaffirmation_reactivates_paused_work_without_replacing_it(self):
         prompts = (
@@ -1414,7 +1037,7 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(resumed["generation"], 2)
 
-    def test_paused_state_blocks_tools_and_uses_plain_pause_context(self):
+    def test_paused_state_is_advisory_and_keeps_ordinary_tools_available(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -1448,10 +1071,11 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root,
             )["hookSpecificOutput"]["additionalContext"]
             self.assertIn("Manageroo continuity: paused", recovered)
-            self.assertIn("Do not resume or use tools", recovered)
+            self.assertIn("current operator request wins", recovered)
+            self.assertNotIn("Do not resume or use tools", recovered)
             self.assertNotIn("Finish all active requests", recovered)
 
-            denied = process_codex_continuity_hook(
+            allowed = process_codex_continuity_hook(
                 {
                     "hook_event_name": "PreToolUse",
                     "session_id": "session",
@@ -1462,11 +1086,7 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            self.assertEqual(
-                denied["hookSpecificOutput"]["permissionDecision"],
-                "deny",
-            )
-            self.assertIn("has not explicitly resumed", denied["hookSpecificOutput"]["permissionDecisionReason"])
+            self.assertEqual(allowed, {})
 
     def test_internal_stop_continuation_is_not_added_as_operator_intent(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1660,7 +1280,7 @@ class AgentContinuityTests(unittest.TestCase):
 
             self.assertEqual(result, {})
 
-    def test_completion_contract_is_on_session_start_not_prompt_events(self):
+    def test_operator_hooks_never_advertise_a_completion_password(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             started = process_codex_continuity_hook(
@@ -1694,7 +1314,8 @@ class AgentContinuityTests(unittest.TestCase):
             )
 
             context = started["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("✅ Done — <specific result>", context)
+            self.assertNotIn("✅ Done", context)
+            self.assertNotIn("completion line", context.casefold())
             self.assertEqual(first, {})
             self.assertEqual(changed, {})
 
@@ -1726,7 +1347,7 @@ class AgentContinuityTests(unittest.TestCase):
 
             self.assertEqual(result, {})
 
-    def test_stop_hook_continues_agent_until_current_objective_is_marked_complete(self):
+    def test_stop_hook_never_requires_an_operator_chat_receipt(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             prompt = {
@@ -1749,110 +1370,7 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            self.assertEqual(stopped["decision"], "block")
-            self.assertEqual(
-                stopped["reason"],
-                "\n".join(
-                    [
-                        INTERNAL_CONTINUATION_PREFIX,
-                        "🦘 Missing the completion line, so Manageroo continued this turn.",
-                        "🎯 Finish: Finish and verify the job.",
-                        "🏁 When done, end with: ✅ Done — <what actually finished>",
-                    ]
-                ),
-            )
-            self.assertNotIn("Manageroo update", stopped["reason"])
-            self.assertNotIn("Manageroo is doing", stopped["reason"])
-            self.assertNotIn("📍 Status", stopped["reason"])
-            self.assertLessEqual(len(stopped["reason"]), 500)
-            placeholder = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "Stop",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": "/project",
-                    "last_assistant_message": "✅ Done — <what actually finished>",
-                    "stop_hook_active": True,
-                },
-                state_root=root,
-            )
-            self.assertEqual(placeholder["decision"], "block")
-            completed = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "Stop",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": "/project",
-                    "last_assistant_message": (
-                        "✅ Done — Provided the local ClawPatch supervisor path."
-                    ),
-                    "stop_hook_active": True,
-                },
-                state_root=root,
-            )
-            self.assertEqual(completed, {})
-
-    def test_stop_hook_accepts_legacy_hidden_marker_during_upgrade(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            process_codex_continuity_hook(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": "/project",
-                    "prompt": "Finish and verify the job.",
-                },
-                state_root=root,
-            )
-            state = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
-            legacy_marker = (
-                "<!-- manageroo-continuity:"
-                f"{state['objective_sha256']}:complete -->"
-            )
-            completed = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "Stop",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": "/project",
-                    "last_assistant_message": f"Verified completion.\n{legacy_marker}",
-                    "stop_hook_active": True,
-                },
-                state_root=root,
-            )
-            self.assertEqual(completed, {})
-
-    def test_stop_hook_accepts_previous_plain_badge_during_upgrade(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            process_codex_continuity_hook(
-                {
-                    "hook_event_name": "UserPromptSubmit",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": "/project",
-                    "prompt": "Finish and verify the job.",
-                },
-                state_root=root,
-            )
-            state = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
-            previous_marker = (
-                "[Manageroo: request complete](#manageroo-continuity-"
-                f"{state['objective_sha256']}-complete)"
-            )
-            completed = process_codex_continuity_hook(
-                {
-                    "hook_event_name": "Stop",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": "/project",
-                    "last_assistant_message": f"Verified completion.\n{previous_marker}",
-                    "stop_hook_active": True,
-                },
-                state_root=root,
-            )
-            self.assertEqual(completed, {})
+            self.assertEqual(stopped, {})
 
     def test_read_only_shell_commands_run_without_a_special_permission_profile(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -2262,10 +1780,8 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertIn("gbrain prompt hook", rendered)
             self.assertNotIn("operator-" "scope-hook", rendered)
             self.assertIn("agent-continuity-hook", rendered)
-            self.assertIn("Stop", written["hooks"])
             self.assertIn("PreToolUse", written["hooks"])
-            stop_handler = written["hooks"]["Stop"][0]["hooks"][0]
-            self.assertNotIn("additionalContextLimit", stop_handler)
+            self.assertNotIn("Stop", written["hooks"])
 
     def test_uninstall_removes_only_hooks_for_the_selected_manageroo_launcher(self):
         with tempfile.TemporaryDirectory() as temp:

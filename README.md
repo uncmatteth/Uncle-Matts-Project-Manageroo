@@ -72,18 +72,11 @@ The prompt hook never blocks the operator. `PreToolUse` rejects only clearly
 unrelated or explicitly excluded mutations. Ordinary reads, bounded temporary
 evidence, current-repository work, explicitly named external targets, and
 operator-requested Git commits and pushes remain available. An explicit
-`only <file>` clause still narrows mutations to that file. The stop hook
-continues the agent until it marks the complete active objective verified or
-reports one concrete external blocker. The installer preserves unrelated Codex
-hooks. Completion stays bound to the exact active request, but normal replies
-end with one useful result line such as `✅ Done — Provided the local supervisor
-path.` Existing sessions carrying the former generic badge or raw comment remain
-valid during an upgrade.
-While paused, direct wording such as `resume HAAS check`, a direct question such
-as `Can you resume the HAAS check?`, and the observed `ressume work` typo
-reactivate the saved objective. A direct resume message that also adds
-constraints is kept as active work; a bare control phrase is not. Merely
-discussing or quoting the word `resume` does not reactivate anything.
+`only <file>` clause still narrows mutations to that file. Ordinary chat has no
+Manageroo completion receipt and no `Stop` hook. A saved pause is advisory
+context, never a tool lock: exact resume wording is unnecessary because the
+operator's current request always wins. The installer removes the obsolete
+Manageroo `Stop` group during upgrade and preserves unrelated Codex hooks.
 At every new ordinary Codex session, the hook also supplies one compact global
 controller contract: the agent selects relevant installed skills itself, handles
 normal scoped work directly, and reserves `manageroo run` for work that benefits
@@ -92,10 +85,8 @@ Manageroo or a skill. This is event-driven hook behavior, not a resident daemon.
 Routine prompt capture and successful tool checks are silent: they print no
 status and inject no model context. Session start supplies the compact controller
 contract once; recovery events restore a compressed exact objective only after
-resume, subagent startup, or compaction. Manageroo binds completion to the saved
-objective privately when the agent stops.
-Premature-stop feedback contains only a short current-task line and the
-completion line.
+resume, subagent startup, or compaction. Strict completion proof belongs to an
+explicit controlled `manageroo run`, not the operator's conversation.
 
 Measure that behavior without spending model tokens:
 

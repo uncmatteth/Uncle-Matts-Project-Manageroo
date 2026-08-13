@@ -22,7 +22,7 @@
         "-v"
       ],
       "exit_code": 0,
-      "output": "----------------------------------------------------------------------\nRan 1168 tests in <elapsed>s\n\nOK (skipped=3)\n"
+      "output": "----------------------------------------------------------------------\nRan 1158 tests in <elapsed>s\n\nOK (skipped=3)\n"
     },
     {
       "argv": [
@@ -38,7 +38,7 @@
   "ok": true,
   "python_process_safety_violations": [],
   "source_selection": "scripts/package_release.py included_files minus generated outputs",
-  "source_tree_sha256": "8ebda926caf5fa1794bc561df06ca19c703b18957b3e25ca4a121afa96344012",
+  "source_tree_sha256": "024c19871bfd92c5df867dea0e6298dba4347d62c7364330770ef62ffc59776c",
   "structural_checks": [
     {
       "name": "required:install.sh",

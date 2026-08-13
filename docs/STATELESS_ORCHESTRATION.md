@@ -107,15 +107,10 @@ job count, failed attempts, blocking reason, and other machine-readable details.
 
 ## Operator Pause Is Final
 
-The host continuity hook treats direct language such as `stop`, `pause until I
-tell you`, and `stop and wait` as an operator pause, not another task. It keeps
-the saved objective but allows the current turn to end without a completion
-receipt and blocks tool use while paused. Questions do not resume that work.
-
-`Resume the saved work`, `Can you resume the HAAS check?`, and the observed
-`ressume work` typo reactivate the saved objective. Bare resume controls are not
-added as tasks; substantive targets and constraints in the same direct message
-are retained. Questions that merely discuss the resume wording stay paused. A
-clear new command such as `Please fix only the pause behavior` starts only that
-new work and replaces the paused backlog. Manageroo must never use
-unfinished-work continuation to override an operator pause.
+The host continuity hook records direct language such as `stop`, `pause until I
+tell you`, and `stop and wait` as an operator pause, not another task. The saved
+objective remains available for recovery, but the pause is advisory: it does
+not deny tools, block the current request, or require a completion or resume
+password. A clear new command such as `Please fix only the pause behavior`
+replaces the paused backlog. Manageroo must never use unfinished-work
+continuation to override an operator pause.

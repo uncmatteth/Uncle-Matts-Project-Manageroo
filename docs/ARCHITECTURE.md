@@ -43,10 +43,9 @@ read by the same command into mutation targets, and the platform null sink is
 always non-persistent. An explicit `edit only <file>` instruction narrows
 supported mutations inside the current repository to that exact file. Shell,
 structured patch, removal, inline Python write, and compound-command targets use
-the same path boundary. `Stop`
-continues the agent until the complete active objective is marked verified or a
-concrete external blocker is recorded. These hooks control agent behavior, not
-operator authority.
+the same path boundary. Ordinary conversation has no `Stop` enforcement or
+completion receipt. These hooks control supported agent mutations, not operator
+authority.
 
 Missing continuity state starts a new session. Unreadable, malformed, non-object,
 or unsupported-version state fails closed without replacing the original file.
@@ -63,16 +62,14 @@ behavior; it is not an operating-system security boundary.
 Routine prompt events save the objective privately and return no output. Successful
 tool checks also return no output. Session start injects one compact controller
 contract; session recovery, subagent startup, and post-compaction recovery inject
-the exact active requests with compressed control wording. A premature stop
-receives only a bounded current-task excerpt and the completion line. This keeps
-routine operation invisible and at zero prompt-token overhead while retaining
-the context needed after an actual recovery event.
+the exact active requests with compressed control wording. This keeps routine
+operation invisible and at zero prompt-token overhead while retaining the
+context needed after an actual recovery event.
 
-Paused work resumes from direct phrasing or direct questions; the observed
-doubled-s `ressume` typo is accepted too. A bare resume control reactivates the
-saved objective without becoming another task. When the same direct message adds
-a named target, method, or constraint, that full message is retained as additive
-work. Questions that only discuss or quote resume wording remain paused.
+Paused state is advisory recovery context. It never denies tools and never
+requires a resume password. A direct resume can reactivate the saved objective,
+but any current operator request is authoritative whether or not the parser
+classifies that wording as resume.
 
 At ordinary Codex `SessionStart`, the hook supplies one compact global controller
 contract even when no prior objective exists. It tells the operator-facing agent
@@ -83,12 +80,9 @@ implicit project. This makes Manageroo event-driven and globally active after
 the one-time Codex hook trust step without adding a daemon, scheduler, model
 runtime, or background mutation loop.
 
-The stop handshake is bound to the active objective in private state. The
-operator sees a specific result such as `✅ Done — Provided the local supervisor
-path.` or a `🚧` waiting status. The hook also accepts former generic Markdown
-badges and raw HTML markers so upgrading Manageroo cannot strand an already-running session.
 Hook denials use a consistent target, reason, and next-action layout instead of
-one dense implementation sentence.
+one dense implementation sentence. Only explicit operator-written exclusions
+or `only` boundaries can produce those denials.
 
 The stronger repository boundary controls processes launched through
 `manageroo run`. The host's normal workspace and approval policy remains the

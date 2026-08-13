@@ -65,8 +65,10 @@ rejects only the agent's clearly unrelated or explicitly excluded mutation;
 reads and ordinary temporary evidence remain available. Current-repository
 mutations, explicitly named external targets, and requested Git delivery remain
 available through normal host tools. An explicit `only` clause still narrows
-mutations to the named target. `Stop` continues the
-agent when it tries to end before the complete active objective is verified.
+mutations to the named target. Ordinary operator chat has no `Stop` gate,
+completion receipt, or exact resume phrase. A saved pause is advisory and never
+blanket-denies tools. Strict completion enforcement belongs to an explicit
+controlled `manageroo run`.
 Never make the operator repeat a clear path, repository name, request, or
 authorization phrase. Never answer authorized work with a receipt, stale intent
 lock, skill-routing ritual, or write-guard denial.

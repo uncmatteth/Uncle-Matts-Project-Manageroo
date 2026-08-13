@@ -25,9 +25,8 @@ class ContinuityBenchmarkTests(unittest.TestCase):
         self.assertEqual(report["routine"]["estimated_tokens"], 0)
         self.assertLessEqual(report["recovery"]["estimated_tokens"], 200)
         self.assertTrue(all(report["controls"].values()))
-        self.assertTrue(report["controls"]["resume_message_reactivated"])
-        self.assertTrue(report["controls"]["resume_constraints_recovered"])
-        self.assertTrue(report["controls"]["shown_resume_typo_reactivated"])
+        self.assertTrue(report["controls"]["paused_tools_available"])
+        self.assertTrue(report["controls"]["ordinary_stop_unblocked"])
         self.assertIn("does not measure model code quality", report["limits"])
 
     def test_benchmark_command_reports_machine_readable_results_without_model_calls(self):

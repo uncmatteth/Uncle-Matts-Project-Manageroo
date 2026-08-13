@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import html
 import json
 import os
 import re
@@ -22,15 +21,7 @@ STATE_SCHEMA_VERSION = 1
 HOOK_COMMAND = "agent-continuity-hook"
 INTERNAL_CONTINUATION_PREFIX = "[MANAGEROO INTERNAL CONTINUATION]"
 MANAGEROO_MARK = "🦘"
-ROOT_REQUEST_MARK = "🎯"
-FINISH_MARK = "🏁"
-COMPLETE_MARK = "🎉"
-BLOCKED_MARK = "🚧"
 STOPPED_MARK = "🛑"
-GENERIC_COMPLETE_RECEIPT = f"{COMPLETE_MARK} Manageroo: request complete"
-GENERIC_BLOCKED_RECEIPT = f"{BLOCKED_MARK} Manageroo: waiting on an external blocker"
-SPECIFIC_COMPLETE_PREFIX = "✅ Done — "
-SPECIFIC_COMPLETE_TEMPLATE = f"{SPECIFIC_COMPLETE_PREFIX}<what actually finished>"
 _REPLACE_REQUEST = re.compile(
     r"\b(?:cancel|drop|forget|ignore|replace|supersede)\s+(?:all\s+)?(?:the\s+)?"
     r"(?:earlier|old|prior|previous|unfinished)\s+(?:request|task|work|instructions?)\b|"
@@ -52,24 +43,10 @@ _PAUSE_REQUEST = re.compile(
     r"(?:resume|continue|work)\b",
     re.IGNORECASE,
 )
-_DIRECT_RESUME_REQUEST = re.compile(
+_RESUME_REQUEST = re.compile(
     r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?(?:"
-    r"res+ume|continue|go\s+ahead|start\s+working\s+again|"
-    r"you\s+can\s+(?:res+ume|continue|work))\b|"
-    r"^\s*(?:can|could|will|would)\s+you\s+(?:please\s+)?"
-    r"res+ume\b",
-    re.IGNORECASE,
-)
-_RESUME_ONLY_REQUEST = re.compile(
-    r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?(?:"
-    r"(?:res+ume|continue)(?:\s+(?:(?:the\s+)?(?:saved\s+)?"
-    r"(?:work|task|job|request)|it))?(?:\s+now)?|"
-    r"go\s+ahead|start\s+working\s+again|"
-    r"you\s+can\s+(?:res+ume|continue|work)(?:\s+(?:now|again))?"
-    r"|(?:can|could|will|would)\s+you\s+(?:please\s+)?"
-    r"(?:res+ume|continue)(?:\s+(?:(?:the\s+)?(?:saved\s+)?"
-    r"(?:work|task|job|request)|it))?(?:\s+now)?"
-    r")(?:[.!?]+)?\s*$",
+    r"resume|continue|go\s+ahead|start\s+working\s+again|"
+    r"you\s+can\s+(?:resume|continue|work))\b",
     re.IGNORECASE,
 )
 _REAFFIRM_ACTIVE_WORK = re.compile(
@@ -274,13 +251,6 @@ def _is_side_question(prompt: str) -> bool:
     )
 
 
-def _has_resume_request(prompt: str) -> bool:
-    return any(
-        not _span_is_quoted(prompt, match.start(), match.end())
-        for match in _DIRECT_RESUME_REQUEST.finditer(prompt)
-    )
-
-
 def capture_current_request(
     *,
     session_id: str,
@@ -340,26 +310,12 @@ def _capture_current_request_locked(
         return state
 
     if existing is not None and existing.get("status") == "paused":
-        resume_requested = _has_resume_request(prompt)
-        if resume_requested or _REAFFIRM_ACTIVE_WORK.search(prompt):
+        if _RESUME_REQUEST.search(prompt) or _REAFFIRM_ACTIVE_WORK.search(prompt):
             state = dict(existing)
-            messages = [
-                item
-                for item in existing.get("messages", [])
-                if isinstance(item, dict) and isinstance(item.get("text"), str)
-            ]
-            if (
-                resume_requested
-                and not _RESUME_ONLY_REQUEST.fullmatch(prompt)
-                and not any(item.get("turn_id") == turn_id for item in messages)
-            ):
-                messages.append(_message(prompt, turn_id, "addition"))
             state.update(
                 {
                     "status": "active",
                     "cwd": cwd,
-                    "messages": messages,
-                    "objective_sha256": _objective_hash(messages),
                     "updated_at": utc_now(),
                     "waiting_reason": "",
                 }
@@ -429,58 +385,13 @@ def _capture_current_request_locked(
     return state
 
 
-def _completion_marker(state: dict[str, Any], status: str) -> str:
-    label = (
-        f"{COMPLETE_MARK} Manageroo: request complete"
-        if status == "complete"
-        else f"{BLOCKED_MARK} Manageroo: waiting on an external blocker"
-    )
-    return (
-        f"[{label}](#manageroo-continuity-"
-        f"{state['objective_sha256']}-{status})"
-    )
-
-
-def _previous_completion_marker(state: dict[str, Any], status: str) -> str:
-    """Accept the earlier readable badge while an installed hook is upgraded."""
-    label = (
-        "Manageroo: request complete"
-        if status == "complete"
-        else "Manageroo: waiting on an external blocker"
-    )
-    return (
-        f"[{label}](#manageroo-continuity-"
-        f"{state['objective_sha256']}-{status})"
-    )
-
-
-def _legacy_completion_marker(state: dict[str, Any], status: str) -> str:
-    """Accept already-issued receipts while an installed hook is upgraded."""
-    return f"<!-- manageroo-continuity:{state['objective_sha256']}:{status} -->"
-
-
-def _has_specific_completion_result(message: str) -> bool:
-    for line in message.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith(SPECIFIC_COMPLETE_PREFIX):
-            continue
-        result = stripped[len(SPECIFIC_COMPLETE_PREFIX) :].strip()
-        if result and result.casefold() not in {
-            "<what actually finished>",
-            "request complete",
-            "done",
-        }:
-            return True
-    return False
-
-
 def render_active_objective(state: dict[str, Any]) -> str:
     if state.get("status") == "paused":
         lines = [
             "# Manageroo continuity: paused",
             "",
-            "Do not resume or use tools until the operator resumes or gives clear new "
-            "work. Questions alone do not resume it.",
+            "The saved request is paused. Treat this as context only: the current "
+            "operator request wins, and ordinary tools remain available.",
             "",
             "## Saved requests",
             "",
@@ -498,40 +409,8 @@ def render_active_objective(state: dict[str, Any]) -> str:
     for index, item in enumerate(state.get("messages", []), start=1):
         relation = str(item.get("relation", "addition"))
         lines.append(f"{index}. [{relation}] {str(item.get('text') or '')}")
-    lines.extend(
-        [
-            f"Completion: continue until verified; end with `{SPECIFIC_COMPLETE_TEMPLATE}`.",
-            "Externally blocked: state `Concrete blocker:` and end with "
-            f"`{GENERIC_BLOCKED_RECEIPT}`.",
-        ]
-    )
+    lines.append("Verify work before claiming completion; ordinary chat needs no receipt.")
     return "\n".join(lines)
-
-
-def _task_excerpt(value: Any, *, limit: int = 240) -> str:
-    text = html.unescape(re.sub(r"<[^>]+>", " ", str(value or "")))
-    text = re.sub(r"\s+", " ", text).strip().lstrip(" .:-")
-    if len(text) <= limit:
-        return text
-    clipped = text[: limit + 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
-    return f"{clipped}…"
-
-
-def _stop_recovery_message(state: dict[str, Any]) -> str:
-    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
-    goal = (
-        _task_excerpt(messages[-1].get("text"), limit=180)
-        if messages
-        else "the saved request"
-    )
-    return "\n".join(
-        [
-            INTERNAL_CONTINUATION_PREFIX,
-            f"{MANAGEROO_MARK} Missing the completion line, so Manageroo continued this turn.",
-            f"{ROOT_REQUEST_MARK} Finish: {goal}",
-            f"{FINISH_MARK} When done, end with: {SPECIFIC_COMPLETE_TEMPLATE}",
-        ]
-    )
 
 
 def _path_clause(text: str, start: int, end: int) -> tuple[str, str]:
@@ -851,7 +730,7 @@ def _global_controller_contract() -> str:
             "Auto-select skills; the user need not name them. Work directly; use "
             "`manageroo run` only for useful isolation, retry, or proof.",
             "Resolve the repo; never initialize home. Current instructions and live evidence win.",
-            "Finish verified: `✅ Done — <specific result>`.",
+            "Verify work before claiming completion. Ordinary chat needs no Manageroo receipt.",
         ]
     )
 
@@ -879,47 +758,10 @@ def process_codex_continuity_hook(
             )
         return {}
     if name == "Stop":
-        with config_mutation_lock(_state_path(root, session_id)):
-            state = _read_state(root, session_id)
-            if (
-                not isinstance(state, dict)
-                or state.get("status") not in {"active", "waiting", "paused"}
-                or state.get("status") == "paused"
-            ):
-                return {}
-            last = str(event.get("last_assistant_message") or "")
-            complete_marker = _completion_marker(state, "complete")
-            blocked_marker = _completion_marker(state, "blocked")
-            previous_complete_marker = _previous_completion_marker(state, "complete")
-            previous_blocked_marker = _previous_completion_marker(state, "blocked")
-            legacy_complete_marker = _legacy_completion_marker(state, "complete")
-            legacy_blocked_marker = _legacy_completion_marker(state, "blocked")
-            if (
-                _has_specific_completion_result(last)
-                or GENERIC_COMPLETE_RECEIPT in last
-                or complete_marker in last
-                or previous_complete_marker in last
-                or legacy_complete_marker in last
-            ):
-                state["status"] = "complete"
-                state["updated_at"] = utc_now()
-                _save_state_locked(root, state)
-                return {}
-            if (
-                GENERIC_BLOCKED_RECEIPT in last
-                or blocked_marker in last
-                or previous_blocked_marker in last
-                or legacy_blocked_marker in last
-            ) and "Concrete blocker:" in last:
-                state["status"] = "waiting"
-                state["waiting_reason"] = last
-                state["updated_at"] = utc_now()
-                _save_state_locked(root, state)
-                return {}
-            return {
-                "decision": "block",
-                "reason": _stop_recovery_message(state),
-            }
+        # Compatibility for already-installed hook configurations. New installs
+        # do not register Stop at all; ordinary conversation is never a receipt
+        # protocol.
+        return {}
     state = _read_state(root, session_id)
     if not isinstance(state, dict) or state.get("status") not in {"active", "waiting", "paused"}:
         if name == "SessionStart":
@@ -931,18 +773,6 @@ def process_codex_continuity_hook(
             context = f"{_global_controller_contract()}\n\n{context}"
         return _additional_context(name, context)
     if name == "PreToolUse":
-        if state.get("status") == "paused":
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": (
-                        f"⏸️{MANAGEROO_MARK} Manageroo paused this agent action.\n"
-                        "💡 Why: The operator said to stop and has not explicitly resumed work.\n"
-                        "➡️ Next: End the turn or answer without tools. Do not monitor or resume the saved task."
-                    ),
-                }
-            }
         return audit_agent_tool(event, state)
     return {}
 
@@ -986,7 +816,6 @@ _CODEX_CONTINUITY_EVENTS = (
     "SessionStart",
     "UserPromptSubmit",
     "PreToolUse",
-    "Stop",
     "SubagentStart",
 )
 
@@ -1127,7 +956,6 @@ def install_codex_continuity_hooks(
         "SessionStart": {"matcher": "startup|resume|clear|compact", "hooks": [context_handler]},
         "UserPromptSubmit": {"hooks": [context_handler]},
         "PreToolUse": {"matcher": "*", "hooks": [context_handler]},
-        "Stop": {"hooks": [handler]},
         "SubagentStart": {"hooks": [context_handler]},
     }
     with config_mutation_lock(hooks_path):

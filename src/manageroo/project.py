@@ -36,11 +36,14 @@ Manageroo-controlled workers must never:
 
 The current operator request owns the work for every participating agent.
 Manageroo technically contains workers launched inside a controlled run while
-guiding the operator-facing agent without intercepting its tools. It does not
-install prompt, pre-tool, or stop hooks and does not convert conversational
-English into filesystem permissions. Use the current request, cwd, named paths,
-and live disk truth normally. Never demand a repeated repository name, exact
-authorization phrase, receipt, or scope-lock ritual for authorized work.
+guiding the operator-facing agent with quiet continuity and explicit-scope
+checks. Operator hooks never require a completion receipt or exact resume phrase,
+and Manageroo installs no `Stop` hook. `PreToolUse` rejects only mutations that
+violate an operator-written exclusion or `only` boundary; it does not convert
+the current repository or casual conversation into a permission wall. Use the
+current request, cwd, named paths, and live disk truth normally. Never demand a
+repeated repository name, exact authorization phrase, receipt, or scope-lock
+ritual for authorized work.
 
 Those worker restrictions do not block authorized operator delivery after
 Manageroo returns verified `COMPLETE`. When the current request authorizes

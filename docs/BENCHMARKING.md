@@ -3,7 +3,7 @@
 Manageroo has two different questions to measure:
 
 1. **Controller cost and behavior:** Does always-active continuity stay quiet,
-   recover the request, stop excluded mutations, and reject premature completion?
+   recover the request, stop excluded mutations, and leave ordinary chat unblocked?
 2. **Agent outcome:** Does a coding agent finish messy real work more reliably
    with Manageroo than without it?
 
@@ -24,11 +24,9 @@ This creates disposable local fixtures and makes no model calls. It measures:
 - compressed recovery-context size against a fixed budget;
 - recovery of root and additive requests;
 - rejection of side questions as new work;
-- reactivation from a direct resume message and the observed typo;
-- retention of targets and constraints added in a resume message;
 - enforcement of an explicit repository boundary;
-- rejection of premature completion; and
-- acceptance of a specific verified completion line.
+- ordinary tool availability while a saved request is paused; and
+- absence of an operator-chat `Stop` or receipt gate.
 
 The token value is a conservative four-characters-per-token estimate. It is not
 provider billing data. Routine prompt overhead must remain zero. Recovery is
