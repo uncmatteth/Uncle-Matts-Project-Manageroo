@@ -17,9 +17,43 @@ from manageroo.agent_continuity import (
     process_codex_continuity_hook,
 )
 from manageroo.errors import ConfigurationError
+from manageroo.execution_mode import EXECUTION_MODE_ENV, STRUCTURED_WORKER_MODE
 
 
 class AgentContinuityTests(unittest.TestCase):
+    def test_structured_worker_mode_bypasses_continuity_hooks_and_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "continuity-state"
+            events = (
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "worker-session",
+                    "turn_id": "turn-1",
+                    "cwd": temp,
+                    "prompt": "Return only the schema result.",
+                },
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": "worker-session",
+                    "turn_id": "turn-1",
+                    "cwd": temp,
+                    "last_assistant_message": '{"ok": true}',
+                },
+            )
+
+            with mock.patch.dict(
+                agent_continuity_module.os.environ,
+                {EXECUTION_MODE_ENV: STRUCTURED_WORKER_MODE},
+                clear=False,
+            ):
+                results = [
+                    process_codex_continuity_hook(event, state_root=root)
+                    for event in events
+                ]
+
+            self.assertEqual(results, [{}, {}])
+            self.assertFalse(root.exists())
+
     def _shell_decision(
         self,
         root: Path,

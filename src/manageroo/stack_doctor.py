@@ -504,6 +504,9 @@ def stack_doctor(
         "ok": True,
         "ready": not needs_action,
         "executes_changes": False,
+        "diagnostic_scope": "optional-integration-stack",
+        "release_authority": False,
+        "release_command": "manageroo release-ready",
         "counts": {
             "items": len(items),
             "configured": sum(1 for item in items if item.get("configured")),
@@ -519,7 +522,8 @@ def format_stack_doctor(report: dict) -> str:
         "SMART STACK DOCTOR",
         "",
         "This is read-only. It did not install, rewrite, log in, map folders, or remove anything.",
-        f"Ready: {'yes' if report.get('ready') else 'no'}",
+        "This checks optional stack dependencies; it does not approve a release.",
+        f"Stack dependencies ready: {'yes' if report.get('ready') else 'no'}",
         "",
         "Stack tools:",
     ]

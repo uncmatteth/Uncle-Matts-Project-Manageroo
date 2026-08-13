@@ -105,8 +105,6 @@ def main() -> int:
     if sys.argv[1:] == [GATE_VERSION_ARG]:
         print(GATE_VERSION)
         return 0
-    if sys.argv[1:] == ["--version"]:
-        return _run_supervisor()
     try:
         with _runtime_lock():
             return _run_supervisor()

@@ -284,8 +284,22 @@ class StackDoctorTests(unittest.TestCase):
         )
         self.assertIn("SMART STACK DOCTOR", text)
         self.assertIn("read-only", text)
+        self.assertIn("does not approve a release", text)
+        self.assertIn("Stack dependencies ready", text)
         self.assertIn("ACTION gitnexus", text)
         self.assertIn("gitnexus setup", text)
+
+    def test_stack_diagnostic_explicitly_has_no_release_authority(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = stack_doctor(
+                which=lambda _name: None,
+                runner=lambda _argv, _timeout: {},
+                home=Path(temp),
+            )
+
+        self.assertEqual(report["diagnostic_scope"], "optional-integration-stack")
+        self.assertFalse(report["release_authority"])
+        self.assertEqual(report["release_command"], "manageroo release-ready")
 
     def test_gitnexus_installed_is_warning_not_permanent_required_failure(self):
         def which(name: str) -> str | None:

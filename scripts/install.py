@@ -119,6 +119,56 @@ def tree_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
+def source_git_provenance(root: Path) -> dict[str, object]:
+    unknown: dict[str, object] = {
+        "git_state_known": False,
+        "git_commit": None,
+        "git_dirty": None,
+    }
+    root = root.expanduser().resolve()
+    if not (root / ".git").exists():
+        return unknown
+    git = shutil.which("git")
+    if not git:
+        return unknown
+
+    def probe(*args: str) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(
+                [git, *args],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=False,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    top = probe("rev-parse", "--show-toplevel")
+    commit = probe("rev-parse", "HEAD")
+    status = probe("status", "--porcelain=v1", "--untracked-files=all")
+    if not top or not commit or not status:
+        return unknown
+    if top.returncode or commit.returncode or status.returncode:
+        return unknown
+    try:
+        if Path(top.stdout.strip()).resolve(strict=True) != root.resolve(strict=True):
+            return unknown
+    except (OSError, RuntimeError, ValueError):
+        return unknown
+    commit_sha = commit.stdout.strip()
+    if len(commit_sha) not in {40, 64} or any(char not in "0123456789abcdef" for char in commit_sha):
+        return unknown
+    return {
+        "git_state_known": True,
+        "git_commit": commit_sha,
+        "git_dirty": bool(status.stdout.strip()),
+    }
+
+
 def command_version(executable: str) -> str:
     path = shutil.which(executable)
     if not path:
@@ -1227,7 +1277,13 @@ def run_source_install_checks(
         )
 
 
-def install_app_tree(source: Path, app_root: Path, *, prefix: Path | None = None) -> None:
+def install_app_tree(
+    source: Path,
+    app_root: Path,
+    *,
+    prefix: Path | None = None,
+    expected_sha256: str | None = None,
+) -> None:
     """Stage a complete runtime before replacing the live import directory."""
     parent = app_root.parent
     parent.mkdir(parents=True, exist_ok=True)
@@ -1244,6 +1300,10 @@ def install_app_tree(source: Path, app_root: Path, *, prefix: Path | None = None
     moved_previous = False
     try:
         shutil.copytree(source, staged_app, symlinks=False)
+        if expected_sha256 is not None and tree_hash(staged_app) != expected_sha256:
+            raise SystemExit(
+                "Staged Manageroo app does not match the bound source digest; live runtime was preserved."
+            )
         if app_root.exists():
             os.replace(app_root, previous_app)
             moved_previous = True
@@ -1355,6 +1415,9 @@ def main() -> int:
                 source_env,
                 run_developer_tests=args.run_developer_tests,
             )
+        source_tree_sha256 = tree_hash(ROOT)
+        source_app_sha256 = tree_hash(ROOT / "src")
+        source_git_state = source_git_provenance(ROOT)
 
         token_mode_record = set_token_mode(token_mode, install_skills=token_mode != "off")
         skill_pack_mode = choose_skill_pack_mode(args.skill_pack, args.skip_skill_pack)
@@ -1440,7 +1503,18 @@ def main() -> int:
                     "Installer refuses to replace an unowned proof asset: "
                     f"{existing_proof_path}"
                 )
-        install_app_tree(ROOT / "src", app_root, prefix=prefix)
+        if (
+            tree_hash(ROOT) != source_tree_sha256
+            or tree_hash(ROOT / "src") != source_app_sha256
+            or source_git_provenance(ROOT) != source_git_state
+        ):
+            raise SystemExit("Manageroo source changed during installation; no runtime update was accepted.")
+        install_app_tree(
+            ROOT / "src",
+            app_root,
+            prefix=prefix,
+            expected_sha256=source_app_sha256,
+        )
         proof_tests = prefix / "tests"
         if proof_tests.exists():
             shutil.rmtree(proof_tests)
@@ -1476,12 +1550,20 @@ def main() -> int:
                 "installation_id": installation_id,
             },
         )
+        installed_app_sha256 = tree_hash(app_root)
+        source_provenance = {
+            "schema_version": 1,
+            **source_git_state,
+            "source_tree_sha256": source_tree_sha256,
+            "installed_app_sha256": installed_app_sha256,
+        }
         lock = {
             "product": FULL_NAME,
             "installed_at": datetime.now(timezone.utc).isoformat(),
             "source_root": str(ROOT),
-            "source_tree_sha256": tree_hash(ROOT),
-            "installed_app_sha256": tree_hash(app_root),
+            "source_tree_sha256": source_tree_sha256,
+            "installed_app_sha256": installed_app_sha256,
+            "source_provenance": source_provenance,
             "python": sys.version,
             "platform": platform.platform(),
             "prefix": str(prefix),

@@ -45,6 +45,8 @@ def add_check_gate(
     kind = str(kind).strip()
     if not _GATE_ID_RE.fullmatch(kind):
         raise ValueError("Check kind may contain only letters, digits, dots, underscores, and hyphens.")
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or timeout_seconds <= 0:
+        raise ValueError("Check timeout_seconds must be a positive integer.")
     if not argv:
         raise ValueError(f"Command is required. Run `{PUBLIC_COMMAND} checks suggest` for repo-aware options.")
     if argv and argv[0] == "--":
@@ -69,7 +71,7 @@ def add_check_gate(
             f"id = {_toml_value(gate_id)}",
             f"kind = {_toml_value(kind)}",
             f"required = {_toml_value(required)}",
-            f"timeout_seconds = {int(timeout_seconds)}",
+            f"timeout_seconds = {timeout_seconds}",
             f"argv = {_toml_value(argv)}",
             "",
         ]
@@ -83,7 +85,7 @@ def add_check_gate(
         "kind": kind,
         "argv": argv,
         "required": required,
-        "timeout_seconds": int(timeout_seconds),
+        "timeout_seconds": timeout_seconds,
         "config": str(config_path),
         "next_command": shlex.join([PUBLIC_COMMAND, "ready"]),
     }

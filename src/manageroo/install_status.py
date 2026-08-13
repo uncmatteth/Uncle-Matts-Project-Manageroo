@@ -196,6 +196,36 @@ def _validate_lock_payload(payload: dict[str, Any]) -> str | None:
                 problem = _validate_command_list(item["next_commands"], f"stack_summary.items[{index}].next_commands")
                 if problem:
                     return problem
+    provenance = payload.get("source_provenance")
+    if provenance is not None:
+        if not isinstance(provenance, dict):
+            return "source_provenance must be an object when present"
+        if provenance.get("schema_version") != 1:
+            return "source_provenance.schema_version must be 1"
+        known = provenance.get("git_state_known")
+        if not isinstance(known, bool):
+            return "source_provenance.git_state_known must be a boolean"
+        commit = provenance.get("git_commit")
+        dirty = provenance.get("git_dirty")
+        if known:
+            if not (
+                isinstance(commit, str)
+                and len(commit) in {40, 64}
+                and all(character in "0123456789abcdef" for character in commit)
+            ):
+                return "source_provenance.git_commit must be a full hexadecimal Git commit"
+            if not isinstance(dirty, bool):
+                return "source_provenance.git_dirty must be a boolean when Git state is known"
+        elif commit is not None or dirty is not None:
+            return "unknown source Git state must use null commit and dirty fields"
+        for field in ("source_tree_sha256", "installed_app_sha256"):
+            value = provenance.get(field)
+            if not (
+                isinstance(value, str)
+                and len(value) == 64
+                and all(character in "0123456789abcdef" for character in value)
+            ):
+                return f"source_provenance.{field} must be a SHA-256 digest"
     return None
 
 
@@ -343,6 +373,7 @@ def stack_status(lock_path: Path | None = None) -> dict[str, Any]:
     return {
         "ok": True, "lock_path": loaded["lock_path"], "installed_at": lock.get("installed_at"),
         "prefix": lock.get("prefix"), "launcher": lock.get("launcher"), "token_mode": lock.get("token_mode"),
+        "source_provenance": lock.get("source_provenance"),
         "stack_summary": live_summary, "cached_stack_summary": cached_summary, "current_tool_paths": probes,
     }
 

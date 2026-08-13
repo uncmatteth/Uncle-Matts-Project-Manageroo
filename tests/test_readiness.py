@@ -58,6 +58,10 @@ class ReadinessTests(unittest.TestCase):
             ):
                 report = readiness(repo)
             self.assertFalse(report["ok"])
+            self.assertEqual(report["diagnostic_scope"], "project-run")
+            self.assertFalse(report["release_authority"])
+            self.assertEqual(report["release_command"], "manageroo release-ready")
+            self.assertIn("does not approve a release", format_readiness(report))
             checks = [item for item in report["items"] if item["name"] == "checks"][0]
             self.assertFalse(checks["ok"])
             self.assertEqual(checks["next"], "manageroo checks suggest --apply-first")

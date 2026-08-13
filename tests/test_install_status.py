@@ -189,6 +189,30 @@ class InstallStatusTests(unittest.TestCase):
             self.assertIsNone(item["path"])
             self.assertTrue(item["needs_action"])
 
+    def test_stack_status_exposes_recorded_source_provenance(self):
+        provenance = {
+            "schema_version": 1,
+            "git_state_known": True,
+            "git_commit": "c" * 40,
+            "git_dirty": False,
+            "source_tree_sha256": "d" * 64,
+            "installed_app_sha256": "e" * 64,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            lock = Path(temp) / "install-lock.json"
+            lock.write_text(
+                json.dumps({"external_tools": [], "source_provenance": provenance}),
+                encoding="utf-8",
+            )
+            with (
+                patch("manageroo.install_status.shutil.which", return_value=None),
+                patch("manageroo.install_status._find_skill", return_value=None),
+            ):
+                report = stack_status(lock)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["source_provenance"], provenance)
+
     def test_uninstall_plan_uses_recorded_custom_launcher_not_default_bin(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

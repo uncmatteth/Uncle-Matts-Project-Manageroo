@@ -45,6 +45,53 @@ def _powershell_forwarding_map(text: str) -> dict[str, str]:
 
 
 class InstallScriptTests(unittest.TestCase):
+    def test_source_git_provenance_reports_exact_commit_and_dirty_state(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=repo,
+                check=True,
+            )
+            (repo / "tracked.txt").write_text("clean\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "fixture",
+                ],
+                cwd=repo,
+                check=True,
+            )
+            expected_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+
+            clean = install.source_git_provenance(repo)
+            (repo / "untracked.txt").write_text("dirty\n", encoding="utf-8")
+            dirty = install.source_git_provenance(repo)
+
+        self.assertTrue(clean["git_state_known"])
+        self.assertEqual(clean["git_commit"], expected_commit)
+        self.assertFalse(clean["git_dirty"])
+        self.assertTrue(dirty["git_state_known"])
+        self.assertEqual(dirty["git_commit"], expected_commit)
+        self.assertTrue(dirty["git_dirty"])
+
     def test_app_update_swaps_staged_tree_without_deleting_live_import_path(self):
         install = load_install_script()
         with tempfile.TemporaryDirectory() as temp:
@@ -85,6 +132,24 @@ class InstallScriptTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "unowned app directory"):
                 install.install_app_tree(source, app)
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep me\n")
+
+    def test_app_update_rejects_staged_bytes_outside_bound_source_digest(self):
+        install = load_install_script()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source"
+            app = root / "prefix" / "app"
+            source.mkdir()
+            app.mkdir(parents=True)
+            (source / "new.py").write_text("NEW = True\n", encoding="utf-8")
+            (app / "old.py").write_text("OLD = True\n", encoding="utf-8")
+
+            with patch.object(install, "installation_is_manageroo_owned", return_value=True):
+                with self.assertRaisesRegex(SystemExit, "does not match the bound source"):
+                    install.install_app_tree(source, app, expected_sha256="0" * 64)
+
+            self.assertEqual((app / "old.py").read_text(encoding="utf-8"), "OLD = True\n")
+            self.assertFalse((app / "new.py").exists())
 
     def test_install_removes_only_legacy_manageroo_operator_hooks(self):
         install = load_install_script()
@@ -378,6 +443,15 @@ class InstallScriptTests(unittest.TestCase):
                 patch.object(install.venv.EnvBuilder, "create", side_effect=create_venv),
                 patch.object(install, "run", return_value=command_result),
                 patch.object(install, "tree_hash", return_value="a" * 64),
+                patch.object(
+                    install,
+                    "source_git_provenance",
+                    return_value={
+                        "git_state_known": True,
+                        "git_commit": "b" * 40,
+                        "git_dirty": False,
+                    },
+                ),
                 patch.object(install, "uninstall_plan", return_value={"paths": []}),
                 redirect_stdout(output := io.StringIO()),
             ):
@@ -388,6 +462,17 @@ class InstallScriptTests(unittest.TestCase):
 
             lock = json.loads((prefix / "install-lock.json").read_text(encoding="utf-8"))
             self.assertEqual(lock["detected_coding_agents"], detected)
+            self.assertEqual(
+                lock["source_provenance"],
+                {
+                    "schema_version": 1,
+                    "git_state_known": True,
+                    "git_commit": "b" * 40,
+                    "git_dirty": False,
+                    "source_tree_sha256": "a" * 64,
+                    "installed_app_sha256": "a" * 64,
+                },
+            )
             self.assertEqual(
                 lock["external_tools"][0],
                 {

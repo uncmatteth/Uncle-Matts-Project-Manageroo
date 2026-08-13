@@ -88,6 +88,8 @@ class CliReleaseReadyTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(payload["ok"], payload)
             self.assertEqual(payload["status"], "READY FOR OPERATOR RELEASE")
+            self.assertEqual(payload["diagnostic_scope"], "operator-release-handoff")
+            self.assertTrue(payload["release_authority"])
             self.assertTrue(payload.get("handoff_verified"))
             self.assertEqual(persisted_handoff, payload["handoff_markdown"])
             self.assertIn("Status: READY FOR OPERATOR RELEASE", persisted_handoff)

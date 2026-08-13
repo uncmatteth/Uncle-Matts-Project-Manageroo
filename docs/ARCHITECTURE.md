@@ -51,6 +51,15 @@ operator authority.
 Missing continuity state starts a new session. Unreadable, malformed, non-object,
 or unsupported-version state fails closed without replacing the original file.
 
+Operator sessions and controlled Codex workers use an explicit execution-mode
+seam. The Codex adapter marks every concrete worker launch, including fallback
+launches, as `structured-worker` through `MANAGEROO_EXECUTION_MODE`. Continuity
+hooks return no output and create no continuity state in that mode, so the
+worker's declared JSON schema remains its only output contract. Unknown or
+malformed schema type declarations fail closed. Unset and unrecognized execution
+modes retain operator continuity. This environment marker selects Manageroo
+behavior; it is not an operating-system security boundary.
+
 Routine prompt events render a deterministic bounded status projection through
 Codex's display-only system-message channel: one short `You asked` line, a locally
 derived action summary of the current task, and active/paused status. The action
@@ -118,6 +127,10 @@ entries, installs the bounded continuity hook set, and preserves unrelated hooks
 It stages the complete Manageroo runtime beside the live installation before a
 directory swap, so concurrently executing hooks cannot repopulate a directory
 that the installer is recursively deleting.
+The staged app must match the source-app digest captured before installation.
+The install lock records whether Git provenance was knowable, the exact source
+commit and dirty state when known, the complete source-tree SHA-256, and the
+installed-app SHA-256. Source drift before the atomic app swap stops the update.
 
 ## Source isolation
 
@@ -128,6 +141,11 @@ descriptor, retries files that change identity or metadata, and fails closed whe
 descriptor-relative access is unavailable. Only stable records reach the cache.
 Repository-relative paths containing backslashes fail closed instead of being
 normalized into a different file identity during workspace mirroring.
+Visible source paths and pending workspace paths must be regular files or
+directories; FIFOs, sockets, devices, and symlinks fail closed. Resume cleanup
+uses the double-force form of `git clean` only inside Manageroo's own disposable
+workspace so ignored nested Git repositories cannot survive as worker residue,
+then verifies that no ignored state remains.
 
 After successful delivery:
 
@@ -227,6 +245,10 @@ ClawPatch queue supervision is an optional external integration. The standalone 
 Manageroo keeps only an argv adapter in `clawpatch_release.py`. A dry run renders the exact standalone command. An applying run resolves the installed executable, requires its `--version` output to match the declared supervisor version exactly, invokes it with `shell=False`, streams its terminal output, and returns its exit code unchanged. The release-ready gate asks that executable for its external state path before reading the proof, so Manageroo does not duplicate platform path or checkpoint logic.
 
 The package metadata no longer publishes a `clawpatch-supervise` console script, and Manageroo does not import the standalone Python package. Native supervisor installers and the ownership-checked stack updater pin the public standalone repository independently. Before mutating an owned supervisor environment, the updater installs a tiny stdlib-only console-entry gate. Direct, service, and Manageroo-mediated queue launches then hold the same cross-platform installation lock for their complete lifetime, while updates hold it across package mutation and verification. A one-time platform process snapshot covers only migration from the older ungated launcher; it is not the ongoing synchronization primitive.
+
+Supervisor `--version` probes use that same runtime lock; only the tiny
+Manageroo gate-version query is lock-free because it does not import or execute
+the installed supervisor package.
 
 ## Parallel mapping and review, sequential implementation
 
@@ -364,6 +386,12 @@ SHA-256, so a later source-worktree mutation cannot change the authorized ship
 bytes. The repository's configured gate uses
 `verify_release.py --check-only` and an isolated bytecode cache; the normal
 operator invocation still refreshes `BUILD-VALIDATION.json`.
+
+`doctor`, `ready`, and `stack-doctor` are deliberately narrower diagnostics.
+Their JSON reports expose `release_authority: false`, a named diagnostic scope,
+and `manageroo release-ready` as the final release command. Only
+`release-ready` has `release_authority: true`; its positive result is still an
+operator handoff, not a deployment.
 
 A completed Manageroo run records the source repository HEAD captured before the
 run together with the reviewed patch and final source-tree digests. If HEAD or

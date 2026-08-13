@@ -948,6 +948,10 @@ def _additional_context(event_name: str, text: str) -> dict[str, Any]:
 def process_codex_continuity_hook(
     event: dict[str, Any], *, state_root: Path | None = None
 ) -> dict[str, Any]:
+    from .execution_mode import operator_continuity_enabled
+
+    if not operator_continuity_enabled():
+        return {}
     session_id = str(event.get("session_id") or "")
     if not session_id:
         return {}

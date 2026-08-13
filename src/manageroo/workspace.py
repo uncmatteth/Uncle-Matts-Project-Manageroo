@@ -40,12 +40,15 @@ class WorkspaceMirror:
         for raw_relative in git_visible_files(self.source_repo, self.runner):
             relative = safe_repo_relative(raw_relative)
             path = self.source_repo / relative
-            if path.is_symlink():
+            try:
+                metadata = path.lstat()
+            except OSError as exc:
+                raise SafetyError(f"Visible source path is unreadable: {relative}: {exc}") from exc
+            if stat.S_ISLNK(metadata.st_mode):
                 raise SafetyError(f"Tracked or visible symlinks are not supported by the isolated workspace policy: {relative}")
-            if not path.is_file():
-                continue
-            stat = path.stat()
-            records.append(SourceFile(path=relative, sha256=sha256_file(path), bytes=stat.st_size, mode=stat.st_mode & 0o777))
+            if not stat.S_ISREG(metadata.st_mode):
+                raise SafetyError(f"Visible source path is non-regular and unsupported: {relative}")
+            records.append(SourceFile(path=relative, sha256=sha256_file(path), bytes=metadata.st_size, mode=metadata.st_mode & 0o777))
         atomic_write_json(self.snapshot_path, {"files": [asdict(item) for item in records]})
         return records
 
@@ -110,7 +113,16 @@ class WorkspaceMirror:
             raise SafetyError("Manageroo could not clear the pending workspace-validation marker: " + str(exc)) from exc
 
     def _discard_ignored_state(self) -> None:
-        self._git(["clean", "-fdX"])
+        # The workspace is Manageroo-owned and disposable. The second force is required
+        # for ignored nested Git repositories, which ordinary `git clean -fdX` preserves.
+        self._git(["clean", "-ffdX"])
+        remaining = self._git(["status", "--porcelain", "--ignored"])
+        ignored = [line for line in remaining.stdout.splitlines() if line.startswith("!! ")]
+        if ignored:
+            raise SafetyError(
+                "Run workspace contains ignored state that could not be discarded safely: "
+                + ", ".join(line[3:] for line in ignored)
+            )
 
     def _discard_uncheckpointed_state(self) -> None:
         self._discard_ignored_state()
@@ -123,7 +135,34 @@ class WorkspaceMirror:
                 raise SafetyError("Run workspace contains unverified changes that could not be discarded safely.")
         self._clear_pending_validation_marker()
 
+    def _assert_workspace_paths_regular(self) -> None:
+        def traversal_error(exc: OSError) -> None:
+            raise SafetyError(f"Pending workspace traversal failed: {exc}") from exc
+
+        for current, directories, files in os.walk(
+            self.workspace,
+            topdown=True,
+            onerror=traversal_error,
+            followlinks=False,
+        ):
+            current_path = Path(current)
+            if current_path == self.workspace and ".git" in directories:
+                directories.remove(".git")
+            for name in [*directories, *files]:
+                path = current_path / name
+                relative = path.relative_to(self.workspace).as_posix()
+                try:
+                    metadata = path.lstat()
+                except OSError as exc:
+                    raise SafetyError(f"Pending workspace path is unreadable: {relative}: {exc}") from exc
+                if name in directories and stat.S_ISDIR(metadata.st_mode):
+                    continue
+                if name in files and stat.S_ISREG(metadata.st_mode):
+                    continue
+                raise SafetyError(f"Pending workspace contains unsupported non-regular path: {relative}")
+
     def _workspace_state_digest(self, head: str) -> str:
+        self._assert_workspace_paths_regular()
         digest = hashlib.sha256()
         diff = self._git(["diff", "--binary", head, "--"])
         digest.update(b"manageroo-workspace-state-v2\0")
@@ -146,6 +185,8 @@ class WorkspaceMirror:
                 update_field(stat.S_IFMT(metadata.st_mode).to_bytes(4, "big"))
                 update_field(stat.S_IMODE(metadata.st_mode).to_bytes(4, "big"))
                 update_field(bytes.fromhex(sha256_file(path)))
+            else:
+                raise SafetyError(f"Pending workspace contains unsupported non-regular path: {relative}")
         return digest.hexdigest()
 
     def _completed_write_job_owns_pending_state(self) -> bool:

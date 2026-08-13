@@ -497,6 +497,9 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
     return {
         "ok": ok,
         "status": "READY TO RUN" if ok else "NOT READY",
+        "diagnostic_scope": "project-run",
+        "release_authority": False,
+        "release_command": "manageroo release-ready",
         "repo": str(repo) if repo else None,
         "items": items,
         "next_commands": next_commands,
@@ -504,7 +507,11 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
 
 
 def format_readiness(report: dict[str, Any], *, include_next: bool = True) -> str:
-    lines = [report["status"], ""]
+    lines = [
+        report["status"],
+        "This checks whether a Manageroo project run can start; it does not approve a release.",
+        "",
+    ]
     for item in report["items"]:
         label = "OK" if item["ok"] else "ACTION"
         if not item["ok"] and item.get("severity") == "warning":

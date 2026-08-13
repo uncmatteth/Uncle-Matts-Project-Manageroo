@@ -171,22 +171,64 @@ def _setup_next_command(readiness_report: dict, integration_config: dict) -> str
     return commands[0] if commands else f"{PUBLIC_COMMAND} ready"
 
 
-def _extract_check_repo_arg(argv: list[str], repo: str) -> tuple[str, list[str]]:
+def _extract_check_add_args(
+    argv: list[str],
+    *,
+    repo: str,
+    kind: str,
+    timeout_seconds: int,
+    optional: bool,
+    json_output: bool,
+) -> dict[str, object]:
     values = list(argv)
-    command_start = values.index("--") if "--" in values else len(values)
-    prefix = values[:command_start]
-    suffix = values[command_start:]
-    cleaned: list[str] = []
+    if "--" in values:
+        command_start = values.index("--")
+        prefix = values[:command_start]
+        command_argv = values[command_start + 1 :]
+    else:
+        prefix = values
+        command_argv = []
     index = 0
     selected_repo = repo
+    selected_kind = kind
+    selected_timeout = timeout_seconds
+    selected_optional = optional
+    selected_json = json_output
     while index < len(prefix):
-        if prefix[index] == "--repo" and index + 1 < len(prefix):
-            selected_repo = prefix[index + 1]
+        option = prefix[index]
+        if option in {"--repo", "--kind", "--timeout-seconds"}:
+            if index + 1 >= len(prefix):
+                raise ValueError(f"{option} requires a value before the command separator (`--`).")
+            value = prefix[index + 1]
+            if option == "--repo":
+                selected_repo = value
+            elif option == "--kind":
+                selected_kind = value
+            else:
+                try:
+                    selected_timeout = int(value)
+                except ValueError as exc:
+                    raise ValueError("--timeout-seconds requires an integer.") from exc
             index += 2
             continue
-        cleaned.append(prefix[index])
-        index += 1
-    return selected_repo, cleaned + suffix
+        if option == "--optional":
+            selected_optional = True
+            index += 1
+            continue
+        if option == "--json":
+            selected_json = True
+            index += 1
+            continue
+        command_argv = prefix[index:]
+        break
+    return {
+        "repo": selected_repo,
+        "kind": selected_kind,
+        "timeout_seconds": selected_timeout,
+        "optional": selected_optional,
+        "json": selected_json,
+        "argv": command_argv,
+    }
 
 
 def _plain_failure_explanation(detail: str) -> str:
@@ -1107,17 +1149,24 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(format_check_gate_suggestions(result), end="")
                 return 0 if result.get("ok") else 2
-            selected_repo, check_argv = _extract_check_repo_arg(args.argv, args.repo)
-            repo = _repo(selected_repo)
+            check_args = _extract_check_add_args(
+                args.argv,
+                repo=args.repo,
+                kind=args.kind,
+                timeout_seconds=args.timeout_seconds,
+                optional=args.optional,
+                json_output=args.json,
+            )
+            repo = _repo(str(check_args["repo"]))
             result = add_check_gate(
                 repo,
                 gate_id=args.id,
-                argv=check_argv,
-                kind=args.kind,
-                timeout_seconds=args.timeout_seconds,
-                required=not args.optional,
+                argv=list(check_args["argv"]),
+                kind=str(check_args["kind"]),
+                timeout_seconds=int(check_args["timeout_seconds"]),
+                required=not bool(check_args["optional"]),
             )
-            if args.json:
+            if check_args["json"]:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_add_check_gate(result), end="")
@@ -1206,7 +1255,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 for check in result["checks"]:
                     print(f"{'PASS' if check['ok'] else 'FAIL'}  {check['name']}: {check['detail']}")
-                print("READY" if result["ok"] else "NOT READY")
+                print("LOCAL DIAGNOSTIC PASS" if result["ok"] else "LOCAL DIAGNOSTIC FAIL")
+                print("This checks the local environment; it does not approve a release.")
+                print(f"Release gate: {result['release_command']}")
             return 0 if result["ok"] else 2
 
         if args.command == "run":

@@ -16,6 +16,7 @@ from typing import Any, Callable
 from .base import AgentAdapter, AgentRequest, AgentResponse
 from ..branding import FULL_NAME
 from ..errors import AgentExecutionError
+from ..execution_mode import structured_worker_environment
 from ..runner import CommandRunner
 from ..schema import extract_json, load_schema, validate
 from ..util import atomic_write_json
@@ -351,6 +352,7 @@ class CodexAdapter(AgentAdapter):
                 argv,
                 cwd=bounded_request.cwd,
                 timeout_seconds=bounded_request.timeout_seconds,
+                env=structured_worker_environment(),
                 input_text=prompt,
                 log_name=f"agent-{bounded_request.output_path.parent.name}-{bounded_request.output_path.stem}",
             )

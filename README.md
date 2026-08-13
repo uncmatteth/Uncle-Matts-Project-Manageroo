@@ -86,6 +86,11 @@ Recovery events restore the exact saved objective when needed.
 Premature-stop feedback contains only a short current-task line and the
 completion line; it does not repeat the normal status block or receipt explanation.
 
+Controlled Codex workers are explicitly launched in a separate schema-only
+execution mode. In that mode the operator continuity hooks emit nothing and
+store nothing; the declared worker JSON schema is authoritative. The mode marker
+does not replace Codex sandboxing or Manageroo's isolated workspace controls.
+
 Manageroo's normal human-facing output follows one rule: say the outcome first,
 then explain what happened, what it means, and the one useful next action.
 Internal IDs, hashes, state paths, and raw records belong in `--json` output or
@@ -553,6 +558,11 @@ Check the surrounding stack for configuration or health problems:
 ```bash
 manageroo stack-doctor
 ```
+
+`doctor`, `ready`, and `stack-doctor` are diagnostics, not release approval.
+Their JSON output reports `release_authority: false`. The final operator handoff
+is `manageroo release-ready`, which reports release authority only after its
+full proof contract passes; it still does not deploy production.
 
 Preview supported updates without changing anything:
 

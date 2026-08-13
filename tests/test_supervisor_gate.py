@@ -153,6 +153,21 @@ class SupervisorGateTests(unittest.TestCase):
                 self.assertEqual(gate.main(), 0)
             run_supervisor.assert_called_once_with()
 
+    def test_supervisor_version_probe_uses_runtime_lock(self):
+        gate = _load_gate()
+        run_supervisor = Mock(return_value=0)
+        stderr = StringIO()
+        with (
+            patch.object(gate.sys, "argv", ["clawpatch-supervise", "--version"]),
+            patch.object(gate, "_runtime_lock", side_effect=gate.RuntimeLockBusy),
+            patch.object(gate, "_run_supervisor", run_supervisor),
+            redirect_stderr(stderr),
+        ):
+            self.assertEqual(gate.main(), gate.TRANSIENT_EXIT_CODE)
+
+        run_supervisor.assert_not_called()
+        self.assertIn("being updated or is already active", stderr.getvalue())
+
     @unittest.skipIf(os.name == "nt", "POSIX permission rule")
     def test_group_writable_lock_directory_is_rejected(self):
         gate = _load_gate()

@@ -403,6 +403,71 @@ class WorkspaceTests(unittest.TestCase):
 
             self.assertFalse(mirror.snapshot_path.exists())
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO paths require POSIX mkfifo")
+    def test_capture_source_rejects_visible_nonregular_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            fifo = repo / "visible.pipe"
+            os.mkfifo(fifo)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+
+            with patch(
+                "manageroo.workspace.git_visible_files",
+                return_value=["a.txt", "visible.pipe"],
+            ):
+                with self.assertRaisesRegex(SafetyError, "non-regular"):
+                    mirror.capture_source()
+
+            self.assertFalse(mirror.snapshot_path.exists())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO paths require POSIX mkfifo")
+    def test_pending_state_digest_rejects_untracked_nonregular_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            os.mkfifo(workspace / "worker.pipe")
+
+            with self.assertRaisesRegex(SafetyError, "non-regular"):
+                mirror._workspace_state_digest(mirror.head())
+
+    def test_resume_removes_ignored_nested_git_repository(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            (repo / ".gitignore").write_text("ignored-cache/\n", encoding="utf-8")
+            self.assertTrue(runner.run(["git", "add", ".gitignore"], cwd=repo).passed)
+            self.assertTrue(
+                runner.run(
+                    [
+                        "git",
+                        "-c",
+                        "commit.gpgSign=false",
+                        "-c",
+                        "core.hooksPath=/dev/null",
+                        "commit",
+                        "-m",
+                        "ignore cache",
+                    ],
+                    cwd=repo,
+                ).passed
+            )
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+            workspace = mirror.create()
+            ignored_repo = workspace / "ignored-cache"
+            ignored_repo.mkdir()
+            self.assertTrue(
+                runner.run(["git", "init", "--template=", "-b", "main"], cwd=ignored_repo).passed
+            )
+            (ignored_repo / "payload.txt").write_text("residue\n", encoding="utf-8")
+
+            resumed = WorkspaceMirror(repo, root / "run", runner)
+            resumed.load_existing()
+
+            self.assertFalse(ignored_repo.exists())
+
     @unittest.skipIf(os.name == "nt", "literal backslash filenames are not distinct on Windows")
     def test_create_rejects_distinct_paths_that_backslash_normalization_would_collapse(self):
         with tempfile.TemporaryDirectory() as temp:

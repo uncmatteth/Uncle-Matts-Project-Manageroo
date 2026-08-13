@@ -60,13 +60,26 @@ def inventory_hashes(repo: Path, runner: CommandRunner) -> dict[str, str]:
     return {item.path: item.sha256 for item in build_inventory(repo, runner)}
 
 
+def _changed_inventory_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    return sorted(
+        item for item in set(before) | set(after) if before.get(item) != after.get(item)
+    )
+
+
 def run_isolated_review(*, adapter: AgentAdapter, request: AgentRequest, runner: CommandRunner) -> dict:
     before = inventory_hashes(request.cwd, runner)
-    response = adapter.run(request)
+    try:
+        response = adapter.run(request)
+    except BaseException as exc:
+        changed = _changed_inventory_paths(before, inventory_hashes(request.cwd, runner))
+        if changed:
+            raise SafetyError(
+                "Reviewer mutated its isolated repository: " + ", ".join(changed)
+            ) from exc
+        raise
     after = inventory_hashes(request.cwd, runner)
-    if before != after:
-        changed = sorted(set(before) | set(after))
-        changed = [item for item in changed if before.get(item) != after.get(item)]
+    changed = _changed_inventory_paths(before, after)
+    if changed:
         raise SafetyError("Reviewer mutated its isolated repository: " + ", ".join(changed))
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
     raw_allowed = metadata.get("allowed_paths", [])

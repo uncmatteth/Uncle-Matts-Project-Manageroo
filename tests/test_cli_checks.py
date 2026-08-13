@@ -42,6 +42,43 @@ class CliCheckTests(unittest.TestCase):
             self.assertEqual(payload["id"], "smoke")
             self.assertEqual(payload["argv"], ["python3", "-m", "unittest", "discover"])
 
+    def test_checks_add_parses_all_manageroo_options_after_id(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            initialize_project(repo, agent="mock")
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main(
+                    [
+                        "checks",
+                        "add",
+                        "browser-demo",
+                        "--repo",
+                        str(repo),
+                        "--kind",
+                        "demonstration",
+                        "--timeout-seconds",
+                        "45",
+                        "--optional",
+                        "--json",
+                        "--",
+                        "python3",
+                        "-c",
+                        "print('demo')",
+                    ]
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["kind"], "demonstration")
+            self.assertEqual(payload["timeout_seconds"], 45)
+            self.assertFalse(payload["required"])
+            self.assertEqual(payload["argv"], ["python3", "-c", "print('demo')"])
+
     def test_checks_suggest_reports_no_compile_only_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"

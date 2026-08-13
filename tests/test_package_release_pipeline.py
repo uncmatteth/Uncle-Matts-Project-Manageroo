@@ -16,6 +16,10 @@ package_release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package_release)
 
 
+def minimum_snapshot_files():
+    return [package_release.ROOT / "pyproject.toml"]
+
+
 class PackageReleasePipelineTests(unittest.TestCase):
     def test_distribution_failure_stops_before_manifest_or_archive_generation(self):
         calls = []
@@ -31,7 +35,7 @@ class PackageReleasePipelineTests(unittest.TestCase):
         with patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
             package_release, "generate_manifest"
         ) as manifest, patch.object(
-            package_release, "included_files", return_value=[]
+            package_release, "included_files", side_effect=minimum_snapshot_files
         ), patch.object(package_release, "write_archive") as archive:
             code = package_release.main()
 
@@ -57,7 +61,7 @@ class PackageReleasePipelineTests(unittest.TestCase):
 
         with patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
             package_release, "generate_manifest"
-        ), patch.object(package_release, "included_files", return_value=[]), patch.object(
+        ), patch.object(package_release, "included_files", side_effect=minimum_snapshot_files), patch.object(
             package_release, "end_user_files", return_value=[]
         ), patch.object(package_release, "write_archive") as write_archive, patch.object(
             package_release, "_publish_archive_pair"
@@ -96,7 +100,7 @@ class PackageReleasePipelineTests(unittest.TestCase):
             return_value=Path(temp) / "release-publication",
         ), patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
             package_release, "generate_manifest", side_effect=lambda: events.append("manifest")
-        ), patch.object(package_release, "included_files", return_value=[]), patch.object(
+        ), patch.object(package_release, "included_files", side_effect=minimum_snapshot_files), patch.object(
             package_release, "end_user_files", return_value=[]
         ), patch.object(package_release, "write_archive", side_effect=fake_write), patch.object(
             package_release, "_publish_archive_pair", side_effect=lambda *_args: events.append("publish")

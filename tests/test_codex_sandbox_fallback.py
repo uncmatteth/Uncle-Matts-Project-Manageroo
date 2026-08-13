@@ -13,6 +13,7 @@ from manageroo.adapters.budget import BudgetedAdapter
 from manageroo.adapters.codex import CodexAdapter, _BWRAP_LOOPBACK_FAILURE
 from manageroo.capability_router import route_capabilities
 from manageroo.errors import AgentExecutionError
+from manageroo.execution_mode import EXECUTION_MODE_ENV, STRUCTURED_WORKER_MODE
 from manageroo.runner import CommandResult, _platform_argv
 from tests.support import symlink_or_skip
 
@@ -33,11 +34,13 @@ class _Runner:
     def __init__(self, results, output_path: Path | None = None):
         self.results = list(results)
         self.calls = []
+        self.run_kwargs = []
         self.profile_snapshots = []
         self.output_path = output_path
 
     def run(self, argv, *, cwd, **kwargs):
         self.calls.append(list(argv))
+        self.run_kwargs.append(dict(kwargs))
         if "--profile" in argv:
             profile_name = argv[argv.index("--profile") + 1]
             codex_home = Path(os.environ["CODEX_HOME"])
@@ -248,6 +251,26 @@ class CodexSandboxFallbackTests(unittest.TestCase):
             }
             self.assertIn(str(root / "skills" / "diagnose" / "SKILL.md"), disabled_paths)
             self.assertEqual(list(codex_home.glob("manageroo-*.config.toml")), [])
+
+    def test_worker_launch_explicitly_selects_schema_only_execution_mode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            codex_home = root / "codex-home"
+            codex_home.mkdir()
+            request = _request(root)
+            runner = _Runner(
+                [_result(["codex", "exec"], root)],
+                output_path=request.output_path,
+            )
+
+            with patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False):
+                response = CodexAdapter("codex", runner).run(request)
+
+            self.assertTrue(response.data["ok"])
+            self.assertEqual(
+                runner.run_kwargs[0]["env"][EXECUTION_MODE_ENV],
+                STRUCTURED_WORKER_MODE,
+            )
 
     def test_profile_name_collision_never_deletes_preexisting_file(self):
         with tempfile.TemporaryDirectory() as temp:

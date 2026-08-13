@@ -59,6 +59,24 @@ class CheckCommandTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 add_check_gate(repo, gate_id="smoke", argv=[sys.executable, "-m", "unittest"])
 
+    def test_nonpositive_timeout_is_rejected_before_config_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            config_path = repo / ".manageroo" / "config.toml"
+            before = config_path.read_bytes()
+
+            for timeout_seconds in (0, -1):
+                with self.subTest(timeout_seconds=timeout_seconds):
+                    with self.assertRaisesRegex(ValueError, "positive integer"):
+                        add_check_gate(
+                            repo,
+                            gate_id=f"timeout-{timeout_seconds}",
+                            argv=[sys.executable, "-V"],
+                            timeout_seconds=timeout_seconds,
+                        )
+
+            self.assertEqual(config_path.read_bytes(), before)
+
     def test_concurrent_distinct_check_additions_are_all_preserved(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))

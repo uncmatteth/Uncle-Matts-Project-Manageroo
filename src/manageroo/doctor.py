@@ -86,6 +86,9 @@ def doctor(repo: Path) -> dict:
 
     return {
         "ok": all(item["ok"] for item in checks if item.get("required", True)),
+        "diagnostic_scope": "local-environment",
+        "release_authority": False,
+        "release_command": "manageroo release-ready",
         "repo": str(repo),
         "checks": checks,
     }

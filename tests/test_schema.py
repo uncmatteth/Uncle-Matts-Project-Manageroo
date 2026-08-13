@@ -40,6 +40,17 @@ class SchemaTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     validate(value, {"type": "number"})
 
+    def test_unknown_schema_types_fail_closed(self):
+        for declared_type in (
+            "obejct",
+            ["string", "obejct"],
+            ["string", {"bad": True}],
+            {"bad": True},
+        ):
+            with self.subTest(declared_type=declared_type):
+                with self.assertRaisesRegex(ValidationError, "unsupported schema type"):
+                    validate({}, {"type": declared_type})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -528,6 +528,8 @@ def release_ready(
     report = {
         "ok": ok,
         "status": "READY FOR OPERATOR RELEASE" if ok else "NOT READY FOR RELEASE",
+        "diagnostic_scope": "operator-release-handoff",
+        "release_authority": True,
         "repo": str(repo),
         "metadata_path": str(_metadata_path(repo)),
         "metadata": {"target": target, "rollback": rollback, "approved_by": approved_by},

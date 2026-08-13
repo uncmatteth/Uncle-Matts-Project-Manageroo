@@ -2,13 +2,45 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from manageroo.adapters.base import AgentRequest
 from manageroo.assets import asset_path
-from manageroo.errors import ValidationError
-from manageroo.review import validate_review_evidence
+from manageroo.errors import SafetyError, ValidationError
+from manageroo.review import run_isolated_review, validate_review_evidence
+from manageroo.runner import CommandRunner
 from manageroo.schema import load_schema, validate
 
 
 class ReviewTests(unittest.TestCase):
+    def test_adapter_failure_after_mutation_raises_safety_error(self):
+        class MutatingFailingAdapter:
+            def run(self, request):
+                (request.cwd / "a.py").write_text("mutated\n", encoding="utf-8")
+                raise RuntimeError("adapter failed")
+
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            runner = CommandRunner()
+            self.assertTrue(runner.run(["git", "init"], cwd=repo).passed)
+            (repo / "a.py").write_text("original\n", encoding="utf-8")
+            request = AgentRequest(
+                role="reviewer",
+                prompt_path=repo / "prompt.md",
+                schema_path=repo / "schema.json",
+                output_path=repo / "review.json",
+                cwd=repo,
+                sandbox="read-only",
+            )
+
+            with self.assertRaisesRegex(SafetyError, "a.py") as caught:
+                run_isolated_review(
+                    adapter=MutatingFailingAdapter(),
+                    request=request,
+                    runner=runner,
+                )
+
+            self.assertIsInstance(caught.exception.__cause__, RuntimeError)
+            self.assertEqual(str(caught.exception.__cause__), "adapter failed")
+
     def test_review_contract_is_binary_and_rejects_confidence_scores(self):
         schema = load_schema(asset_path("schemas/review.schema.json"))
         validate(

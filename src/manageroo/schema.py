@@ -9,6 +9,11 @@ from typing import Any
 from .errors import ValidationError
 
 
+_SUPPORTED_SCHEMA_TYPES = frozenset(
+    {"object", "array", "string", "number", "integer", "boolean", "null"}
+)
+
+
 def _reject_nonfinite_constant(value: str) -> None:
     raise ValueError(f"Non-standard JSON numeric constant is forbidden: {value}")
 
@@ -47,16 +52,28 @@ def _is_type(value: Any, expected: str) -> bool:
         "integer": isinstance(value, int) and not isinstance(value, bool),
         "boolean": isinstance(value, bool),
         "null": value is None,
-    }.get(expected, True)
+    }.get(expected, False)
 
 
 def validate(value: Any, schema: dict[str, Any], location: str = "$") -> None:
     expected = schema.get("type")
     if isinstance(expected, list):
+        unsupported = [
+            item
+            for item in expected
+            if not isinstance(item, str) or item not in _SUPPORTED_SCHEMA_TYPES
+        ]
+        if unsupported:
+            raise ValidationError(f"{location}: unsupported schema type {unsupported[0]!r}")
         if not any(_is_type(value, item) for item in expected):
             raise ValidationError(f"{location}: expected one of {expected}")
-    elif isinstance(expected, str) and not _is_type(value, expected):
-        raise ValidationError(f"{location}: expected {expected}, received {type(value).__name__}")
+    elif isinstance(expected, str):
+        if expected not in _SUPPORTED_SCHEMA_TYPES:
+            raise ValidationError(f"{location}: unsupported schema type {expected!r}")
+        if not _is_type(value, expected):
+            raise ValidationError(f"{location}: expected {expected}, received {type(value).__name__}")
+    elif expected is not None:
+        raise ValidationError(f"{location}: unsupported schema type {expected!r}")
 
     if "enum" in schema and value not in schema["enum"]:
         raise ValidationError(f"{location}: {value!r} is not in enum {schema['enum']}")
