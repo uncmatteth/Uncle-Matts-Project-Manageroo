@@ -20,28 +20,14 @@ success-looking heading.
 
 ## Continuity messages
 
-The continuity feature remains bound to the exact active request. Its normal
-prompt update is deliberately short and is displayed to the operator without
-being added to model context:
+The continuity feature remains bound to the exact active request, but routine
+prompt capture is silent. It prints no `You asked`, activity, or active/paused
+status block and adds no model context. Successful tool checks are silent too.
 
-```text
-🦘 Manageroo update
-🎯 You asked: <one-line goal>
-🛠️ Manageroo is doing: <short action summary of the current task>
-📍 Status: <active or paused>
-```
-
-This is a deterministic display-only projection, not a copy of the full prompt.
-The activity line is derived locally from the newest active request using bounded
-action wording such as `Fixing`, `Reviewing`, or `Publishing`; it does not call a
-model or add the status text to model context. If no clear action verb is present,
-it says that the task summarized above is starting instead of inventing work.
-Successful tool checks add no reminder to model context. Exact operator wording
-remains in private continuity state and returns to agent context when a session,
-subagent, or compacted conversation must recover it. A premature stop gets only
-a short current-task excerpt and the completion line; it does not replay the
-normal status block or completion-contract explanation. A side question does
-not become another active work item.
+Exact operator wording remains in private continuity state. A compressed
+controller contract appears once at session start, and exact active requests
+return only when a session, subagent, or compacted conversation must recover
+them. A side question does not become another active work item.
 
 Premature-stop feedback is intentionally compact:
 
@@ -51,10 +37,9 @@ Premature-stop feedback is intentionally compact:
 🏁 When done, end with: ✅ Done — <what actually finished>
 ```
 
-Manageroo adds one small completion handshake to model context per Codex
-session, then binds that handshake to the current objective privately when the
-agent stops. It is not repeated for later objectives, side questions, duplicate
-prompt events, or successful tool checks.
+Manageroo includes the completion rule in the session-start or recovery context,
+then binds it to the current objective privately when the agent stops. Prompt
+events and successful tool checks do not repeat it.
 
 The normal completion receipt states the actual result:
 
@@ -82,11 +67,5 @@ is read-only context, while the destination remains a mutation. External
 destinations are allowed unless the operator explicitly narrowed or excluded
 them.
 
-Continuity messages use a small, stable scan vocabulary:
-
-- `🦘` identifies Manageroo itself;
-- `🧭` identifies the active request;
-- `🎯` and `➕` distinguish the root request from additions;
-- `🏁` identifies the finish contract;
-- `🎉` identifies verified completion; and
-- `🚧` identifies a concrete external blocker.
+Diagnostic denials and premature-stop messages retain compact markers only when
+the operator needs to act on them.

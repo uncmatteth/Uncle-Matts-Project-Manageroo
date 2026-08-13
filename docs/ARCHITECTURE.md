@@ -60,18 +60,13 @@ malformed schema type declarations fail closed. Unset and unrecognized execution
 modes retain operator continuity. This environment marker selects Manageroo
 behavior; it is not an operating-system security boundary.
 
-Routine prompt events render a deterministic bounded status projection through
-Codex's display-only system-message channel: one short `You asked` line, a locally
-derived action summary of the current task, and active/paused status. The action
-summary uses no worker or model call and never replays the full prompt. Successful tool checks
-return no prompt context. The exact objective stays in private continuity state
-and is reinjected only for session recovery, subagent startup, or post-compaction
-recovery. A premature stop receives only a bounded current-task excerpt and the
-completion line instead of another status block and receipt explanation. Manageroo injects one small completion handshake
-per Codex session and binds it to the current objective privately at stop time;
-later objectives, side questions, and repeated tool actions do not inject it
-again. This keeps status visible without
-repeatedly spending model context on status text or the full prompt.
+Routine prompt events save the objective privately and return no output. Successful
+tool checks also return no output. Session start injects one compact controller
+contract; session recovery, subagent startup, and post-compaction recovery inject
+the exact active requests with compressed control wording. A premature stop
+receives only a bounded current-task excerpt and the completion line. This keeps
+routine operation invisible and at zero prompt-token overhead while retaining
+the context needed after an actual recovery event.
 
 At ordinary Codex `SessionStart`, the hook supplies one compact global controller
 contract even when no prior objective exists. It tells the operator-facing agent

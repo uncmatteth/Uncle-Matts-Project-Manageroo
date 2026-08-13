@@ -84,15 +84,25 @@ controller contract: the agent selects relevant installed skills itself, handles
 normal scoped work directly, and reserves `manageroo run` for work that benefits
 from its isolated proof boundary. The operator does not have to remember or name
 Manageroo or a skill. This is event-driven hook behavior, not a resident daemon.
-Routine `You asked` and `Manageroo is doing` status uses Codex's display-only
-system-message channel instead of model context. The activity line is derived
-locally from the current task instead of repeating one generic purpose slogan;
-it makes no model call and spends no model-context tokens. Successful tool checks inject
-no reminder. One small completion handshake is added once per Codex session;
-Manageroo binds it to the current objective privately when the agent stops.
-Recovery events restore the exact saved objective when needed.
+Routine prompt capture and successful tool checks are silent: they print no
+status and inject no model context. Session start supplies the compact controller
+contract once; recovery events restore a compressed exact objective only after
+resume, subagent startup, or compaction. Manageroo binds completion to the saved
+objective privately when the agent stops.
 Premature-stop feedback contains only a short current-task line and the
-completion line; it does not repeat the normal status block or receipt explanation.
+completion line.
+
+Measure that behavior without spending model tokens:
+
+```bash
+manageroo benchmark
+manageroo benchmark --json
+```
+
+This deterministic benchmark reports routine hook overhead, recovery-context
+size, and continuity guardrails. It does not pretend to measure model code
+quality. See [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) for the honest live
+A/B protocol.
 
 Controlled Codex workers are explicitly launched in a separate schema-only
 execution mode. In that mode the operator continuity hooks emit nothing and

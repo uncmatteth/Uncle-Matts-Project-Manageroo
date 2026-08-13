@@ -31,6 +31,9 @@ checks, resume/compaction recovery, subagent context, and premature-stop
 continuation. During install or update it removes obsolete Manageroo operator
 scope hook groups from the existing Codex `hooks.json` and preserves
 every unrelated hook. `UserPromptSubmit` never blocks an operator request.
+Routine prompt capture and successful tool checks emit no status output and add
+no model context. Recovery context appears only on session start, resume,
+subagent startup, or compaction.
 Codex requires review of a new or changed non-managed hook definition before it
 runs; open `/hooks` once after installation and trust the Manageroo continuity
 hook set. Controlled `manageroo run` workers retain the stronger isolated

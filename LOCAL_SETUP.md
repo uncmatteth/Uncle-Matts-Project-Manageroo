@@ -221,10 +221,14 @@ That is an operator gate, not a deployment command.
 For the Manageroo repository itself:
 
 ```bash
+manageroo benchmark
 python3 scripts/release.py
 ```
 
-That command is fail-closed. It must complete Manageroo product proof, regression verification, packaging, checksums, and clean-install ZIP smoke before the release is considered shippable.
+The benchmark makes no model calls and measures continuity overhead and
+guardrails. The release command is fail-closed. It must complete Manageroo
+product proof, regression verification, packaging, checksums, and clean-install
+ZIP smoke before the release is considered shippable.
 
 ## Boundary
 

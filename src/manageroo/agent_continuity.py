@@ -22,9 +22,7 @@ STATE_SCHEMA_VERSION = 1
 HOOK_COMMAND = "agent-continuity-hook"
 INTERNAL_CONTINUATION_PREFIX = "[MANAGEROO INTERNAL CONTINUATION]"
 MANAGEROO_MARK = "🦘"
-REQUEST_MARK = "🧭"
 ROOT_REQUEST_MARK = "🎯"
-ADDITION_REQUEST_MARK = "➕"
 FINISH_MARK = "🏁"
 COMPLETE_MARK = "🎉"
 BLOCKED_MARK = "🚧"
@@ -443,51 +441,32 @@ def _has_specific_completion_result(message: str) -> bool:
 def render_active_objective(state: dict[str, Any]) -> str:
     if state.get("status") == "paused":
         lines = [
-            f"# ⏸️ Manageroo: work paused by the operator",
+            "# Manageroo continuity: paused",
             "",
-            "Do not resume, monitor, or continue the saved work until the operator explicitly says to resume or gives a clear new work command.",
-            "Questions and conversation do not resume the work. The agent may end the turn normally; no completion badge is required while paused.",
+            "Do not resume or use tools until the operator resumes or gives clear new "
+            "work. Questions alone do not resume it.",
             "",
-            f"## {REQUEST_MARK} Saved work — not active",
+            "## Saved requests",
             "",
         ]
         for index, item in enumerate(state.get("messages", []), start=1):
-            lines.extend([f"### {index}. Saved request", "", str(item.get("text") or ""), ""])
+            lines.extend([f"{index}. {str(item.get('text') or '')}"])
         return "\n".join(lines)
     lines = [
-        f"# {MANAGEROO_MARK} Manageroo: current request",
-        "",
-        "Manageroo keeps the agent on the operator's unfinished request. It never limits what the operator may ask for.",
-        "Finish every request below. New messages add to unfinished work unless they clearly cancel or replace it.",
-        "Answer corrections or side questions, then resume the unfinished work in the same turn.",
-        "Do not make the operator repeat a path, permission, or request already listed here.",
-        "Questions, quotations, and historical examples are context, not new tasks or permission.",
-        "Stay in scope and preserve every named source and requested method.",
-        "",
-        f"## {REQUEST_MARK} Work still in force",
-        "",
+        "Manageroo continuity: finish all active requests. Current instructions win; "
+        "new work adds unless clearly replaced.",
+        "Answer side questions, then resume. Preserve named scope, sources, and methods; "
+        "do not ask the operator to repeat them.",
+        "Active requests:",
     ]
     for index, item in enumerate(state.get("messages", []), start=1):
         relation = str(item.get("relation", "addition"))
-        request_mark = ROOT_REQUEST_MARK if relation == "root" else ADDITION_REQUEST_MARK
-        lines.extend(
-            [
-                f"### {request_mark} {index}. {relation.capitalize()} request",
-                "",
-                str(item.get("text") or ""),
-                "",
-            ]
-        )
+        lines.append(f"{index}. [{relation}] {str(item.get('text') or '')}")
     lines.extend(
         [
-            f"## {FINISH_MARK} Finish status",
-            "",
-            "Keep working while anything above remains unfinished.",
-            "After current proof shows everything is complete, end the final reply with one specific result line:",
-            SPECIFIC_COMPLETE_TEMPLATE,
-            "If a concrete external blocker makes progress impossible, explain it under `Concrete blocker:` and end with:",
-            _completion_marker(state, "blocked"),
-            "The badge text is for the operator. Its link target is continuity bookkeeping and should not be explained or expanded.",
+            f"Completion: continue until verified; end with `{SPECIFIC_COMPLETE_TEMPLATE}`.",
+            "Externally blocked: state `Concrete blocker:` and end with "
+            f"`{GENERIC_BLOCKED_RECEIPT}`.",
         ]
     )
     return "\n".join(lines)
@@ -500,121 +479,6 @@ def _task_excerpt(value: Any, *, limit: int = 240) -> str:
         return text
     clipped = text[: limit + 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
     return f"{clipped}…"
-
-
-def _active_task_reminder(state: dict[str, Any]) -> str:
-    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
-    if not messages:
-        return f"{REQUEST_MARK} Continue the named Manageroo work shown in the current request."
-    root = _task_excerpt(messages[0].get("text"))
-    lines = [f"{REQUEST_MARK} Current Manageroo task: {root}"]
-    if len(messages) > 1:
-        latest = _task_excerpt(messages[-1].get("text"), limit=180)
-        if latest and latest != root:
-            lines.append(f"{ADDITION_REQUEST_MARK} Latest requested addition: {latest}")
-    return "\n".join(lines)
-
-
-_ACTIVITY_VERBS = {
-    "add": "Adding",
-    "audit": "Auditing",
-    "change": "Changing",
-    "clean": "Cleaning",
-    "copy": "Copying",
-    "diagnose": "Diagnosing",
-    "explain": "Explaining",
-    "fix": "Fixing",
-    "implement": "Implementing",
-    "install": "Installing",
-    "investigate": "Investigating",
-    "make": "Making",
-    "move": "Moving",
-    "publish": "Publishing",
-    "remove": "Removing",
-    "repair": "Repairing",
-    "review": "Reviewing",
-    "run": "Running",
-    "update": "Updating",
-    "verify": "Verifying",
-}
-
-
-def _current_activity(state: dict[str, Any]) -> str:
-    """Describe current work from saved state without a model call or prompt replay."""
-    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
-    if not messages:
-        return "Starting the current task summarized above."
-    request = _task_excerpt(messages[-1].get("text"), limit=180)
-    lowered = request.casefold()
-    if (
-        "manageroo is doing" in lowered
-        and "generic line" in lowered
-        and ("extra tokens" in lowered or "model-context" in lowered)
-    ):
-        return (
-            "Making the activity line describe the actual current task without spending "
-            "model-context tokens."
-        )
-    directive = re.search(
-        r"(?:^|[.!?;:]\s+)(?:please\s+)?("
-        + "|".join(_ACTIVITY_VERBS)
-        + r")\b(?P<rest>[^.!?]*)",
-        request,
-        flags=re.IGNORECASE,
-    )
-    if directive is None:
-        return "Starting the current task summarized above."
-    verb = _ACTIVITY_VERBS[directive.group(1).casefold()]
-    rest = directive.group("rest").strip().rstrip(" ,;:-")
-    rest = re.sub(
-        r"\band\s+(" + "|".join(_ACTIVITY_VERBS) + r")\b",
-        lambda match: f"and {_ACTIVITY_VERBS[match.group(1).casefold()].casefold()}",
-        rest,
-        flags=re.IGNORECASE,
-    )
-    summary = f"{verb}{(' ' + rest) if rest else ''}."
-    return _task_excerpt(summary, limit=180)
-
-
-def render_compact_status(state: dict[str, Any], *, activity: str) -> str:
-    """Render a bounded status projection without replaying stored operator text."""
-    messages = [item for item in state.get("messages", []) if isinstance(item, dict)]
-    count = len(messages)
-    noun = "work item" if count == 1 else "work items"
-    if state.get("status") == "paused":
-        goal = _task_excerpt(messages[-1].get("text"), limit=160) if messages else "Saved work"
-        return "\n".join(
-            [
-                f"{MANAGEROO_MARK} Manageroo update",
-                f"{ROOT_REQUEST_MARK} You asked: {goal}",
-                "⏸️ Manageroo is doing: Waiting. It will not resume, monitor, or use tools until you explicitly resume or give a clear new task.",
-                f"📍 Status: Paused — {count} saved {noun}; questions and conversation do not resume it.",
-            ]
-        )
-    goal = (
-        _task_excerpt(messages[-1].get("text"), limit=160)
-        if messages
-        else "Continue the named request"
-    )
-    return "\n".join(
-        [
-            f"{MANAGEROO_MARK} Manageroo update",
-            f"{ROOT_REQUEST_MARK} You asked: {goal}",
-            f"🛠️ Manageroo is doing: {activity}",
-            f"📍 Status: Active — {count} active {noun}; exact wording remains in private continuity state.",
-        ]
-    )
-
-
-def _completion_contract() -> str:
-    return "\n".join(
-        [
-            "When verified, end with one specific result line:",
-            SPECIFIC_COMPLETE_TEMPLATE,
-            "For a concrete external blocker, write `Concrete blocker:` and append:",
-            GENERIC_BLOCKED_RECEIPT,
-        ]
-    )
 
 
 def _stop_recovery_message(state: dict[str, Any]) -> str:
@@ -948,11 +812,10 @@ def _additional_context(event_name: str, text: str) -> dict[str, Any]:
 def _global_controller_contract() -> str:
     return "\n".join(
         [
-            "# Manageroo global controller",
-            "The operator describes the job; automatically select relevant installed skills without requiring them to name Manageroo or a skill.",
-            "Do normal scoped work directly. Use a controlled `manageroo run` only when its isolated proof, retry, or recovery boundary materially helps.",
-            "Resolve the intended repository from the request and current context before project setup. Never initialize the user's home directory as a project.",
-            "Current operator instructions, live files, and fresh command output remain authoritative.",
+            "Auto-select skills; the user need not name them. Work directly; use "
+            "`manageroo run` only for useful isolation, retry, or proof.",
+            "Resolve the repo; never initialize home. Current instructions and live evidence win.",
+            "Finish verified: `✅ Done — <specific result>`.",
         ]
     )
 
@@ -971,32 +834,14 @@ def process_codex_continuity_hook(
     name = str(event.get("hook_event_name") or "")
     if name == "UserPromptSubmit":
         with config_mutation_lock(_state_path(root, session_id)):
-            previous = _read_state(root, session_id)
-            state = _capture_current_request_locked(
+            _capture_current_request_locked(
                 session_id=session_id,
                 turn_id=str(event.get("turn_id") or ""),
                 prompt=str(event.get("prompt") or ""),
                 cwd=str(event.get("cwd") or ""),
                 root=root,
             )
-            result: dict[str, Any] = {
-                "systemMessage": render_compact_status(
-                    state,
-                    activity=_current_activity(state),
-                )
-            }
-            advertised = bool(
-                (previous or {}).get("receipt_contract_advertised")
-                or (previous or {}).get("receipt_objective_sha256")
-            )
-            if not advertised and state.get("status") != "paused":
-                state["receipt_contract_advertised"] = True
-                _save_state_locked(root, state)
-                result.update(_additional_context(name, _completion_contract()))
-            elif advertised:
-                state["receipt_contract_advertised"] = True
-                _save_state_locked(root, state)
-        return result
+        return {}
     if name == "Stop":
         with config_mutation_lock(_state_path(root, session_id)):
             state = _read_state(root, session_id)

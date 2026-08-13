@@ -37,6 +37,7 @@ Useful checks after installation:
 
 ```bash
 manageroo --version
+manageroo benchmark
 manageroo self-test
 manageroo skills list
 manageroo host-skills
@@ -51,6 +52,10 @@ is globally active through events in normal Codex sessions; there is no daemon
 to start. Describe repo work normally. The agent selects installed skills itself,
 works directly for normal scoped tasks, and chooses a controlled Manageroo run
 when isolated proof or recovery is useful.
+
+`manageroo benchmark` is local and deterministic. It makes zero model calls,
+requires routine prompt hooks to emit zero estimated tokens, and checks bounded
+recovery plus the continuity guardrails. It is not a model-quality score.
 
 ## Hardware
 

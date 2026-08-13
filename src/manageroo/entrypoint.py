@@ -16,6 +16,7 @@ from typing import Any, Iterator
 
 from .branding import PROJECT_DIR
 from .agent_continuity import run_codex_continuity_hook
+from .benchmark import format_continuity_benchmark, run_continuity_benchmark
 from .clawpatch_release import format_release_sweep, release_sweep
 from .cli import main as cli_main
 from .cli import parser as cli_parser
@@ -80,6 +81,23 @@ def _prove_main(argv: list[str]) -> int:
         if selected_agent and not args.live_agent:
             print(f"Auto-selected live agent: {selected_agent}\n")
         print(format_product_proof(report), end="")
+    return 0 if report.get("ok") else 2
+
+
+def _benchmark_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="manageroo benchmark",
+        description=(
+            "Measure continuity-hook overhead and guardrails without making model calls."
+        ),
+    )
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    report = run_continuity_benchmark()
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(format_continuity_benchmark(report), end="")
     return 0 if report.get("ok") else 2
 
 
@@ -1192,7 +1210,9 @@ def _root_help() -> str:
     base = cli_parser().format_help().rstrip()
     return (
         base
-        + "\n\nProduct certification:\n"
+        + "\n\nMeasurement:\n"
+        + "  benchmark             Measure hook overhead and guardrails with zero model calls.\n"
+        + "\nProduct certification:\n"
         + "  prove                 Run adversarial end-to-end Manageroo product proof.\n"
         + "                        Uses any available supported live coding agent.\n"
         + "\nDiscovery and host context:\n"
@@ -1311,6 +1331,8 @@ def main() -> int:
             print("Open an interactive terminal and run `manageroo` to tell me what you want done.")
             return 0
         return _welcome_main()
+    if argv and argv[0] == "benchmark":
+        return _benchmark_main(argv[1:])
     if argv and argv[0] == "prove":
         return _prove_main(argv[1:])
     if argv and argv[0] == "capacity":
