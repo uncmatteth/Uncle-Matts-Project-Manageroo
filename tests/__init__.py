@@ -1,4 +1,4 @@
-"""Repository test bootstrap for direct ``python -m unittest discover`` runs."""
+"""Repository test bootstrap for direct ``python3 -m unittest discover`` runs."""
 
 from __future__ import annotations
 

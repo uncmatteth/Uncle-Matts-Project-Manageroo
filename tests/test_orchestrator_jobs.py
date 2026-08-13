@@ -101,6 +101,33 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertGreater(payload["jobs"]["completed_jobs"], 0)
             self.assertEqual(payload["jobs"]["failed_attempts"], 0)
 
+    def test_blocked_status_surfaces_the_run_reason_after_jobs_complete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            result = Orchestrator(repo, adapter=MockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+            run_root = Path(result["evidence_paths"]["run_root"])
+            state = read_json(run_root / "state.json")
+            reason = "Planning artifact exceeded the deterministic prompt budget."
+            state["phase"] = "BLOCKED"
+            state["history"].append(
+                {"phase": "BLOCKED", "at": "2026-08-13T20:00:00Z", "reason": reason}
+            )
+            atomic_write_json(run_root / "state.json", state)
+
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main(["status", result["run_id"], "--repo", str(repo), "--json"])
+            payload = json.loads(stdout.getvalue())
+
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["phase"], "BLOCKED")
+            self.assertEqual(payload["blocking_reason"], reason)
+            self.assertIn(reason, payload["next_action"])
+
     def test_obsidian_export_failure_cannot_leave_applied_source_or_complete_result(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
@@ -217,6 +244,49 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 self.assertNotIn(skipped, roles)
             self.assertIn("implementer", roles)
             self.assertIn("reviewer", roles)
+
+    def test_exact_task_rejects_proof_that_does_not_match_required_outcome(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            brief = repo / ".manageroo" / "PRODUCT-BRIEF.md"
+            brief.write_text(
+                "# Product brief\n\n"
+                "## What I want\n\n"
+                "Create manageroo_fixture.txt containing exactly BANANA.\n\n"
+                "## Required outcomes\n\n"
+                "- manageroo_fixture.txt contains exactly BANANA.\n\n"
+                "## Complete means\n\n"
+                "- The exact requested file content is demonstrated.\n",
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = main(
+                    [
+                        "run",
+                        "--repo",
+                        str(repo),
+                        "--brief",
+                        str(brief),
+                        "--mode",
+                        "build",
+                        "--exact",
+                        "--target",
+                        "manageroo_fixture.txt",
+                        "--proof",
+                        "The configured unittest gate passes.",
+                        "--gate",
+                        "fixture-check",
+                        "--no-apply",
+                        "--json",
+                    ]
+                )
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(code, 1)
+            self.assertEqual(payload["status"], "BLOCKED")
+            self.assertIn("required outcome", payload["error"].casefold())
+            self.assertFalse((repo / "manageroo_fixture.txt").exists())
 
     def test_blocked_implementer_scope_expansion_stops_before_checkpoint(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -9,6 +9,38 @@ from manageroo.exact_task import build_exact_artifacts, render_external_source_c
 
 
 class ExactTaskTests(unittest.TestCase):
+    def test_explicit_brief_outcomes_are_the_locked_acceptance_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            outcome = "The generated file contains exactly BANANA."
+            artifacts = build_exact_artifacts(
+                repo=repo,
+                brief=(
+                    "# Product brief\n\n"
+                    "## What I want\n\nCreate the exact file.\n\n"
+                    f"## Required outcomes\n\n- {outcome}\n\n"
+                    "## Complete means\n\n- Demonstrate the exact file contents.\n"
+                ),
+                contract={
+                    "targets": ["result.txt"],
+                    "proofs": ["The generated file contains exactly BANANA"],
+                    "gate_ids": ["exact-content"],
+                },
+                configured_gate_ids=["exact-content"],
+            )
+
+        product = artifacts["planning/product-model.json"]
+        plan = artifacts["planning/task-plan.json"]
+        intake = artifacts["intake/exact-task.json"]
+        self.assertEqual(product["acceptance_outcomes"], [outcome])
+        self.assertEqual(plan["tasks"][0]["acceptance"], [outcome])
+        self.assertEqual(intake["brief_required_outcomes"], [outcome])
+        self.assertEqual(intake["locked_acceptance_outcomes"], [outcome])
+        self.assertEqual(
+            plan["demonstration"]["product_evidence"],
+            [{"outcome": outcome, "gate_ids": ["exact-content"]}],
+        )
+
     def test_builds_deterministic_model_and_plan_without_substitution(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

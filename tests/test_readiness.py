@@ -68,6 +68,36 @@ class ReadinessTests(unittest.TestCase):
             gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
             self.assertFalse(gbrain["required"])
 
+    def test_readiness_lists_each_next_command_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._ready_repo(Path(temp), "# Product brief\n\nMake it work.\n")
+            reconcile = "manageroo skills reconcile --apply"
+            with patch(
+                "manageroo.readiness.helper_skill_items",
+                return_value=[
+                    {
+                        "name": "skill-pack:first",
+                        "ok": False,
+                        "detail": "missing",
+                        "next": reconcile,
+                        "required": False,
+                    },
+                    {
+                        "name": "skill-pack:second",
+                        "ok": False,
+                        "detail": "missing",
+                        "next": reconcile,
+                        "required": False,
+                    },
+                ],
+            ), patch(
+                "manageroo.readiness.gbrain_setup_status",
+                return_value={"ok": False, "status": {"source_count": 0}},
+            ):
+                report = readiness(repo)
+
+            self.assertEqual(report["next_commands"].count(reconcile), 1)
+
     def test_readiness_reports_missing_project_memory_lane(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

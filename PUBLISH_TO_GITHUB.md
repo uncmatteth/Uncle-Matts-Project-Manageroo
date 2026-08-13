@@ -21,7 +21,7 @@ If you are using the local source checkout, start inside that repository folder.
 If you are starting from a source ZIP, extract it first:
 
 ```bash
-unzip uncle-matts-project-manageroo-v2026.8.13.5-source.zip
+unzip uncle-matts-project-manageroo-v2026.8.13.6-source.zip
 cd Uncle-Matts-Project-Manageroo
 ```
 
@@ -63,8 +63,6 @@ To force a particular installed live worker:
 
 ```bash
 python3 scripts/release.py --live-agent codex
-python3 scripts/release.py --live-agent claude-code
-python3 scripts/release.py --live-agent gemini
 ```
 
 The lower-level commands remain available for diagnosis:
@@ -85,7 +83,7 @@ inside the corresponding Unix-like environment. Native Windows PowerShell is
 an explicit unsupported-path check, not a supported installation lane:
 
 ```bash
-python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.8.13.5.zip
+python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.8.13.6.zip
 ```
 
 A passing smoke on one operating system is proof only for that operating system.
@@ -95,15 +93,15 @@ A passing smoke on one operating system is proof only for that operating system.
 Suggested tag:
 
 ```text
-v2026.8.13.5
+v2026.8.13.6
 ```
 
 Attach every generated drop-folder file to the GitHub Release, because
 `SHA256SUMS.txt` lists the full drop set:
 
 ```text
-uncle-matts-project-manageroo-v2026.8.13.5.zip
-uncle-matts-project-manageroo-v2026.8.13.5-source.zip
+uncle-matts-project-manageroo-v2026.8.13.6.zip
+uncle-matts-project-manageroo-v2026.8.13.6-source.zip
 SHA256SUMS.txt
 SOURCE-VALIDATION.json
 FINAL-VALIDATION.json

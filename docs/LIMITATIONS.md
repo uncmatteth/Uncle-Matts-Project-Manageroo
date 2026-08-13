@@ -3,7 +3,7 @@
 1. No coding system can guarantee that a natural-language product idea is complete or internally consistent.
 2. “One shot” can remove operator-managed engineering iteration; it cannot safely infer every irreversible product decision.
 3. Model-generated architecture and code remain probabilistic.
-4. Passing tests only proves what the tests and runtime demonstrations cover. Manageroo requires each product acceptance outcome to bind to specific proof gates; a green unrelated test cannot prove a different promise.
+4. Passing tests only proves what the tests and runtime demonstrations cover. Manageroo requires each product acceptance outcome to bind to specific proof gates; a green unrelated test cannot prove a different promise. Exact mode also refuses to replace explicit product-brief `Required outcomes` with different `--proof` text.
 5. The built-in context token estimator is conservative character-based estimation, not a provider tokenizer.
 6. A supported live coding-agent adapter must be installed and authenticated. Controlled runs currently support Codex; Claude Code, Gemini, and custom generic processes are refused because provider approval flags do not prove a host filesystem boundary.
 7. Automatic selection is currently Codex-only. Manageroo does not bypass a safety decision by switching models.

@@ -250,6 +250,21 @@ def _plain_failure_explanation(detail: str) -> str:
     return "Manageroo could not finish this run, so it stopped."
 
 
+def _latest_blocking_reason(state: dict) -> str:
+    if str(state.get("phase") or "").upper() != "BLOCKED":
+        return ""
+    history = state.get("history", [])
+    if not isinstance(history, list):
+        return ""
+    for event in reversed(history):
+        if not isinstance(event, dict) or str(event.get("phase") or "").upper() != "BLOCKED":
+            continue
+        reason = " ".join(str(event.get("reason") or "").split()).strip()
+        if reason:
+            return reason
+    return ""
+
+
 def _format_plain_run_summary(data: dict, *, run_id: str, repo: Path) -> str:
     status = str(data.get("status") or data.get("phase") or "UNKNOWN").upper()
     active_phases = {
@@ -277,7 +292,7 @@ def _format_plain_run_summary(data: dict, *, run_id: str, repo: Path) -> str:
         next_step = f"Run `{PUBLIC_COMMAND} status {shlex.quote(run_id)} --repo {shlex.quote(str(repo))}` to check progress."
         heading = "Manageroo is working."
     else:
-        error_detail = str(data.get("error") or "")
+        error_detail = str(data.get("error") or data.get("blocking_reason") or "")
         happened = _plain_failure_explanation(error_detail)
         meaning = "The work was not marked complete, and the failed worker result was not accepted."
         retry_command = shlex.join(
@@ -589,7 +604,15 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--target", action="append", default=[], help="Exact repo-relative file or bounded directory scope the task may change.")
     run.add_argument("--source", action="append", default=[], help="Binding repo-relative or absolute source file; may be repeated.")
     run.add_argument("--exclude", action="append", default=[], help="Exact must-not or exclusion; may be repeated.")
-    run.add_argument("--proof", action="append", default=[], help="Acceptance outcome that configured gates must prove; may be repeated.")
+    run.add_argument(
+        "--proof",
+        action="append",
+        default=[],
+        help=(
+            "Acceptance outcome that configured gates must prove; may be repeated. "
+            "In exact mode, repeat every explicit Required outcomes bullet from the brief."
+        ),
+    )
     run.add_argument("--gate", action="append", default=[], help="Configured gate ID bound to every exact acceptance outcome.")
     run.add_argument(
         "--json",
@@ -1371,6 +1394,10 @@ def main(argv: list[str] | None = None) -> int:
             run_root = repo / PROJECT_DIR / "runs" / args.run_id
             state = read_json(run_root / "state.json")
             jobs = JobStore(run_root).status_summary()
+            blocking_reason = jobs["blocking_reason"] or _latest_blocking_reason(state)
+            status_next_action = jobs["next_action"]
+            if blocking_reason and not jobs["blocking_reason"]:
+                status_next_action = f"Resolve run blocker: {blocking_reason}"
             payload = {
                 **state,
                 "phase": state.get("phase"),
@@ -1378,8 +1405,8 @@ def main(argv: list[str] | None = None) -> int:
                 "current_job": jobs["current_job"],
                 "completed_jobs": jobs["completed_jobs"],
                 "failed_attempts": jobs["failed_attempts"],
-                "next_action": jobs["next_action"],
-                "blocking_reason": jobs["blocking_reason"],
+                "next_action": status_next_action,
+                "blocking_reason": blocking_reason,
             }
             if args.json:
                 print(json.dumps(payload, indent=2))

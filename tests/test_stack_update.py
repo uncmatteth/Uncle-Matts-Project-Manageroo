@@ -16,6 +16,7 @@ from manageroo.stack_update import (
     CLAWPATCH_SUPERVISOR_COMMIT,
     CLAWPATCH_SUPERVISOR_SOURCE,
     GITNEXUS_PACKAGE,
+    MANAGEROO_SKILLS_REFERENCE,
     _run,
     _replace_autoreview,
     _update_autoreview,
@@ -118,6 +119,13 @@ def _attempt_standalone_gate(executable, entered, result_queue) -> None:
 
 
 class StackUpdateTests(unittest.TestCase):
+    def test_manageroo_skill_reference_uses_the_public_repository_owner(self):
+        self.assertEqual(
+            MANAGEROO_SKILLS_REFERENCE,
+            "https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo/"
+            "tree/main/src/manageroo/assets/skills",
+        )
+
     def test_plan_updates_only_a_proven_native_supervisor_venv(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)

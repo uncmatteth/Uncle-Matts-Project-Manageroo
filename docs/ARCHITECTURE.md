@@ -111,6 +111,11 @@ the request.
 When source, targets, exclusions, and proof are already explicit, the exact-task
 path deterministically creates the product outcome and task packet without
 product-analysis, reuse-research, repository-mapping, or plan-review model calls.
+Explicit `Required outcomes` in the product brief remain authoritative. Exact
+mode normalizes punctuation, case, and whitespace only for comparison, requires
+the `--proof` set to match those outcomes, and preserves the brief wording in
+the locked product model and proof bindings. Missing or unrelated proof text
+blocks before implementation.
 The implementation, verification, independent review, and delivery controls
 remain active.
 

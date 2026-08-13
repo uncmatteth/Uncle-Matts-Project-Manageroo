@@ -52,6 +52,11 @@ A model saying "done", a worker returning `COMPLETE`, a plausible patch, a passi
 
 Normal project completion is outcome-specific. Every product acceptance outcome must have one explicit binding to the configured gates that genuinely prove that exact outcome. Invalid, duplicate, unknown, or demonstration-inadequate proof bindings are rejected during plan review before implementation begins. Unrelated green checks cannot prove another promise, and observable browser, user-journey, authentication, security, deployment, or visual outcomes require bound demonstration evidence.
 
+Exact-task mode additionally keeps explicit product-brief `Required outcomes`
+authoritative. Its `--proof` values must repeat that complete outcome set; a
+missing or unrelated value blocks before a worker can modify the disposable
+workspace.
+
 ## Proof lanes
 
 The certification command exercises these areas directly or through its required full repository regression suite:

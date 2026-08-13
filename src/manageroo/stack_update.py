@@ -55,7 +55,7 @@ _SUPERVISOR_TARGET_UPDATE = (
     "runpy.run_module('pip',run_name='__main__')"
 )
 OBSIDIAN_REFERENCE = "https://obsidian.md/download"
-MANAGEROO_SKILLS_REFERENCE = "https://github.com/unclematteth/Uncle-Matts-Project-Manageroo/tree/main/src/manageroo/assets/skills"
+MANAGEROO_SKILLS_REFERENCE = "https://github.com/uncmatteth/Uncle-Matts-Project-Manageroo/tree/main/src/manageroo/assets/skills"
 OBSIDIAN_PACKAGE_MANAGERS = frozenset({"brew", "flatpak", "snap", "winget"})
 STACK_TOOL_NAMES = (
     "gbrain",

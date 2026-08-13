@@ -11,6 +11,68 @@ from .util import safe_repo_relative, sha256_bytes
 
 
 MAX_EXTERNAL_SOURCE_BYTES = 512 * 1024
+_REQUIRED_OUTCOMES_HEADING = "required outcomes"
+_PLACEHOLDER_REQUIRED_OUTCOMES = frozenset(
+    {
+        "outcome 1",
+        "outcome 2",
+        "outcome 3",
+        "turn the request above into working product behavior",
+    }
+)
+
+
+def _outcome_key(value: str) -> str:
+    return " ".join(value.split()).strip().rstrip(".!?").casefold()
+
+
+def _brief_required_outcomes(brief: str) -> list[str]:
+    outcomes: list[str] = []
+    in_section = False
+    for raw_line in brief.splitlines():
+        line = raw_line.strip()
+        if line.startswith("#"):
+            heading = line.lstrip("#").strip().casefold()
+            if in_section:
+                break
+            in_section = heading == _REQUIRED_OUTCOMES_HEADING
+            continue
+        if not in_section or not line.startswith(("- ", "* ")):
+            continue
+        outcome = line[2:].strip()
+        if outcome and _outcome_key(outcome) not in _PLACEHOLDER_REQUIRED_OUTCOMES:
+            outcomes.append(outcome)
+    return outcomes
+
+
+def _validated_acceptance_outcomes(brief: str, proofs: list[str]) -> list[str]:
+    required = _brief_required_outcomes(brief)
+    if not required:
+        return proofs
+    required_by_key = {_outcome_key(value): value for value in required}
+    proof_by_key = {_outcome_key(value): value for value in proofs}
+    if len(required_by_key) != len(required):
+        raise ValidationError("Product brief contains duplicate required outcomes.")
+    if len(proof_by_key) != len(proofs):
+        raise ValidationError("Exact-task contract contains duplicate --proof outcomes.")
+    missing = [
+        value for key, value in required_by_key.items() if key not in proof_by_key
+    ]
+    unrelated = [
+        value for key, value in proof_by_key.items() if key not in required_by_key
+    ]
+    if missing or unrelated:
+        details: list[str] = []
+        if missing:
+            details.append("missing: " + "; ".join(missing))
+        if unrelated:
+            details.append("not required by the brief: " + "; ".join(unrelated))
+        raise ValidationError(
+            "Exact-task --proof values must match every explicit brief required outcome ("
+            + " | ".join(details)
+            + ")."
+        )
+    return required
 
 
 def _stable_source(path: Path) -> tuple[bytes, os.stat_result]:
@@ -79,6 +141,7 @@ def build_exact_artifacts(
     proofs = [str(value).strip() for value in contract.get("proofs", []) if str(value).strip()]
     if not proofs:
         raise ValidationError("Exact-task mode requires at least one --proof outcome.")
+    acceptance_outcomes = _validated_acceptance_outcomes(brief, proofs)
     exclusions = [str(value).strip() for value in contract.get("exclusions", []) if str(value).strip()]
     requested_gates = [str(value).strip() for value in contract.get("gate_ids", []) if str(value).strip()]
     gate_ids = requested_gates or list(configured_gate_ids)
@@ -127,7 +190,12 @@ def build_exact_artifacts(
         "personas": [{"name": "operator", "need": goal}],
         "capabilities": [{"id": "exact-task", "name": "Exact requested change", "description": goal}],
         "user_journeys": [
-            {"id": "exact-task", "name": "Requested result", "steps": [goal], "success": proofs[0]}
+            {
+                "id": "exact-task",
+                "name": "Requested result",
+                "steps": [goal],
+                "success": acceptance_outcomes[0],
+            }
         ],
         "non_goals": exclusions,
         "constraints": [
@@ -135,7 +203,7 @@ def build_exact_artifacts(
             "Do not substitute for named source files.",
             *exclusions,
         ],
-        "acceptance_outcomes": proofs,
+        "acceptance_outcomes": acceptance_outcomes,
         "assumptions": [],
         "blocking_decisions": [],
     }
@@ -157,7 +225,7 @@ def build_exact_artifacts(
         "dependencies": [],
         "allowed_paths": targets,
         "context_paths": internal_context,
-        "acceptance": proofs,
+        "acceptance": acceptance_outcomes,
         "gate_ids": gate_ids,
         "risk": "medium",
         "exact_sources": sources,
@@ -171,7 +239,7 @@ def build_exact_artifacts(
             "required": True,
             "gate_ids": gate_ids,
             "product_evidence": [
-                {"outcome": outcome, "gate_ids": gate_ids} for outcome in proofs
+                {"outcome": outcome, "gate_ids": gate_ids} for outcome in acceptance_outcomes
             ],
         },
         "global_invariants": [
@@ -187,6 +255,8 @@ def build_exact_artifacts(
             "sources": sources,
             "exclusions": exclusions,
             "proofs": proofs,
+            "brief_required_outcomes": _brief_required_outcomes(brief),
+            "locked_acceptance_outcomes": acceptance_outcomes,
             "gate_ids": gate_ids,
         },
         "planning/product-model.json": product,

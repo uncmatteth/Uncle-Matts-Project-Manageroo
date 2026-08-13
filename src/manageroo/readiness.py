@@ -493,7 +493,11 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
 
     required_items = [item for item in items if item.get("required", True)]
     ok = all(item["ok"] for item in required_items)
-    next_commands = [item["next"] for item in items if not item["ok"] and item.get("next")]
+    next_commands = list(
+        dict.fromkeys(
+            item["next"] for item in items if not item["ok"] and item.get("next")
+        )
+    )
     return {
         "ok": ok,
         "status": "READY TO RUN" if ok else "NOT READY",

@@ -29,7 +29,7 @@ Risk: **medium**, accepted for this bundled local subset.
 2. Read the changelog and every file in the proposed skill directories, including scripts, references, licenses, and `agents/openai.yaml` metadata.
 3. Rebuild the complete dependency graph; do not copy a delegating skill without its referenced shared skill.
 4. Copy the reviewed files exactly, update per-skill provenance, and update the core/optional inventories and breaking-name migration together.
-5. Run the focused skill, installation, package, and routing tests, then the full unit suite and `python scripts/verify_release.py`.
+5. Run the focused skill, installation, package, and routing tests, then the full unit suite and `python3 scripts/verify_release.py`.
 
 Manageroo never updates this subset from the network at runtime. A new upstream release changes Manageroo only through another reviewed source commit.
 

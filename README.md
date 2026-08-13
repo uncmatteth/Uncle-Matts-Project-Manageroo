@@ -115,7 +115,10 @@ When the source, targets, exclusions, and proof are already known, use the
 exact-task path. It skips model-driven product discovery, reuse research,
 whole-repository mapping, and plan review while retaining isolated
 implementation, deterministic verification, independent review, and delivery
-proof. Broader work can still use the complete discovery pipeline.
+proof. When the brief has explicit `Required outcomes`, exact mode requires the
+repeated `--proof` values to match those outcomes before any worker launches.
+This prevents an unrelated green check from replacing the requested result.
+Broader work can still use the complete discovery pipeline.
 
 ```text
 YOU DESCRIBE WHAT YOU WANT
