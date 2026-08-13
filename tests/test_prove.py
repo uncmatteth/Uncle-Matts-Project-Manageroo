@@ -35,7 +35,12 @@ class ProductProofTests(unittest.TestCase):
                 "run_id": "proof-run",
                 "applied_to_source": True,
                 "files_changed": ["manageroo_live_agent_proof.txt"],
-                "gates": [{"id": "product-proof-check", "passed": True}],
+                "gates": [
+                    {
+                        "gate": {"id": "product-proof-check"},
+                        "result": {"exit_code": 0, "timed_out": False},
+                    }
+                ],
                 "review": {"status": "approved"},
                 "evidence_paths": {"run_root": "/proof"},
             }

@@ -196,7 +196,12 @@ def _live_agent_case(agent: str) -> dict[str, Any]:
         actual = target.read_text(encoding="utf-8") if target.is_file() else None
         declared = sorted(set(str(item) for item in result.get("files_changed", [])))
         gate_ok = any(
-            item.get("id") == "product-proof-check" and item.get("passed")
+            isinstance(item, dict)
+            and isinstance(item.get("gate"), dict)
+            and item["gate"].get("id") == "product-proof-check"
+            and isinstance(item.get("result"), dict)
+            and item["result"].get("exit_code") == 0
+            and item["result"].get("timed_out") is not True
             for item in result.get("gates", [])
         )
         review_ok = result.get("review", {}).get("status") == "approved"
