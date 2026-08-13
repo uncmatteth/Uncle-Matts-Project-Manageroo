@@ -506,6 +506,13 @@ def _remove_container(
         ) from exc
     if result.returncode != 0:
         output = "\n".join(value for value in (result.stdout, result.stderr) if value)
+        normalized_lines = [line.strip().casefold() for line in output.splitlines()]
+        if any(
+            line == "error response from daemon: no such container"
+            or line.startswith("error response from daemon: no such container:")
+            for line in normalized_lines
+        ):
+            return
         raise SafetyError(
             "Manageroo could not remove its disposable PostgreSQL container: "
             + output[-2000:]

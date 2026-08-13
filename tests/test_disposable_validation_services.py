@@ -704,6 +704,20 @@ class DisposableValidationServiceTests(unittest.TestCase):
                 ):
                     pass
 
+    def test_already_removed_postgres_is_successful_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = _postgres_repo(Path(temp))
+            docker = _DockerFixture(
+                remove_error="Error response from daemon: No such container: " + "a" * 64
+            )
+
+            with provision_disposable_validation_environment(
+                repo,
+                run=docker,
+                sleep=lambda _seconds: None,
+            ):
+                pass
+
     def test_cleanup_failure_does_not_replace_original_supervisor_failure(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = _postgres_repo(Path(temp))
