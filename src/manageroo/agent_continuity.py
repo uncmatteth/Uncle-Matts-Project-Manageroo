@@ -77,7 +77,7 @@ _CLEAR_WORK_REQUEST = re.compile(
     re.IGNORECASE,
 )
 _CLEAR_WORK_AFTER_PREAMBLE = re.compile(
-    r"(?:\bnow\b|[.!?;:,])\s*(?:please\s+)?"
+    r"(?:(?:\bnow\b|[.!?;:,])\s*(?:please\s+)?|\bplease\s+)"
     r"(?:fix|implement|change|edit|write|create|copy|move|rename|delete|remove|"
     r"inspect|review|diagnose|investigate|figure\s+out|run|build|install|publish|"
     r"commit|push|make|do)\b",
@@ -945,6 +945,18 @@ def _additional_context(event_name: str, text: str) -> dict[str, Any]:
     }
 
 
+def _global_controller_contract() -> str:
+    return "\n".join(
+        [
+            "# Manageroo global controller",
+            "The operator describes the job; automatically select relevant installed skills without requiring them to name Manageroo or a skill.",
+            "Do normal scoped work directly. Use a controlled `manageroo run` only when its isolated proof, retry, or recovery boundary materially helps.",
+            "Resolve the intended repository from the request and current context before project setup. Never initialize the user's home directory as a project.",
+            "Current operator instructions, live files, and fresh command output remain authoritative.",
+        ]
+    )
+
+
 def process_codex_continuity_hook(
     event: dict[str, Any], *, state_root: Path | None = None
 ) -> dict[str, Any]:
@@ -1029,9 +1041,14 @@ def process_codex_continuity_hook(
             }
     state = _read_state(root, session_id)
     if not isinstance(state, dict) or state.get("status") not in {"active", "waiting", "paused"}:
+        if name == "SessionStart":
+            return _additional_context(name, _global_controller_contract())
         return {}
     if name in {"SessionStart", "SubagentStart", "PostCompact"}:
-        return _additional_context(name, render_active_objective(state))
+        context = render_active_objective(state)
+        if name == "SessionStart":
+            context = f"{_global_controller_contract()}\n\n{context}"
+        return _additional_context(name, context)
     if name == "PreToolUse":
         if state.get("status") == "paused":
             return {
@@ -1082,6 +1099,129 @@ def _manageroo_hook_group(group: object) -> bool:
         )
         for handler in handlers
     )
+
+
+_CODEX_CONTINUITY_EVENTS = (
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "Stop",
+    "SubagentStart",
+)
+
+
+def codex_continuity_hooks_status(
+    *, codex_home: Path, manageroo_command: Path
+) -> dict[str, Any]:
+    home = codex_home.expanduser().resolve(strict=False)
+    hooks_path = home / "hooks.json"
+    expected_command = shlex.join(
+        [str(manageroo_command.expanduser().resolve(strict=False)), HOOK_COMMAND]
+    )
+    try:
+        payload = json.loads(hooks_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {
+            "ok": False,
+            "hooks_path": str(hooks_path),
+            "missing_events": list(_CODEX_CONTINUITY_EVENTS),
+            "error": "Codex hooks.json is missing.",
+        }
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "hooks_path": str(hooks_path),
+            "missing_events": list(_CODEX_CONTINUITY_EVENTS),
+            "error": f"Codex hooks.json is unreadable or malformed: {exc}",
+        }
+    hooks = payload.get("hooks") if isinstance(payload, dict) else None
+    if not isinstance(hooks, dict):
+        return {
+            "ok": False,
+            "hooks_path": str(hooks_path),
+            "missing_events": list(_CODEX_CONTINUITY_EVENTS),
+            "error": "Codex hooks.json does not contain a hooks object.",
+        }
+    missing_events: list[str] = []
+    for event in _CODEX_CONTINUITY_EVENTS:
+        groups = hooks.get(event)
+        matching = [] if not isinstance(groups, list) else [
+            group for group in groups if _manageroo_hook_group(group)
+        ]
+        valid = False
+        if len(matching) == 1:
+            handlers = matching[0].get("hooks")
+            valid = bool(
+                isinstance(handlers, list)
+                and len(handlers) == 1
+                and isinstance(handlers[0], dict)
+                and handlers[0].get("command") == expected_command
+            )
+        if not valid:
+            missing_events.append(event)
+    return {
+        "ok": not missing_events,
+        "hooks_path": str(hooks_path),
+        "missing_events": missing_events,
+        "error": "" if not missing_events else "Manageroo continuity hooks are missing or point to a different launcher.",
+    }
+
+
+def remove_codex_continuity_hooks(
+    *, codex_home: Path, manageroo_command: Path
+) -> dict[str, Any]:
+    home = codex_home.expanduser().resolve(strict=False)
+    hooks_path = home / "hooks.json"
+    expected_command = shlex.join(
+        [str(manageroo_command.expanduser().resolve(strict=False)), HOOK_COMMAND]
+    )
+    with config_mutation_lock(hooks_path):
+        try:
+            payload = json.loads(hooks_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {
+                "ok": True,
+                "path": str(hooks_path),
+                "changed": False,
+                "removed": 0,
+            }
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ConfigurationError(f"Cannot safely remove Codex hooks: {exc}") from exc
+        hooks = payload.get("hooks") if isinstance(payload, dict) else None
+        if not isinstance(hooks, dict):
+            raise ConfigurationError("Codex hooks file must contain a hooks object")
+        removed = 0
+        for event in list(hooks):
+            groups = hooks[event]
+            if not isinstance(groups, list):
+                raise ConfigurationError(f"Codex hook event {event} must contain an array")
+            kept = []
+            for group in groups:
+                handlers = group.get("hooks") if isinstance(group, dict) else None
+                matches = bool(
+                    isinstance(handlers, list)
+                    and any(
+                        isinstance(handler, dict)
+                        and handler.get("command") == expected_command
+                        for handler in handlers
+                    )
+                )
+                if matches:
+                    removed += 1
+                else:
+                    kept.append(group)
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+        if removed:
+            atomic_write_json(hooks_path, payload)
+    return {
+        "ok": True,
+        "path": str(hooks_path),
+        "changed": bool(removed),
+        "removed": removed,
+    }
 
 
 def install_codex_continuity_hooks(

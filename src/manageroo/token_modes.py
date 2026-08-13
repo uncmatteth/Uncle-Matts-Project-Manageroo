@@ -812,6 +812,120 @@ def install_core_helper_skills(
     )
 
 
+def _owned_skill_inventory_locked(root_real: Path, state_path: Path) -> dict[str, Any]:
+    ownership = _read_ownership(state_path)
+    owned: list[str] = []
+    preserved: list[str] = []
+    for raw_path, record in sorted(ownership.get("skills", {}).items()):
+        path = Path(raw_path)
+        try:
+            resolved = path.resolve(strict=True)
+            if (
+                path.is_symlink()
+                or not path.is_dir()
+                or resolved.parent != root_real
+                or not isinstance(record, dict)
+                or record.get("name") != resolved.name
+            ):
+                preserved.append(str(path))
+                continue
+            current_digest = _skill_tree_sha256(resolved)
+            recorded_digest = record.get("tree_sha256")
+            recorded_matches = recorded_digest == current_digest
+            if not recorded_matches and record.get("tree_hash_version") != 2:
+                recorded_matches = recorded_digest == _legacy_skill_tree_sha256(resolved)
+            (owned if recorded_matches else preserved).append(str(resolved))
+        except (OSError, RuntimeError, ValueError):
+            preserved.append(str(path))
+    return {
+        "skills_root": str(root_real),
+        "ownership_path": str(state_path),
+        "owned": owned,
+        "preserved": preserved,
+    }
+
+
+def manageroo_owned_skill_inventory(
+    skills_dir: Path | None = None,
+    *,
+    ownership_path: Path | None = None,
+) -> dict[str, Any]:
+    root = (skills_dir or token_mode_skills_dir()).expanduser()
+    state_path = _ownership_file(root, ownership_path)
+    if root.is_symlink() or not root.is_dir():
+        return {
+            "skills_root": str(root),
+            "ownership_path": str(state_path),
+            "owned": [],
+            "preserved": [],
+        }
+    return _owned_skill_inventory_locked(root.resolve(), state_path)
+
+
+def remove_manageroo_owned_skills(
+    skills_dir: Path | None = None,
+    *,
+    ownership_path: Path | None = None,
+) -> dict[str, Any]:
+    unresolved_root = (skills_dir or token_mode_skills_dir()).expanduser()
+    state_path = _ownership_file(unresolved_root, ownership_path)
+    if unresolved_root.is_symlink() or not unresolved_root.is_dir():
+        return {
+            "skills_root": str(unresolved_root),
+            "ownership_path": str(state_path),
+            "removed": [],
+            "preserved": [],
+        }
+    root_real = unresolved_root.resolve()
+    with _skill_install_lock(root_real):
+        inventory = _owned_skill_inventory_locked(root_real, state_path)
+        ownership_before = _snapshot_file_bytes(state_path)
+        ownership = _read_ownership(state_path)
+        transaction = Path(
+            tempfile.mkdtemp(prefix=".manageroo-skill-uninstall-", dir=root_real)
+        )
+        removed_root = transaction / "removed"
+        removed_root.mkdir()
+        moved: list[tuple[Path, Path, tuple[int, int, str]]] = []
+        ownership_written = False
+        ownership_written_bytes: bytes | None = None
+        try:
+            for raw_path in inventory["owned"]:
+                source = Path(raw_path)
+                identity = _tree_identity(source)
+                destination = removed_root / source.name
+                source.rename(destination)
+                if not _same_tree_identity(destination, identity):
+                    if not source.exists() and destination.exists():
+                        destination.rename(source)
+                    raise RuntimeError(f"Skill tree changed during uninstall: {source}")
+                moved.append((source, destination, identity))
+                ownership.setdefault("skills", {}).pop(str(source.resolve(strict=False)), None)
+            ownership_written_bytes = _json_file_bytes(ownership)
+            atomic_write_json(state_path, ownership)
+            ownership_written = True
+            removed = [str(source) for source, _destination, _identity in moved]
+            shutil.rmtree(transaction)
+            return {
+                **inventory,
+                "removed": removed,
+            }
+        except Exception:
+            for source, destination, identity in reversed(moved):
+                if destination.exists() and not source.exists() and _same_tree_identity(destination, identity):
+                    destination.rename(source)
+            if ownership_written and ownership_written_bytes is not None:
+                _restore_file_bytes_if_matches(
+                    state_path,
+                    ownership_written_bytes,
+                    ownership_before,
+                )
+            raise
+        finally:
+            if transaction.exists():
+                shutil.rmtree(transaction, ignore_errors=True)
+
+
 def install_token_skills(
     skills_dir: Path | None = None,
     *,

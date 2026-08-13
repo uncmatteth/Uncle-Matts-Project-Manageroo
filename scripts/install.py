@@ -1240,9 +1240,16 @@ def print_next_commands() -> None:
         "manageroo stack-doctor",
         "manageroo repair-install --no-apply",
         "manageroo",
-        "manageroo next",
     ]:
         print(f"  {command}")
+
+
+def path_setup_guidance(bin_dir: Path, *, inherited_path: str) -> str:
+    resolved = bin_dir.expanduser().resolve()
+    entries = [Path(item).expanduser() for item in inherited_path.split(os.pathsep) if item]
+    if any(item.resolve(strict=False) == resolved for item in entries):
+        return ""
+    return f"Add {resolved} to PATH, then open a new terminal."
 
 
 def print_lane_explainer() -> None:
@@ -1369,6 +1376,8 @@ def main() -> int:
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
     args = parser.parse_args()
+
+    inherited_shell_path = os.environ.get("PATH", "")
 
     if os.name == "nt":
         raise SystemExit(
@@ -1594,8 +1603,11 @@ def main() -> int:
         atomic_write_json(prefix / "install-lock.json", lock)
 
     status_line("INSTALLED", str(launcher), ok=True)
-    if str(args.bin_dir.expanduser().resolve()) not in os.environ.get("PATH", "").split(os.pathsep):
-        print(f"Add {args.bin_dir.expanduser().resolve()} to PATH, then open a new terminal.")
+    if guidance := path_setup_guidance(
+        args.bin_dir,
+        inherited_path=inherited_shell_path,
+    ):
+        print(guidance)
     if not args.no_music:
         play_once(cue="success", variant=69)
     if choose_stack_doctor_mode(args.stack_doctor) == "run":

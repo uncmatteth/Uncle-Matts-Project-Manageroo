@@ -14,6 +14,19 @@ from manageroo.project import initialize_project
 
 
 class CliNextTests(unittest.TestCase):
+    def test_next_from_home_opens_project_front_door_instead_of_initializing_home(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp).resolve()
+            (home / "personal.txt").write_text("not a repo\n", encoding="utf-8")
+            from manageroo.next_action import next_action
+
+            with patch("manageroo.next_action.Path.home", return_value=home):
+                payload = next_action(home)
+
+            self.assertEqual(payload["stage"], "needs-project-selection")
+            self.assertEqual(shlex.split(payload["command"]), ["manageroo"])
+            self.assertNotIn("git", shlex.split(payload["command"]))
+
     def _repo(self, root: Path) -> Path:
         repo = root / "repo"
         repo.mkdir()

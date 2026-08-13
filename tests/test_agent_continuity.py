@@ -15,12 +15,31 @@ from manageroo.agent_continuity import (
     capture_current_request,
     install_codex_continuity_hooks,
     process_codex_continuity_hook,
+    remove_codex_continuity_hooks,
 )
 from manageroo.errors import ConfigurationError
 from manageroo.execution_mode import EXECUTION_MODE_ENV, STRUCTURED_WORKER_MODE
 
 
 class AgentContinuityTests(unittest.TestCase):
+    def test_session_start_without_saved_work_injects_global_controller_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = process_codex_continuity_hook(
+                {
+                    "hook_event_name": "SessionStart",
+                    "session_id": "fresh-session",
+                    "turn_id": "turn-1",
+                    "cwd": str(Path(temp)),
+                },
+                state_root=Path(temp) / "state",
+            )
+
+            context = result["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("automatically select relevant installed skills", context)
+            self.assertIn("normal scoped work directly", context)
+            self.assertIn("isolated proof", context)
+            self.assertIn("Never initialize the user's home directory", context)
+
     def test_structured_worker_mode_bypasses_continuity_hooks_and_state(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "continuity-state"
@@ -978,6 +997,45 @@ class AgentContinuityTests(unittest.TestCase):
             )
             self.assertEqual(resumed["generation"], 2)
 
+    def test_rough_actionable_preamble_replaces_paused_backlog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-1",
+                prompt="Complete the old release.",
+                cwd="/project",
+                state_root=root,
+            )
+            capture_current_request(
+                session_id="session",
+                turn_id="turn-2",
+                prompt="Stop working and pause.",
+                cwd="/project",
+                state_root=root,
+            )
+
+            resumed = capture_current_request(
+                session_id="session",
+                turn_id="turn-3",
+                prompt=(
+                    "yes, so like the install process please review that. "
+                    "it's supposed to do a specific bunch of stuff but i don't know if it does"
+                ),
+                cwd="/project",
+                state_root=root,
+            )
+
+            self.assertEqual(resumed["status"], "active")
+            self.assertEqual(
+                [item["text"] for item in resumed["messages"]],
+                [
+                    "yes, so like the install process please review that. "
+                    "it's supposed to do a specific bunch of stuff but i don't know if it does"
+                ],
+            )
+            self.assertEqual(resumed["generation"], 2)
+
     def test_first_clear_now_do_instruction_replaces_paused_backlog(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -1841,6 +1899,43 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertIn("PreToolUse", written["hooks"])
             stop_handler = written["hooks"]["Stop"][0]["hooks"][0]
             self.assertNotIn("additionalContextLimit", stop_handler)
+
+    def test_uninstall_removes_only_hooks_for_the_selected_manageroo_launcher(self):
+        with tempfile.TemporaryDirectory() as temp:
+            codex_home = Path(temp) / ".codex"
+            selected = Path(temp) / "bin" / "manageroo"
+            other = Path(temp) / "other" / "manageroo"
+            install_codex_continuity_hooks(
+                codex_home=codex_home,
+                manageroo_command=selected,
+            )
+            hooks_path = codex_home / "hooks.json"
+            payload = json.loads(hooks_path.read_text(encoding="utf-8"))
+            payload["hooks"]["UserPromptSubmit"].append(
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"{other} agent-continuity-hook",
+                        }
+                    ]
+                }
+            )
+            payload["hooks"]["UserPromptSubmit"].append(
+                {"hooks": [{"type": "command", "command": "gbrain prompt hook"}]}
+            )
+            hooks_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            result = remove_codex_continuity_hooks(
+                codex_home=codex_home,
+                manageroo_command=selected,
+            )
+
+            self.assertTrue(result["changed"])
+            rendered = hooks_path.read_text(encoding="utf-8")
+            self.assertNotIn(str(selected), rendered)
+            self.assertIn(str(other), rendered)
+            self.assertIn("gbrain prompt hook", rendered)
 
 
 if __name__ == "__main__":

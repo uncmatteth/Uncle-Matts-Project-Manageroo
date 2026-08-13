@@ -328,7 +328,9 @@ def _reconcile_summary(summary: dict[str, Any], probes: dict[str, str | None]) -
         item = dict(original)
         name = str(item.get("name") or "unknown")
         live_path = probes.get(name)
-        if name in probes and not live_path:
+        if item.get("preserved"):
+            item["needs_action"] = False
+        elif name in probes and not live_path:
             item["path"] = None
             item["installed"] = False
             item["configured"] = False
@@ -651,7 +653,11 @@ def format_stack_status(status: dict[str, Any]) -> str:
         return "\n".join(lines) + "\n"
     lines = [f"Install lock: {status['lock_path']}", f"Launcher: {status.get('launcher') or '(unknown)'}", "", "Stack tools:"]
     for item in status.get("stack_summary", {}).get("items", []):
-        state = "OK" if item.get("installed") and not item.get("needs_action") else "ACTION"
+        state = (
+            "PRESERVED"
+            if item.get("preserved")
+            else "OK" if item.get("installed") and not item.get("needs_action") else "ACTION"
+        )
         lines.append(f"- {state} {item.get('name', 'unknown')}")
         if item.get("reason"):
             lines.append(f"  reason: {item['reason']}")

@@ -6,7 +6,8 @@ description: |
   intelligence. Validates skill conformance (frontmatter, manifest coverage,
   resolver coverage). Runs the project test suite in tiered phases (unit /
   evals / integration / system health), classifies failures, and produces
-  a regression-aware report.
+  a regression-aware report. Also use to review or audit whether an install,
+  setup, upgrade, repair, or uninstall process does the behavior it promises.
 triggers:
   - "validate skills"
   - "test skills"
@@ -16,6 +17,8 @@ triggers:
   - "how are the tests"
   - "what's broken"
   - "daily test run"
+  - "install process review"
+  - "does the setup do what it is supposed to"
 tools:
   - search
   - list_pages

@@ -45,6 +45,13 @@ manageroo stack-status
 manageroo stack-doctor
 ```
 
+When setup reports changed Codex hooks, open `/hooks` once in Codex, review the
+Manageroo entries, and trust them. After that one Codex security step, Manageroo
+is globally active through events in normal Codex sessions; there is no daemon
+to start. Describe repo work normally. The agent selects installed skills itself,
+works directly for normal scoped tasks, and chooses a controlled Manageroo run
+when isolated proof or recovery is useful.
+
 ## Hardware
 
 Manageroo core is hardware-agnostic. It does not require a particular GPU, VRAM tier, CPU class, or RAM amount.
@@ -68,7 +75,7 @@ choice. That saved preference is applied separately from task routing.
 The repository contains **54 bundled skill packages**.
 
 - **22 portable core skills** are installed as the recommended/default Manageroo-owned pack.
-- **33 additional bundled skills** are optional capabilities and are not silently installed as Manageroo-owned defaults.
+- **32 additional bundled skills** are optional capabilities and are not silently installed as Manageroo-owned defaults.
 - Skills already installed on the user's machine remain host-owned and can be discovered separately.
 
 ## 22 portable core skills
@@ -169,6 +176,23 @@ Apply supported updates explicitly:
 ```bash
 manageroo stack-update --apply
 ```
+
+Update Manageroo itself from its recorded source folder:
+
+```bash
+manageroo update
+manageroo update --apply
+```
+
+List every installed piece and choose what to remove:
+
+```bash
+manageroo uninstall
+```
+
+Uninstall asks before deleting anything. It can remove all Manageroo-owned
+pieces or selected categories while preserving user-edited skills and shared
+tools whose ownership is not proven.
 
 # Start a project
 
@@ -312,10 +336,10 @@ Manageroo controller
     mission + state + jobs + decisions + proof + review + repair + completion
 
 Portable core
-    18 default Manageroo-owned skills
+    22 default Manageroo-owned skills
 
 Bundled optional library
-    33 additional skills available without becoming default installs
+    32 additional skills available without becoming default installs
 
 Optional surrounding stack
     GitNexus + GBrain + TruffleHog + AUTOREVIEW + Clawpatch + Obsidian when selected

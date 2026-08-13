@@ -35,6 +35,7 @@ from .install_status import (
     uninstall_plan,
 )
 from .install_repair import format_repair_install, repair_install
+from .install_update import format_install_update, update_install
 from .intent_lock import (
     audit_compaction_file,
     capture_intent_lock,
@@ -83,6 +84,12 @@ from .token_modes import (
     install_token_skills,
     read_token_mode,
     set_token_mode,
+)
+from .uninstall import (
+    COMPONENT_IDS,
+    build_uninstall_inventory,
+    format_uninstall_inventory,
+    uninstall_manageroo,
 )
 from .util import read_json
 from .wizards import collect_gbrain_answers, collect_setup_answers, collect_solo_answers
@@ -705,6 +712,30 @@ def parser() -> argparse.ArgumentParser:
     uninstall.add_argument("--bin-dir", type=Path)
     uninstall.add_argument("--json", action="store_true")
 
+    uninstall_apply = sub.add_parser(
+        "uninstall",
+        help="List every installed component, choose what to remove, and confirm before deletion.",
+    )
+    uninstall_apply.add_argument("--prefix", type=Path)
+    uninstall_apply.add_argument("--bin-dir", type=Path)
+    uninstall_apply.add_argument("--codex-home", type=Path)
+    uninstall_apply.add_argument("--skills-dir", type=Path)
+    uninstall_apply.add_argument("--ownership-file", type=Path)
+    uninstall_selection = uninstall_apply.add_mutually_exclusive_group()
+    uninstall_selection.add_argument("--all-manageroo", action="store_true")
+    uninstall_selection.add_argument(
+        "--component",
+        action="append",
+        choices=COMPONENT_IDS,
+        default=[],
+    )
+    uninstall_apply.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm the explicit --all-manageroo or --component selection.",
+    )
+    uninstall_apply.add_argument("--json", action="store_true")
+
     repair = sub.add_parser(
         "repair-install",
         help="Inspect and repair the local launcher/helper install.",
@@ -713,6 +744,15 @@ def parser() -> argparse.ArgumentParser:
     repair.add_argument("--bin-dir", type=Path)
     repair.add_argument("--no-apply", action="store_true")
     repair.add_argument("--json", action="store_true")
+
+    update = sub.add_parser(
+        "update",
+        help="Preview or apply an update from a verified Manageroo source folder.",
+    )
+    update.add_argument("--prefix", type=Path)
+    update.add_argument("--source", type=Path)
+    update.add_argument("--apply", action="store_true")
+    update.add_argument("--json", action="store_true")
 
     sub.add_parser("self-test", help="Run a deterministic mock end-to-end build.")
 
@@ -1497,6 +1537,85 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_stack_status(result), end="")
             return 0 if result.get("ok") else 2
 
+        if args.command == "uninstall":
+            uninstall_kwargs = {
+                "prefix": args.prefix,
+                "bin_dir": args.bin_dir,
+                "codex_home": args.codex_home,
+                "skills_dir": args.skills_dir,
+                "ownership_path": args.ownership_file,
+            }
+            inventory = build_uninstall_inventory(**uninstall_kwargs)
+            if args.json and not (args.all_manageroo or args.component):
+                print(json.dumps(inventory, indent=2))
+                return 0
+            if not args.json:
+                print(format_uninstall_inventory(inventory), end="")
+
+            selected = list(args.component)
+            confirmed = bool(args.yes)
+            if args.all_manageroo:
+                selected = [
+                    item["id"] for item in inventory["components"] if item["removable"]
+                ]
+            elif not selected and sys.stdin.isatty():
+                print("")
+                print("What should Manageroo remove?")
+                print("1) All Manageroo-owned pieces")
+                print("2) Choose pieces")
+                print("3) Cancel")
+                choice = input("> ").strip()
+                if choice == "1":
+                    selected = [
+                        item["id"]
+                        for item in inventory["components"]
+                        if item["removable"]
+                    ]
+                elif choice == "2":
+                    print("Enter component numbers or names separated by commas.")
+                    answer = input("> ").strip()
+                    tokens = [token.strip() for token in answer.split(",") if token.strip()]
+                    by_number = {
+                        str(index): item["id"]
+                        for index, item in enumerate(inventory["components"], start=1)
+                    }
+                    selected = [by_number.get(token, token) for token in tokens]
+                else:
+                    print("Cancelled. Nothing was removed.")
+                    return 0
+            if not selected:
+                if args.json:
+                    print(json.dumps(inventory, indent=2))
+                else:
+                    print("Nothing selected. Nothing was removed.")
+                return 0
+            if not confirmed and sys.stdin.isatty():
+                print("")
+                print("Selected: " + ", ".join(selected))
+                confirmed = input("Remove these Manageroo pieces? [y/N]: ").strip().casefold() in {
+                    "y",
+                    "yes",
+                }
+            if not confirmed:
+                if args.json:
+                    preview = {**inventory, "selected": selected, "applied": False}
+                    print(json.dumps(preview, indent=2))
+                else:
+                    print("Cancelled. Nothing was removed.")
+                return 0
+            result = uninstall_manageroo(
+                **uninstall_kwargs,
+                components=selected,
+                confirmed=True,
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print("UNINSTALL COMPLETE")
+                print("Removed: " + ", ".join(selected))
+                print("Shared surrounding tools were preserved unless exact Manageroo ownership was proven.")
+            return 0
+
         if args.command == "uninstall-plan":
             result = uninstall_plan(args.prefix, args.bin_dir)
             if args.json:
@@ -1515,6 +1634,18 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 print(format_repair_install(result), end="")
+            return 0 if result["ok"] else 2
+
+        if args.command == "update":
+            result = update_install(
+                prefix=args.prefix,
+                source=args.source,
+                apply=args.apply,
+            )
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_install_update(result), end="")
             return 0 if result["ok"] else 2
 
         if args.command == "self-test":

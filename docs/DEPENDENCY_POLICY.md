@@ -58,8 +58,10 @@ They are local skill files, not network dependencies. The installer can select a
 mode with `--token-mode caveman` or `--token-mode curse`. Users can switch later
 with `manageroo token-mode set ...`.
 
-Existing different local skill files are backed up before the bundled files are
-installed.
+Existing different host-owned skill files are reused in place and are not
+overwritten or copied into a backup trail. Manageroo records ownership only for
+trees it creates; later updates replace only an unchanged owned tree. A user edit
+is preserved and revokes Manageroo's removal/update claim for that tree.
 
 ## Recommended skill pack
 
@@ -91,8 +93,9 @@ leave it out and install it later with `manageroo skills reconcile --apply`.
 - `uncle-matts-caveman-curse` for token reduction with profanity when selected.
 
 These are bundled files, not network dependencies. Existing different local
-versions are backed up before replacement. They are available even when token
-mode is off.
+versions are reused without replacement. Manageroo-owned versions update only
+while their recorded full-tree digest still matches. They are available even
+when token mode is off.
 
 The reviewed Matt Pocock subset, pinned source commit, dependency graph, side effects, and upgrade policy are documented in `docs/MATT_POCOCK_SKILLS.md`.
 

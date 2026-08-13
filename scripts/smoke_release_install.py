@@ -324,6 +324,47 @@ def smoke(
         if run_result.get("status") != "COMPLETE":
             raise RuntimeError(f"Mock product run did not complete: {run_result}")
 
+        repair = parse_json_command(
+            manageroo_command(launcher, "repair-install", "--no-apply", "--json"),
+            cwd=extracted,
+            env=env,
+        )
+        if repair.get("ok") is not True:
+            raise RuntimeError(f"Installed lifecycle repair check failed: {repair}")
+
+        update = parse_json_command(
+            manageroo_command(launcher, "update", "--json"),
+            cwd=extracted,
+            env=env,
+        )
+        if update.get("ok") is not True or update.get("applied") is not False:
+            raise RuntimeError(f"Installed controller update preview failed: {update}")
+
+        uninstall_inventory = parse_json_command(
+            manageroo_command(launcher, "uninstall", "--json"),
+            cwd=extracted,
+            env=env,
+        )
+        component_ids = [item.get("id") for item in uninstall_inventory.get("components", [])]
+        if component_ids != ["runtime", "hooks", "skills", "state"]:
+            raise RuntimeError(f"Installed uninstall inventory is incomplete: {uninstall_inventory}")
+
+        uninstall = parse_json_command(
+            manageroo_command(
+                launcher,
+                "uninstall",
+                "--all-manageroo",
+                "--yes",
+                "--json",
+            ),
+            cwd=extracted,
+            env=env,
+        )
+        if uninstall.get("applied") is not True:
+            raise RuntimeError(f"Installed guided uninstall failed: {uninstall}")
+        if launcher.exists() or (home / ".local" / "share" / "manageroo").exists():
+            raise RuntimeError("Guided uninstall left the Manageroo runtime or launcher behind.")
+
         return {
             "ok": True,
             "archive": str(archive),
@@ -341,6 +382,10 @@ def smoke(
             "product_repo": str(product),
             "product_run_id": run_result.get("run_id"),
             "product_status": run_result.get("status"),
+            "repair_ok": repair.get("ok"),
+            "update_preview_ok": update.get("ok"),
+            "uninstall_component_count": len(component_ids),
+            "uninstall_applied": uninstall.get("applied"),
         }
     finally:
         if not keep_temp:

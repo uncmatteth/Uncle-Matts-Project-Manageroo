@@ -18,7 +18,9 @@ from manageroo.token_modes import (
     _skill_tree_sha256,
     install_core_helper_skills,
     install_token_skills,
+    manageroo_owned_skill_inventory,
     read_token_mode,
+    remove_manageroo_owned_skills,
     set_token_mode,
     token_mode_prompt,
 )
@@ -56,6 +58,36 @@ def _enter_skill_lock(root, lock_opened, entered) -> None:
 
 
 class TokenModeTests(unittest.TestCase):
+    def test_uninstall_inventory_removes_only_unchanged_manageroo_owned_skills(self):
+        with tempfile.TemporaryDirectory() as temp:
+            skills = Path(temp) / "skills"
+            ledger = Path(temp) / "ownership.json"
+            install_core_helper_skills(
+                skills_dir=skills,
+                search_roots=[],
+                ownership_path=ledger,
+            )
+            edited = skills / "pimp-my-prompt" / "SKILL.md"
+            edited.write_text(edited.read_text(encoding="utf-8") + "\nuser edit\n", encoding="utf-8")
+
+            inventory = manageroo_owned_skill_inventory(
+                skills_dir=skills,
+                ownership_path=ledger,
+            )
+            removed = remove_manageroo_owned_skills(
+                skills_dir=skills,
+                ownership_path=ledger,
+            )
+
+            self.assertEqual(len(inventory["owned"]), len(CORE_HELPER_SKILLS) - 1)
+            self.assertIn(str(edited.parent), inventory["preserved"])
+            self.assertEqual(len(removed["removed"]), len(CORE_HELPER_SKILLS) - 1)
+            self.assertTrue(edited.is_file())
+            self.assertEqual(
+                sorted(path.name for path in skills.iterdir() if path.is_dir()),
+                ["pimp-my-prompt"],
+            )
+
     def test_environment_selected_skill_root_keeps_ownership_ledger_local(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "skills"

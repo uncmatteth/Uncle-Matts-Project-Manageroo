@@ -19,7 +19,7 @@
 >
 > Already cloned it? Stay in that existing folder and rerun `./install.sh`. Native Windows is not advertised: the secure artifact backend requires POSIX descriptor-relative filesystem controls, so Windows users run Manageroo inside WSL2.
 >
-> If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, common system package managers on Linux, or winget on Windows.
+> If Git is not installed yet, use GitHub's **Code → Download ZIP**, extract it, open a Linux, macOS, or WSL2 terminal in the folder, and run the platform command above. The installer checks Python 3.11+ and Git and offers guided setup with the normal platform path: a verified Python package and Apple's Command Line Tools on macOS, or common system package managers on Linux and WSL2.
 
 When Codex is selected, setup also verifies Codex's own sandbox before calling it
 ready: `bwrap`/seccomp on Linux and WSL2, and Seatbelt on macOS. Failures stop
@@ -41,6 +41,9 @@ with instructions for that platform; Manageroo never silently turns the sandbox 
 > ```
 >
 > Type what you want built or fixed. Manageroo matches the request to the discovered projects. If the request could belong to more than one project, it asks only then. Later, run `manageroo` again from any normal terminal to return to the same front door.
+> The plain front door starts the controlled run immediately when project readiness passes. New project configuration still defaults to `--no-apply`, so verified work is not silently written back without an explicit apply policy.
+>
+> When the installer says the Codex hooks changed, open `/hooks` once in Codex, review the Manageroo hook set, and trust it. After that one Codex security step, Manageroo is event-driven and globally active in ordinary Codex sessions; there is no background daemon to start. You describe normal repo work and the agent selects relevant installed skills automatically, works directly for ordinary scoped jobs, and uses a controlled Manageroo run only when isolated proof or recovery adds value.
 >
 > You do **not** have to create or fill agent context files yourself. `solo` safely creates or updates `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, the current intent lock, Manageroo configuration, and the repo-local Manageroo skill. Existing human-written `AGENTS.md` and `CONTEXT.md` content is preserved.
 >
@@ -76,6 +79,11 @@ hooks. Completion stays bound to the exact active request, but normal replies
 end with one useful result line such as `✅ Done — Provided the local supervisor
 path.` Existing sessions carrying the former generic badge or raw comment remain
 valid during an upgrade.
+At every new ordinary Codex session, the hook also supplies one compact global
+controller contract: the agent selects relevant installed skills itself, handles
+normal scoped work directly, and reserves `manageroo run` for work that benefits
+from its isolated proof boundary. The operator does not have to remember or name
+Manageroo or a skill. This is event-driven hook behavior, not a resident daemon.
 Routine `You asked` and `Manageroo is doing` status uses Codex's display-only
 system-message channel instead of model context. The activity line is derived
 locally from the current task instead of repeating one generic purpose slogan;
@@ -459,7 +467,7 @@ Never update the supervisor environment while a queue is running.
 
 These are the small portable core Manageroo installs as its own default skill pack.
 
-## 33 additional bundled optional skills
+## 32 additional bundled optional skills
 
 These ship with the repository but are **not installed as Manageroo-owned defaults**:
 
@@ -476,7 +484,6 @@ These ship with the repository but are **not installed as Manageroo-owned defaul
 - `find-skills`
 - `fix-my-bad-website`
 - `functional-area-resolver`
-- `go-get-uncle-matts-hammerrr`
 - `idea-ingest`
 - `improve-codebase-architecture`
 - `ingest`
@@ -575,6 +582,31 @@ Apply supported updates explicitly:
 ```bash
 manageroo stack-update --apply
 ```
+
+Update the Manageroo controller itself from the source folder recorded at
+install time:
+
+```bash
+manageroo update
+manageroo update --apply
+```
+
+If that source folder was removed, download or extract the current release and
+use `manageroo update --source /path/to/current/Manageroo --apply`. The update
+reuses the recorded prefix, launcher directory, agent choice, and token mode;
+it preserves the surrounding stack instead of reinstalling it blindly.
+
+Uninstall is guided and confirmation-gated:
+
+```bash
+manageroo uninstall
+```
+
+It inventories the runtime, launcher, Codex hooks, unchanged Manageroo-owned
+skills, Manageroo state, and every recorded surrounding tool. Choose all
+Manageroo-owned pieces or only selected categories, then confirm the exact
+selection. User-edited skills and shared or ownership-unproven tools such as
+Codex, GBrain, GitNexus, Clawpatch, and Obsidian are listed and preserved.
 
 The same pass includes `skills`, the complete Manageroo core skill pack shipped
 by the installed release. `manageroo stack-update skills --apply`

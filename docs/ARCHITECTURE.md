@@ -73,6 +73,15 @@ later objectives, side questions, and repeated tool actions do not inject it
 again. This keeps status visible without
 repeatedly spending model context on status text or the full prompt.
 
+At ordinary Codex `SessionStart`, the hook supplies one compact global controller
+contract even when no prior objective exists. It tells the operator-facing agent
+to select relevant installed skills automatically, do normal scoped work
+directly, and choose `manageroo run` only when isolated proof, retry, or recovery
+adds material value. It also forbids treating the user's home directory as an
+implicit project. This makes Manageroo event-driven and globally active after
+the one-time Codex hook trust step without adding a daemon, scheduler, model
+runtime, or background mutation loop.
+
 The stop handshake is bound to the active objective in private state. The
 operator sees a specific result such as `✅ Done — Provided the local supervisor
 path.` or a `🚧` waiting status. The hook also accepts former generic Markdown
@@ -131,6 +140,13 @@ The staged app must match the source-app digest captured before installation.
 The install lock records whether Git provenance was knowable, the exact source
 commit and dirty state when known, the complete source-tree SHA-256, and the
 installed-app SHA-256. Source drift before the atomic app swap stops the update.
+The install repair command verifies required hook groups and every portable core
+skill instead of treating missing components as advisory success. Controller
+updates replay the complete verified source installer with recorded prefix,
+launcher directory, agent, and token-mode choices while preserving the optional
+surrounding stack. Guided uninstall separates runtime, hooks, owned skills, and
+state; it removes only a confirmed selection, keeps user-edited skill trees, and
+lists shared tools without claiming removal ownership.
 
 ## Source isolation
 

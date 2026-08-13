@@ -263,6 +263,17 @@ class CapabilityRouterTests(unittest.TestCase):
             conflicts = [item for item in route["ignored"] if item["reason"] == "conflicting-duplicate"]
             self.assertEqual(len(conflicts), 2)
 
+    def test_rough_install_review_request_routes_without_requiring_a_skill_name(self):
+        root = Path(__file__).resolve().parents[1] / "src" / "manageroo" / "assets" / "skills"
+        route = route_capabilities(
+            "yes, so like the install process please review that. it's supposed to do a specific bunch of stuff but i don't know if it does",
+            roots=[root],
+            role="reviewer",
+        )
+
+        self.assertIn("testing", [item["name"] for item in route["selected"]])
+        self.assertFalse(route["user_selection_required"])
+
     def test_every_worker_call_gets_automatic_capsule_and_auditable_route(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

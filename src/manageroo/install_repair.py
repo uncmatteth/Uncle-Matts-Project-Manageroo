@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .agent_continuity import (
+    codex_continuity_hooks_status,
+    install_codex_continuity_hooks,
+)
+from .errors import ConfigurationError
 from .install_status import (
     LAUNCHER_MARKER,
     _launcher_descriptor_is_manageroo_owned,
@@ -174,7 +179,7 @@ def repair_install(*, prefix: Path | None = None, bin_dir: Path | None = None, a
             try:
                 _write_launcher(launcher, python=python, app_root=app_root, prefix=prefix)
                 actions.append({"name": "launcher", "status": "recreated", "path": str(launcher)})
-            except (OSError, ValueError) as exc:
+            except (OSError, ValueError, ConfigurationError) as exc:
                 checks.append(_check("launcher-write", False, str(exc), "./install.sh"))
                 next_commands.append("./install.sh")
         else:
@@ -206,9 +211,52 @@ def repair_install(*, prefix: Path | None = None, bin_dir: Path | None = None, a
             next_commands.append("manageroo skills reconcile --apply")
     else:
         present = helper_skills_present()
-        checks.append(_check("skill-pack", True, "present" if present else "missing; strongly suggested", "manageroo skills reconcile --apply"))
+        checks.append(_check("skill-pack", present, "present" if present else "missing", "manageroo skills reconcile --apply"))
         if not present:
             next_commands.append("manageroo skills reconcile --apply")
+
+    if isinstance(lock.get("agent_continuity_hooks"), dict):
+        codex_home = Path(
+            os.environ.get("CODEX_HOME") or Path.home() / ".codex"
+        ).expanduser()
+        hook_status = codex_continuity_hooks_status(
+            codex_home=codex_home,
+            manageroo_command=launcher,
+        )
+        if apply and not hook_status["ok"] and launcher_ok:
+            try:
+                hook_action = install_codex_continuity_hooks(
+                    codex_home=codex_home,
+                    manageroo_command=launcher,
+                )
+                actions.append(
+                    {
+                        "name": "codex-hooks",
+                        "status": "restored",
+                        "path": hook_action["path"],
+                        "trust_required": hook_action["trust_required"],
+                    }
+                )
+                hook_status = codex_continuity_hooks_status(
+                    codex_home=codex_home,
+                    manageroo_command=launcher,
+                )
+            except (OSError, ValueError) as exc:
+                hook_status = {
+                    "ok": False,
+                    "hooks_path": str(codex_home / "hooks.json"),
+                    "error": str(exc),
+                }
+        checks.append(
+            _check(
+                "codex-hooks",
+                bool(hook_status["ok"]),
+                str(hook_status.get("hooks_path") or hook_status.get("error") or "missing"),
+                "manageroo repair-install",
+            )
+        )
+        if not hook_status["ok"]:
+            next_commands.append("manageroo repair-install")
 
     ok = all(item["ok"] for item in checks)
     return {

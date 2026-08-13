@@ -256,6 +256,58 @@ class PackageReleaseTests(unittest.TestCase):
             time.sleep(0.3)
             self.assertEqual(marker.stat().st_size, marker_size)
 
+    def test_release_verifier_can_remove_snapshot_selector_from_nested_tests(self):
+        variable = verify_release.RELEASE_FILE_LIST_ENV
+        script = (
+            "import os; "
+            f"print(os.environ.get({variable!r}, 'not-inherited'))"
+        )
+        with patch.dict(os.environ, {variable: "/private/release-files"}, clear=False):
+            result = verify_release.run(
+                [sys.executable, "-c", script],
+                env_remove=(variable,),
+            )
+
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["output"].strip(), "not-inherited")
+
+    def test_release_report_compacts_successful_unittest_output_but_keeps_failures(self):
+        argv = [sys.executable, "-m", "unittest", "discover"]
+        output = (
+            "test_sensitive_fixture_name (tests.Example) ... ok\n"
+            "----------------------------------------------------------------------\n"
+            "Ran 1 test in 0.123s\n\nOK\n"
+        )
+        compact = verify_release.report_command_output(argv, 0, output)
+        failed = verify_release.report_command_output(argv, 1, output + "FAILED\n")
+
+        self.assertNotIn("test_sensitive_fixture_name", compact)
+        self.assertIn("Ran 1 tests in <elapsed>s", compact)
+        self.assertIn("test_sensitive_fixture_name", failed)
+
+    def test_release_verifier_builds_and_removes_snapshot_git_index(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "README.md").write_text("snapshot\n", encoding="utf-8")
+            selector = root / "release-files"
+            selector.write_bytes(b"README.md\0")
+            environment = {verify_release.RELEASE_FILE_LIST_ENV: str(selector)}
+            with (
+                patch.object(verify_release, "ROOT", root),
+                patch.dict(os.environ, environment, clear=False),
+                verify_release.snapshot_test_git_index(),
+            ):
+                tracked = subprocess.run(
+                    ["git", "ls-files"],
+                    cwd=root,
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    shell=False,
+                ).stdout.splitlines()
+                self.assertIn("README.md", tracked)
+            self.assertFalse((root / ".git").exists())
+
     def test_concurrent_gitnexus_finalizers_serialize_lock_update(self):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"

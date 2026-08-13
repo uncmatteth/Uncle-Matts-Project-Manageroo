@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,10 +54,22 @@ BANNED_OVERCLAIM_PHRASES = (
 )
 UNIT_TEST_TIMEOUT_SECONDS = 900
 PROCESS_TREE_GRACE_SECONDS = 5
+RELEASE_FILE_LIST_ENV = "MANAGEROO_RELEASE_FILE_LIST"
 
 
 def stable_command_output(output: str) -> str:
     return re.sub(r"Ran ([0-9]+) tests? in [0-9.]+s", r"Ran \1 tests in <elapsed>s", output)
+
+
+def report_command_output(argv: list[str], exit_code: int, output: str) -> str:
+    stable = stable_command_output(output)
+    if exit_code != 0 or "unittest" not in argv:
+        return stable
+    summary = re.search(
+        r"-{20,}\nRan [0-9]+ tests in <elapsed>s\n\nOK(?: \(skipped=[0-9]+\))?\n?\Z",
+        stable,
+    )
+    return summary.group(0) if summary else stable
 
 
 def _timeout_output(value: str | bytes | None) -> str:
@@ -101,8 +114,16 @@ def _signal_process_tree(process: subprocess.Popen[str], *, force: bool) -> None
             (process.kill if force else process.terminate)()
 
 
-def run(argv: list[str], timeout: int = 300, *, env_overrides: dict[str, str] | None = None) -> dict:
+def run(
+    argv: list[str],
+    timeout: int = 300,
+    *,
+    env_overrides: dict[str, str] | None = None,
+    env_remove: tuple[str, ...] = (),
+) -> dict:
     env = os.environ.copy()
+    for name in env_remove:
+        env.pop(name, None)
     env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
     env.update(env_overrides or {})
     popen_kwargs: dict = {
@@ -120,7 +141,11 @@ def run(argv: list[str], timeout: int = 300, *, env_overrides: dict[str, str] | 
     process = subprocess.Popen(argv, **popen_kwargs)
     try:
         output, _ = process.communicate(timeout=timeout)
-        return {"argv": argv, "exit_code": process.returncode, "output": stable_command_output(output)}
+        return {
+            "argv": argv,
+            "exit_code": process.returncode,
+            "output": report_command_output(argv, process.returncode, output),
+        }
     except subprocess.TimeoutExpired as exc:
         output = _timeout_output(exc.stdout)
         _signal_process_tree(process, force=False)
@@ -147,6 +172,41 @@ def run(argv: list[str], timeout: int = 300, *, env_overrides: dict[str, str] | 
                 if process.stdout is not None:
                     process.stdout.close()
         return {"argv": argv, "exit_code": 124, "output": stable_command_output(output) + "\nTIMEOUT"}
+
+
+@contextmanager
+def snapshot_test_git_index():
+    """Give nested package tests a local tracked-file view without trusting env input."""
+    selector = os.environ.get(RELEASE_FILE_LIST_ENV)
+    git_dir = ROOT / ".git"
+    created = False
+    if selector and not git_dir.exists() and not git_dir.is_symlink():
+        subprocess.run(
+            ["git", "init", "-q"],
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=False,
+        )
+        created = True
+        subprocess.run(
+            ["git", "add", "-f", "--", "."],
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=False,
+        )
+    try:
+        yield
+    finally:
+        if created:
+            if git_dir.is_symlink() or not git_dir.is_dir():
+                raise RuntimeError("Temporary snapshot Git metadata changed during verification.")
+            shutil.rmtree(git_dir)
 
 
 def _relative(path: Path) -> Path:
@@ -254,6 +314,7 @@ def structural_checks() -> list[dict]:
         "src/manageroo/evidence.py", "src/manageroo/evidence_hardening.py", "src/manageroo/evidence_artifact_guard.py",
         "src/manageroo/evidence_policy.py", "src/manageroo/external_repair_policy.py", "src/manageroo/jobs.py",
         "src/manageroo/learning.py", "src/manageroo/next_action.py", "src/manageroo/project_memory.py",
+        "src/manageroo/install_update.py", "src/manageroo/uninstall.py",
         "src/manageroo/release_proof_policy.py", "src/manageroo/release_ready_policy.py", "src/manageroo/skill_pack_policy.py",
         "src/manageroo/stack_update_policy.py", "src/manageroo/solo.py", "src/manageroo/token_modes.py",
         "src/manageroo/truth_contract.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
@@ -264,6 +325,7 @@ def structural_checks() -> list[dict]:
         "tests/test_evidence.py", "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py",
         "tests/test_release_hardening_contract.py", "tests/test_remaining_audit_regressions.py",
         "tests/test_codex_continuity_hooks.py",
+        "tests/test_install_update.py", "tests/test_uninstall.py",
         "tests/test_transactional_adapter_hardening.py", "tests/test_transactional_history_and_pristine.py",
         "tests/test_truth_contract.py", "tests/test_truth_contract_production.py",
     ]
@@ -352,13 +414,15 @@ def main(*, write_report: bool = True) -> int:
             run(
                 [sys.executable, "-m", "compileall", "-q", "src"],
                 env_overrides=isolated_python_env,
-            ),
-            run(
+            )
+        ]
+        with snapshot_test_git_index():
+            commands.append(run(
                 [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
                 timeout=UNIT_TEST_TIMEOUT_SECONDS,
                 env_overrides=isolated_python_env,
-            ),
-        ]
+                env_remove=(RELEASE_FILE_LIST_ENV,),
+            ))
     if shutil.which("sh"):
         commands.append(run(["sh", "-n", "install.sh", "scripts/install.sh"]))
 

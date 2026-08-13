@@ -100,6 +100,7 @@ class CliEntrypointSmokeTests(unittest.TestCase):
                 "auto",
                 "--want",
                 request,
+                "--run",
             ]
         )
 

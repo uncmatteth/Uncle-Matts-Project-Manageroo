@@ -48,14 +48,20 @@ manageroo ready --json
 manageroo next --json
 ```
 
+After the installer changes Codex hooks, tell the operator to open `/hooks` once
+in Codex, review the Manageroo entries, and trust them. This is Codex's one-time
+security confirmation and must not be faked or bypassed. After trust, Manageroo's
+global controller hook is event-driven in ordinary Codex sessions; the operator
+does not need to invoke the Manageroo skill by name.
+
 Use `--agent codex` only when Codex is the selected runtime. Use
 `manageroo agent list` to see presets for another CLI. The non-Codex
 presets are command templates; configure `[agent].argv_template` in
 `.manageroo/config.toml` when the default flags are wrong.
 
-Same installer, same behavior. Use `./install.sh` from a normal Unix-style
-terminal, or `.\install.ps1` from PowerShell. Those are launchers, not separate
-products.
+Use `./install.sh` from Linux, macOS, or a WSL2 terminal. Native Windows and the
+PowerShell launcher intentionally stop with WSL2 guidance because the secure
+artifact backend is not supported by native Windows CPython.
 
 The recommended local skill pack is optional but strongly suggested. Let the
 installer add it unless the operator explicitly chooses `--skill-pack skip` or

@@ -56,6 +56,14 @@ def next_action(
     try:
         repo = git_root(requested)
     except ConfigurationError:
+        if requested == Path.home().expanduser().resolve():
+            return {
+                "ok": True,
+                "stage": "needs-project-selection",
+                "repo": str(requested),
+                "reason": "The home directory is not treated as an implicit project. Tell Manageroo the job so it can select the intended repository.",
+                "command": PUBLIC_COMMAND,
+            }
         if requested.is_dir() and not any(requested.iterdir()):
             command = _create_command(requested)
             reason = "That folder is empty and can become a new project repo."

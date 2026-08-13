@@ -122,7 +122,7 @@ no-commit/no-push rule is not a reason to leave authorized delivery for the oper
 Manageroo owns a small portable 22-skill core. Do not load the whole pack for every job. Route only to relevant helpers.
 
 - Manageroo-controlled workers receive automatic capability capsules. Do not ask the operator to choose or remember skills.
-- Outside a Manageroo-controlled run, use `$use-installed-skills-first` before non-trivial local work when the host supports skills.
+- Outside a Manageroo-controlled run, automatically inspect and select relevant installed skills before non-trivial local work. If the host requires an explicit `$use-installed-skills-first` invocation, the agent invokes it itself; the operator is never expected to remember the skill name.
 - Use `$skill-vetter` before adopting or installing third-party skills from external sources.
 - Use `$pimp-my-prompt` when a rough or overloaded request needs exact scope, acceptance criteria, proof, and stop rules.
 - Use `$setup-matt-pocock-skills` once per repo before the tracker-aware engineering flow.

@@ -36,6 +36,13 @@ runs; open `/hooks` once after installation and trust the Manageroo continuity
 hook set. Controlled `manageroo run` workers retain the stronger isolated
 repository boundary.
 
+After that one Codex trust step, no Manageroo daemon or keepalive process is
+required. `SessionStart` supplies a compact global controller contract so an
+ordinary Codex agent automatically selects relevant installed skills, handles
+normal scoped work directly, and uses a controlled Manageroo run only when its
+isolated proof or recovery boundary materially helps. The operator describes the
+job and does not have to remember `$uncle-matts-project-manageroo`.
+
 Manageroo detects coding-agent command-line tools, not the person's subscription or private account details. The selected coding tool keeps control of its own login and model configuration.
 
 Manageroo does **not** require a particular GPU, VRAM amount, CPU tier, or RAM class. A selected target project or explicitly chosen local AI tool may have separate requirements.
@@ -228,6 +235,10 @@ Hi! I'm Manageroo! Let's do!
 ```
 
 Type the work you want done. Manageroo matches the request to discovered projects and asks which project only when necessary. Installation never initializes every discovered repository.
+When readiness passes, this plain front door starts the controlled run instead
+of stopping after setup. A new project still defaults to no source apply; only
+an explicit `--apply` or an existing project policy can write back the verified
+delivery patch.
 
 To bypass automatic matching and name an existing repository explicitly:
 
@@ -260,8 +271,31 @@ manageroo token-mode status
 manageroo stack-status
 manageroo stack-doctor
 manageroo repair-install --no-apply
+manageroo update
+manageroo uninstall
 manageroo uninstall-plan
 ```
+
+`repair-install --no-apply` is a real health check: a missing core skill or a
+missing required Codex hook makes it report action instead of returning a false
+green. Applying `manageroo repair-install` restores the owned launcher, core
+skills, and required hook groups while preserving unrelated hooks and
+user-edited skills.
+
+`manageroo update` is dry-run by default. It validates the owned installation
+and the source folder recorded at install time, then shows the installer command
+that will preserve the prefix, launcher directory, selected agent, token mode,
+and surrounding stack. `manageroo update --apply` executes that argv directly
+with no shell. If the original source folder is gone, pass an extracted current
+release with `--source PATH`.
+
+`manageroo uninstall` is the normal removal path. It first lists the runtime and
+launcher, Codex hooks, unchanged Manageroo-owned skills, Manageroo state, and all
+recorded surrounding tools. The operator chooses all removable Manageroo pieces
+or selected categories and confirms once more before deletion. Shared or
+ownership-unproven tools are preserved, as are user-edited skills. Automation
+can make the same explicit choice with `--all-manageroo --yes` or repeated
+`--component ... --yes` flags.
 
 `uninstall-plan` emits removal commands only for an absolute, non-root prefix whose
 ownership is proven by a matching resolved install lock and the installer's random

@@ -1050,8 +1050,25 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("  manageroo\n", text)
         self.assertIn("manageroo stack-doctor", text)
         self.assertIn("manageroo repair-install --no-apply", text)
-        self.assertIn("manageroo next", text)
+        self.assertNotIn("manageroo next", text)
         self.assertNotIn("cd /path/to/project && manageroo solo", text)
+
+    def test_path_guidance_uses_the_shell_path_from_before_install(self):
+        install = load_install_script()
+        bin_dir = Path("/tmp/fresh-manageroo-bin")
+
+        missing = install.path_setup_guidance(
+            bin_dir,
+            inherited_path="/usr/local/bin:/usr/bin:/bin",
+        )
+        present = install.path_setup_guidance(
+            bin_dir,
+            inherited_path=f"{bin_dir}:/usr/bin:/bin",
+        )
+
+        self.assertIn(str(bin_dir), missing)
+        self.assertIn("new terminal", missing)
+        self.assertEqual(present, "")
 
     def test_installer_finishes_in_manageroo_instead_of_asking_for_a_project(self):
         install = load_install_script()

@@ -189,6 +189,42 @@ class InstallStatusTests(unittest.TestCase):
             self.assertIsNone(item["path"])
             self.assertTrue(item["needs_action"])
 
+    def test_stack_status_keeps_preserved_umbrella_entry_out_of_action(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lock = Path(temp) / "install-lock.json"
+            lock.write_text(
+                json.dumps(
+                    {
+                        "external_tools": [],
+                        "stack_summary": {
+                            "items": [
+                                {
+                                    "name": "recommended-stack",
+                                    "installed": False,
+                                    "configured": False,
+                                    "skipped": True,
+                                    "preserved": True,
+                                    "needs_action": False,
+                                    "reason": "Existing stack preserved.",
+                                    "next_commands": [],
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch("manageroo.install_status.shutil.which", return_value=None),
+                patch("manageroo.install_status._find_skill", return_value=None),
+            ):
+                report = stack_status(lock)
+
+            item = report["stack_summary"]["items"][0]
+            self.assertTrue(item["preserved"])
+            self.assertFalse(item["needs_action"])
+            self.assertIn("PRESERVED recommended-stack", format_stack_status(report))
+
     def test_stack_status_exposes_recorded_source_provenance(self):
         provenance = {
             "schema_version": 1,

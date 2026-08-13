@@ -1293,6 +1293,7 @@ def _welcome_main() -> int:
         "auto",
         "--want",
         request,
+        "--run",
     ]
     if create:
         argv.append("--create")

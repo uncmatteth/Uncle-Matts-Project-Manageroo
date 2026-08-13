@@ -63,6 +63,65 @@ class InstallRepairTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertIn("./install.sh", result["next_commands"][0])
 
+    def test_no_apply_reports_missing_core_skills_as_not_ok(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = Path(temp) / "prefix"
+            bin_dir = Path(temp) / "bin"
+            launcher = _launcher_path(bin_dir)
+            prefix.mkdir()
+            bin_dir.mkdir()
+            launcher.write_text(_launcher_text(), encoding="utf-8")
+            if os.name != "nt":
+                launcher.chmod(0o755)
+            (prefix / "install-lock.json").write_text(
+                json.dumps({"launcher": str(launcher)}) + "\n",
+                encoding="utf-8",
+            )
+
+            with patch("manageroo.install_repair.helper_skills_present", return_value=False):
+                result = repair_install(prefix=prefix, bin_dir=bin_dir, apply=False)
+
+            self.assertFalse(result["ok"])
+            check = next(item for item in result["checks"] if item["name"] == "skill-pack")
+            self.assertFalse(check["ok"])
+
+    def test_repair_checks_and_restores_required_codex_hooks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = root / "prefix"
+            bin_dir = root / "bin"
+            codex_home = root / "codex-home"
+            launcher = _launcher_path(bin_dir)
+            prefix.mkdir()
+            bin_dir.mkdir()
+            launcher.write_text(_launcher_text(), encoding="utf-8")
+            if os.name != "nt":
+                launcher.chmod(0o755)
+            (prefix / "install-lock.json").write_text(
+                json.dumps(
+                    {
+                        "launcher": str(launcher),
+                        "agent_continuity_hooks": {"ok": True},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with (
+                patch.dict(os.environ, {"CODEX_HOME": str(codex_home)}),
+                patch("manageroo.install_repair.helper_skills_present", return_value=True),
+            ):
+                checked = repair_install(prefix=prefix, bin_dir=bin_dir, apply=False)
+                repaired = repair_install(prefix=prefix, bin_dir=bin_dir, apply=True)
+
+            self.assertFalse(checked["ok"])
+            hook_check = next(item for item in checked["checks"] if item["name"] == "codex-hooks")
+            self.assertFalse(hook_check["ok"])
+            self.assertTrue(repaired["ok"], repaired)
+            self.assertTrue((codex_home / "hooks.json").is_file())
+            self.assertTrue(any(item["name"] == "codex-hooks" for item in repaired["actions"]))
+
     def test_malformed_lock_reports_actionable_reinstall_instead_of_crashing(self):
         with tempfile.TemporaryDirectory() as temp:
             prefix = Path(temp) / "prefix"
