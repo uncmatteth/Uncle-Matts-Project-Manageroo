@@ -7,8 +7,14 @@
 - A Git-backed target repository for real product runs
 - One AI IDE, CLI agent, or configured runtime for live coding-agent operation
 - At least one deterministic verification gate for completion claims
+- GBrain with an exact source mapping for the target repository
+- GitNexus
+- An existing Obsidian Markdown vault/export folder
+- TruffleHog for AUTOREVIEW
+- AUTOREVIEW
+- Clawpatch
 
-## Intended local stack
+## Required local stack
 
 - GBrain
 - GitNexus
@@ -17,9 +23,10 @@
 - AUTOREVIEW
 - Clawpatch
 
-These are the intended surrounding tools. Interactive installs ask before
-installing or guiding them. Non-interactive installs skip them unless
-`--install-stack` is passed.
+These systems stay external to the thin controller, but normal product runs
+require their configured lanes. A missing, unhealthy, unscoped, or failed lane
+blocks the run. The deterministic `mock` adapter is the test harness and does
+not turn third-party commands into unit-test dependencies.
 
 ## Agent surfaces
 
@@ -40,7 +47,7 @@ No single AI product is the point.
 - Any particular IDE
 - Codex specifically, unless the project config selects the Codex adapter
 - Node, npm, Cargo, Go, Maven, Gradle, or other build tools unless the target repo's verification gates call them
-- Bun or Node unless the user chooses the recommended stack lane
+- Bun or Node except when the selected external stack installation needs them
 
 The installer records selected external tools in `install-lock.json`. It installs Codex only when run with `--install-codex`.
 
@@ -63,14 +70,14 @@ overwritten or copied into a backup trail. Manageroo records ownership only for
 trees it creates; later updates replace only an unchanged owned tree. A user edit
 is preserved and revokes Manageroo's removal/update claim for that tree.
 
-## Recommended skill pack
+## Required skill pack
 
-Core install offers the recommended skill pack under `~/.agents/skills`. The
-pack is optional but strongly suggested. During Manageroo runs, the controller
+Core install adds the Manageroo skill pack under `~/.agents/skills`. During
+Manageroo runs, the controller
 automatically chooses the right helper without the user remembering skill names;
-compatible AI IDE agents can also use the installed metadata directly. The installer
-defaults to installing it. Use `--skill-pack skip` or `--skip-skill-pack` to
-leave it out and install it later with `manageroo skills reconcile --apply`.
+compatible AI IDE agents can also use the installed metadata directly. A deliberately
+minimal package/test installation may omit it, but a normal operator installation
+must reconcile it before claiming the Manageroo workflow is ready.
 
 - `uncle-matts-project-manageroo`
   for controller routing.
@@ -120,7 +127,7 @@ uses the upstream package install path, `pnpm add -g clawpatch`, runs
 `clawpatch doctor`, checks Codex login status for Clawpatch's codex provider,
 and records failures or missing package managers instead of claiming completion.
 
-When configured for a run, AUTOREVIEW and Clawpatch are command-owned repair
+AUTOREVIEW and Clawpatch are required command-owned repair
 lanes, not optional AI advice. MANAGEROO runs the configured command,
 captures the result, scope-checks any edits, and blocks on command failure. The
 AI repairer must not freehand fixes from AUTOREVIEW or Clawpatch findings.

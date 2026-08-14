@@ -59,7 +59,7 @@ automatic apply path yet.
 Examples:
 
 - an AUTOREVIEW or Clawpatch command lane failed;
-- GBrain or GitNexus optional context failed;
+- required GBrain or GitNexus intelligence failed;
 - media-heavy work needs a real visual evidence lane;
 - long prose work needs a document/prose workflow;
 - blocked runs need a scoped repair plan.

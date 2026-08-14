@@ -380,10 +380,11 @@ def structural_checks() -> list[dict]:
         },
         {
             "name": "truth:worker-scope-boundary",
-            "ok": contains_compact(architecture, "The stronger repository boundary controls processes launched through `manageroo run`")
+            "ok": contains_compact(architecture, "UserPromptSubmit` classifies actionable repository work")
             and contains_compact(skill, "The current operator request owns the work")
             and contains_compact(limitations, "Manageroo installs Codex continuity hooks")
-            and contains_compact(limitations, "Controlled runs remain the stronger isolated worker boundary"),
+            and contains_compact(limitations, "Actionable repository requests deny freehand supported tools")
+            and contains_compact(limitations, "The `Stop` hook requires an exact-request `COMPLETE`"),
         },
         {
             "name": "truth:evidence-is-context-not-authority",

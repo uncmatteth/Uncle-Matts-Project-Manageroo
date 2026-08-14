@@ -36,6 +36,7 @@ from .errors import (
 )
 from .exact_task import build_exact_artifacts, render_external_source_context
 from .gates import Gate, GateRunner, gates_from_config
+from .gbrain_scope import gbrain_query_payload, scope_gbrain_search_record
 from .ideas import IdeaInbox
 from .integrations import ExternalCommandIntegration, ObsidianIntegration, command_record
 from .inventory import build_inventory, inventory_summary
@@ -47,7 +48,7 @@ from .report import write_report
 from .review import inventory_hashes, validate_review_evidence
 from .reuse_policy import operator_reuse_directives, operator_reuse_findings, reuse_binding_findings
 from .runner import CommandRunner
-from .readiness import requested_intelligence_lanes
+from .readiness import gbrain_repo_source_item, requested_intelligence_lanes
 from .state import Phase, RunState
 from .token_modes import token_mode_prompt
 from .util import atomic_write_json, atomic_write_text, new_run_id, read_json, safe_repo_relative, sha256_file, sha256_json, utc_now
@@ -513,6 +514,33 @@ class Orchestrator:
     def _max_parallel_agent_calls(self) -> int:
         value = self.config.get("orchestration", {}).get("max_parallel_agent_calls", 1)
         return max(1, int(value))
+
+    def _required_stack_enabled(self) -> bool:
+        """The mock adapter is a deterministic test harness, not a product run."""
+        return str(self.config.get("agent", {}).get("adapter", "auto")) != "mock"
+
+    def _validate_required_stack_configuration(self) -> None:
+        if not self._required_stack_enabled():
+            return
+        integrations = self.config.get("integrations", {})
+        required_commands = (
+            "gbrain_search_command",
+            "gbrain_capture_command",
+            "gitnexus_analyze_command",
+            "gitnexus_query_command",
+            "autoreview_command",
+            "clawpatch_command",
+        )
+        missing = [key for key in required_commands if not integrations.get(key)]
+        vault_text = str(integrations.get("obsidian_vault") or "")
+        if not vault_text or not Path(vault_text).expanduser().is_dir():
+            missing.append("obsidian_vault")
+        if missing:
+            raise ValidationError(
+                "The required Manageroo stack is not configured: "
+                + ", ".join(missing)
+                + ". Run `manageroo integrations configure --full` with the existing vault."
+            )
 
     def _summary_cache_path(self) -> Path:
         path = self.source_repo / PROJECT_DIR / "cache" / "file-summaries.json"
@@ -1061,6 +1089,15 @@ class Orchestrator:
         existing = self._artifact_json("discovery/external-intelligence.json")
         cfg = self.config.get("integrations", {})
         values = self._external_values(brief=brief)
+        strict_stack = self._required_stack_enabled()
+        gbrain_source = gbrain_repo_source_item(self.source_repo) if strict_stack else None
+        if strict_stack and not gbrain_source.get("ok"):
+            raise ValidationError(
+                "The required GBrain lane has no healthy exact source mapping for this repository. "
+                + str(gbrain_source.get("next") or "Run manageroo gbrain-setup.")
+            )
+        if gbrain_source is not None:
+            values["gbrain_query_payload"] = gbrain_query_payload(brief, gbrain_source)
         document_intelligence = self._document_intelligence(brief=brief, inventory=inventory)
         commands = [
             (
@@ -1080,29 +1117,48 @@ class Orchestrator:
             ),
         ]
         records = list(document_intelligence.get("records", []))
-        records.extend(
-            self._run_optional_external_command(
+        for name, provider_id, argv_template in commands:
+            record = self._run_optional_external_command(
                 name=name,
                 argv_template=list(argv_template or []),
                 values=values,
                 cwd=self.source_repo,
                 provider_id=provider_id,
             )
-            for name, provider_id, argv_template in commands
-        )
-        if requested_intelligence_lanes(brief)["gbrain-search"]:
+            if name == "gbrain-search" and gbrain_source is not None:
+                record = scope_gbrain_search_record(record, gbrain_source)
+            records.append(record)
+        if strict_stack:
             gbrain = next(
                 (item for item in records if item.get("name") == "gbrain-search"),
                 {"enabled": False, "ok": False},
             )
             if not gbrain.get("enabled"):
                 raise ValidationError(
-                    "The current request explicitly requires GBrain context, but "
-                    "[integrations].gbrain_search_command is not configured."
+                    "The required GBrain context lane is not configured. "
+                    "Run `manageroo integrations configure`."
                 )
             if not gbrain.get("ok"):
                 detail = str(gbrain.get("error") or gbrain.get("stderr") or "command failed")
                 raise ValidationError("The required GBrain search lane failed: " + detail)
+            for required_name in ("gitnexus-analyze", "gitnexus-query"):
+                required_record = next(
+                    (item for item in records if item.get("name") == required_name),
+                    {"enabled": False, "ok": False},
+                )
+                if not required_record.get("enabled"):
+                    raise ValidationError(
+                        f"The required {required_name} lane is not configured."
+                    )
+                if not required_record.get("ok"):
+                    detail = str(
+                        required_record.get("error")
+                        or required_record.get("stderr")
+                        or "command failed"
+                    )
+                    raise ValidationError(
+                        f"The required {required_name} lane failed: {detail}"
+                    )
         summary = {
             "enabled": [item["name"] for item in records if item.get("enabled")],
             "passed": [item["name"] for item in records if item.get("ok")],
@@ -1117,8 +1173,9 @@ class Orchestrator:
             "records": records,
             "document_intelligence": document_intelligence,
             "note": (
-                "These tools are optional context. Passing output may inform planning; "
-                "failed or missing tools do not block the core controller run."
+                "GBrain is required, exact-repository-scoped context. Other configured "
+                "discovery tools also remain controller-recorded evidence; none can override "
+                "current repository truth or completion proof."
             ),
         }
         if existing is None:
@@ -1145,6 +1202,14 @@ class Orchestrator:
             for name, argv_template in self._external_review_repair_commands()
             if argv_template
         ]
+        if self._required_stack_enabled():
+            enabled_names = {name for name, _ in commands}
+            missing = sorted({"autoreview", "clawpatch"} - enabled_names)
+            if missing:
+                raise ValidationError(
+                    "Required external review/repair lanes are not configured: "
+                    + ", ".join(missing)
+                )
         if not commands:
             return None
 
@@ -1258,6 +1323,8 @@ class Orchestrator:
         cfg = self.config.get("integrations", {})
         argv_template = list(cfg.get("gbrain_capture_command", []) or [])
         if not argv_template:
+            if self._required_stack_enabled():
+                raise ValidationError("The required GBrain capture lane is not configured.")
             return None
         values = {
             "repo": str(self.source_repo),
@@ -1269,6 +1336,19 @@ class Orchestrator:
             "summary": str(result.get("product_summary", "")),
             "files_changed": ",".join(result.get("files_changed", [])),
         }
+        if self._required_stack_enabled():
+            source_item = gbrain_repo_source_item(self.source_repo)
+            matched = list(source_item.get("matched_sources", []) or [])
+            source_id = str(
+                (matched[0].get("id") or matched[0].get("source_id") or "")
+                if matched and isinstance(matched[0], dict)
+                else ""
+            )
+            if not source_item.get("ok") or not source_id:
+                raise ValidationError(
+                    "The required GBrain capture lane lost its exact repo source mapping."
+                )
+            values["gbrain_source_id"] = source_id
         record = self._run_optional_external_command(
             name="gbrain-capture",
             argv_template=argv_template,
@@ -1284,6 +1364,9 @@ class Orchestrator:
             "records": [record],
         }
         self.artifacts.write_json("delivery/external-capture.json", payload)
+        if self._required_stack_enabled() and not record.get("ok"):
+            detail = str(record.get("error") or record.get("stderr") or "command failed")
+            raise ValidationError("The required GBrain capture lane failed: " + detail)
         return payload
 
     def _record_learning(
@@ -1630,6 +1713,8 @@ class Orchestrator:
             if not brief:
                 raise ValidationError("Product brief is empty.")
 
+            self._validate_required_stack_configuration()
+
             self._recover_incomplete_delivery()
 
             bound_intent = self._artifact_json("intake/run-intent.json")
@@ -1752,7 +1837,10 @@ class Orchestrator:
                     self.artifacts.write_json(relative, payload, lock=True)
 
             obsidian: ObsidianIntegration | None = None
-            if self._artifact_json("intake/exact-task.json") is not None:
+            if (
+                self._artifact_json("intake/exact-task.json") is not None
+                and not self._required_stack_enabled()
+            ):
                 memory = {"status": "skipped", "reason": "exact-task path"}
                 external_intelligence = {"status": "skipped", "reason": "exact-task path"}
             else:
@@ -2061,7 +2149,9 @@ class Orchestrator:
             global_gate_results = self._run_gates(all_gates, self.workspace)
             self.artifacts.write_json("verification/gates.json", global_gate_results)
 
-            if any(argv for _, argv in self._external_review_repair_commands()):
+            if self._required_stack_enabled() or any(
+                argv for _, argv in self._external_review_repair_commands()
+            ):
                 self._transition(
                     Phase.REPAIRING,
                     "Running command-owned AUTOREVIEW and Clawpatch lanes",

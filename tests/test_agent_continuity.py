@@ -36,10 +36,9 @@ class AgentContinuityTests(unittest.TestCase):
 
             context = result["hookSpecificOutput"]["additionalContext"]
             self.assertIn("Auto-select skills", context)
-            self.assertIn("Work directly", context)
-            self.assertIn("isolation, retry, or proof", context)
+            self.assertIn("automatically uses", context)
             self.assertIn("never initialize home", context)
-            self.assertIn("Verify work before claiming completion", context)
+            self.assertIn("exact-request Manageroo run proves", context)
             self.assertNotIn("✅ Done", context)
 
     def test_structured_worker_mode_bypasses_continuity_hooks_and_state(self):
@@ -218,7 +217,7 @@ class AgentContinuityTests(unittest.TestCase):
                         "deny",
                     )
 
-    def test_only_file_shell_mutation_is_authorized(self):
+    def test_only_file_shell_mutation_is_routed_through_manageroo(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -231,12 +230,9 @@ class AgentContinuityTests(unittest.TestCase):
                 f"Edit only {allowed}.",
                 f"touch {allowed}",
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
-    def test_direct_relative_shell_target_is_authorized_in_current_repository(self):
+    def test_direct_relative_shell_target_is_routed_through_manageroo(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -250,10 +246,7 @@ class AgentContinuityTests(unittest.TestCase):
                 "touch src/allowed.py",
             )
 
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_exact_target_cannot_hide_an_unrequested_compound_side_effect(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -274,7 +267,7 @@ class AgentContinuityTests(unittest.TestCase):
 
             self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
-    def test_structured_patch_to_direct_relative_target_is_authorized(self):
+    def test_structured_patch_to_direct_relative_target_is_routed_through_manageroo(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -305,10 +298,7 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root / "state",
             )
 
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_new_messages_are_additive_while_work_is_unfinished(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -371,7 +361,7 @@ class AgentContinuityTests(unittest.TestCase):
             )
             state_path = next(root.glob("*.json"))
             state = json.loads(state_path.read_text(encoding="utf-8"))
-            state["schema_version"] = 2
+            state["schema_version"] = 999
             unsupported = json.dumps(state, sort_keys=True).encode("utf-8")
             state_path.write_bytes(unsupported)
 
@@ -1319,7 +1309,7 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(first, {})
             self.assertEqual(changed, {})
 
-    def test_successful_pre_tool_check_injects_no_prompt_context(self):
+    def test_actionable_request_blocks_freehand_read_only_probe(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -1345,9 +1335,10 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root,
             )
 
-            self.assertEqual(result, {})
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertIn("automatically controller-owned", result["hookSpecificOutput"]["permissionDecisionReason"])
 
-    def test_stop_hook_never_requires_an_operator_chat_receipt(self):
+    def test_stop_hook_requires_controller_proof_not_operator_chat_claim(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             prompt = {
@@ -1370,9 +1361,10 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            self.assertEqual(stopped, {})
+            self.assertEqual(stopped["decision"], "block")
+            self.assertIn("COMPLETE and applied proof", stopped["reason"])
 
-    def test_read_only_shell_commands_run_without_a_special_permission_profile(self):
+    def test_read_only_shell_commands_cannot_bypass_an_active_managed_request(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -1396,10 +1388,7 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_external_copy_source_is_read_only_when_destination_is_in_scope(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1470,7 +1459,7 @@ class AgentContinuityTests(unittest.TestCase):
                 "deny",
             )
 
-    def test_temporary_evidence_is_authorized(self):
+    def test_temporary_evidence_is_controller_owned(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -1492,12 +1481,9 @@ class AgentContinuityTests(unittest.TestCase):
                 "Inspect this repository and report the result.",
                 f"touch {temporary_root / 'manageroo-bounded-proof.txt'}",
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
-    def test_current_repository_mutation_does_not_require_controlled_executor(self):
+    def test_current_repository_mutation_requires_controlled_executor(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -1510,12 +1496,9 @@ class AgentContinuityTests(unittest.TestCase):
                 "Fix this repository and verify it.",
                 "mkdir generated-proof",
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
-    def test_requested_current_repository_commit_and_push_are_authorized(self):
+    def test_requested_commit_and_push_stay_inside_controlled_run(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -1529,10 +1512,7 @@ class AgentContinuityTests(unittest.TestCase):
                         "Commit and push everything in this repository.",
                         command,
                     )
-                    self.assertNotEqual(
-                        result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                        "deny",
-                    )
+                    self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_tool_cwd_cannot_escape_an_explicit_repository_scope(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1555,7 +1535,7 @@ class AgentContinuityTests(unittest.TestCase):
                 "deny",
             )
 
-    def test_read_only_redirect_does_not_reclassify_input_paths_as_mutations(self):
+    def test_read_only_redirect_cannot_bypass_active_managed_request(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -1585,12 +1565,9 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root / "state",
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
-    def test_external_target_is_allowed_without_an_explicit_scope_limit(self):
+    def test_external_target_is_blocked_by_automatic_controller_scope(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -1619,10 +1596,7 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root / "state",
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_exec_command_alias_is_checked_for_cross_repo_mutation(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1652,7 +1626,7 @@ class AgentContinuityTests(unittest.TestCase):
                 result["hookSpecificOutput"]["permissionDecision"], "deny"
             )
 
-    def test_current_git_root_is_not_an_implicit_operator_scope_limit(self):
+    def test_current_git_root_is_the_automatic_controller_scope(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = root / "repo"
@@ -1679,10 +1653,7 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root / "state",
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_agent_mutation_of_different_named_target_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1714,12 +1685,11 @@ class AgentContinuityTests(unittest.TestCase):
                 result["hookSpecificOutput"]["permissionDecision"], "deny"
             )
             reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-            self.assertIn("Manageroo stopped this agent action.", reason)
-            self.assertIn("Target:", reason)
+            self.assertIn("Manageroo stopped freehand work.", reason)
             self.assertIn("Why:", reason)
             self.assertIn("Next:", reason)
 
-    def test_sentence_punctuation_does_not_change_named_external_path(self):
+    def test_sentence_punctuation_does_not_bypass_automatic_controller(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -1745,10 +1715,7 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            self.assertNotEqual(
-                result.get("hookSpecificOutput", {}).get("permissionDecision"),
-                "deny",
-            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_installer_preserves_unrelated_hooks_and_replaces_old_manageroo_guard(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1781,7 +1748,7 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertNotIn("operator-" "scope-hook", rendered)
             self.assertIn("agent-continuity-hook", rendered)
             self.assertIn("PreToolUse", written["hooks"])
-            self.assertNotIn("Stop", written["hooks"])
+            self.assertIn("Stop", written["hooks"])
 
     def test_uninstall_removes_only_hooks_for_the_selected_manageroo_launcher(self):
         with tempfile.TemporaryDirectory() as temp:

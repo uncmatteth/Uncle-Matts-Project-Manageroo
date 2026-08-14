@@ -6,16 +6,15 @@ description: Use MANAGEROO when an AI agent needs to build, repair, refactor, or
 # Uncle Matt's Project Manageroo
 
 The current operator request owns the work. Manageroo keeps every participating
-agent aligned with that request. It contains controlled workers so they cannot
-drift, substitute, or touch unrelated paths; it never turns its own bookkeeping
-into a reason for an agent to deny the operator's authorized work. The outer
-agent uses normal host tools and remains free to inspect, edit, create evidence,
-correct course, interrupt a bad run, or use a more direct workflow.
+agent aligned with it. The operator describes the job normally; installed hooks
+automatically route actionable repository work into a controlled run. The
+operator never has to remember Manageroo or a skill name.
 
 ## Manageroo worker operating model
 
-These rules apply inside a Manageroo worker packet. They do not install a
-prompt-derived authorization firewall around the operator-facing agent.
+These rules apply inside a Manageroo worker packet. The outer hook controls the
+transition into that packet so an operator-facing agent cannot silently replace
+the managed workflow with freehand work.
 
 1. Read the exact packet path supplied by the controller.
 2. Treat locked artifacts and task boundaries as immutable.
@@ -59,26 +58,20 @@ operator explicitly asks for them or requests diagnostic or JSON output.
 The unfinished active objective is the authority for every participating agent.
 Manageroo continuity hooks preserve it across follow-ups, resume, and
 compaction. New messages add to unfinished work unless they explicitly cancel
-or replace it. Manageroo does not turn conversational
-English into filesystem permissions. `UserPromptSubmit` never blocks the operator. `PreToolUse`
-rejects only the agent's clearly unrelated or explicitly excluded mutation;
-reads and ordinary temporary evidence remain available. Current-repository
-mutations, explicitly named external targets, and requested Git delivery remain
-available through normal host tools. An explicit `only` clause still narrows
-mutations to the named target. Ordinary operator chat has no `Stop` gate,
-completion receipt, or exact resume phrase. A saved pause is advisory and never
-blanket-denies tools. Strict completion enforcement belongs to an explicit
-controlled `manageroo run`.
+or replace it. For actionable repository work, `UserPromptSubmit` creates the
+controller-owned exact-request brief. `PreToolUse` permits the
+run/status/report path and rejects freehand work. An explicit `only` clause and
+exclusions stay binding. `Stop` requires an exact-request run with
+controller-owned `COMPLETE`, intent-conformance, and applied-source proof.
+Read-only questions remain ordinary conversation.
 Never make the operator repeat a clear path, repository name, request, or
 authorization phrase. Never answer authorized work with a receipt, stale intent
 lock, skill-routing ritual, or write-guard denial.
 
-Use a controlled `manageroo run` when isolated workers and durable proof add
-value. Use the exact-task path when source, targets, exclusions, and proof are
-already known. Direct inspection, safe evidence generation, ordinary temporary
-files, corrections, and process interruption remain available to the outer
-agent. If a controlled run is wrong or wasteful, stop it and continue by the
-method that best follows the current request.
+Use the automatically supplied controlled `manageroo run` for actionable
+repository work. Use the exact-task path when source, targets, exclusions, and
+proof are already known. If a run stops, inspect and continue its durable job
+queue; do not improvise a freehand substitute.
 
 An instruction to use, reuse, copy, or port existing/finished/named work is a
 binding implementation decision, not a suggestion. Preserve the exact operator
@@ -152,27 +145,26 @@ Potential specialist categories include research, document handling, design, bro
 
 ## First-class surrounding integrations
 
-Manageroo remains the controller, but the recommended full setup can include:
+Manageroo remains the controller, and normal product runs require:
 
 - **GitNexus** for repository/code-graph intelligence;
-- **GBrain** for external durable knowledge when explicitly relevant;
+- **GBrain** for exact-repository durable knowledge on every run;
 - **AUTOREVIEW** for external review;
 - **Clawpatch** for external review and repair;
 - **Obsidian** for human-readable knowledge.
 
 ### GitNexus
 
-GitNexus is a first-class recommended repository-intelligence integration, not a completion authority.
+GitNexus is a required repository-intelligence integration, not a completion authority.
 
-When GitNexus is available and the task benefits from code-relationship knowledge, use its current installed capabilities for repository exploration, dependency awareness, impact analysis, debugging, and refactoring. Repository indexing is project-specific.
-
-Do not assume GitNexus is installed merely because Manageroo supports it. Degrade gracefully when it was intentionally skipped or unavailable.
+Use GitNexus for repository exploration, dependency awareness, impact analysis,
+debugging, and refactoring. Missing or failed discovery blocks the normal run.
 
 ### GBrain
 
-Ordinary Manageroo project continuity belongs in `.manageroo/PROJECT-MEMORY.md` and the intent lock.
-
-Require GBrain only when the task explicitly needs GBrain, a brain page, Obsidian-backed context, or an external knowledge base.
+Project memory and the intent lock complement GBrain; they do not replace it.
+Require a healthy exact-repository source, scoped JSON retrieval, and pre-apply
+capture without asking the operator to name GBrain.
 
 ### AUTOREVIEW and Clawpatch
 

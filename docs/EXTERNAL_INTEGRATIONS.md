@@ -2,24 +2,26 @@
 
 Manageroo is the controller. GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian provide surrounding capabilities. Current repository truth, Manageroo's locked run artifacts, deterministic gates, and evidence remain authoritative.
 
-## Recommended full stack
+## Required full stack
 
-The intended full installation can include:
+Normal Manageroo product runs require:
 
 - GitNexus for repository/code-graph intelligence;
-- GBrain for external durable knowledge when explicitly relevant;
+- GBrain for exact-repository durable knowledge retrieval and final capture;
 - TruffleHog for AUTOREVIEW's local pre-review secret scan;
 - AUTOREVIEW for external review;
 - Clawpatch for external review and repair;
 - Obsidian for human-readable knowledge;
 - Manageroo's bounded document analyzer for locked prose and PDF inputs.
 
-These integrations are first-class parts of the full Manageroo experience without becoming completion authorities.
+They remain external adapters rather than embedded databases or runtimes. They
+are required inputs and review lanes, but Manageroo remains the sole completion authority.
 
 ## Activate the full stack in a project
 
 Installing tools makes them available; project configuration makes controlled
-runs use them. Activate every locally supported lane with one explicit command:
+runs use them. The installer/configurator activates them once; the operator does
+not name them on every request:
 
 ```bash
 manageroo integrations configure . --full \
@@ -95,7 +97,7 @@ ownership file.
 
 ## GitNexus
 
-GitNexus is Manageroo's first-class recommended repository-intelligence integration.
+GitNexus is Manageroo's required repository-intelligence integration.
 
 The integration has two distinct scopes:
 
@@ -121,7 +123,7 @@ GitNexus can then provide repository exploration, dependency awareness, impact a
 
 When a configured GitNexus discovery command returns evidence, Manageroo ranks that output as current repository intelligence, while still preferring direct current Git file reads whenever exact source truth is required.
 
-Manageroo remains the controller. Current Git files and command output beat stale graph data, and Manageroo can still operate when GitNexus was intentionally skipped or is temporarily unavailable.
+Manageroo remains the controller. Current Git files and command output beat stale graph data. A missing or failed GitNexus lane blocks normal product runs instead of silently changing the product contract.
 
 For an existing persistent installation, `manageroo stack-update gitnexus --apply` refreshes the CLI with the detected supported global package-manager lane. npm and pnpm ownership is accepted only when the active symlink resolves beneath the named package directory or a regular shim references that package's declared `bin` target. Stack update does not install GitNexus merely because it is absent; use the Manageroo installer when you want to add the recommended stack.
 
@@ -129,9 +131,15 @@ Project: https://github.com/nxpatterns/gitnexus
 
 ## GBrain
 
-GBrain is external memory and retrieval. Manageroo's own `.manageroo/PROJECT-MEMORY.md` remains the normal repo-local continuity lane.
+GBrain is required external memory and retrieval. Manageroo's own
+`.manageroo/PROJECT-MEMORY.md` remains useful repo-local continuity, but it does
+not replace past project truth already stored in GBrain.
 
-GBrain becomes required only when the operator explicitly wants GBrain, a brain page, Obsidian-backed external context, or another external knowledge source.
+Every normal run requires a healthy exact source mapping for the target
+repository. Manageroo calls `gbrain call query` with that source id, rejects
+non-JSON or cross-source results, and captures the pending final report back to
+that same source before applying the patch. The operator never has to remember
+to say GBrain.
 
 When a configured GBrain search command returns evidence, Manageroo preserves it as external knowledge with provenance rather than allowing it to override current repository state or locked run truth.
 
@@ -186,7 +194,9 @@ Run it directly:
 clawpatch-supervise --repo . --branch current --push none --timeout-minutes 60 --resume-stopped
 ```
 
-Manageroo retains a thin optional adapter for discovery and operator consistency:
+Manageroo retains a thin adapter for discovery and operator consistency; the
+separate multi-finding supervisor remains optional because it is not the normal
+Clawpatch CI lane:
 
 ```bash
 # Read-only plan

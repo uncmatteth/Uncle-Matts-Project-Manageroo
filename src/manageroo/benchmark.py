@@ -170,9 +170,7 @@ def run_continuity_benchmark() -> dict[str, Any]:
         question,
         pause_root,
         paused,
-        paused_tool,
         finish_root,
-        ordinary_stop,
     )
     routine_characters = sum(_text_characters(item) for item in routine_events)
     recovery_character_counts = {
@@ -189,8 +187,13 @@ def run_continuity_benchmark() -> dict[str, Any]:
         "excluded_mutation_blocked": (
             denied.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
         ),
-        "paused_tools_available": paused_tool == {},
-        "ordinary_stop_unblocked": ordinary_stop == {},
+        "paused_tools_blocked": (
+            paused_tool.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+        ),
+        "unproved_completion_blocked": (
+            ordinary_stop.get("decision") == "block"
+            and "COMPLETE" in str(ordinary_stop.get("reason") or "")
+        ),
     }
     recovery_tokens = _estimated_tokens(recovery_characters)
     ok = all(controls.values()) and routine_characters == 0 and recovery_tokens <= 200

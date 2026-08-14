@@ -151,9 +151,9 @@ manageroo host-skills --json
 manageroo skills explain "describe the job normally"
 ```
 
-# Optional surrounding stack
+# Required surrounding stack
 
-Manageroo can also work with:
+Normal product runs require:
 
 - **GitNexus** for repository and code-graph intelligence;
 - **GBrain** for external durable knowledge and retrieval;
@@ -346,8 +346,8 @@ Portable core
 Bundled optional library
     32 additional skills available without becoming default installs
 
-Optional surrounding stack
-    GitNexus + GBrain + TruffleHog + AUTOREVIEW + Clawpatch + Obsidian when selected
+Required surrounding stack
+    GitNexus + GBrain + TruffleHog + AUTOREVIEW + Clawpatch + Obsidian for normal runs
 
 Host environment
     independently owned additional skills and tools

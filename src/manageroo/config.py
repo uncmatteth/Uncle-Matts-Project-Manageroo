@@ -37,7 +37,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "map_chunk_tokens": 32000,
     },
     "orchestration": {
-        "max_parallel_agent_calls": 4,
+        "max_parallel_agent_calls": 2,
         "max_worker_attempts": 0,
         "parallel_mapping": True,
         "parallel_review": True,
@@ -246,7 +246,7 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "map_chunk_tokens = 32000",
         "",
         "[orchestration]",
-        "max_parallel_agent_calls = 4",
+        "max_parallel_agent_calls = 2",
         "max_worker_attempts = 0",
         "parallel_mapping = true",
         "parallel_review = true",

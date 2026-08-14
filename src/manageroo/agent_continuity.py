@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import shlex
 import stat
 import subprocess
@@ -14,10 +16,17 @@ from typing import Any, TextIO
 
 from .config_lock import config_mutation_lock
 from .errors import ConfigurationError
-from .util import atomic_write_json, sha256_text, utc_now
+from .util import (
+    atomic_write_json,
+    atomic_write_text,
+    canonical_json_bytes,
+    sha256_file,
+    sha256_text,
+    utc_now,
+)
 
 
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 HOOK_COMMAND = "agent-continuity-hook"
 INTERNAL_CONTINUATION_PREFIX = "[MANAGEROO INTERNAL CONTINUATION]"
 MANAGEROO_MARK = "🦘"
@@ -54,30 +63,34 @@ _REAFFIRM_ACTIVE_WORK = re.compile(
     r"(?!(?:stop|pause|wait|hold)\b)|"
     r"\bi\s+(?:(?:already|just)\s+|have\s+)?told\s+you\s+what\s+to\s+do\b|"
     r"\b(?:do|finish|continue|resume)\s+what\s+i\s+(?:said|asked|told\s+you)\b|"
+    r"\b(?:the\s+)?whole\s+point\s+of\b[^.!?\n]{0,160}\bwas\s+to\b|"
     r"\bi\s+(?:have\s+)?told\s+it\s+to\s+do\s+what\s+i\s+said\b",
     re.IGNORECASE,
 )
 _CLEAR_WORK_REQUEST = re.compile(
     r"^\s*(?:ok(?:ay)?[,.]?\s+)?(?:please\s+)?"
     r"(?:(?:you\s+)?(?:need\s+to|must|should)\s+)?"
-    r"(?:fix|implement|change|edit|write|create|copy|move|rename|delete|remove|"
-    r"inspect|review|diagnose|investigate|figure\s+out|run|build|install|publish|"
+    r"(?:fix|finish|restore|rescue|audit|verify|test|update|refactor|implement|"
+    r"change|edit|write|create|copy|move|rename|delete|remove|inspect|review|"
+    r"diagnose|investigate|figure\s+out|run|build|install|publish|ship|deploy|"
     r"commit|push|make|do)\b",
     re.IGNORECASE,
 )
 _CLEAR_WORK_AFTER_PREAMBLE = re.compile(
     r"(?:(?:\bnow\b|[.!?;:,])\s*(?:please\s+)?|\bplease\s+)"
     r"(?:go\s+)?"
-    r"(?:fix|implement|change|edit|write|create|copy|move|rename|delete|remove|"
-    r"inspect|review|diagnose|investigate|figure\s+out|run|build|install|publish|"
+    r"(?:fix|finish|restore|rescue|audit|verify|test|update|refactor|implement|"
+    r"change|edit|write|create|copy|move|rename|delete|remove|inspect|review|"
+    r"diagnose|investigate|figure\s+out|run|build|install|publish|ship|deploy|"
     r"commit|push|make|do)\b",
     re.IGNORECASE,
 )
 _DIRECT_WORK_QUESTION = re.compile(
     r"^\s*(?:(?:can|could|will|would)\s+you|do\s+you\s+want\s+to)\s+"
-    r"(?:please\s+)?(?:fix|implement|change|edit|write|create|copy|move|rename|"
-    r"delete|remove|inspect|review|diagnose|investigate|run|build|install|publish|"
-    r"commit|push|make|do)\b",
+    r"(?:please\s+)?(?:fix|finish|restore|rescue|audit|verify|test|update|refactor|"
+    r"implement|change|edit|write|create|copy|move|rename|delete|remove|inspect|"
+    r"review|diagnose|investigate|run|build|install|publish|ship|deploy|commit|"
+    r"push|make|do)\b",
     re.IGNORECASE,
 )
 _REPLACE_AND_CONTINUE = re.compile(
@@ -184,10 +197,80 @@ def _state_path(root: Path, session_id: str) -> Path:
     return root / f"{identity}.json"
 
 
-def _read_state(root: Path, session_id: str) -> dict[str, Any] | None:
+def _authority_key_path(root: Path) -> Path:
+    return root / "authority.key"
+
+
+def _read_private_file(
+    path: Path, *, expected_size: int | None = None, max_bytes: int = 1024 * 1024
+) -> bytes:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        file_state = os.fstat(descriptor)
+        if not stat.S_ISREG(file_state.st_mode) or file_state.st_nlink != 1:
+            raise ConfigurationError(
+                f"Manageroo continuity authority is not a private regular file: {path}"
+            )
+        if os.name != "nt":
+            if hasattr(os, "getuid") and file_state.st_uid != os.getuid():
+                raise ConfigurationError(
+                    f"Manageroo continuity authority has the wrong owner: {path}"
+                )
+            if stat.S_IMODE(file_state.st_mode) & 0o077:
+                raise ConfigurationError(
+                    f"Manageroo continuity authority is accessible by another account: {path}"
+                )
+        value = os.read(descriptor, max_bytes + 1)
+    finally:
+        os.close(descriptor)
+    if expected_size is not None and len(value) != expected_size:
+        raise ConfigurationError(
+            f"Manageroo continuity authority has an invalid size: {path}"
+        )
+    if len(value) > max_bytes:
+        raise ConfigurationError(
+            f"Manageroo continuity private file is too large: {path}"
+        )
+    return value
+
+
+def _authority_key(root: Path, *, create: bool) -> bytes:
+    path = _authority_key_path(root)
+    if create and not path.exists():
+        value = secrets.token_bytes(32)
+        try:
+            descriptor = os.open(
+                path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+        except FileExistsError:
+            pass
+        else:
+            try:
+                os.write(descriptor, value)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    try:
+        return _read_private_file(path, expected_size=32, max_bytes=32)
+    except FileNotFoundError as exc:
+        raise ConfigurationError(
+            "Manageroo continuity authority key is missing."
+        ) from exc
+
+
+def _sign_state(state: dict[str, Any], key: bytes) -> str:
+    unsigned = {name: value for name, value in state.items() if name != "signature"}
+    return hmac.new(key, canonical_json_bytes(unsigned), hashlib.sha256).hexdigest()
+
+
+def _read_state(
+    root: Path, session_id: str, *, allow_legacy_unsigned: bool = False
+) -> dict[str, Any] | None:
     path = _state_path(root, session_id)
     try:
-        raw = path.read_text(encoding="utf-8")
+        raw = _read_private_file(path).decode("utf-8")
     except FileNotFoundError:
         return None
     except UnicodeDecodeError as exc:
@@ -208,10 +291,22 @@ def _read_state(root: Path, session_id: str) -> dict[str, Any] | None:
         raise ConfigurationError(
             f"Manageroo continuity state must contain a JSON object: {path}"
         )
+    if value.get("schema_version") == 1 and allow_legacy_unsigned:
+        value["schema_version"] = STATE_SCHEMA_VERSION
+        value.pop("signature", None)
+        value["legacy_unsigned_migration"] = True
+        return value
     if value.get("schema_version") != STATE_SCHEMA_VERSION:
         raise ConfigurationError(
             "Manageroo continuity state has an unsupported schema version: "
             f"{path}"
+        )
+    signature = value.get("signature")
+    if not isinstance(signature, str) or not hmac.compare_digest(
+        signature, _sign_state(value, _authority_key(root, create=False))
+    ):
+        raise ConfigurationError(
+            f"Manageroo continuity state signature is invalid: {path}"
         )
     return value
 
@@ -222,7 +317,9 @@ def _objective_hash(messages: list[dict[str, str]]) -> str:
 
 def _save_state_locked(root: Path, state: dict[str, Any]) -> None:
     path = _state_path(root, str(state["session_id"]))
-    atomic_write_json(path, state)
+    signed = dict(state)
+    signed["signature"] = _sign_state(signed, _authority_key(root, create=True))
+    atomic_write_json(path, signed)
     if os.name != "nt":
         os.chmod(path, 0o600)
 
@@ -231,6 +328,57 @@ def _save_state(root: Path, state: dict[str, Any]) -> None:
     path = _state_path(root, str(state["session_id"]))
     with config_mutation_lock(path):
         _save_state_locked(root, state)
+
+
+def _managed_request_path(root: Path, session_id: str, generation: int) -> Path:
+    identity = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return root / "requests" / f"{identity}-g{generation}.md"
+
+
+def _requires_managed_run(prompt: str) -> bool:
+    text = prompt.strip()
+    if not text or _PAUSE_REQUEST.search(text):
+        return False
+    actionable = bool(
+        _CLEAR_WORK_REQUEST.search(text)
+        or _CLEAR_WORK_AFTER_PREAMBLE.search(text)
+        or _DIRECT_WORK_QUESTION.search(text)
+    )
+    if text.endswith("?") and not actionable:
+        return False
+    return actionable
+
+
+def _persist_managed_request(root: Path, state: dict[str, Any]) -> None:
+    messages = [
+        str(item.get("text") or "").strip()
+        for item in state.get("messages", [])
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    path = _managed_request_path(
+        root, str(state["session_id"]), int(state.get("generation", 1))
+    )
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name != "nt":
+        os.chmod(path.parent, 0o700)
+    text = "# Locked operator request\n\n" + "\n\n".join(
+        f"## Request {index}\n\n{message}" for index, message in enumerate(messages, 1)
+    )
+    atomic_write_text(path, text.rstrip() + "\n")
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+    state["managed_request_path"] = str(path)
+    state["managed_request_sha256"] = sha256_file(path)
+    state["managed_request_content_sha256"] = sha256_text(
+        path.read_text(encoding="utf-8").strip()
+    )
+
+
+def _finalize_state(root: Path, state: dict[str, Any]) -> dict[str, Any]:
+    if state.get("status") == "active" and state.get("managed_run_required"):
+        _persist_managed_request(root, state)
+    _save_state_locked(root, state)
+    return state
 
 
 def _message(prompt: str, turn_id: str, relation: str) -> dict[str, str]:
@@ -279,7 +427,9 @@ def _capture_current_request_locked(
     root: Path,
 ) -> dict[str, Any]:
     prompt = prompt.strip()
-    existing = _read_state(root, session_id)
+    existing = _read_state(root, session_id, allow_legacy_unsigned=True)
+    if existing is not None and existing.pop("legacy_unsigned_migration", False):
+        _save_state_locked(root, existing)
     internal = prompt.startswith(INTERNAL_CONTINUATION_PREFIX)
     if internal and existing is not None:
         return existing
@@ -305,9 +455,14 @@ def _capture_current_request_locked(
             "created_at": str(existing.get("created_at") or utc_now()) if existing else utc_now(),
             "updated_at": utc_now(),
             "waiting_reason": prompt,
+            "managed_run_required": bool(
+                existing and existing.get("managed_run_required", False)
+            ),
+            "managed_run_started": bool(
+                existing and existing.get("managed_run_started", False)
+            ),
         }
-        _save_state_locked(root, state)
-        return state
+        return _finalize_state(root, state)
 
     if existing is not None and existing.get("status") == "paused":
         if _RESUME_REQUEST.search(prompt) or _REAFFIRM_ACTIVE_WORK.search(prompt):
@@ -320,8 +475,10 @@ def _capture_current_request_locked(
                     "waiting_reason": "",
                 }
             )
-            _save_state_locked(root, state)
-            return state
+            state["managed_run_required"] = bool(
+                existing.get("managed_run_required", False)
+            )
+            return _finalize_state(root, state)
         clear_new_work = bool(
             _CLEAR_WORK_REQUEST.search(prompt) or _CLEAR_WORK_AFTER_PREAMBLE.search(prompt)
         )
@@ -339,12 +496,25 @@ def _capture_current_request_locked(
                 "updated_at": utc_now(),
                 "waiting_reason": "",
             }
-            _save_state_locked(root, state)
-            return state
+            state["managed_run_required"] = _requires_managed_run(prompt)
+            return _finalize_state(root, state)
+        if _REAFFIRM_ACTIVE_WORK.search(prompt):
+            state = dict(existing)
+            state.update(
+                {
+                    "status": "active",
+                    "cwd": cwd,
+                    "updated_at": utc_now(),
+                    "waiting_reason": "",
+                    "managed_run_required": bool(
+                        existing.get("managed_run_required", True)
+                    ),
+                }
+            )
+            return _finalize_state(root, state)
         state = dict(existing)
         state.update({"cwd": cwd, "updated_at": utc_now()})
-        _save_state_locked(root, state)
-        return state
+        return _finalize_state(root, state)
 
     natural_correction = bool(
         not prompt.rstrip().endswith("?") and _NATURAL_CORRECTION.search(prompt)
@@ -380,9 +550,13 @@ def _capture_current_request_locked(
         "created_at": created_at,
         "updated_at": utc_now(),
         "waiting_reason": "",
+        "managed_run_required": (
+            _requires_managed_run(prompt)
+            or bool(existing and existing.get("managed_run_required") and not replace)
+        ),
+        "managed_run_started": False,
     }
-    _save_state_locked(root, state)
-    return state
+    return _finalize_state(root, state)
 
 
 def render_active_objective(state: dict[str, Any]) -> str:
@@ -391,7 +565,7 @@ def render_active_objective(state: dict[str, Any]) -> str:
             "# Manageroo continuity: paused",
             "",
             "The saved request is paused. Treat this as context only: the current "
-            "operator request wins, and ordinary tools remain available.",
+            "operator request wins. Resume the saved managed request when the operator reaffirms it.",
             "",
             "## Saved requests",
             "",
@@ -409,7 +583,12 @@ def render_active_objective(state: dict[str, Any]) -> str:
     for index, item in enumerate(state.get("messages", []), start=1):
         relation = str(item.get("relation", "addition"))
         lines.append(f"{index}. [{relation}] {str(item.get('text') or '')}")
-    lines.append("Verify work before claiming completion; ordinary chat needs no receipt.")
+    if state.get("managed_run_required"):
+        lines.append(
+            "This request requires automatic managed execution. Start or continue the "
+            "controller run; do not mutate the repository freehand."
+        )
+    lines.append("Only controller-owned evidence may prove completion.")
     return "\n".join(lines)
 
 
@@ -715,6 +894,176 @@ def audit_agent_tool(event: dict[str, Any], state: dict[str, Any]) -> dict[str, 
     return {}
 
 
+def _shell_tokens(event: dict[str, Any]) -> tuple[list[str], str]:
+    if str(event.get("tool_name") or "") not in _SHELL_TOOLS:
+        return [], ""
+    tool_input = event.get("tool_input")
+    payload = tool_input if isinstance(tool_input, dict) else {}
+    key = "cmd" if isinstance(payload.get("cmd"), str) else "command"
+    command = str(payload.get(key) or "")
+    try:
+        return shlex.split(command, posix=os.name != "nt"), key
+    except ValueError:
+        return [], key
+
+
+def _managed_denial(reason: str) -> dict[str, Any]:
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                f"{STOPPED_MARK}{MANAGEROO_MARK} Manageroo stopped freehand work.\n"
+                f"💡 Why: {reason}\n"
+                "➡️ Next: Start or continue the controlled Manageroo run. The operator "
+                "does not need to invoke Manageroo or repeat the request."
+            ),
+        }
+    }
+
+
+def _managed_completion_proof(state: dict[str, Any]) -> dict[str, Any] | None:
+    request_path = Path(str(state.get("managed_request_path") or ""))
+    expected_hash = str(state.get("managed_request_sha256") or "")
+    expected_content_hash = str(
+        state.get("managed_request_content_sha256") or ""
+    )
+    if not request_path.is_file() or not expected_hash or not expected_content_hash:
+        return None
+    try:
+        if sha256_file(request_path) != expected_hash:
+            return None
+    except OSError:
+        return None
+    cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
+    repo = _git_root(cwd)
+    if repo is None:
+        return None
+    candidates = sorted(
+        (repo / ".manageroo" / "runs").glob("*/delivery/final-result.json"),
+        key=lambda path: path.stat().st_mtime_ns if path.exists() else 0,
+        reverse=True,
+    )
+    for result_path in candidates:
+        run_root = result_path.parents[1]
+        brief_path = run_root / "artifacts" / "intake" / "product-brief.md"
+        conformance_path = run_root / "artifacts" / "verification" / "intent-conformance.json"
+        try:
+            if (
+                not brief_path.is_file()
+                or sha256_text(brief_path.read_text(encoding="utf-8").strip())
+                != expected_content_hash
+            ):
+                continue
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            conformance = json.loads(conformance_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(result, dict)
+            and result.get("status") == "COMPLETE"
+            and result.get("applied_to_source") is True
+            and isinstance(conformance, dict)
+            and conformance.get("status") == "passed"
+        ):
+            return {"run_root": str(run_root), "result": result}
+    return None
+
+
+def _audit_managed_execution(
+    event: dict[str, Any], state: dict[str, Any], root: Path
+) -> dict[str, Any]:
+    if not state.get("managed_run_required"):
+        return {}
+    tool_name = str(event.get("tool_name") or "")
+    if tool_name in {"wait", "functions.wait"}:
+        return {}
+    if tool_name in {"write_stdin", "functions.write_stdin"}:
+        payload = event.get("tool_input")
+        chars = payload.get("chars") if isinstance(payload, dict) else None
+        return {} if chars in {None, ""} else _managed_denial(
+            "A controlled worker cannot be steered with new freehand instructions."
+        )
+    tokens, command_key = _shell_tokens(event)
+    if not tokens or Path(tokens[0]).name.casefold() != "manageroo":
+        return _managed_denial(
+            "This actionable repository request is automatically controller-owned."
+        )
+    subcommand = tokens[1] if len(tokens) > 1 else ""
+    if subcommand in {"status", "report", "decisions"}:
+        return {}
+    if subcommand != "run":
+        return _managed_denial(
+            "Only the Manageroo run, status, report, and decision paths belong to this request."
+        )
+
+    request_path = Path(str(state.get("managed_request_path") or ""))
+    expected_hash = str(state.get("managed_request_sha256") or "")
+    if not request_path.is_file() or not expected_hash:
+        return _managed_denial("The controller-owned request artifact is missing.")
+    try:
+        if sha256_file(request_path) != expected_hash:
+            return _managed_denial("The controller-owned request artifact changed.")
+    except OSError:
+        return _managed_denial("The controller-owned request artifact cannot be read.")
+
+    cwd = Path(str(state.get("cwd") or ".")).expanduser().resolve(strict=False)
+    repo = _git_root(cwd)
+    if repo is None:
+        return _managed_denial("The active request is not bound to a current Git repository.")
+    if "--continue" in tokens:
+        index = tokens.index("--continue")
+        if index + 1 >= len(tokens):
+            return _managed_denial("The continuation run id is missing.")
+        rewritten = [tokens[0], "run", "--repo", str(repo), "--continue", tokens[index + 1], "--apply"]
+    else:
+        rewritten = [
+            tokens[0],
+            "run",
+            "--repo",
+            str(repo),
+            "--brief",
+            str(request_path),
+            "--apply",
+        ]
+    if "--json" in tokens:
+        rewritten.append("--json")
+    state["managed_run_started"] = True
+    state["managed_run_started_at"] = utc_now()
+    _save_state(root, state)
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": {command_key: shlex.join(rewritten)},
+        }
+    }
+
+
+def _managed_stop_decision(
+    event: dict[str, Any], state: dict[str, Any], root: Path
+) -> dict[str, Any]:
+    if state.get("status") == "paused" or not state.get("managed_run_required"):
+        return {}
+    proof = _managed_completion_proof(state)
+    if proof is not None:
+        state["status"] = "complete"
+        state["completed_run_root"] = proof["run_root"]
+        state["updated_at"] = utc_now()
+        _save_state(root, state)
+        return {}
+    if event.get("stop_hook_active") is True:
+        return {}
+    return {
+        "decision": "block",
+        "reason": (
+            "Manageroo has no controller-owned COMPLETE and applied proof for the exact "
+            "current request. Start `manageroo run`; if a run stopped, inspect its status "
+            "and continue that run. Do not claim completion or switch to freehand work."
+        ),
+    }
+
+
 def _additional_context(event_name: str, text: str) -> dict[str, Any]:
     return {
         "hookSpecificOutput": {
@@ -727,10 +1076,10 @@ def _additional_context(event_name: str, text: str) -> dict[str, Any]:
 def _global_controller_contract() -> str:
     return "\n".join(
         [
-            "Auto-select skills; the user need not name them. Work directly; use "
-            "`manageroo run` only for useful isolation, retry, or proof.",
+            "Auto-select skills. Actionable repository work automatically uses a controlled "
+            "Manageroo run.",
             "Resolve the repo; never initialize home. Current instructions and live evidence win.",
-            "Verify work before claiming completion. Ordinary chat needs no Manageroo receipt.",
+            "Only a COMPLETE, applied, exact-request Manageroo run proves repository work done.",
         ]
     )
 
@@ -758,10 +1107,10 @@ def process_codex_continuity_hook(
             )
         return {}
     if name == "Stop":
-        # Compatibility for already-installed hook configurations. New installs
-        # do not register Stop at all; ordinary conversation is never a receipt
-        # protocol.
-        return {}
+        state = _read_state(root, session_id)
+        if not isinstance(state, dict):
+            return {}
+        return _managed_stop_decision(event, state, root)
     state = _read_state(root, session_id)
     if not isinstance(state, dict) or state.get("status") not in {"active", "waiting", "paused"}:
         if name == "SessionStart":
@@ -773,7 +1122,8 @@ def process_codex_continuity_hook(
             context = f"{_global_controller_contract()}\n\n{context}"
         return _additional_context(name, context)
     if name == "PreToolUse":
-        return audit_agent_tool(event, state)
+        managed = _audit_managed_execution(event, state, root)
+        return managed or audit_agent_tool(event, state)
     return {}
 
 
@@ -817,6 +1167,7 @@ _CODEX_CONTINUITY_EVENTS = (
     "UserPromptSubmit",
     "PreToolUse",
     "SubagentStart",
+    "Stop",
 )
 
 
@@ -957,6 +1308,7 @@ def install_codex_continuity_hooks(
         "UserPromptSubmit": {"hooks": [context_handler]},
         "PreToolUse": {"matcher": "*", "hooks": [context_handler]},
         "SubagentStart": {"hooks": [context_handler]},
+        "Stop": {"hooks": [context_handler]},
     }
     with config_mutation_lock(hooks_path):
         if hooks_path.exists():

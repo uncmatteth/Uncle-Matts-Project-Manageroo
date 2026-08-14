@@ -14,17 +14,25 @@ from .errors import ConfigurationError
 from .util import atomic_write_text, safe_repo_relative
 
 
-GBRAIN_SEARCH_COMMAND = ["gbrain", "search", "{query}", "--json"]
-GBRAIN_CAPTURE_COMMAND = ["gbrain", "capture", "--file", "{report_file}", "--json"]
+GBRAIN_SEARCH_COMMAND = ["gbrain", "call", "query", "{gbrain_query_payload}"]
+GBRAIN_CAPTURE_COMMAND = [
+    "gbrain",
+    "capture",
+    "--file",
+    "{report_file}",
+    "--source",
+    "{gbrain_source_id}",
+    "--json",
+]
 GITNEXUS_ANALYZE_COMMAND = [
     "gitnexus",
     "analyze",
-    "{repo}",
+    "{workspace}",
     "--index-only",
     "--embedding-device",
     "cpu",
 ]
-GITNEXUS_QUERY_COMMAND = ["gitnexus", "query", "{query}", "--repo", "{repo}"]
+GITNEXUS_QUERY_COMMAND = ["gitnexus", "query", "{query}", "--repo", "{workspace}"]
 DOCUMENT_ANALYSIS_COMMAND = ["manageroo", "document-analyze", "{document_manifest_file}", "{workspace}"]
 
 INTEGRATION_ORDER = [

@@ -135,9 +135,10 @@ Planning agents may reference gate IDs. They may not introduce argv commands.
 
 Stack integration commands are argv arrays, never shell strings. Empty arrays mean disabled. Core delivery still belongs to MANAGEROO state, scope, gates, and evidence.
 
-GBrain and GitNexus commands are optional intelligence, not hard dependencies.
-They run with bounded timeouts, write redacted output artifacts, and do not
-block the core run if they fail.
+GBrain and GitNexus commands are required intelligence for normal product runs.
+They run with bounded timeouts, write redacted output artifacts, and block the
+run if absent, unhealthy, incorrectly scoped, or failed. GBrain must resolve an
+exact source mapping for the target repository.
 
 `document_analysis_command` is also optional intelligence. The controller writes
 `document-manifest.json` for prose, PDFs, transcripts, and other document-like

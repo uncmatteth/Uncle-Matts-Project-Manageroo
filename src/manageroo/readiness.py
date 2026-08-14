@@ -128,7 +128,7 @@ def _mentions(text: str, terms: tuple[str, ...]) -> list[str]:
 
 
 def requested_intelligence_lanes(brief_text: str) -> dict[str, bool]:
-    """Return only explicit task requirements, without scanning machine state."""
+    """Return controller-required intelligence lanes for this run."""
     request_text = re.sub(
         r"\b(?:docker|container|oci)\s+images?\b",
         "container artifact",
@@ -137,7 +137,54 @@ def requested_intelligence_lanes(brief_text: str) -> dict[str, bool]:
     )
     return {
         "document-analysis": bool(_mentions(request_text, DOCUMENT_REQUEST_TERMS)),
-        "gbrain-search": bool(_mentions(brief_text, EXPLICIT_EXTERNAL_MEMORY_TERMS)),
+        # GBrain is part of the original Manageroo contract. The operator should
+        # never have to remember to name it before past project truth is loaded.
+        "gbrain-search": True,
+    }
+
+
+def _same_resolved_path(left: str | Path, right: str | Path) -> bool:
+    try:
+        return Path(left).expanduser().resolve(strict=True) == Path(right).expanduser().resolve(
+            strict=True
+        )
+    except (OSError, RuntimeError):
+        return False
+
+
+def gbrain_repo_source_item(repo: Path | None) -> dict[str, Any]:
+    """Prove GBrain has an exact source mapping for the target repository."""
+    report = gbrain_setup_status()
+    sources = report.get("status", {}).get("sources", [])
+    matches = [
+        source
+        for source in sources
+        if isinstance(source, dict)
+        and source.get("path")
+        and repo is not None
+        and _same_resolved_path(str(source["path"]), repo)
+    ]
+    ok = bool(report.get("ok") and matches)
+    repo_hint = str(repo) if repo is not None else "/absolute/path/to/repo"
+    return {
+        "ok": ok,
+        "matched_sources": matches,
+        "detail": (
+            "exact repo source mapped: "
+            + ", ".join(
+                str(source.get("id") or source.get("name") or source.get("path"))
+                for source in matches
+            )
+            if ok
+            else "GBrain is unhealthy or has no exact source mapping for this repository"
+        ),
+        "next": (
+            ""
+            if ok
+            else "manageroo gbrain-setup --source-id my-project "
+            f"--path {repo_hint} --apply --sync"
+        ),
+        "status": report,
     }
 
 
@@ -464,30 +511,16 @@ def readiness(repo_path: Path, *, require_gbrain: bool = False) -> dict[str, Any
             items.append(strength)
         items.extend(_document_lane_items(repo, config, brief_text))
 
-    gbrain = gbrain_setup_status()
-    gbrain_ok = bool(gbrain.get("ok") and gbrain.get("status", {}).get("source_count", 0) > 0)
-    external_memory_requested = requested_intelligence_lanes(brief_text)["gbrain-search"]
-    gbrain_required = require_gbrain or external_memory_requested
-    gbrain_next = (
-        "manageroo gbrain-setup --source-id my-project --path /absolute/path/to/repo --apply --sync"
-        if not gbrain_ok
-        else "Connect `gbrain serve` to the selected agent if not already wired."
-    )
+    adapter_name = str((config or {}).get("agent", {}).get("adapter") or "")
+    strict_gbrain = require_gbrain or adapter_name != "mock"
+    gbrain_source = gbrain_repo_source_item(repo)
     items.append(
         _item(
             "gbrain",
-            gbrain_ok,
-            (
-                "brief explicitly asks for external GBrain/knowledge-base context and sources are mapped"
-                if external_memory_requested and gbrain_ok
-                else "sources mapped"
-                if gbrain_ok
-                else "brief explicitly asks for external GBrain/knowledge-base context, but GBrain is not installed, unhealthy, or has no mapped sources"
-                if external_memory_requested
-                else "not installed, unhealthy, or no mapped sources"
-            ),
-            gbrain_next,
-            required=gbrain_required,
+            bool(gbrain_source["ok"]),
+            str(gbrain_source["detail"]),
+            str(gbrain_source["next"]),
+            required=strict_gbrain,
         )
     )
 

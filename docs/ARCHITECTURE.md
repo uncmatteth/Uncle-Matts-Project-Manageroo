@@ -27,25 +27,26 @@ CLI
 
 Manageroo uses two distinct control layers. Codex continuity hooks preserve the
 operator-facing agent's unfinished objective across follow-up messages,
-resumption, and compaction. `UserPromptSubmit` stores actionable operator work
-without ever blocking it; side questions remain conversation instead of growing
-the active objective. Explicit cancel/replace language and an unambiguous natural
-correction such as `No, use this instead` supersede unfinished work. `PreToolUse`
-rejects only supported mutations that violate an explicit `only` boundary or an
-explicit operator exclusion. The current repository is context, not an implicit
-permission wall: external targets remain available unless the operator narrowed
-the scope. Agent-written findings, recommendations, cleanup ideas, and next-step
-language never create an operator exclusion. Paths
-mentioned only in questions, quotations, block quotes, or historical examples
-remain context and do not enter the named mutation scope. Shell
-redirection binds only its output target; it does not turn other absolute paths
-read by the same command into mutation targets, and the platform null sink is
-always non-persistent. An explicit `edit only <file>` instruction narrows
-supported mutations inside the current repository to that exact file. Shell,
-structured patch, removal, inline Python write, and compound-command targets use
-the same path boundary. Ordinary conversation has no `Stop` enforcement or
-completion receipt. These hooks control supported agent mutations, not operator
-authority.
+resumption, and compaction. `UserPromptSubmit` classifies actionable repository
+work and writes the exact accumulated operator request to a private
+controller-owned brief. The user does not name Manageroo or remember a skill.
+Side questions remain conversation; explicit cancel/replace language and clear
+natural corrections supersede unfinished work.
+
+## Automatic managed execution
+
+For actionable repository work, `PreToolUse` permits the Manageroo run/status/
+report path and denies freehand repository execution. A requested `manageroo
+run` is rewritten to use the controller-owned exact-request brief and the bound
+repository. The `Stop` hook permits completion only after an exact-brief run has
+a controller-owned `COMPLETE` result, passed intent conformance, and an applied
+source receipt. A failed or interrupted run remains resumable from durable jobs;
+it does not turn into permission for the outer agent to improvise.
+
+Read-only questions do not create a controlled run. An explicit pause remains
+authoritative, and a later reaffirmation resumes the saved request without
+making the operator repeat it. Explicit exclusions and `only` boundaries remain
+binding inside the managed brief and worker packets.
 
 Missing continuity state starts a new session. Unreadable, malformed, non-object,
 or unsupported-version state fails closed without replacing the original file.
@@ -73,12 +74,11 @@ classifies that wording as resume.
 
 At ordinary Codex `SessionStart`, the hook supplies one compact global controller
 contract even when no prior objective exists. It tells the operator-facing agent
-to select relevant installed skills automatically, do normal scoped work
-directly, and choose `manageroo run` only when isolated proof, retry, or recovery
-adds material value. It also forbids treating the user's home directory as an
-implicit project. This makes Manageroo event-driven and globally active after
-the one-time Codex hook trust step without adding a daemon, scheduler, model
-runtime, or background mutation loop.
+to select relevant installed skills automatically and routes actionable
+repository work into Manageroo. It also forbids treating the user's home
+directory as an implicit project. This makes Manageroo event-driven and globally
+active after the one-time Codex hook trust step without adding a daemon,
+scheduler, model runtime, or background mutation loop.
 
 Hook denials use a consistent target, reason, and next-action layout instead of
 one dense implementation sentence. Only explicit operator-written exclusions
@@ -166,7 +166,7 @@ then verifies that no ignored state remains.
 After successful delivery:
 
 1. Manageroo generates a binary-capable Git patch from isolated baseline to final checkpoint.
-2. Manageroo writes only pending result/report artifacts while optional capture and export run.
+2. Manageroo writes only pending result/report artifacts while required GBrain capture and Obsidian export run.
 3. Manageroo verifies that every source file still matches the original source manifest.
 4. `git apply --check` verifies the patch.
 5. Manageroo revalidates the source immediately before applying the patch.
@@ -272,12 +272,12 @@ Tasks are dependency ordered and executed sequentially in the same isolated inte
 
 Repository mapping and isolated review may run as bounded parallel worker calls. Their packet names, output files, artifact writes, budgets, and completion state remain controller-owned. Manageroo does not run parallel implementation branches against the same files.
 
-## Recommended surrounding stack
+## Required surrounding stack
 
 The surrounding stack provides first-class capabilities without taking control away from Manageroo:
 
-- **GitNexus**: recommended repository/code-graph intelligence for exploration, dependency awareness, impact analysis, debugging, and refactoring. The installer can install and configure GitNexus. Repository indexing is project-specific. Manageroo remains usable when GitNexus is intentionally skipped or unavailable.
-- **GBrain**: external durable knowledge retrieval and capture when a task explicitly needs external memory or a knowledge base.
+- **GitNexus**: required repository/code-graph intelligence for exploration, dependency awareness, impact analysis, debugging, and refactoring. Missing or failed discovery blocks a normal run.
+- **GBrain**: required exact-repository durable knowledge retrieval and pre-apply capture. The user never has to name it.
 - **AUTOREVIEW**: command-owned external review lane. Stack updates retain the
   discovered candidate, approved root, resolved target, and filesystem identities;
   any destination change before replacement fails closed without updating it. The
@@ -312,7 +312,7 @@ an interrupted run restores its latest validated checkpoint without repeating co
 
 These systems are capabilities, not completion authorities.
 
-`manageroo integrations configure --full` is the explicit project-level bridge
+`manageroo integrations configure --full` is the one-time project-level bridge
 between an installed surrounding stack and controlled-run use. It validates an
 existing Obsidian vault/export folder and writes argv-only templates for every
 available lane. Merely finding a binary in the host stack is not reported as an

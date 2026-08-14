@@ -37,6 +37,7 @@ class CodexContinuityHooksTests(unittest.TestCase):
             "UserPromptSubmit": None,
             "PreToolUse": "*",
             "SubagentStart": None,
+            "Stop": None,
         }
         legacy_group = {
             "hooks": [{"command": "/bin/manageroo operator-" "scope-hook"}]
@@ -57,7 +58,7 @@ class CodexContinuityHooksTests(unittest.TestCase):
                                 if event == "UserPromptSubmit"
                                 else [legacy_group]
                             )
-                            for event in (*events, "Stop")
+                        for event in events
                         }
                     }
                 ),
@@ -73,7 +74,7 @@ class CodexContinuityHooksTests(unittest.TestCase):
                 manageroo_command=manageroo_command,
             )
 
-            self.assertEqual(removed["removed"], len(events) + 1)
+            self.assertEqual(removed["removed"], len(events))
             self.assertTrue(removed["changed"])
             self.assertTrue(installed["changed"])
             written = json.loads(hooks_path.read_text(encoding="utf-8"))
@@ -96,7 +97,7 @@ class CodexContinuityHooksTests(unittest.TestCase):
                 self.assertEqual(handler["timeout"], 10)
                 self.assertIn(str(manageroo_command.resolve()), handler["command"])
                 self.assertEqual(handler["additionalContextLimit"], 10000)
-            self.assertNotIn("Stop", written["hooks"])
+            self.assertIn("Stop", written["hooks"])
 
             first_bytes = hooks_path.read_bytes()
             removed_again = installer["remove_legacy_codex_operator_hooks"](

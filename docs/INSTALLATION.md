@@ -26,27 +26,27 @@ only the remediation for that platform. Manageroo never silently disables Codex
 sandboxing. OpenAI's current platform setup is documented at
 <https://learn.chatgpt.com/docs/sandboxing>.
 
-Manageroo installs Codex continuity hooks for prompt capture, local-tool scope
-checks, resume/compaction recovery, and subagent context. During install or
-update it removes obsolete Manageroo operator-scope and `Stop` hook groups from
-the existing Codex `hooks.json` and preserves every unrelated hook.
-`UserPromptSubmit` never blocks an operator request.
+Manageroo installs Codex continuity hooks for exact-request capture, automatic
+managed execution, resume/compaction recovery, subagent context, and completion
+proof. During install or update it replaces obsolete Manageroo hook groups and
+preserves every unrelated hook. `UserPromptSubmit` captures the current request;
+`PreToolUse` blocks freehand work for actionable repository requests.
 Routine prompt capture and successful tool checks emit no status output and add
 no model context. Recovery context appears only on session start, resume,
 subagent startup, or compaction.
-Paused state is advisory: it does not block tools, and the operator does not
-need an exact resume or authorization phrase.
+Paused state blocks further work. The operator does not need an exact resume
+phrase: a clear current resume, correction, cancellation, or replacement wins.
 Codex requires review of a new or changed non-managed hook definition before it
 runs; open `/hooks` once after installation and trust the Manageroo continuity
-hook set. Controlled `manageroo run` workers retain the stronger isolated
-repository boundary.
+hook set. The automatically started `manageroo run` retains the isolated
+repository boundary and the `Stop` hook requires exact completion proof.
 
 After that one Codex trust step, no Manageroo daemon or keepalive process is
 required. `SessionStart` supplies a compact global controller contract so an
-ordinary Codex agent automatically selects relevant installed skills, handles
-normal scoped work directly, and uses a controlled Manageroo run only when its
-isolated proof or recovery boundary materially helps. The operator describes the
-job and does not have to remember `$uncle-matts-project-manageroo`.
+ordinary Codex agent automatically selects relevant installed skills and routes
+actionable repository work into a controlled Manageroo run. The operator
+describes the job and does not have to remember
+`$uncle-matts-project-manageroo`.
 
 Manageroo detects coding-agent command-line tools, not the person's subscription or private account details. The selected coding tool keeps control of its own login and model configuration.
 
@@ -162,12 +162,12 @@ Reconcile the Manageroo core later if needed:
 manageroo skills reconcile --apply
 ```
 
-## Recommended full stack
+## Required full stack
 
-Manageroo can install and integrate with a recommended surrounding stack:
+Normal product runs require this surrounding stack:
 
 - **GitNexus** for repository and code-graph intelligence;
-- **GBrain** for external durable knowledge when explicitly relevant;
+- **GBrain** for exact-repository durable knowledge on every run;
 - **TruffleHog** for the local secret scan required by AUTOREVIEW;
 - **AUTOREVIEW** for an external review lane;
 - **Clawpatch** for an external review/repair lane;
@@ -175,9 +175,10 @@ Manageroo can install and integrate with a recommended surrounding stack:
 
 These tools add capabilities around Manageroo. They do not become authorities over Manageroo completion.
 
-GitNexus is a first-class recommended integration. When the installer selected and installed GitNexus, the platform launcher completes `gitnexus setup` and updates the install lock to reflect whether configuration succeeded. A selected GitNexus setup failure fails the installation instead of being silently reported as complete.
-
-Manageroo itself can still run without GitNexus when the operator intentionally skips the surrounding stack or GitNexus is unavailable.
+GitNexus is required. When the installer installs it, the platform launcher
+completes `gitnexus setup` and records whether configuration succeeded. Missing
+or failed GitNexus, GBrain, AUTOREVIEW, Clawpatch, or Obsidian blocks a normal
+product run. The mock adapter remains the deterministic unit-test seam.
 
 Inspect the stack:
 
@@ -330,8 +331,8 @@ A passing smoke on one operating system proves that operating system only.
 Manageroo core
     = portable controller and its small core skill pack
 
-Recommended surrounding stack
-    = GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, Obsidian when selected
+Required surrounding stack
+    = GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, Obsidian for normal runs
 
 Host environment
     = additional independently owned skills and tools

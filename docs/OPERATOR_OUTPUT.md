@@ -29,10 +29,10 @@ controller contract appears once at session start, and exact active requests
 return only when a session, subagent, or compacted conversation must recover
 them. A side question does not become another active work item.
 
-Ordinary operator chat has no Manageroo completion line or `Stop` handshake.
-A saved pause is advisory recovery context and does not deny tools. Strict
-completion gates and durable receipts exist only inside explicit controlled
-Manageroo runs.
+Read-only operator questions remain ordinary chat. Actionable repository work
+activates the Manageroo `Stop` proof gate automatically. A saved pause denies
+further work until a current resume, correction, cancellation, or replacement.
+Strict completion gates and durable receipts belong to the controlled run.
 
 When Manageroo stops an action that violates an explicit operator limit, the
 message names:

@@ -68,7 +68,7 @@ Starter choices:
 7. `solo` captures an intent lock for drift and compaction audits.
 8. Write or update managed `AGENTS.md` and `CONTEXT.md` guidance blocks.
 9. Install or refresh the recommended skill pack.
-10. Optionally wire GBrain and GitNexus command templates.
+10. Wire the required GBrain and GitNexus command templates.
 11. Report the status of selected extras like Obsidian.
 12. Run readiness checks.
 13. Print exactly one next command.
@@ -292,7 +292,7 @@ commands passed, which blockers remain, the release target, the rollback plan,
 and the next operator action. The handoff is cache evidence; `release-ready`
 does not mutate tracked project memory or deploy production.
 
-Wire optional local context tools if they are installed:
+Wire the required local context tools:
 
 ```bash
 manageroo solo --use-gbrain --use-gitnexus

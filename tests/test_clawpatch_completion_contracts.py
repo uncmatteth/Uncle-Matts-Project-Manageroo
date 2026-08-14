@@ -146,7 +146,7 @@ class ClawpatchCompletionContracts(unittest.TestCase):
             )
             self.assertEqual(
                 parsed["integrations"]["gbrain_search_command"],
-                ["gbrain", "search", "{query}", "--json"],
+                ["gbrain", "call", "query", "{gbrain_query_payload}"],
             )
 
 

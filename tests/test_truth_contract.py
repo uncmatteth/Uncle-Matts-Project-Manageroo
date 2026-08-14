@@ -49,8 +49,8 @@ class TruthContractTests(unittest.TestCase):
             "does not silently edit skills, docs, config, installer behavior, checks, prompts, or code",
             "`run --continue <run-id>` continues Manageroo's saved worker job queue",
             "Manageroo installs Codex continuity hooks for active-objective capture",
-            "The prompt hook never blocks the operator",
-            "Controlled runs remain the stronger isolated worker boundary",
+            "Actionable repository requests deny freehand supported tools",
+            "The `Stop` hook requires an exact-request `COMPLETE`",
         ], "docs/LIMITATIONS.md")
 
     def test_public_docs_and_installer_explain_lanes_without_pretending(self):
@@ -70,7 +70,7 @@ class TruthContractTests(unittest.TestCase):
                 "The updater does not use absence as permission to install every optional component",
                 "An AI or IDE agent should act on a clear install request using the local, account-free defaults",
                 "It must not pause merely to hand runnable commands or ordinary installer choices back to the operator",
-                "removes obsolete Manageroo operator-scope and `Stop` hook groups",
+                "replaces obsolete Manageroo hook groups and preserves every unrelated hook",
             ],
             "docs/DOCUMENT_LANE.md": [
                 "Failure is optional context", "pretend it understood images", "Media metadata is not vision",

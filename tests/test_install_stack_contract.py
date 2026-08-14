@@ -209,11 +209,11 @@ class InstallStackContractTests(unittest.TestCase):
             self.assertGreaterEqual(len(core_block), 22)
             self.assertEqual(core_block[:22], expected)
 
-    def test_gitnexus_is_documented_as_first_class_but_non_authoritative(self):
+    def test_gitnexus_is_documented_as_required_but_non_authoritative(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         installation = (ROOT / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
-        self.assertIn("first-class recommended repository-intelligence integration", readme)
-        self.assertIn("GitNexus is a first-class recommended integration", installation)
+        self.assertIn("GitNexus is required repository intelligence", readme)
+        self.assertIn("GitNexus is required", installation)
         self.assertIn("They do not become the authority over Manageroo completion", readme)
 
     def test_stack_update_targeting_is_behavioral_and_uses_pinned_packages(self):

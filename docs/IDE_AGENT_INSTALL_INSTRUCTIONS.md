@@ -63,10 +63,9 @@ Use `./install.sh` from Linux, macOS, or a WSL2 terminal. Native Windows and the
 PowerShell launcher intentionally stop with WSL2 guidance because the secure
 artifact backend is not supported by native Windows CPython.
 
-The recommended local skill pack is optional but strongly suggested. Let the
-installer add it unless the operator explicitly chooses `--skill-pack skip` or
-`--skip-skill-pack`; install it later with `manageroo skills reconcile --apply` if it
-was skipped. The pack includes helper lanes for rough prompts, memory lookup,
+The local core skill pack is required for automatic routing. Let the installer
+add it; if it was skipped, restore it with `manageroo skills reconcile --apply`
+before normal product work. The pack includes helper lanes for rough prompts, memory lookup,
 source ingest, media/PDF handling, long prose, exact text, debugging, tests,
 review, public copy, website cleanup, skill creation, skill cleanup, and token
 reduction. Do not load the whole pack into context. Read only the helper skill

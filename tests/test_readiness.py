@@ -92,7 +92,10 @@ class ReadinessTests(unittest.TestCase):
                 ],
             ), patch(
                 "manageroo.readiness.gbrain_setup_status",
-                return_value={"ok": False, "status": {"source_count": 0}},
+                return_value={
+                    "ok": True,
+                    "status": {"source_count": 1, "sources": [{"id": "fixture", "path": str(repo)}]},
+                },
             ):
                 report = readiness(repo)
 
@@ -222,7 +225,13 @@ class ReadinessTests(unittest.TestCase):
                 return_value=[],
             ), patch(
                 "manageroo.readiness.gbrain_setup_status",
-                return_value={"ok": False, "status": {"source_count": 0}},
+                return_value={
+                    "ok": True,
+                    "status": {
+                        "source_count": 1,
+                        "sources": [{"id": "fixture", "path": str(repo)}],
+                    },
+                },
             ):
                 report = readiness(repo)
             self.assertTrue(report["ok"])
@@ -233,7 +242,7 @@ class ReadinessTests(unittest.TestCase):
             self.assertIn("repo contains", lane["detail"])
             self.assertIn("WARN document/prose lane", format_readiness(report))
 
-    def test_native_project_memory_request_does_not_require_gbrain(self):
+    def test_native_project_memory_request_still_requires_gbrain(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._ready_repo(
                 Path(temp),
@@ -249,11 +258,11 @@ class ReadinessTests(unittest.TestCase):
                 "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
-                report = readiness(repo)
-            self.assertTrue(report["ok"])
+                report = readiness(repo, require_gbrain=True)
+            self.assertFalse(report["ok"])
             gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
             self.assertFalse(gbrain["ok"])
-            self.assertFalse(gbrain["required"])
+            self.assertTrue(gbrain["required"])
 
     def test_explicit_gbrain_request_requires_gbrain_sources(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -268,14 +277,14 @@ class ReadinessTests(unittest.TestCase):
                 "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
-                report = readiness(repo)
+                report = readiness(repo, require_gbrain=True)
             self.assertFalse(report["ok"])
             gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
             self.assertFalse(gbrain["ok"])
             self.assertTrue(gbrain["required"])
-            self.assertIn("explicitly asks", gbrain["detail"])
+            self.assertIn("no exact source mapping", gbrain["detail"])
 
-    def test_product_knowledge_base_api_does_not_require_gbrain(self):
+    def test_product_knowledge_base_api_still_requires_gbrain(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._ready_repo(
                 Path(temp),
@@ -285,9 +294,9 @@ class ReadinessTests(unittest.TestCase):
                 "manageroo.readiness.gbrain_setup_status",
                 return_value={"ok": False, "status": {"source_count": 0}},
             ):
-                report = readiness(repo)
+                report = readiness(repo, require_gbrain=True)
             gbrain = [item for item in report["items"] if item["name"] == "gbrain"][0]
-            self.assertFalse(gbrain["required"])
+            self.assertTrue(gbrain["required"])
 
     def test_docker_image_does_not_require_document_analysis(self):
         with tempfile.TemporaryDirectory() as temp:

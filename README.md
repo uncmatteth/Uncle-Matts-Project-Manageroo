@@ -43,7 +43,7 @@ with instructions for that platform; Manageroo never silently turns the sandbox 
 > Type what you want built or fixed. Manageroo matches the request to the discovered projects. If the request could belong to more than one project, it asks only then. Later, run `manageroo` again from any normal terminal to return to the same front door.
 > The plain front door starts the controlled run immediately when project readiness passes. New project configuration still defaults to `--no-apply`, so verified work is not silently written back without an explicit apply policy.
 >
-> When the installer says the Codex hooks changed, open `/hooks` once in Codex, review the Manageroo hook set, and trust it. After that one Codex security step, Manageroo is event-driven and globally active in ordinary Codex sessions; there is no background daemon to start. You describe normal repo work and the agent selects relevant installed skills automatically, works directly for ordinary scoped jobs, and uses a controlled Manageroo run only when isolated proof or recovery adds value.
+> When the installer says the Codex hooks changed, open `/hooks` once in Codex, review the Manageroo hook set, and trust it. After that one Codex security step, Manageroo is event-driven and globally active in ordinary Codex sessions; there is no background daemon to start. You describe normal repo work, the agent selects relevant installed skills automatically, and actionable repository work is routed into a controlled Manageroo run without requiring you to invoke it.
 >
 > You do **not** have to create or fill agent context files yourself. `solo` safely creates or updates `AGENTS.md`, `CONTEXT.md`, `.manageroo/PROJECT-MEMORY.md`, `.manageroo/PRODUCT-BRIEF.md`, the current intent lock, Manageroo configuration, and the repo-local Manageroo skill. Existing human-written `AGENTS.md` and `CONTEXT.md` content is preserved.
 >
@@ -68,25 +68,25 @@ work was reused.
 Manageroo installs Codex continuity hooks that preserve one unfinished active
 objective across follow-up messages, resumed sessions, and compaction. New
 messages are additive unless they explicitly cancel or replace earlier work.
-The prompt hook never blocks the operator. `PreToolUse` rejects only clearly
-unrelated or explicitly excluded mutations. Ordinary reads, bounded temporary
-evidence, current-repository work, explicitly named external targets, and
-operator-requested Git commits and pushes remain available. An explicit
-`only <file>` clause still narrows mutations to that file. Ordinary chat has no
-Manageroo completion receipt and no `Stop` hook. A saved pause is advisory
-context, never a tool lock: exact resume wording is unnecessary because the
-operator's current request always wins. The installer removes the obsolete
-Manageroo `Stop` group during upgrade and preserves unrelated Codex hooks.
+For an actionable repository request, `UserPromptSubmit` locks the exact current
+request into a private controller brief. `PreToolUse` permits the Manageroo
+run/status/report path and rejects freehand work, including apparently harmless
+reads that could restart a parallel unmanaged attempt. An explicit `only
+<file>` clause and exclusions remain binding inside the controlled run. The
+installed `Stop` hook blocks an unproved completion claim until the exact run is
+`COMPLETE`, passed intent conformance, and was applied to the source repository.
+An explicit pause blocks further work. A newer current correction, cancellation,
+or replacement still wins over saved state. Upgrades preserve unrelated hooks.
 At every new ordinary Codex session, the hook also supplies one compact global
-controller contract: the agent selects relevant installed skills itself, handles
-normal scoped work directly, and reserves `manageroo run` for work that benefits
-from its isolated proof boundary. The operator does not have to remember or name
-Manageroo or a skill. This is event-driven hook behavior, not a resident daemon.
+controller contract: the agent selects relevant installed skills itself and
+automatically starts the controlled run for actionable repository work. The
+operator does not have to remember or name Manageroo or a skill. This is
+event-driven hook behavior, not a resident daemon.
 Routine prompt capture and successful tool checks are silent: they print no
 status and inject no model context. Session start supplies the compact controller
 contract once; recovery events restore a compressed exact objective only after
-resume, subagent startup, or compaction. Strict completion proof belongs to an
-explicit controlled `manageroo run`, not the operator's conversation.
+resume, subagent startup, or compaction. Strict completion proof belongs to the
+automatically controlled run, not an operator chat claim.
 
 Measure that behavior without spending model tokens:
 
@@ -534,9 +534,9 @@ manageroo skills explain "describe the job normally"
 
 `skill-vetter` exists so third-party skills can be reviewed before adoption instead of being treated as trusted just because somebody put a `SKILL.md` in a folder.
 
-# Optional surrounding tool stack
+# Required surrounding tool stack
 
-Manageroo is the controller. It can also work with optional tools that add specialized capabilities:
+Manageroo is the controller. Normal product runs require these local surrounding capabilities:
 
 ```text
 Manageroo
@@ -629,7 +629,10 @@ For npm/pnpm command-line tools, Manageroo updates through the package manager p
 
 AUTOREVIEW requires TruffleHog. When the recommended stack is selected, Manageroo reuses an existing `trufflehog` command or installs the release-pinned official binary for Linux, macOS, or Windows after SHA-256 verification. Manageroo records ownership only for the copy it installed, so stack updates and uninstall planning do not overwrite or remove a user-managed copy.
 
-GitNexus is treated as a first-class recommended repository-intelligence integration when selected during installation. Manageroo can still operate when optional surrounding tools are intentionally skipped or unavailable.
+GitNexus is required repository intelligence for a normal product run. GBrain,
+AUTOREVIEW, Clawpatch, and Obsidian are likewise required and fail closed when
+missing or unhealthy. The deterministic mock adapter is the isolated unit-test
+seam; it does not redefine the public runtime contract.
 
 # Credits and influences
 

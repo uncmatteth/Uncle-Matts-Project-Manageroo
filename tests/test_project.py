@@ -87,7 +87,8 @@ class ProjectInitializationTests(unittest.TestCase):
         self.assertIn("operator-facing agent", skill)
         self.assertIn("commit, push, and deploy", skill)
         self.assertIn("The current operator request owns the work", skill)
-        self.assertIn("does not turn conversational\nEnglish into filesystem permissions", skill)
+        self.assertIn("automatically route actionable repository work", skill)
+        self.assertIn("operator never has to remember Manageroo", skill)
         self.assertNotIn(
             "They do not prohibit the\noperator-facing agent from performing",
             skill,

@@ -43,4 +43,7 @@ MANAGEROO does not attempt to replace those systems. Its distinct role is the op
 
 ## Why the architecture is intentionally smaller
 
-An earlier design risked becoming a new IDE, memory service, graph database, workflow marketplace, and multi-agent platform simultaneously. The final architecture removes those ambitions. It is a thin local controller with explicit adapters. Optional tools can improve it without becoming hidden dependencies.
+Manageroo does not embed an IDE, model runtime, memory database, graph database,
+or marketplace. It remains a thin local controller with explicit adapters. The
+original surrounding GBrain, GitNexus, AUTOREVIEW, Clawpatch, and Obsidian stack
+is required for normal product runs without being embedded into the controller.
