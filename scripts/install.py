@@ -1255,8 +1255,8 @@ def path_setup_guidance(bin_dir: Path, *, inherited_path: str) -> str:
 def print_lane_explainer() -> None:
     print("\nHow Manageroo fits together:")
     print("  - Manageroo owns run truth, planning, scope, verification, review, evidence, repair, and completion.")
-    print("  - GitNexus is first-class recommended repository intelligence when installed and configured.")
-    print("  - GBrain is an external durable knowledge lane when explicitly relevant.")
+    print("  - GitNexus is required repository intelligence for normal product runs.")
+    print("  - GBrain is required exact-repository durable knowledge on every normal run.")
     print("  - AUTOREVIEW and Clawpatch are command-owned review/repair lanes, not freehand AI repair prompts.")
     print("  - Host skills may be used when relevant but remain host-owned unless they are in Manageroo's portable core.")
 
@@ -1595,7 +1595,7 @@ def main() -> int:
             },
             "network_downloads": downloads,
             "dependency_policy": (
-                "Manageroo is the portable controller. Executable or copied third-party sources selected by this installer are pinned by the Manageroo release; operating-system package-manager installs remain explicit operator-selected lanes. GitNexus is first-class recommended repository intelligence in the full stack; GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian are surrounding lanes. External tools never replace Manageroo completion authority."
+                "Manageroo is the portable controller. Executable or copied third-party sources selected by this installer are pinned by the Manageroo release; operating-system package-manager installs remain explicit operator-selected lanes. GitNexus, GBrain, TruffleHog, AUTOREVIEW, Clawpatch, and Obsidian are required surrounding lanes for normal product runs. External tools never replace Manageroo completion authority."
             ),
         }
         atomic_write_json(prefix / "install-lock.json", lock)

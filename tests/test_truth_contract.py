@@ -97,8 +97,8 @@ class TruthContractTests(unittest.TestCase):
         installer = _load_installer_module(); output = io.StringIO()
         with redirect_stdout(output): installer.print_lane_explainer()
         self.assertContainsAll(output.getvalue(), [
-            "How Manageroo fits together", "Manageroo owns run truth", "GitNexus is first-class recommended repository intelligence",
-            "GBrain is an external durable knowledge lane", "AUTOREVIEW and Clawpatch are command-owned review/repair lanes",
+            "How Manageroo fits together", "Manageroo owns run truth", "GitNexus is required repository intelligence",
+            "GBrain is required exact-repository durable knowledge", "AUTOREVIEW and Clawpatch are command-owned review/repair lanes",
             "Host skills may be used when relevant but remain host-owned",
         ], "scripts/install.py print_lane_explainer")
 
