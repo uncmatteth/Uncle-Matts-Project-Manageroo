@@ -7,6 +7,7 @@ def _install_controller_policies() -> None:
     # Keep the large orchestrator focused on lifecycle control while independently
     # tested policy modules remain the package-wide authorities for completion,
     # proof-plan validation, discovery, evidence retrieval, repair, and release proof.
+    from . import agent_continuity as agent_continuity_module
     from . import checks as checks_module
     from . import chiptune as chiptune_module
     from . import config as config_module
@@ -30,6 +31,10 @@ def _install_controller_policies() -> None:
     from .evidence_policy import install_evidence_policy
     from .external_repair_install import install_external_repair_policy
     from .intent_audit_policy import install_intent_audit_policy
+    from .managed_contract_policy import (
+        install_managed_contract_entrypoint_policy,
+        install_managed_contract_policy,
+    )
     from .plan_proof_policy import install_plan_proof_policy
     from .project_initialization_policy import install_project_initialization_policy
     from .release_proof_policy import install_release_proof_policy
@@ -54,6 +59,7 @@ def _install_controller_policies() -> None:
     install_evidence_policy(orchestrator_module)
     install_evidence_artifact_guard(orchestrator_module)
     install_release_proof_policy(orchestrator_module)
+    install_managed_contract_policy(orchestrator_module, agent_continuity_module)
     install_release_ready_policy(release_ready_module)
 
     # Import the CLI only after module-level policies above are installed so its bound
@@ -62,6 +68,9 @@ def _install_controller_policies() -> None:
     from .entrypoint_policy import install_entrypoint_policy
 
     install_entrypoint_policy(entrypoint_module)
+    install_managed_contract_entrypoint_policy(
+        entrypoint_module, agent_continuity_module
+    )
 
 
 _install_controller_policies()

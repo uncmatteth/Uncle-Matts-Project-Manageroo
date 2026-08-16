@@ -201,7 +201,7 @@ class OriginalContractRestorationTests(unittest.TestCase):
                     state_root=state_root,
                 )
 
-    def test_stop_accepts_only_exact_applied_controller_proof(self):
+    def test_stop_rejects_result_files_without_a_signed_exact_run_receipt(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = self._repo(root)
@@ -239,7 +239,7 @@ class OriginalContractRestorationTests(unittest.TestCase):
                 },
                 state_root=state_root,
             )
-            self.assertEqual(stopped, {})
+            self.assertEqual(stopped["decision"], "block")
 
     def test_read_only_question_does_not_force_a_managed_run(self):
         with tempfile.TemporaryDirectory() as temp:
