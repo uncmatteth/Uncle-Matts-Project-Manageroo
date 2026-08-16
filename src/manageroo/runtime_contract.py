@@ -4,21 +4,26 @@ import hashlib
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .errors import ValidationError
 from .util import safe_repo_relative
 
 
-REQUIRED_STACK_CAPABILITIES = (
+# These integrations enrich a run, but Manageroo's portable controller does not
+# depend on all of them merely to perform an ordinary isolated coding job.
+ENHANCED_STACK_CAPABILITIES = (
     "gbrain",
     "gitnexus",
     "autoreview",
     "clawpatch",
     "obsidian-vault",
 )
+# Backward-compatible public name. "Required" now means explicitly required by
+# a selected operation/configuration, not globally required for every real run.
+REQUIRED_STACK_CAPABILITIES = ENHANCED_STACK_CAPABILITIES
 
-_REQUIRED_COMMAND_GROUPS: dict[str, tuple[str, ...]] = {
+_COMMAND_GROUPS: dict[str, tuple[str, ...]] = {
     "gbrain": ("gbrain_search_command", "gbrain_capture_command"),
     "gitnexus": ("gitnexus_analyze_command", "gitnexus_query_command"),
     "autoreview": ("autoreview_command",),
@@ -27,9 +32,40 @@ _REQUIRED_COMMAND_GROUPS: dict[str, tuple[str, ...]] = {
 
 
 def required_stack_enabled(config: dict[str, Any]) -> bool:
-    """Return whether the selected worker is a real product-run adapter."""
+    """Return whether host capability diagnostics apply to this adapter."""
 
     return str(config.get("agent", {}).get("adapter", "auto")) != "mock"
+
+
+def _configured_required_capabilities(
+    config: dict[str, Any], explicit: Iterable[str] = ()
+) -> tuple[str, ...]:
+    configured = config.get("runtime", {}).get("required_capabilities", [])
+    values = [*configured, *explicit] if isinstance(configured, list) else list(explicit)
+    unknown = sorted(
+        {
+            str(value).strip()
+            for value in values
+            if str(value).strip() and str(value).strip() not in ENHANCED_STACK_CAPABILITIES
+        }
+    )
+    if unknown:
+        raise ValidationError(
+            "Unknown Manageroo runtime capabilities: " + ", ".join(unknown)
+        )
+    return tuple(
+        capability
+        for capability in ENHANCED_STACK_CAPABILITIES
+        if capability in {str(value).strip() for value in values}
+    )
+
+
+def required_capability_ids(
+    config: dict[str, Any], explicit: Iterable[str] = ()
+) -> tuple[str, ...]:
+    if not required_stack_enabled(config):
+        return ()
+    return _configured_required_capabilities(config, explicit)
 
 
 def _command_executable(command: Any) -> tuple[bool, str]:
@@ -113,45 +149,52 @@ def ensure_default_obsidian_vault(
     return vault.resolve(strict=True), export
 
 
-def required_stack_records(config: dict[str, Any]) -> list[dict[str, Any]]:
-    integrations = config.get("integrations", {})
-    records: list[dict[str, Any]] = []
-    for capability, keys in _REQUIRED_COMMAND_GROUPS.items():
-        missing_configuration: list[str] = []
-        unavailable: list[str] = []
-        resolved: list[str] = []
-        for key in keys:
-            command = integrations.get(key)
-            ok, detail = _command_executable(command)
-            if not isinstance(command, list) or not command:
-                missing_configuration.append(key)
-            elif not ok:
-                unavailable.append(f"{key} ({detail})")
-            else:
-                resolved.append(detail)
-        ok = not missing_configuration and not unavailable
-        detail_parts: list[str] = []
-        if missing_configuration:
-            detail_parts.append("missing config: " + ", ".join(missing_configuration))
-        if unavailable:
-            detail_parts.append("unavailable executable: " + ", ".join(unavailable))
-        if ok:
-            detail_parts.append("configured: " + ", ".join(resolved))
-        records.append(
-            {
-                "id": capability,
-                "name": f"required stack:{capability}",
-                "ok": ok,
-                "detail": "; ".join(detail_parts),
-                "next": "manageroo integrations configure --full",
-            }
-        )
+def _command_capability_record(
+    capability: str,
+    keys: tuple[str, ...],
+    integrations: dict[str, Any],
+    *,
+    required: bool,
+) -> dict[str, Any]:
+    missing_configuration: list[str] = []
+    unavailable: list[str] = []
+    resolved: list[str] = []
+    for key in keys:
+        command = integrations.get(key)
+        ok, detail = _command_executable(command)
+        if not isinstance(command, list) or not command:
+            missing_configuration.append(key)
+        elif not ok:
+            unavailable.append(f"{key} ({detail})")
+        else:
+            resolved.append(detail)
+    ok = not missing_configuration and not unavailable
+    detail_parts: list[str] = []
+    if missing_configuration:
+        detail_parts.append("not configured: " + ", ".join(missing_configuration))
+    if unavailable:
+        detail_parts.append("unavailable executable: " + ", ".join(unavailable))
+    if ok:
+        detail_parts.append("available: " + ", ".join(resolved))
+    return {
+        "id": capability,
+        "name": f"runtime capability:{capability}",
+        "ok": ok,
+        "available": ok,
+        "required": required,
+        "detail": "; ".join(detail_parts),
+        "next": "manageroo integrations configure --full",
+    }
 
+
+def _obsidian_record(
+    integrations: dict[str, Any], *, required: bool
+) -> dict[str, Any]:
     vault_text = str(integrations.get("obsidian_vault") or "").strip()
     export_text = str(integrations.get("obsidian_export_folder") or "MANAGEROO").strip()
     vault = Path(vault_text).expanduser() if vault_text else None
     export_ok = False
-    detail = "obsidian_vault is not configured"
+    detail = "not configured"
     if vault is not None:
         try:
             export = safe_repo_relative(export_text)
@@ -160,37 +203,75 @@ def required_stack_records(config: dict[str, Any]) -> list[dict[str, Any]]:
             export_path.relative_to(resolved_vault)
             export_ok = resolved_vault.is_dir() and export_path.is_dir()
             detail = (
-                f"configured: {resolved_vault} / {export}"
+                f"available: {resolved_vault} / {export}"
                 if export_ok
                 else f"vault or export folder is missing: {resolved_vault} / {export}"
             )
         except (OSError, ValueError, ValidationError):
-            detail = "obsidian vault or export folder is invalid"
-        except Exception:
-            detail = "obsidian vault or export folder is invalid"
+            detail = "vault or export folder is invalid"
+    return {
+        "id": "obsidian-vault",
+        "name": "runtime capability:obsidian-vault",
+        "ok": export_ok,
+        "available": export_ok,
+        "required": required,
+        "detail": detail,
+        "next": "manageroo integrations configure --full --obsidian-vault PATH",
+    }
+
+
+def runtime_capability_records(
+    config: dict[str, Any], *, required_capabilities: Iterable[str] = ()
+) -> list[dict[str, Any]]:
+    required = set(required_capability_ids(config, required_capabilities))
+    integrations = config.get("integrations", {})
+    records = [
+        _command_capability_record(
+            capability,
+            keys,
+            integrations,
+            required=capability in required,
+        )
+        for capability, keys in _COMMAND_GROUPS.items()
+    ]
     records.append(
-        {
-            "id": "obsidian-vault",
-            "name": "required stack:obsidian-vault",
-            "ok": export_ok,
-            "detail": detail,
-            "next": "manageroo integrations configure --full --obsidian-vault PATH",
-        }
+        _obsidian_record(integrations, required="obsidian-vault" in required)
     )
     return records
 
 
-def missing_required_stack(config: dict[str, Any]) -> list[str]:
-    if not required_stack_enabled(config):
-        return []
-    return [record["id"] for record in required_stack_records(config) if not record["ok"]]
+def required_stack_records(
+    config: dict[str, Any], *, required_capabilities: Iterable[str] = ()
+) -> list[dict[str, Any]]:
+    """Backward-compatible alias for the authoritative capability report."""
+
+    return runtime_capability_records(
+        config, required_capabilities=required_capabilities
+    )
 
 
-def validate_required_stack(config: dict[str, Any]) -> None:
-    missing = missing_required_stack(config)
+def missing_required_stack(
+    config: dict[str, Any], *, required_capabilities: Iterable[str] = ()
+) -> list[str]:
+    return [
+        record["id"]
+        for record in runtime_capability_records(
+            config, required_capabilities=required_capabilities
+        )
+        if record["required"] and not record["available"]
+    ]
+
+
+def validate_required_stack(
+    config: dict[str, Any], *, required_capabilities: Iterable[str] = ()
+) -> None:
+    missing = missing_required_stack(
+        config, required_capabilities=required_capabilities
+    )
     if missing:
         raise ValidationError(
-            "The required Manageroo stack is not ready: "
+            "The requested Manageroo operation requires unavailable capabilities: "
             + ", ".join(missing)
-            + ". Run `manageroo integrations configure --full` and rerun `manageroo ready`."
+            + ". Configure only the named capability, or run "
+            "`manageroo integrations configure --full` for the enhanced stack."
         )
