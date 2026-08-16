@@ -7,6 +7,7 @@ def _install_controller_policies() -> None:
     # Keep the large orchestrator focused on lifecycle control while independently
     # tested policy modules remain the package-wide authorities for completion,
     # proof-plan validation, discovery, evidence retrieval, repair, and release proof.
+    from . import agent_continuity as agent_continuity_module
     from . import checks as checks_module
     from . import chiptune as chiptune_module
     from . import config as config_module
@@ -14,8 +15,11 @@ def _install_controller_policies() -> None:
     from . import evidence as evidence_module
     from . import evidence_policy as evidence_policy_module
     from . import intent_lock as intent_lock_module
+    from . import integrations as integrations_module
+    from . import managed_hook_policy as managed_hook_module
     from . import orchestrator as orchestrator_module
     from . import project as project_module
+    from . import readiness as readiness_module
     from . import release_ready as release_ready_module
     from . import skill_pack as skill_pack_module
     from . import stack_doctor as stack_doctor_module
@@ -30,10 +34,22 @@ def _install_controller_policies() -> None:
     from .evidence_policy import install_evidence_policy
     from .external_repair_install import install_external_repair_policy
     from .intent_audit_policy import install_intent_audit_policy
+    from .managed_contract_policy import (
+        install_managed_contract_entrypoint_policy,
+        install_managed_contract_policy,
+    )
+    from .obsidian_export_policy import install_obsidian_export_policy
     from .plan_proof_policy import install_plan_proof_policy
+    from .portable_core_policy import install_portable_core_policy
     from .project_initialization_policy import install_project_initialization_policy
+    from .read_only_run_policy import install_read_only_run_policy
     from .release_proof_policy import install_release_proof_policy
     from .release_ready_policy import install_release_ready_policy
+    from .request_lifecycle_policy import install_request_lifecycle_policy
+    from .runtime_contract_policy import (
+        install_runtime_cli_policy,
+        install_runtime_contract_policy,
+    )
     from .skill_pack_policy import install_skill_pack_policy
     from .stack_doctor_policy import install_stack_doctor_policy
     from .stack_update_policy import install_stack_update_policy
@@ -43,6 +59,7 @@ def _install_controller_policies() -> None:
     install_context_hardening(context_module)
     install_evidence_hardening(evidence_module, evidence_policy_module)
     install_intent_audit_policy(intent_lock_module)
+    install_obsidian_export_policy(integrations_module)
     install_project_initialization_policy(project_module)
     install_skill_pack_policy(skill_pack_module)
     install_stack_doctor_policy(stack_doctor_module)
@@ -53,15 +70,27 @@ def _install_controller_policies() -> None:
     install_discovery_policy(orchestrator_module)
     install_evidence_policy(orchestrator_module)
     install_evidence_artifact_guard(orchestrator_module)
+    install_read_only_run_policy(orchestrator_module, agent_continuity_module)
     install_release_proof_policy(orchestrator_module)
+    install_managed_contract_policy(orchestrator_module, agent_continuity_module)
+    install_request_lifecycle_policy(agent_continuity_module, managed_hook_module)
+    install_runtime_contract_policy(
+        orchestrator_module, readiness_module, release_ready_module
+    )
+    install_portable_core_policy(orchestrator_module, readiness_module)
     install_release_ready_policy(release_ready_module)
 
     # Import the CLI only after module-level policies above are installed so its bound
     # function references see the hardened implementations.
+    from . import cli as cli_module
     from . import entrypoint as entrypoint_module
     from .entrypoint_policy import install_entrypoint_policy
 
+    install_runtime_cli_policy(cli_module)
     install_entrypoint_policy(entrypoint_module)
+    install_managed_contract_entrypoint_policy(
+        entrypoint_module, agent_continuity_module
+    )
 
 
 _install_controller_policies()

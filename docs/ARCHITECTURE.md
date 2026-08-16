@@ -2,192 +2,136 @@
 
 ## Thin controller, strong artifacts
 
-Manageroo deliberately avoids becoming another IDE, code graph database, memory system, or model host. The controller coordinates workers and surrounding tools through durable, inspectable artifacts.
+Manageroo is a **portable core** coding foreman. It is not an IDE, model host,
+code-graph database, or conversational-memory substitute. It coordinates
+isolated workers and optional external tools through durable, inspectable
+artifacts.
 
 ```text
-CLI
- └─ Orchestrator
-     ├─ State machine
-     ├─ Artifact ledger and locked contracts
-     ├─ Source mirror
-     ├─ Evidence retrieval and provenance ranking
-     ├─ Context compiler
-     ├─ Automatic capability router and bounded task capsules
-     ├─ Durable worker job store
-     ├─ Agent adapter / worker pool
-     ├─ Scope and command policies
-     ├─ Deterministic gate runner
-     ├─ Isolated reviewer
-     ├─ External review / repair lanes
-     ├─ Proactive learning card writer
-     └─ Delivery reporter
+Operator request
+  └─ Continuity and repository binding
+      └─ CLI / Orchestrator
+          ├─ Durable state machine and job store
+          ├─ Run-owned source mirror
+          ├─ Context and capability compiler
+          ├─ Isolated worker adapter
+          ├─ Scope, command, and transaction policy
+          ├─ Deterministic disposable gates
+          ├─ Independent review
+          ├─ Optional enhanced integration lanes
+          ├─ Delivery transaction and recovery
+          └─ Signed completion receipt
 ```
 
-## Operator and worker boundaries
-
-Manageroo uses two distinct control layers. Codex continuity hooks preserve the
-operator-facing agent's unfinished objective across follow-up messages,
-resumption, and compaction. `UserPromptSubmit` classifies actionable repository
-work and writes the exact accumulated operator request to a private
-controller-owned brief. The user does not name Manageroo or remember a skill.
-Side questions remain conversation; explicit cancel/replace language and clear
-natural corrections supersede unfinished work.
+Manageroo owns run truth, intent, repository identity, verification, delivery,
+and completion. An agent response or external provider output is never itself
+completion authority.
 
 ## Automatic managed execution
 
-For actionable repository work, `PreToolUse` permits the Manageroo run/status/
-report path and denies freehand repository execution. A requested `manageroo
-run` is rewritten to use the controller-owned exact-request brief and the bound
-repository. The `Stop` hook permits completion only after an exact-brief run has
-a controller-owned `COMPLETE` result, passed intent conformance, and an applied
-source receipt. A failed or interrupted run remains resumable from durable jobs;
-it does not turn into permission for the outer agent to improvise.
+Codex continuity hooks provide the operator-facing automatic routing boundary.
+For actionable repository work they:
 
-Read-only questions do not create a controlled run. An explicit pause remains
-authoritative, and a later reaffirmation resumes the saved request without
-making the operator repeat it. Explicit exclusions and `only` boundaries remain
-binding inside the managed brief and worker packets.
+1. classify execution intent;
+2. resolve and bind the exact repository before tool lockdown;
+3. persist the exact operator request and ordered additions;
+4. deny freehand repository mutation;
+5. allow only the corresponding Manageroo run/status/report path;
+6. require controller-owned completion proof before Stop succeeds.
 
-Missing continuity state starts a new session. Unreadable, malformed, non-object,
-or unsupported-version state fails closed without replacing the original file.
+A mutating request routes to the applying path only when mutation is authorized.
+A read-only repository audit routes to a non-applying run. Status questions,
+acknowledgments, pause, resume, cancel, and replacement are lifecycle operations,
+not accidental implementation jobs.
 
-Operator sessions and controlled Codex workers use an explicit execution-mode
-seam. The Codex adapter marks every concrete worker launch, including fallback
-launches, as `structured-worker` through `MANAGEROO_EXECUTION_MODE`. Continuity
-hooks return no output and create no continuity state in that mode, so the
-worker's declared JSON schema remains its only output contract. Unknown or
-malformed schema type declarations fail closed. Unset and unrecognized execution
-modes retain operator continuity. This environment marker selects Manageroo
-behavior; it is not an operating-system security boundary.
+The current repository binding wins over convenience guesses. An explicit path
+or project name outranks the current directory and project registry. Ambiguous or
+unresolved identity fails visibly instead of selecting an unrelated sole project.
+Once a request is bound, changing repositories requires explicit replacement.
 
-Routine prompt events save the objective privately and return no output. Successful
-tool checks also return no output. Session start injects one compact controller
-contract; session recovery, subagent startup, and post-compaction recovery inject
-the exact active requests with compressed control wording. This keeps routine
-operation invisible and at zero prompt-token overhead while retaining the
-context needed after an actual recovery event.
+## Request continuity
 
-Paused state is advisory recovery context. It never denies tools and never
-requires a resume password. A direct resume can reactivate the saved objective,
-but any current operator request is authoritative whether or not the parser
-classifies that wording as resume.
+A managed request has:
 
-At ordinary Codex `SessionStart`, the hook supplies one compact global controller
-contract even when no prior objective exists. It tells the operator-facing agent
-to select relevant installed skills automatically and routes actionable
-repository work into Manageroo. It also forbids treating the user's home
-directory as an implicit project. This makes Manageroo event-driven and globally
-active after the one-time Codex hook trust step without adding a daemon,
-scheduler, model runtime, or background mutation loop.
+- a session identity;
+- a generation number;
+- the original request;
+- ordered additional requirements;
+- an execution intent;
+- an exact bound repository;
+- request and metadata digests;
+- an optional exact authorized completion receipt.
 
-Hook denials use a consistent target, reason, and next-action layout instead of
-one dense implementation sentence. Only explicit operator-written exclusions
-or `only` boundaries can produce those denials.
+Acknowledgments such as “thanks” or “okay” do not change the canonical task or
+invalidate proof. Genuine additional requirements create a new generation and
+invalidate old completion authorization. Pause preserves the request but blocks
+new work. Resume continues the same durable generation. Cancel removes work
+authority and completion binding. Replacement creates a fresh generation and may
+bind a different repository.
 
-The stronger repository boundary controls processes launched through
-`manageroo run`. The host's normal workspace and approval policy remains the
-operator-facing security boundary; continuity hooks are not a hostile-process
-sandbox. The action gateway is a scope boundary for supported Codex tool calls,
-not an operating-system claim about same-user processes that bypass hooks.
+Continuity state is signed with a private local authority key. Missing state can
+represent an unmanaged session. Existing malformed, truncated, unreadable,
+unsupported, or invalidly signed state fails closed at PreToolUse and Stop. It
+never silently tells the agent to continue normally.
 
-Inside a controlled run, each worker receives an immutable packet containing
-the current brief, exact task-owned paths, named reuse sources, exclusions, and
-proof bindings. The isolated mirror, command policy, changed-file checks,
-source-manifest comparison, gates, independent review, and final apply checks
-enforce that packet. This is where Manageroo prevents agent drift.
+Controlled workers run in `structured-worker` mode so operator continuity hooks
+do not interfere with schema-bound worker output.
 
-At run intake, a run-owned intent snapshot binds the brief used for that run.
-It does not become repository-wide authority and does not block a later current
-request. Every worker packet receives the current request verbatim plus its
-structured targets, named sources, exclusions, and proof when supplied. The
-controller repairs generated packets that omitted this block before launch.
-If a saved run is continued after its brief changed, Manageroo automatically
-supersedes it with a fresh run derived from the newer request instead of making
-the operator repeat or authorize the change. Post-worker scope, named-source,
-review, acceptance, and completion checks audit the agent's work against that
-request. Intent auditing never decides whether the operator is allowed to issue
-the request.
+## Read-only repository analysis
 
-When source, targets, exclusions, and proof are already explicit, the exact-task
-path deterministically creates the product outcome and task packet without
-product-analysis, reuse-research, repository-mapping, or plan-review model calls.
-Explicit `Required outcomes` in the product brief remain authoritative. Exact
-mode normalizes punctuation, case, and whitespace only for comparison, requires
-the `--proof` set to match those outcomes, and preserves the brief wording in
-the locked product model and proof bindings. Missing or unrelated proof text
-blocks before implementation.
-The implementation, verification, independent review, and delivery controls
-remain active.
+Read-only audits are first-class managed runs. They use isolated read-only
+workers, current repository evidence, bounded context, and independent
+controller validation. They produce durable structured and human-readable
+reports while proving that the product repository did not change.
 
-Operator reuse directives are also locked. A sentence directing Manageroo to
-use, reuse, copy, or port existing, finished, or named work must be copied
-exactly into one reuse decision's evidence and classified as `reuse-internal`,
-`reuse-external`, or `platform-native`. The task plan then binds the same need,
-decision, candidate, implementation method, and empty deviation. A custom
-replacement, changed candidate, omitted binding, or declared deviation blocks
-before implementation. Review receives those bindings and treats substitution
-as a blocking scope and truth defect even when substitute-specific tests pass.
-The generated instruction to use the current Git repository as source truth is
-repository scope, not a component-reuse directive, so it does not create a
-model-owned permission gate or require the reuse worker to quote boilerplate.
-
-The standard installer removes obsolete Manageroo permission-firewall hook
-entries, installs the bounded continuity hook set, and preserves unrelated hooks.
-It stages the complete Manageroo runtime beside the live installation before a
-directory swap, so concurrently executing hooks cannot repopulate a directory
-that the installer is recursively deleting.
-The staged app must match the source-app digest captured before installation.
-The install lock records whether Git provenance was knowable, the exact source
-commit and dirty state when known, the complete source-tree SHA-256, and the
-installed-app SHA-256. Source drift before the atomic app swap stops the update.
-The install repair command verifies required hook groups and every portable core
-skill instead of treating missing components as advisory success. Controller
-updates replay the complete verified source installer with recorded prefix,
-launcher directory, agent, and token-mode choices while preserving the optional
-surrounding stack. Guided uninstall separates runtime, hooks, owned skills, and
-state; it removes only a confirmed selection, keeps user-edited skill trees, and
-lists shared tools without claiming removal ownership.
+A read-only completion receipt records read-only intent and cannot satisfy a
+mutating request. A request such as “review this repository and do not change
+anything” never receives `--apply` authority.
 
 ## Source isolation
 
-The source repository is inventoried through Git-visible tracked and unignored files. Manageroo copies those files into a run-owned repository and verifies each copy's digest, size, and mode against that inventory before committing an internal baseline. Coding agents never need direct write access to the operator's source repository.
-Inventory inspection opens every path through pinned directory descriptors with
-no-follow semantics, snapshots and hashes each regular file through that one open
-descriptor, retries files that change identity or metadata, and fails closed when
-descriptor-relative access is unavailable. Only stable records reach the cache.
-Repository-relative paths containing backslashes fail closed instead of being
-normalized into a different file identity during workspace mirroring.
-Visible source paths and pending workspace paths must be regular files or
-directories; FIFOs, sockets, devices, and symlinks fail closed. Resume cleanup
-uses the double-force form of `git clean` only inside Manageroo's own disposable
-workspace so ignored nested Git repositories cannot survive as worker residue,
-then verifies that no ignored state remains.
+The source repository is inventoried through Git-visible tracked and unignored
+files. Manageroo copies it into a run-owned repository and verifies file digest,
+size, mode, and identity before establishing the internal baseline.
 
-After successful delivery:
+Workers do not need direct write access to the operator's source repository.
+Visible source paths and pending paths must be supported regular files or real
+directories. Unsafe symlinks, FIFOs, sockets, devices, path escapes, and unstable
+filesystem identities fail closed.
 
-1. Manageroo generates a binary-capable Git patch from isolated baseline to final checkpoint.
-2. Manageroo writes only pending result/report artifacts while required GBrain capture and Obsidian export run.
-3. Manageroo verifies that every source file still matches the original source manifest.
-4. `git apply --check` verifies the patch.
-5. Manageroo revalidates the source immediately before applying the patch.
-6. The controller applies the patch only when `--apply` was explicit or an existing project policy allows it; new configs default to no apply.
-7. Manageroo verifies the applied tree against the reviewed workspace; if a concurrent edit is
-   detected, it reverse-checks and reverses only its patch while preserving that edit.
-8. Only after delivery and the durable state transition succeed does the controller publish `COMPLETE` in the final result and report. A late failure overwrites stale success evidence and reverses the exact applied patch.
+Workspace-write workers may modify only their disposable repository. They may
+not change Git history, refs, repository-local Git metadata, or controller-owned
+run truth. Failed attempts restore the exact pre-attempt Git and controller
+state. Read-only worker mutation is detected and discarded.
 
-Every deterministic gate runs in its own disposable checkout at the reviewed
-checkpoint. Any tracked, untracked, ignored, mode, symlink, or HEAD mutation is
-rejected and discarded; gate output can never become the delivery patch.
+## Durable worker jobs
 
-Command output remains exact inside the controller. Secret redaction happens only
-when logs, reports, or machine-readable command records are persisted or displayed,
-so a Git patch is never rewritten into literal `<REDACTED>` content.
+Manageroo does not rely on a worker remembering previous chat. Each role receives
+one complete bounded packet. Durable truth lives on disk:
 
-A concurrent source change blocks application instead of guessing.
+```text
+.manageroo/runs/<run-id>/
+├─ controller/truth.json
+├─ controller/phase-journal.jsonl
+├─ jobs/<job-id>.json
+├─ worker-attempts/<job-id>/<attempt-id>.json
+├─ packets/<job-id>/<attempt-id>/prompt.md
+├─ agent-output/<job-id>/<attempt-id>.json
+├─ artifacts/
+└─ delivery/
+```
 
-## Fresh process roles
+A completed job is reusable only when its immutable specification, output
+artifact, artifact digest, parsed result digest, and latest completed attempt
+still agree. Missing, replaced, symlinked, or stale output returns the job to a
+retryable state instead of trusting it.
 
-Each agent role starts as a new process:
+`manageroo run --continue <run-id>` replays the Python controller from durable
+facts. It does not depend on the old model process.
+
+## Roles and planning
+
+Typical fresh roles include:
 
 - product analyst;
 - reuse researcher;
@@ -196,233 +140,160 @@ Each agent role starts as a new process:
 - plan compiler;
 - plan reviewer;
 - implementer;
-- reviewer;
+- independent reviewer;
 - repairer.
 
-Only verified artifacts move between roles. Conversational reasoning does not.
+Only verified structured artifacts move between roles. Exact-task mode can omit
+unnecessary analysis/model phases when targets, exclusions, outcomes, proof, and
+scope are already explicit; implementation, verification, review, and delivery
+controls remain active.
 
-## Stateless worker jobs
+Plan proof bindings connect every acceptance outcome to configured deterministic
+gates. Observable, security, deployment, authentication, visual, and user-journey
+outcomes require appropriate demonstration evidence rather than an unrelated
+green command.
 
-Manageroo is not “AI remembers better.” Manageroo makes remembering unnecessary.
+## Deterministic gates
 
-The controller writes run truth to disk. Each AI worker receives one complete assignment packet. If a worker drifts, dies, lies, or runs out of room, the controller records the failed attempt and starts a fresh worker from saved facts.
+Every gate runs in a disposable checkout containing the reviewed current working
+tree. Manageroo validates the executable against command policy and rejects any
+tracked, untracked, ignored, mode, symlink, HEAD, or Git-history mutation of that
+checkout. Gate output can never become the delivery patch.
 
-Every worker call is represented as a durable job:
+A required gate failure blocks completion. At least one real gate is required for
+a normal completion claim.
 
-```text
-.manageroo/runs/<run-id>/
-|-- controller/truth.json
-|-- controller/phase-journal.jsonl
-|-- jobs/<job-id>.json
-|-- worker-attempts/<job-id>/<attempt-id>.json
-|-- packets/<job-id>/<attempt-id>/prompt.md
-`-- agent-output/<job-id>/<attempt-id>.json
-```
+## Independent review and repair
 
-Completed jobs are loaded from recorded artifacts. They are not rerun merely because a chat was compacted or a new worker process starts. A completed job record must include a matching output-artifact SHA-256 hash, and the parsed artifact must match the recorded result hash, or it is treated as stale.
-The lexical artifact entry must also remain a single-link regular file. Manageroo
-hashes and parses bytes from the same validated descriptor so a symlink alias
-cannot be recorded or reused as run-owned output.
+Independent review receives the reviewed checkpoint, changed files, plan,
+acceptance bindings, and relevant evidence. It cannot edit the implementation
+workspace.
 
-`manageroo run --continue <run-id>` replays the Python controller from the saved run folder. The old worker process is not trusted or required. Replay keeps logical job IDs stable so later attempts continue the original job instead of creating shifted duplicate work.
-Product-analysis continuation also reuses the locked system-capacity and
-unknown-unknowns-preflight artifacts from that run; volatile host values such as
-free disk space cannot change the durable worker specification between attempts.
+Core Manageroo review and repair do not require AUTOREVIEW or Clawpatch. Those
+are optional enhanced command-owned lanes. When configured, each runs from a
+clean controller checkpoint. Manageroo captures and scope-checks changes,
+rejects Git-history or controller-metadata mutation, and verifies rollback on
+failure. External findings are not copied into an unrestricted AI repair prompt.
 
-## Evidence retrieval, not AI memory
+## Evidence retrieval
 
-Manageroo has a generic evidence boundary. It can normalize current repository intelligence, locked run artifacts, curated project knowledge, and external knowledge into a common provenance-preserving model.
-
-```text
-GitNexus ───────────────┐
-GBrain ─────────────────┤
-Manageroo run artifacts ├─> evidence normalization ─> ranking ─> ContextCompiler
-Project memory ─────────┘
-```
-
-Each evidence item retains source, location, authority, confidence, freshness, retrieval time, and a content hash. Providers may also attach a stable claim key so contradictions are surfaced instead of silently merged.
-
-The ranking policy prefers current repository evidence over run evidence, explicit project knowledge, external knowledge, and historical context. Confidence and freshness refine that ordering but do not let an old semantic match outrank current source truth merely because it sounds relevant.
-
-Successful configured GitNexus and GBrain discovery output is normalized into `artifacts/discovery/evidence.json` together with native Manageroo project/run evidence. Retrieved evidence can inform planning, but it cannot authorize edits, pass gates, approve review, apply patches, or mark a run `COMPLETE`.
-
-`ContextCompiler` can include ranked `EvidenceItem` objects after required repository context has been budgeted. Packet manifests retain evidence provenance and hashes, and prompts explicitly tell workers that retrieval is context rather than controller truth.
-
-See `docs/EVIDENCE_RETRIEVAL.md` for the provider and ranking contract.
-
-## Controller-owned commits
-
-Agents are forbidden from committing. The isolated repository contains a failing pre-commit hook. The controller also compares `HEAD` before and after every agent role. Once scope, acceptance evidence, review, and gates pass, the controller creates an internal checkpoint while bypassing the hook itself.
-
-For pytest-configured Python projects, validation uses a disposable environment with the project's declared runtime and test dependencies. Manageroo adds its default pytest range only when those dependencies do not declare pytest themselves.
-
-ClawPatch queue supervision is an optional external integration. The standalone `clawpatch-supervise` package owns finding transitions, partial-progress commits, checkpoints, recovery, validation environments, fixed-point review, and service exit policy.
-
-Manageroo keeps only an argv adapter in `clawpatch_release.py`. A dry run renders the exact standalone command. An applying run resolves the installed executable, requires its `--version` output to match the declared supervisor version exactly, invokes it with `shell=False`, streams its terminal output, and returns its exit code unchanged. The release-ready gate asks that executable for its external state path before reading the proof, so Manageroo does not duplicate platform path or checkpoint logic.
-
-The package metadata no longer publishes a `clawpatch-supervise` console script, and Manageroo does not import the standalone Python package. Native supervisor installers and the ownership-checked stack updater pin the public standalone repository independently. Before mutating an owned supervisor environment, the updater installs a tiny stdlib-only console-entry gate. Direct, service, and Manageroo-mediated queue launches then hold the same cross-platform installation lock for their complete lifetime, while updates hold it across package mutation and verification. A one-time platform process snapshot covers only migration from the older ungated launcher; it is not the ongoing synchronization primitive.
-
-Supervisor `--version` probes use that same runtime lock; only the tiny
-Manageroo gate-version query is lock-free because it does not import or execute
-the installed supervisor package.
-
-## Parallel mapping and review, sequential implementation
-
-Tasks are dependency ordered and executed sequentially in the same isolated integration repository. This is slower than unconstrained parallel editing but avoids incompatible branches and hidden interface assumptions.
-
-Repository mapping and isolated review may run as bounded parallel worker calls. Their packet names, output files, artifact writes, budgets, and completion state remain controller-owned. Manageroo does not run parallel implementation branches against the same files.
-
-## Required surrounding stack
-
-The surrounding stack provides first-class capabilities without taking control away from Manageroo:
-
-- **GitNexus**: required repository/code-graph intelligence for exploration, dependency awareness, impact analysis, debugging, and refactoring. Missing or failed discovery blocks a normal run.
-- **GBrain**: required exact-repository durable knowledge retrieval and pre-apply capture. The user never has to name it.
-- **AUTOREVIEW**: command-owned external review lane. Stack updates retain the
-  discovered candidate, approved root, resolved target, and filesystem identities;
-  any destination change before replacement fails closed without updating it. The
-  entry moved into rollback storage must still have the planned device and inode
-  before the staged installation can replace it or rollback storage can be removed.
-- **Clawpatch**: command-owned review and repair lane. Its own command owns its findings and repairs.
-- **Obsidian**: human-readable Markdown knowledge lane. Automatic updates use one
-  ownership contract for Winget, Homebrew, Flatpak, and Snap and fail closed when
-  the detected manager cannot prove ownership of the active installation.
-- **Document/prose command lane**: optional evidence over a run-owned manifest for long prose, PDFs, transcripts, articles, and exact-text workflows.
-
-Successful external repair reports are reusable only for the same run, command configuration,
-approved paths, and inputs. Continuation verifies the recorded checkpoint chain and Git diffs,
-then restores the exact clean final checkpoint only from a clean workspace. Ignored paths that
-predated the lane, including empty directory hierarchy and directory modes, are fingerprinted in
-checkpoint state, preserved across controller commits, and
-must remain unchanged and disjoint from checkpoint-tracked paths during restoration; incomplete
-legacy reports and dirty or unapproved ignored resume state fail closed without restoration.
-Immediately before each external command, Manageroo captures a bounded snapshot of repository-local
-Git metadata. Any command mutation of that metadata is restored and rejects the lane before Git-based
-path inspection. Checkpoint restoration and rollback reconstruct `.git` from the captured snapshot;
-they never copy the post-command live Git directory into the replacement workspace.
-Checkpoint restoration and failed-lane rollback materialize the desired Git tree outside the live
-workspace, move unchanged pre-existing ignored entries into that staged tree, and rotate the live
-workspace into run-owned recovery storage before installing the replacement. They never reset or
-clean the live workspace in place, so lane residue or data created during preflight races remains in
-the displaced workspace quarantine instead of being deleted. Quarantines are retained for recovery.
-If an ignored-entry move or workspace rotation fails before installation, Manageroo reverses every
-recorded move and restores the displaced workspace; an incomplete rollback keeps its quarantine.
-Before the final report exists, successful lane manifests form the same command-ordered chain, so
-an interrupted run restores its latest validated checkpoint without repeating completed lanes.
-
-These systems are capabilities, not completion authorities.
-
-`manageroo integrations configure --full` is the one-time project-level bridge
-between an installed surrounding stack and controlled-run use. It validates an
-existing Obsidian vault/export folder and writes argv-only templates for every
-available lane. Merely finding a binary in the host stack is not reported as an
-active Manageroo integration.
+Manageroo normalizes current repository intelligence, run artifacts, project
+memory, and optional external knowledge into provenance-preserving evidence.
+Each item retains source, location when known, authority, confidence, freshness,
+retrieval time, and content hash.
 
 ```text
-GitNexus / GBrain / TruffleHog / AUTOREVIEW / Clawpatch / Obsidian
-                        ↓
-              evidence and capabilities
-                        ↓
-               Manageroo controller
-                        ↓
-        scope + gates + review + proof + completion
+Current Git files ───────┐
+Run artifacts ───────────┤
+Project memory ──────────┼─> ranking ─> bounded ContextCompiler packets
+GitNexus (optional) ─────┤
+GBrain (optional) ───────┘
 ```
 
-Core acceptance still belongs to Manageroo's state, scope, gates, and evidence.
+Direct current repository evidence outranks stale or semantic external context.
+Evidence can inform planning; it cannot authorize edits, pass gates, approve
+review, apply a patch, or mark a run complete.
 
-Manageroo writes `verification/acceptance-evidence.json` instead of auto-marking human acceptance outcomes as passed. User-journey, browser, demo, deploy, visual, and security claims need matching demonstration evidence or they remain `unknown` and block `COMPLETE`.
+## Portable core and enhanced capabilities
 
-## Host-owned capabilities
+The portable core requires Python, Git, a supported isolated coding-agent
+adapter, a Git-backed project, deterministic gates, and Manageroo's own
+transactional/evidence/completion machinery.
 
-A user's host environment may contain additional skills and tools. Manageroo may use relevant capabilities when available, but it does not copy, delete, upgrade, or claim ownership of the entire host environment.
+Enhanced capabilities are optional unless explicitly required:
 
-The public Manageroo package must remain portable and free of private machine assumptions, personal paths, and user-specific configuration.
+- GitNexus repository intelligence;
+- GBrain exact-repository durable context and capture;
+- AUTOREVIEW;
+- Clawpatch;
+- Obsidian Markdown search/export;
+- bounded document/media analysis when the request actually requires it.
 
-Before every worker job, the capability router indexes local skill metadata,
-repository-local skills, and enabled local Codex plugin skill roots outside
-model context. It selects from controller-owned normal-language intent (never
-rendered packets or repository evidence), applies role/sandbox/interaction
-compatibility policy, injects only complete selected entrypoints within a hard
-budget, and records raw entrypoint plus full-tree digests as controller evidence.
-Discovery and ingestion pin each capability root and directory with no-follow
-descriptors, then derive entrypoint instructions and every tree hash from the
-same regular-file descriptor snapshots. Identity or metadata changes reject the
-capability instead of allowing content and audit metadata from different states.
-Generated task text can only rerank candidates already made eligible by the
-operator's original brief; it cannot activate or explicitly request another skill.
-The selected trees are rehashed immediately before every concrete provider
-launch, including fallback attempts. Codex catalog identities are refreshed at
-that same boundary before its ephemeral isolation profile is built.
-Codex workers receive a short-lived layered profile that removes the discovered
-global and repository catalog by canonical name and source path from model-visible
-context for that process. This is a deep module
-behind one automatic interface; workers and users do not implement routing at
-each call site.
-Capability source paths are canonicalized after the requested root itself passes
-the no-symlink check, so macOS aliases such as `/var` and `/private/var` cannot
-split disabled-path matching, selection records, and isolation records.
-Job artifacts and stack-tool destinations canonicalize ancestor directories while
-preserving the final path entry for independent link and executable-name checks.
+Readiness, setup, installer output, and runtime consume the same capability
+contract. Optional absence is reported but does not produce a false blocker.
+Explicitly required absence names the missing capability and remediation.
 
-Controller policies and saved prose preferences are not ordinary task
-capabilities. In particular, `use-installed-skills-first` is native Manageroo
-behavior, while normal/Caveman/Caveman Curse remains installer-selected state.
-Skill-pack and token-mode installation is serialized with a permanent advisory
-file lock, so another process cannot enter while owner diagnostics are still
-being published. Existing lock inodes must be private regular files and are
-never truncated or rewritten.
+When GBrain is used, queries and capture require an exact source mapping for the
+bound repository and reject cross-source output. When Obsidian is used, vault
+and export operations use no-follow descriptor-relative filesystem checks on
+supported platforms.
 
-Project-config mutation locks first attempt exclusive file creation. A contender
-that observes an existing lock reopens it without creation, avoiding the macOS
-concurrent-creation race while retaining the existing inode and link checks.
+## Delivery and recovery
 
-The durable worker budget is updated by Manageroo immediately before each real
-provider launch. Its newest controller-owned bytes remain authoritative for all
-parallel transaction guards, so one worker does not blame another controller
-reservation on its worker. Any later worker-authored change to that record is
-still restored and rejected.
+Mutating runs deliver through a transaction:
 
-Each independent review uses a fresh run-owned checkout name. An incomplete
-checkout left by an interrupted review is preserved for evidence and skipped;
-it cannot block the next review attempt.
+1. generate a binary-capable patch from the isolated baseline to the reviewed
+   final checkpoint;
+2. bind the patch digest and expected source state;
+3. verify the source still matches the original manifest;
+4. run `git apply --check`;
+5. record the delivery transaction before source mutation;
+6. apply only when the request authorizes mutation;
+7. verify the resulting source tree against the reviewed workspace;
+8. reverse only Manageroo's patch if a concurrent source edit makes final
+   verification fail;
+9. write final result/report and durable completion proof.
 
-Workers sharing one disposable repository serialize their transaction windows
-to keep rollback and tamper detection coherent. The wait window is derived from
-the whole-run runtime budget, so normal long-running parallel calls do not fail
-on an unrelated fixed 30-second lock timeout.
+Incomplete delivery recovery runs before optional integration checks or ordinary
+preflight. It uses only local Git, filesystem state, and Manageroo transaction
+records. External provider outages cannot prevent restoration of repository
+consistency. Recovery is idempotent across repeated restarts.
 
-`release-ready` executes configured verification gates in a disposable local
-clone checked out at the exact candidate commit. After every gate, Manageroo
-rejects any HEAD, tracked, untracked, or ignored mutation before another gate
-can run or the release can be authorized. An official Git reference transaction
-holds that candidate HEAD while final evidence is persisted, followed by another
-HEAD, source-digest, and cleanliness snapshot. A READY handoff binds deployment
-to a tar archive generated from that locked commit and records the archive's
-SHA-256, so a later source-worktree mutation cannot change the authorized ship
-bytes. The repository's configured gate uses
-`verify_release.py --check-only` and an isolated bytecode cache; the normal
-operator invocation still refreshes `BUILD-VALIDATION.json`.
+## Signed completion receipt
 
-`doctor`, `ready`, and `stack-doctor` are deliberately narrower diagnostics.
-Their JSON reports expose `release_authority: false`, a named diagnostic scope,
-and `manageroo release-ready` as the final release command. Only
-`release-ready` has `release_authority: true`; its positive result is still an
-operator handoff, not a deployment.
+The Stop boundary does not search historical run folders for files that merely
+look complete. A successful run creates one signed controller-owned receipt bound
+to:
 
-A completed Manageroo run records the source repository HEAD captured before the
-run together with the reviewed patch and final source-tree digests. If HEAD or
-the patch changes before that proof is attached, the run is downgraded instead
-of publishing `COMPLETE`. `release-ready` requires the current HEAD to equal that
-run-bound commit in addition to matching both digests.
+- session and request generation;
+- exact request and metadata digests;
+- execution intent;
+- exact run ID and repository identity;
+- starting Git HEAD;
+- final patch digest where applicable;
+- final result and conformance proof digests;
+- applied/current source-tree identity;
+- creation time and authority signature.
 
-## Proactive learning, no silent self-mutation
+Continuity state points to the one exact receipt authorized for the active
+request. Stop verifies the signature, every bound artifact, and the current
+repository state. Forged JSON, another request's receipt, an earlier generation,
+another repository, a reverted patch, or source edits after completion all fail.
 
-Every run can emit improvement cards under `artifacts/learning/improvement-cards.json` and copy pending cards into `.manageroo/cache/learning/pending/`.
+## Completion authority
 
-Those cards are structured suggestions. They rank value and risk, route the lesson to a destination such as project memory, skill improvement, config, docs, installer, GBrain capture, or backlog, and cite run evidence.
+Only the controller state machine can transition to `COMPLETE`. Worker prose,
+operator chat claims, external tool success, and committed validation summaries
+are not substitutes for current proof.
 
-The controller may save pending cards automatically. It must not silently change behavior, skills, config, docs, installer behavior, or memory. Applying a supported card requires:
+A completion claim therefore means:
 
-```bash
-manageroo learning apply CARD_ID --approve
-```
+- the exact current request and repository were used;
+- authorized work was performed in isolation;
+- scope and Git/controller integrity held;
+- deterministic gates passed;
+- independent review and acceptance evidence passed;
+- delivery was completed or read-only immutability was proven;
+- a signed receipt still matches the current repository.
+
+## Concurrency
+
+Implementation tasks remain dependency ordered and exclusive when they share a
+writable integration workspace. Read-only mapping and review can use isolated
+per-worker checkouts and bounded parallel calls. Parallel result collection is
+deterministic, while any attempted mutation of a read-only checkout is rejected.
+
+## Installation and updates
+
+The installer stages the complete runtime before replacing the live app tree,
+checks source/app digests, preserves unrelated hooks, records provenance, and
+reports whether the portable core is usable. It distinguishes:
+
+- core installed and ready;
+- installed but coding-agent setup required;
+- optional enhanced lanes available;
+- optional enhanced lanes unavailable;
+- precise required next action.
+
+Updates and uninstall act only on Manageroo-owned unchanged resources. Existing
+user-owned tools and edited skill trees are preserved.
