@@ -16,6 +16,7 @@ def _install_controller_policies() -> None:
     from . import evidence_policy as evidence_policy_module
     from . import intent_lock as intent_lock_module
     from . import integrations as integrations_module
+    from . import managed_hook_policy as managed_hook_module
     from . import orchestrator as orchestrator_module
     from . import project as project_module
     from . import readiness as readiness_module
@@ -43,6 +44,7 @@ def _install_controller_policies() -> None:
     from .read_only_run_policy import install_read_only_run_policy
     from .release_proof_policy import install_release_proof_policy
     from .release_ready_policy import install_release_ready_policy
+    from .request_lifecycle_policy import install_request_lifecycle_policy
     from .runtime_contract_policy import (
         install_runtime_cli_policy,
         install_runtime_contract_policy,
@@ -70,6 +72,7 @@ def _install_controller_policies() -> None:
     install_read_only_run_policy(orchestrator_module, agent_continuity_module)
     install_release_proof_policy(orchestrator_module)
     install_managed_contract_policy(orchestrator_module, agent_continuity_module)
+    install_request_lifecycle_policy(agent_continuity_module, managed_hook_module)
     install_runtime_contract_policy(
         orchestrator_module, readiness_module, release_ready_module
     )
