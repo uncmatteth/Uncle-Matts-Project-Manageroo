@@ -15,6 +15,7 @@ def _install_controller_policies() -> None:
     from . import evidence as evidence_module
     from . import evidence_policy as evidence_policy_module
     from . import intent_lock as intent_lock_module
+    from . import integrations as integrations_module
     from . import orchestrator as orchestrator_module
     from . import project as project_module
     from . import readiness as readiness_module
@@ -36,6 +37,7 @@ def _install_controller_policies() -> None:
         install_managed_contract_entrypoint_policy,
         install_managed_contract_policy,
     )
+    from .obsidian_export_policy import install_obsidian_export_policy
     from .plan_proof_policy import install_plan_proof_policy
     from .project_initialization_policy import install_project_initialization_policy
     from .read_only_run_policy import install_read_only_run_policy
@@ -54,6 +56,7 @@ def _install_controller_policies() -> None:
     install_context_hardening(context_module)
     install_evidence_hardening(evidence_module, evidence_policy_module)
     install_intent_audit_policy(intent_lock_module)
+    install_obsidian_export_policy(integrations_module)
     install_project_initialization_policy(project_module)
     install_skill_pack_policy(skill_pack_module)
     install_stack_doctor_policy(stack_doctor_module)
