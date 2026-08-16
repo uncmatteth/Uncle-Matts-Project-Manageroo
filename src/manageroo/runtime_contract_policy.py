@@ -7,8 +7,9 @@ from .runtime_contract import (
     default_gbrain_source_id,
     ensure_default_obsidian_vault,
     gbrain_status_has_repo,
+    required_capability_ids,
     required_stack_enabled,
-    required_stack_records,
+    runtime_capability_records,
     validate_required_stack,
 )
 
@@ -21,10 +22,19 @@ def _recompute_readiness(report: dict[str, Any]) -> dict[str, Any]:
         dict.fromkeys(
             str(item.get("next") or "")
             for item in report.get("items", [])
-            if not item.get("ok") and item.get("next")
+            if item.get("required", True) and not item.get("ok") and item.get("next")
         )
     )
     return report
+
+
+def _orchestrator_required_capabilities(orchestrator: Any) -> tuple[str, ...]:
+    explicit = getattr(orchestrator, "required_runtime_capabilities", ())
+    if callable(explicit):
+        explicit = explicit()
+    if not isinstance(explicit, (list, tuple, set, frozenset)):
+        explicit = ()
+    return required_capability_ids(orchestrator.config, explicit)
 
 
 def install_runtime_contract_policy(
@@ -37,7 +47,30 @@ def install_runtime_contract_policy(
         return
 
     def validate_stack(self: Any) -> None:
-        validate_required_stack(self.config)
+        required = _orchestrator_required_capabilities(self)
+        records = runtime_capability_records(
+            self.config, required_capabilities=required
+        )
+        self.runtime_capability_report = {
+            "required": list(required),
+            "records": records,
+            "enhanced_stack_available": [
+                record["id"] for record in records if record["available"]
+            ],
+            "enhanced_stack_unavailable": [
+                record["id"] for record in records if not record["available"]
+            ],
+        }
+        writer = getattr(self, "_write_or_reuse_json", None)
+        if callable(writer):
+            writer(
+                "verification/runtime-capabilities.json",
+                self.runtime_capability_report,
+                lock=True,
+            )
+        validate_required_stack(
+            self.config, required_capabilities=required
+        )
 
     orchestrator_class._validate_required_stack_configuration = validate_stack
     orchestrator_class._manageroo_runtime_contract_installed = True
@@ -56,22 +89,31 @@ def install_runtime_contract_policy(
             return report
         if not required_stack_enabled(config):
             return report
+        explicit = ("gbrain",) if require_gbrain else ()
+        records = runtime_capability_records(
+            config, required_capabilities=explicit
+        )
         existing_names = {
             str(item.get("name") or "") for item in report.get("items", [])
         }
-        for record in required_stack_records(config):
+        for record in records:
             if record["name"] in existing_names:
                 continue
             report.setdefault("items", []).append(
                 {
                     "name": record["name"],
-                    "ok": bool(record["ok"]),
+                    "ok": bool(record["available"]),
                     "detail": str(record["detail"]),
                     "next": str(record["next"]),
-                    "required": True,
-                    "severity": "required",
+                    "required": bool(record["required"]),
+                    "severity": "required" if record["required"] else "optional",
                 }
             )
+        report["runtime_capabilities"] = {
+            "available": [record["id"] for record in records if record["available"]],
+            "unavailable": [record["id"] for record in records if not record["available"]],
+            "required": [record["id"] for record in records if record["required"]],
+        }
         return _recompute_readiness(report)
 
     readiness_module.readiness = readiness
@@ -86,18 +128,10 @@ def install_runtime_cli_policy(cli_module: Any) -> None:
     original = cli_module.configure_integrations
 
     def configure_integrations(repo: Path, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        # setup/solo omit `full`; real product-run adapters must configure the
-        # complete required stack. The deterministic mock harness intentionally
-        # remains independent of host integrations.
         try:
             config = cli_module.load_config(Path(repo))
         except Exception:
             config = {}
-        implicit_public_setup = "full" not in kwargs
-        if implicit_public_setup and required_stack_enabled(config):
-            kwargs["full"] = True
-            kwargs["gbrain"] = True
-            kwargs["gitnexus"] = True
         if kwargs.get("full") and kwargs.get("obsidian_vault") is None:
             current = str(
                 config.get("integrations", {}).get("obsidian_vault") or ""
@@ -109,7 +143,9 @@ def install_runtime_cli_policy(cli_module: Any) -> None:
                 kwargs["obsidian_vault"] = vault
                 kwargs.setdefault("obsidian_export_folder", export)
         report = original(repo, *args, **kwargs)
-        if implicit_public_setup and required_stack_enabled(config):
+        # Exact GBrain source mapping is needed only when that optional lane was
+        # selected/configured for this setup call.
+        if required_stack_enabled(config) and bool(kwargs.get("gbrain")):
             current_status = cli_module.gbrain_setup_status()
             if gbrain_status_has_repo(current_status, Path(repo)):
                 source_report = current_status
