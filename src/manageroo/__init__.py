@@ -40,6 +40,7 @@ def _install_controller_policies() -> None:
     )
     from .obsidian_export_policy import install_obsidian_export_policy
     from .plan_proof_policy import install_plan_proof_policy
+    from .portable_core_policy import install_portable_core_policy
     from .project_initialization_policy import install_project_initialization_policy
     from .read_only_run_policy import install_read_only_run_policy
     from .release_proof_policy import install_release_proof_policy
@@ -76,6 +77,7 @@ def _install_controller_policies() -> None:
     install_runtime_contract_policy(
         orchestrator_module, readiness_module, release_ready_module
     )
+    install_portable_core_policy(orchestrator_module, readiness_module)
     install_release_ready_policy(release_ready_module)
 
     # Import the CLI only after module-level policies above are installed so its bound
