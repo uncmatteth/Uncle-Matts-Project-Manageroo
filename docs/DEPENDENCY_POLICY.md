@@ -1,146 +1,133 @@
 # Dependency policy
 
-## Required
+Manageroo is a **portable core controller** with optional enhanced integrations. The
+controller owns intent, repository binding, worker isolation, durable run truth,
+verification, delivery, recovery, and completion authority. An external tool may add
+evidence or a specialized lane, but it never becomes the authority for completion.
 
-- Python 3.11+
-- Git
-- A Git-backed target repository for real product runs
-- One AI IDE, CLI agent, or configured runtime for live coding-agent operation
-- At least one deterministic verification gate for completion claims
-- GBrain with an exact source mapping for the target repository
-- GitNexus
-- An existing Obsidian Markdown vault/export folder
-- TruffleHog for AUTOREVIEW
-- AUTOREVIEW
-- Clawpatch
+## Portable core requirements
 
-## Required local stack
+A normal controlled coding run requires:
 
-- GBrain
-- GitNexus
-- Obsidian
-- TruffleHog
-- AUTOREVIEW
-- Clawpatch
+- Python 3.11 or newer;
+- Git;
+- a Git-backed target repository;
+- one supported coding-agent adapter with a verified host filesystem boundary;
+- at least one deterministic verification gate appropriate to the target project;
+- Manageroo's own transactional workspace, evidence, review, delivery, and completion
+  machinery.
 
-These systems stay external to the thin controller, but normal product runs
-require their configured lanes. A missing, unhealthy, unscoped, or failed lane
-blocks the run. The deterministic `mock` adapter is the test harness and does
-not turn third-party commands into unit-test dependencies.
+The deterministic `mock` adapter is a test double. It proves controller behavior but is
+not a live coding-agent runtime.
+
+## Enhanced integration stack
+
+The following lanes are **optional for ordinary portable-core runs**:
+
+- GBrain for exact-repository durable knowledge;
+- GitNexus for repository and code-graph intelligence;
+- AUTOREVIEW for an additional command-owned review/repair lane;
+- Clawpatch for an additional command-owned review/repair lane;
+- Obsidian for Markdown context search and report export;
+- TruffleHog when the selected AUTOREVIEW installation requires it.
+
+When an enhanced lane is configured and healthy, Manageroo records and uses it. When it
+is absent, the run records the lane as unavailable and continues with Manageroo's core
+controller unless the current operation explicitly requires that capability.
+
+A project or operation may explicitly require individual lanes through the authoritative
+runtime capability contract. In that case, only the named missing or failed capability
+blocks the run. Manageroo must not convert every real-agent run into a hidden full-stack
+requirement.
+
+## Exact source mapping
+
+GBrain output is trusted only as external context. When GBrain is selected or explicitly
+required, Manageroo requires an exact source mapping for the target repository, scopes
+queries to that source, filters returned records to it, and binds capture to the same
+source. A mapping for another repository is never substituted.
 
 ## Agent surfaces
 
-This should not need a special build for each AI vendor. Any AI IDE or agent
-that can read the repo and run shell commands can use the installed
-`manageroo` CLI and the repo-local skill.
+Manageroo does not require a special build for each AI vendor. Any AI IDE or agent that
+can run the installed CLI can use the controller-facing workflow. When Manageroo launches
+workers itself, it uses a configured adapter:
 
-When this tool launches fresh agent processes itself, it uses a configured
-adapter:
+- `codex` for the built-in Codex adapter;
+- `generic` for a CLI wired to the structured output contract and independently isolated
+  from the host filesystem;
+- `mock` only for deterministic tests.
 
-- `codex` for the built-in Codex adapter.
-- `generic` for any CLI that can be wired to the adapter contract and produce the required JSON artifacts.
+A provider approval flag is not equivalent to a host filesystem boundary. Manageroo
+refuses a live worker that lacks verified isolation.
 
-No single AI product is the point.
+## Target-project tools
 
-## Not required
+Node, npm, pnpm, Bun, Cargo, Go, Maven, Gradle, databases, browsers, or other build tools
+are required only when:
 
-- Any particular IDE
-- Codex specifically, unless the project config selects the Codex adapter
-- Node, npm, Cargo, Go, Maven, Gradle, or other build tools unless the target repo's verification gates call them
-- Bun or Node except when the selected external stack installation needs them
+- the target repository's deterministic gates call them; or
+- the operator selects an enhanced integration whose installer/runtime needs them.
 
-The installer records selected external tools in `install-lock.json`. It installs Codex only when run with `--install-codex`.
+Codex is required only when the project selects the Codex adapter. The installer records
+selected external tools and their provenance in `install-lock.json`.
 
-## Token-reduction skills
+## Skill pack
 
-Token reduction is one feature with two styles. The package includes both
-bundled skill files so the user can switch later, but only the selected mode is
-active:
+A normal operator installation reconciles Manageroo's bundled core skill pack under
+`~/.agents/skills`. The controller automatically routes relevant helper instructions; the
+operator does not need to remember skill names.
 
-- `caveman`: clean style.
-- `uncle-matts-caveman-curse`: curse style, because life is more fun with
-  appropriately placed, well-used profanity.
+Bundled skills are files, not network runtime dependencies. Existing host-owned versions
+are reused rather than overwritten. Manageroo updates or removes only trees it created
+and whose recorded digest still matches. User edits revoke Manageroo's ownership claim.
 
-They are local skill files, not network dependencies. The installer can select a
-mode with `--token-mode caveman` or `--token-mode curse`. Users can switch later
-with `manageroo token-mode set ...`.
+The pack includes controller routing, prompt cleanup, ingestion, document and exact-text
+workflows, diagnostics, test-driven development, reporting, web-copy, interface cleanup,
+and token-reduction styles. The reviewed Matt Pocock subset and its pinned provenance are
+documented in `docs/MATT_POCOCK_SKILLS.md`.
 
-Existing different host-owned skill files are reused in place and are not
-overwritten or copied into a backup trail. Manageroo records ownership only for
-trees it creates; later updates replace only an unchanged owned tree. A user edit
-is preserved and revokes Manageroo's removal/update claim for that tree.
+Copied skill folders can be curated locally with:
 
-## Required skill pack
+```bash
+manageroo skills reconcile --source ~/Downloads/SKILLS --include-external --apply
+```
 
-Core install adds the Manageroo skill pack under `~/.agents/skills`. During
-Manageroo runs, the controller
-automatically chooses the right helper without the user remembering skill names;
-compatible AI IDE agents can also use the installed metadata directly. A deliberately
-minimal package/test installation may omit it, but a normal operator installation
-must reconcile it before claiming the Manageroo workflow is ready.
+The command remains local, reports duplicate names, preserves conflicts, and does not
+fetch arbitrary skills from the network.
 
-- `uncle-matts-project-manageroo`
-  for controller routing.
-- `pimp-my-prompt` for rough request intake and reusable prompt cleanup.
-- `brain-ops` and `query` for GBrain-backed memory lookup.
-- `ingest`, `idea-ingest`, `media-ingest`, and `voice-note-ingest` for source
-  capture.
-- `article-enrichment`, `book-mirror`, and `strategic-reading` for long prose.
-- `pdf`, `brain-pdf`, `citation-fixer`, `reports`, and
-  `exact-text-replacement` for PDF work, citations, reports, and exact wording.
-- `writing-for-agents` for writing predictable skills and agent instruction files.
-- `edit-skill` for keeping local skills short, clear, and non-duplicative.
-- `skillify` for deciding whether a workflow deserves a skill and checking its proof.
-- `diagnosing-bugs` for broken, flaky, confusing, or slow behavior.
-- `tdd` for one behavior test at a time.
-- `autoreview` for closeout code review before commit, release, or handoff.
-- `plain-web-copy` for factual public copy.
-- `fix-my-bad-website` for website and app-screen cleanup when the page looks generic.
-- `caveman` for clean token reduction.
-- `uncle-matts-caveman-curse` for token reduction with profanity when selected.
+## AUTOREVIEW, Clawpatch, and TruffleHog
 
-These are bundled files, not network dependencies. Existing different local
-versions are reused without replacement. Manageroo-owned versions update only
-while their recorded full-tree digest still matches. They are available even
-when token mode is off.
+AUTOREVIEW and Clawpatch are enhanced **command-owned** lanes, not freehand AI prompts.
+When configured, Manageroo runs each command from a clean controller checkpoint, captures
+its result, scope-checks its edits, rejects Git-history changes, and rolls back a failed or
+out-of-scope lane before continuing. Their findings are not copied into an unrestricted AI
+repair prompt.
 
-The reviewed Matt Pocock subset, pinned source commit, dependency graph, side effects, and upgrade policy are documented in `docs/MATT_POCOCK_SKILLS.md`.
+The guided stack installer may install AUTOREVIEW from its pinned source, install or reuse
+a pinned TruffleHog executable required by that lane, and install Clawpatch through its
+pinned package path. Those actions are separate from the portable core installation and
+must not be reported as core prerequisites.
 
-Copied skill folders can be curated locally with
-`manageroo skills reconcile --source ~/Downloads/SKILLS --include-external
---apply`. This imports skill entrypoints plus their support files, backs up
-same-name conflicts, reports duplicate names across scanned roots, and does not
-fetch anything from the network. Later scans exclude Manageroo-generated backup
-and staging directories so archived copies cannot become candidates or false duplicates.
-
-## AUTOREVIEW and Clawpatch
-
-The stack installer installs AUTOREVIEW from the canonical OpenClaw
-`agent-skills` repository when it is missing. It checks both
-`~/.agents/skills/autoreview` and `~/.codex/skills/autoreview` first. Because
-AUTOREVIEW's preflight requires TruffleHog, Manageroo reuses an existing binary
-or downloads the release-pinned official archive for the detected Linux,
-macOS, or Windows architecture, verifies its pinned SHA-256 checksum, and
-installs only the executable beside the Manageroo launcher. Existing copies
-remain user-owned. Clawpatch
-uses the upstream package install path, `pnpm add -g clawpatch`, runs
-`clawpatch doctor`, checks Codex login status for Clawpatch's codex provider,
-and records failures or missing package managers instead of claiming completion.
-
-AUTOREVIEW and Clawpatch are required command-owned repair
-lanes, not optional AI advice. MANAGEROO runs the configured command,
-captures the result, scope-checks any edits, and blocks on command failure. The
-AI repairer must not freehand fixes from AUTOREVIEW or Clawpatch findings.
-
-## GBrain lanes
+## GBrain installation lanes
 
 The installer exposes both GBrain paths instead of hiding the choice:
 
-- `--gbrain-lane local`: the MANAGEROO local lane using Bun, PGLite init,
-  status probes, and source-mapping commands.
-- `--gbrain-lane official`: the upstream GBrain agent-supervised protocol at
-  `INSTALL_FOR_AGENTS.md`.
+- `--gbrain-lane local`: Manageroo's local setup path with status and source-mapping
+  checks;
+- `--gbrain-lane official`: the upstream agent-supervised protocol.
 
-The official lane is not compressed into a silent one-button guess because it
-asks about API keys, search mode, source mapping, skills, recurring jobs, and
-verification.
+Either path is optional unless the operator or project explicitly requires GBrain. Once
+selected, setup and readiness must agree on its executable health and exact source
+mapping before reporting that capability ready.
+
+## Token-reduction modes
+
+Token reduction is one optional presentation feature with two bundled styles:
+
+- `caveman`;
+- `uncle-matts-caveman-curse`.
+
+Only the selected mode is active. Users can change it with
+`manageroo token-mode set ...`; neither style changes Manageroo's safety or completion
+contract.
