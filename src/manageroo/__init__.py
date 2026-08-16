@@ -38,6 +38,7 @@ def _install_controller_policies() -> None:
     )
     from .plan_proof_policy import install_plan_proof_policy
     from .project_initialization_policy import install_project_initialization_policy
+    from .read_only_run_policy import install_read_only_run_policy
     from .release_proof_policy import install_release_proof_policy
     from .release_ready_policy import install_release_ready_policy
     from .runtime_contract_policy import (
@@ -63,6 +64,7 @@ def _install_controller_policies() -> None:
     install_discovery_policy(orchestrator_module)
     install_evidence_policy(orchestrator_module)
     install_evidence_artifact_guard(orchestrator_module)
+    install_read_only_run_policy(orchestrator_module, agent_continuity_module)
     install_release_proof_policy(orchestrator_module)
     install_managed_contract_policy(orchestrator_module, agent_continuity_module)
     install_runtime_contract_policy(
