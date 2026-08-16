@@ -99,8 +99,13 @@ class OriginalContractRestorationTests(unittest.TestCase):
             ["gbrain", "call", "query", "{gbrain_query_payload}"],
         )
 
-    def test_every_controlled_run_requires_gbrain(self):
-        self.assertTrue(requested_intelligence_lanes("Fix login.")["gbrain-search"])
+    def test_gbrain_is_requested_only_when_the_operator_names_external_memory(self):
+        self.assertFalse(requested_intelligence_lanes("Fix login.")["gbrain-search"])
+        self.assertTrue(
+            requested_intelligence_lanes("Use GBrain for prior project context.")[
+                "gbrain-search"
+            ]
+        )
 
     def test_worker_parallelism_is_bounded_to_two(self):
         self.assertEqual(DEFAULT_CONFIG["orchestration"]["max_parallel_agent_calls"], 2)
@@ -291,13 +296,16 @@ class OriginalContractRestorationTests(unittest.TestCase):
             hooks = json.loads(Path(report["path"]).read_text(encoding="utf-8"))["hooks"]
             self.assertIn("Stop", hooks)
 
-    def test_public_contract_does_not_relabel_original_stack_optional(self):
+    def test_public_contract_distinguishes_portable_core_from_enhanced_lanes(self):
         dependency = (ROOT / "docs" / "DEPENDENCY_POLICY.md").read_text(encoding="utf-8")
         integrations = (ROOT / "docs" / "EXTERNAL_INTEGRATIONS.md").read_text(encoding="utf-8")
         architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-        self.assertIn("required local stack", dependency.lower())
+        self.assertIn("portable core", dependency.lower())
+        self.assertIn("enhanced", dependency.lower())
         self.assertIn("exact source mapping", integrations.lower())
+        self.assertIn("optional", integrations.lower())
         self.assertIn("automatic managed execution", architecture.lower())
+        self.assertIn("portable core", architecture.lower())
 
 
 if __name__ == "__main__":
