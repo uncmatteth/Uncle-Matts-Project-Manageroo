@@ -168,6 +168,27 @@ class ProjectInitializationTests(unittest.TestCase):
             ):
                 self.assertNotIn(placeholder, text)
 
+    def test_project_memory_deduplicates_items_within_each_operation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            created = ensure_project_memory(
+                repo,
+                shipped=["Version 1 released.", "  Version 1   released.  "],
+            )
+            self.assertEqual(
+                created["content"].splitlines().count("- Version 1 released."),
+                1,
+            )
+
+            updated = ensure_project_memory(
+                repo,
+                shipped=["Version 2 released.", "Version 2 released."],
+            )
+            self.assertEqual(
+                updated["content"].splitlines().count("- Version 2 released."),
+                1,
+            )
+
     def test_concurrent_project_memory_updates_preserve_all_entries(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)

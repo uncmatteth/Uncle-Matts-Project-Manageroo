@@ -27,7 +27,14 @@ def _clean(value: str) -> str:
 
 
 def _clean_items(values: list[str] | tuple[str, ...] | None) -> list[str]:
-    return [item for item in (_clean(value) for value in (values or [])) if item]
+    items: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        item = _clean(value)
+        if item and item not in seen:
+            items.append(item)
+            seen.add(item)
+    return items
 
 
 def _bullets(values: list[str], fallback: str) -> list[str]:
