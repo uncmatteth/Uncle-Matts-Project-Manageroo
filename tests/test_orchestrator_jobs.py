@@ -75,6 +75,29 @@ class OrchestratorJobCliTests(unittest.TestCase):
         )
         return repo
 
+    def _unrelated_dirty_state(self, repo: Path) -> dict[str, bytes | None]:
+        return {
+            "tracked": (repo / "README.md").read_bytes(),
+            "untracked": (
+                (repo / "unrelated-untracked.txt").read_bytes()
+                if (repo / "unrelated-untracked.txt").is_file()
+                else None
+            ),
+            "status": subprocess.run(
+                ["git", "status", "--porcelain=v1", "-z"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            ).stdout,
+        }
+
+    def _seed_unrelated_dirty_work(self, repo: Path) -> dict[str, bytes | None]:
+        (repo / "README.md").write_bytes(b"# Fixture\n\nUnrelated tracked edit.\n")
+        (repo / "unrelated-untracked.txt").write_bytes(
+            b"Unrelated untracked work.\n"
+        )
+        return self._unrelated_dirty_state(repo)
+
     def test_mock_run_creates_job_records_and_status_summary(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
@@ -131,6 +154,7 @@ class OrchestratorJobCliTests(unittest.TestCase):
     def test_obsidian_export_failure_cannot_leave_applied_source_or_complete_result(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
+            dirty_state = self._seed_unrelated_dirty_work(repo)
             with patch(
                 "manageroo.orchestrator.ObsidianIntegration.export",
                 side_effect=RuntimeError("forced export failure"),
@@ -146,10 +170,12 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertEqual(final["status"], "BLOCKED")
             self.assertFalse(final.get("applied_to_source", False))
             self.assertEqual(read_json(controller.state_path)["phase"], "BLOCKED")
+            self.assertEqual(self._unrelated_dirty_state(repo), dirty_state)
 
     def test_late_complete_transition_failure_rolls_back_exact_applied_patch(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
+            dirty_state = self._seed_unrelated_dirty_work(repo)
             controller = Orchestrator(repo, adapter=MockAdapter())
             real_transition = controller._transition
 
@@ -170,10 +196,12 @@ class OrchestratorJobCliTests(unittest.TestCase):
             final = read_json(controller.run_root / "delivery" / "final-result.json")
             self.assertEqual(final["status"], "BLOCKED")
             self.assertFalse(final["applied_to_source"])
+            self.assertEqual(self._unrelated_dirty_state(repo), dirty_state)
 
     def test_interrupted_apply_transaction_is_recovered_before_continuation(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = self._repo(Path(temp))
+            dirty_state = self._seed_unrelated_dirty_work(repo)
             result = Orchestrator(repo, adapter=MockAdapter()).run(
                 brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
                 mode="build",
@@ -208,6 +236,7 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertFalse(
                 (run_root / "delivery" / "delivery-transaction.json").exists()
             )
+            self.assertEqual(self._unrelated_dirty_state(repo), dirty_state)
 
     def test_exact_task_skips_model_discovery_mapping_and_planning(self):
         with tempfile.TemporaryDirectory() as temp:
