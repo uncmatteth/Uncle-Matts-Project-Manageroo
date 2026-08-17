@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +15,7 @@ class RequestLifecyclePolicyTests(unittest.TestCase):
     def _repo(self, root: Path, name: str) -> Path:
         repo = root / name
         repo.mkdir()
-        (repo / ".git").mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
         return repo.resolve()
 
     def test_cancel_invalidates_completion_and_new_work_starts_fresh(self):
@@ -109,7 +110,7 @@ class RequestLifecyclePolicyTests(unittest.TestCase):
             self.assertEqual(Path(replaced["bound_repo"]), repo_b)
             self.assertEqual(replaced["messages"][0]["relation"], "replacement")
 
-    def test_paused_request_denies_run_until_resume(self):
+    def test_paused_request_keeps_run_under_operator_control_until_resume(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = self._repo(root, "repo")
@@ -128,7 +129,7 @@ class RequestLifecyclePolicyTests(unittest.TestCase):
                 cwd=str(repo),
                 state_root=state_root,
             )
-            denied = process_codex_continuity_hook(
+            paused_result = process_codex_continuity_hook(
                 {
                     "hook_event_name": "PreToolUse",
                     "session_id": "session",
@@ -138,9 +139,7 @@ class RequestLifecyclePolicyTests(unittest.TestCase):
                 },
                 state_root=state_root,
             )
-            self.assertEqual(
-                denied["hookSpecificOutput"]["permissionDecision"], "deny"
-            )
+            self.assertEqual(paused_result, {})
             capture_current_request(
                 session_id="session",
                 turn_id="turn-3",

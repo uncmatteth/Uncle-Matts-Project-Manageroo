@@ -44,8 +44,34 @@ _REPOSITORY_NAME_RE = re.compile(
 _PATH_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/][^\s\"'`]+|/(?:[^\s\"'`]+))"
 )
+_EVIDENCE_PATH_PREFIX_RE = re.compile(
+    r"\b(?:(?:pasted|attached|saved)\s+)?(?:artifact|error|evidence|handoff|"
+    r"logs?|output|report|trace)\s*:\s*$",
+    re.IGNORECASE,
+)
+_TRAILING_EVIDENCE_FILE_PREFIX_RE = re.compile(
+    r"\b(?:from|read|review|see|then|using)\s*$", re.IGNORECASE
+)
+_EVIDENCE_FILE_SUFFIXES = frozenset(
+    {".json", ".jsonl", ".log", ".md", ".out", ".txt", ".yaml", ".yml"}
+)
 _REPOSITORY_NAME_STOPWORDS = frozenset(
-    {"a", "an", "and", "but", "for", "is", "of", "on", "the", "this", "to", "with", "without"}
+    {
+        "a",
+        "an",
+        "and",
+        "but",
+        "for",
+        "going",
+        "is",
+        "of",
+        "on",
+        "the",
+        "this",
+        "to",
+        "with",
+        "without",
+    }
 )
 _GENERIC_PROJECT_WORDS = frozenset(
     {
@@ -80,10 +106,73 @@ def _discover_project_records() -> list[dict[str, Any]]:
     return [item for item in report.get("projects", []) if isinstance(item, dict)]
 
 
+def _git_directory_valid(git_dir: Path) -> bool:
+    if not (git_dir / "HEAD").is_file():
+        return False
+    if (git_dir / "objects").is_dir():
+        return True
+    try:
+        common_value = (git_dir / "commondir").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return False
+    common = Path(common_value).expanduser()
+    if not common.is_absolute():
+        common = git_dir / common
+    return (common.resolve(strict=False) / "objects").is_dir()
+
+
 def _repo_for_path(path: Path, continuity_module: Any) -> Path | None:
     candidate = path.expanduser().resolve(strict=False)
     start = candidate if candidate.is_dir() else candidate.parent
-    return continuity_module._git_root(start)
+    root = continuity_module._git_root(start)
+    if root is None:
+        return None
+    marker = root / ".git"
+    if marker.is_symlink():
+        return None
+    if marker.is_dir():
+        return root if _git_directory_valid(marker) else None
+    if marker.is_file():
+        try:
+            prefix, value = marker.read_text(encoding="utf-8").strip().split(":", 1)
+        except (OSError, UnicodeDecodeError, ValueError):
+            return None
+        if prefix.casefold() != "gitdir":
+            return None
+        git_dir = Path(value.strip()).expanduser()
+        if not git_dir.is_absolute():
+            git_dir = marker.parent / git_dir
+        git_dir = git_dir.resolve(strict=False)
+        return root if _git_directory_valid(git_dir) else None
+    return None
+
+
+def _path_is_contextual(prompt: str, match: re.Match[str], continuity_module: Any) -> bool:
+    if continuity_module._span_is_quoted(prompt, match.start(), match.end()):
+        return True
+    prefix, clause = continuity_module._path_clause(
+        prompt, match.start(), match.end()
+    )
+    if _EVIDENCE_PATH_PREFIX_RE.search(prefix):
+        return True
+    raw = match.group(0).rstrip(".,;:!?)]}>")
+    if (
+        Path(raw).suffix.casefold() in _EVIDENCE_FILE_SUFFIXES
+        and _TRAILING_EVIDENCE_FILE_PREFIX_RE.search(prefix)
+    ):
+        return True
+    return bool(
+        continuity_module._HISTORICAL_CONTEXT.search(clause)
+        and not continuity_module._CURRENT_PATH_DIRECTIVE.search(clause)
+    )
+
+
+def _repository_identity_prompt(prompt: str, continuity_module: Any) -> str:
+    characters = list(prompt)
+    for match in _PATH_TOKEN_RE.finditer(prompt):
+        if _path_is_contextual(prompt, match, continuity_module):
+            characters[match.start() : match.end()] = " " * (match.end() - match.start())
+    return "".join(characters)
 
 
 def _explicit_path_repositories(
@@ -91,6 +180,8 @@ def _explicit_path_repositories(
 ) -> list[Path]:
     repositories: list[Path] = []
     for match in _PATH_TOKEN_RE.finditer(prompt):
+        if _path_is_contextual(prompt, match, continuity_module):
+            continue
         raw = match.group(0).rstrip(".,;:!?)]}>")
         candidate = Path(raw).expanduser()
         if not candidate.is_absolute():
@@ -173,14 +264,15 @@ def _resolve_repository_binding(
         if current.exists()
         else []
     )
-    named_repo_token = _REPOSITORY_NAME_RE.search(prompt)
+    identity_prompt = _repository_identity_prompt(prompt, continuity_module)
+    named_repo_token = _REPOSITORY_NAME_RE.search(identity_prompt)
     if (
         named_repo_token
         and named_repo_token.group(1).casefold() in _REPOSITORY_NAME_STOPWORDS
     ):
         named_repo_token = None
     named_matches = _project_matches(
-        prompt,
+        identity_prompt,
         discovered,
         allow_fuzzy=named_repo_token is not None,
     )
@@ -230,7 +322,7 @@ def _resolve_repository_binding(
                 "candidates": [str(previous)],
             }
 
-    current_repo = continuity_module._git_root(current)
+    current_repo = _repo_for_path(current, continuity_module)
     if current_repo is not None:
         return {
             "status": "bound",

@@ -334,11 +334,11 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
     elif skill_dir.is_symlink():
         status = "blocked"
         reason = "existing target skill directory is a symlink"
+    elif existing.is_symlink():
+        status = "blocked"
+        reason = "existing target SKILL.md is a symlink"
     elif existing.exists():
-        if existing.is_symlink():
-            status = "blocked"
-            reason = "existing target SKILL.md is a symlink"
-        elif sha256_file(existing) == digest:
+        if sha256_file(existing) == digest:
             status = "already-present"
             reason = "same SKILL.md already installed"
         else:

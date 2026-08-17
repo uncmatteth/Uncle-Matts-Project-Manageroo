@@ -1309,7 +1309,7 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(first, {})
             self.assertEqual(changed, {})
 
-    def test_actionable_request_blocks_freehand_read_only_probe(self):
+    def test_actionable_request_keeps_operator_read_only_probe_available(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -1335,8 +1335,7 @@ class AgentContinuityTests(unittest.TestCase):
                 state_root=root,
             )
 
-            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
-            self.assertIn("automatically controller-owned", result["hookSpecificOutput"]["permissionDecisionReason"])
+            self.assertEqual(result, {})
 
     def test_stop_hook_requires_controller_proof_not_operator_chat_claim(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1364,7 +1363,7 @@ class AgentContinuityTests(unittest.TestCase):
             self.assertEqual(stopped["decision"], "block")
             self.assertIn("COMPLETE and applied proof", stopped["reason"])
 
-    def test_read_only_shell_commands_cannot_bypass_an_active_managed_request(self):
+    def test_read_only_system_diagnostic_remains_available_during_managed_request(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             process_codex_continuity_hook(
@@ -1388,7 +1387,55 @@ class AgentContinuityTests(unittest.TestCase):
                 },
                 state_root=root,
             )
-            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertEqual(result, {})
+
+    def test_git_and_path_diagnostics_remain_available_during_managed_request(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / ".git").mkdir()
+            process_codex_continuity_hook(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "prompt": "Fix this repository and verify it.",
+                },
+                state_root=root / "state",
+            )
+
+            commands = (
+                "cat README.md",
+                "git status --short",
+                "git diff --stat",
+                "git rev-parse --show-toplevel",
+                "git worktree list",
+                "head -20 README.md",
+                "ls -la .",
+                "ps -ef",
+                "rg --files",
+                "sed -n 1,20p README.md",
+                "stat .git",
+                "tail -20 README.md",
+                "realpath .",
+                "wc -l README.md",
+            )
+            for command in commands:
+                with self.subTest(command=command):
+                    result = process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "session_id": "session",
+                            "turn_id": "turn-1",
+                            "cwd": str(repo),
+                            "tool_name": "exec_command",
+                            "tool_input": {"cmd": command},
+                        },
+                        state_root=root / "state",
+                    )
+                    self.assertEqual(result, {})
 
     def test_external_copy_source_is_read_only_when_destination_is_in_scope(self):
         with tempfile.TemporaryDirectory() as temp:

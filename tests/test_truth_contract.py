@@ -49,7 +49,7 @@ class TruthContractTests(unittest.TestCase):
             "does not silently edit skills, docs, config, installer behavior, checks, prompts, or code",
             "`run --continue <run-id>` continues Manageroo's saved worker job queue",
             "Manageroo installs Codex continuity hooks for active-objective capture",
-            "Actionable repository requests deny freehand supported tools",
+            "Actionable repository requests deny freehand supported mutation",
             "The `Stop` hook requires an exact-request `COMPLETE`",
         ], "docs/LIMITATIONS.md")
 

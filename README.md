@@ -70,13 +70,20 @@ objective across follow-up messages, resumed sessions, and compaction. New
 messages are additive unless they explicitly cancel or replace earlier work.
 For an actionable repository request, `UserPromptSubmit` locks the exact current
 request into a private controller brief. `PreToolUse` permits the Manageroo
-run/status/report path and rejects freehand work, including apparently harmless
-reads that could restart a parallel unmanaged attempt. An explicit `only
+run/status/report path, operator lifecycle controls, and safe read-only inspection
+while rejecting freehand repository mutation. An explicit `only
 <file>` clause and exclusions remain binding inside the controlled run. The
 installed `Stop` hook blocks an unproved completion claim until the exact run is
 `COMPLETE`, passed intent conformance, and was applied to the source repository.
-An explicit pause blocks further work. A newer current correction, cancellation,
-or replacement still wins over saved state. Upgrades preserve unrelated hooks.
+An explicit pause stops controller work without blocking operator commands. A
+newer current correction, cancellation, explicit `--repo` selection, or
+replacement wins over saved state. Paths found only in pasted handoffs, evidence,
+logs, reports, traces, quotations, or history do not silently rebind the request.
+An empty or malformed `.git` marker does not make an evidence parent a valid
+repository; real linked Git worktrees remain valid explicit targets.
+Upgrades preserve unrelated hooks. Removing the live Manageroo hook registration
+makes any cached launcher a silent no-op; malformed hook state reports a repair
+diagnostic and fails open.
 At every new ordinary Codex session, the hook also supplies one compact global
 controller contract: the agent selects relevant installed skills itself and
 automatically starts the controlled run for actionable repository work. The
@@ -241,6 +248,16 @@ The purpose is simple: workers can work aggressively inside a bounded workspace 
 
 Successful work is delivered back through a patch after Manageroo checks that the source repository has not unexpectedly changed underneath the run.
 
+One integration workspace belongs to each run. Manageroo removes it, along with
+run-owned review and gate workspaces, when the run completes, blocks, or is
+canceled. It keeps bounded lifecycle and patch evidence so a verified unapplied
+delivery can reconstruct that same workspace path during continuation. A
+free-space reserve prevents new workspace allocation near disk exhaustion, and
+age, count, and evidence-byte limits bound terminal run storage.
+
+Repository maps are cached by the source inventory fingerprint. Changing only
+the request reuses the same source map; changing source bytes invalidates it.
+
 # Proof before "done"
 
 Manageroo reconciles completion against:
@@ -350,6 +367,11 @@ Use this after a terminal closes, a worker fails, a run pauses for a decision, o
 
 Manageroo reloads the durable state for that exact run and continues from the recorded project truth. It does not pretend the old process kept running in the background.
 
+If a terminal workspace was already retired, continuation reconstructs the same
+run-owned path only from the locked source snapshot and lifecycle-bound recovery
+patch. A superseded run points to one matching replacement, so repeatedly
+continuing the old ID does not create a restart loop.
+
 ## 7. Answer a blocking decision
 
 Manageroo automatically chooses the recommended or first safe option for ordinary reversible decisions. It stops for an answer only when an irreversible security, legal, cost, or data choice cannot safely be inferred.
@@ -412,6 +434,15 @@ project. Manageroo no longer embeds or publishes that runtime; it provides a
 thin optional adapter and release-proof reader. This keeps the controller small
 and lets the supervisor be tested, versioned, installed, and updated
 independently.
+
+The adapter requires the standalone runtime's fixed-semantics compatibility gate
+before `--apply`. It refuses an older executable instead of falling back to the
+previous timeout and no-progress behavior. In a compatible supervisor, the
+configured child watchdog (for example 900 seconds) is not shortened to the
+whole-run time remaining (for example 85 seconds); the total runtime budget is
+checked between child commands. A source-clean `no-progress` result is recorded
+and advances through the native next-finding transition. It is never converted
+into a fresh restart of the same finding.
 
 Run the supervisor directly for live progress:
 

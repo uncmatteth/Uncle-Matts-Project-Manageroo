@@ -181,7 +181,6 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
             if (
                 isinstance(saved, dict)
                 and saved.get("status") == "COMPLETE"
-                and saved.get("applied_to_source") is True
             ):
                 preexisting_complete = saved
         result = original_run(self, *args, **kwargs)
@@ -196,6 +195,15 @@ def install_release_proof_policy(orchestrator_module: Any) -> None:
             return result
         if not isinstance(result, dict) or result.get("status") != "COMPLETE":
             return result
+        if (
+            preexisting_complete is not None
+            and preexisting_complete.get("applied_to_source") is not True
+            and result.get("applied_to_source") is True
+        ):
+            # Applying a previously reviewed pending patch changes the source-tree
+            # proof by design. Bind a fresh applied proof while the same run-owned
+            # workspace is temporarily rehydrated, then let terminal cleanup remove it.
+            preexisting_complete = None
 
         def block(message: str) -> None:
             result.update(

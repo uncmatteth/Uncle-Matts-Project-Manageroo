@@ -82,6 +82,21 @@ Required context exceeding a limit is not truncated; the plan must decompose.
 
 Implementation tasks still run in dependency order in one integration workspace.
 
+## `[retention]`
+
+- `minimum_free_bytes`: free space that must remain before Manageroo creates or
+  reconstructs a run workspace. Default: `5368709120` (5 GiB).
+- `max_run_count`: maximum retained terminal runs including the current run.
+  Oldest prior terminal runs are removed first. Default: `40`.
+- `max_run_age_days`: maximum age of prior terminal run directories. `0` removes
+  prior terminal runs on the next retention pass. Default: `30`.
+- `max_run_evidence_bytes`: byte ceiling for compactable evidence in the current
+  completed run. Delivery proof and lifecycle records are retained. Default:
+  `1073741824` (1 GiB).
+
+Retention acts only under the repository's `.manageroo/runs` tree. Terminal
+workspace cleanup and retention never target product source files.
+
 ## `[capabilities]`
 
 - `enabled`: automatically route relevant installed capabilities into every worker packet. Default: `true`. Setting it to `false` disables selection, but Codex workers still require bounded catalog discovery so unselected global skills can be hidden for that process.

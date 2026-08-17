@@ -31,7 +31,9 @@ class OriginalContractRestorationTests(unittest.TestCase):
             with self.subTest(prompt=prompt), tempfile.TemporaryDirectory() as temp:
                 repo = Path(temp) / "repo"
                 repo.mkdir()
-                (repo / ".git").mkdir()
+                subprocess.run(
+                    ["git", "init", "-q", "-b", "main"], cwd=repo, check=True
+                )
                 root = Path(temp) / "state"
                 process_codex_continuity_hook(
                     {
@@ -50,7 +52,7 @@ class OriginalContractRestorationTests(unittest.TestCase):
                         "turn_id": "turn-1",
                         "cwd": str(repo),
                         "tool_name": "exec_command",
-                        "tool_input": {"cmd": "pwd"},
+                        "tool_input": {"cmd": "touch freehand-change.txt"},
                     },
                     state_root=root,
                 )

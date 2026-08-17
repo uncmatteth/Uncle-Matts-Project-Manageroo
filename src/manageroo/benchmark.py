@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -42,8 +43,8 @@ def run_continuity_benchmark() -> dict[str, Any]:
         other = base / "other"
         repo.mkdir()
         other.mkdir()
-        (repo / ".git").mkdir()
-        (other / ".git").mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=other, check=True)
         state_root = base / "state"
 
         first = process_codex_continuity_hook(
@@ -187,9 +188,7 @@ def run_continuity_benchmark() -> dict[str, Any]:
         "excluded_mutation_blocked": (
             denied.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
         ),
-        "paused_tools_blocked": (
-            paused_tool.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
-        ),
+        "paused_tools_available": paused_tool == {},
         "unproved_completion_blocked": (
             ordinary_stop.get("decision") == "block"
             and "COMPLETE" in str(ordinary_stop.get("reason") or "")

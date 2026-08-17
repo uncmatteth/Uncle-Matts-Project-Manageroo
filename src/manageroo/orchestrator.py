@@ -214,6 +214,11 @@ def _artifact_fragment(value: str) -> str:
 
 
 _RUN_INTENT_MARKER = "# Manageroo current-request contract"
+_REPOSITORY_SOURCE_SCOPE_MARKER = "# Manageroo request-independent repository map"
+_REPOSITORY_MAPPING_CAPABILITY_INTENT = (
+    "Describe the repository's modules, interfaces, data flows, trust boundaries, "
+    "risks, and capability-level integration order without using a task-specific request."
+)
 
 
 def _run_intent_payload(
@@ -284,6 +289,25 @@ def _render_run_intent(intent: dict[str, Any]) -> str:
     )
 
 
+def _packet_authority_audit(packet_paths: list[Path]) -> dict[str, Any]:
+    request_bound = 0
+    source_scoped = 0
+    missing: list[str] = []
+    for path in packet_paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if _RUN_INTENT_MARKER in text:
+            request_bound += 1
+        elif _REPOSITORY_SOURCE_SCOPE_MARKER in text:
+            source_scoped += 1
+        else:
+            missing.append(str(path))
+    return {
+        "missing": missing,
+        "request_bound": request_bound,
+        "source_scoped": source_scoped,
+    }
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -342,7 +366,11 @@ class Orchestrator:
                 },
             )
         self.mirror = WorkspaceMirror(self.source_repo, self.run_root, self.runner)
-        self.workspace: Path | None = self.mirror.load_existing() if continue_existing else None
+        self.workspace: Path | None = (
+            self.mirror.load_existing()
+            if continue_existing and self.mirror.workspace.is_dir()
+            else None
+        )
         self._call_index = self._initial_call_index()
         self._call_lock = threading.Lock()
 
@@ -478,6 +506,14 @@ class Orchestrator:
         patch_path = Path(patch_value) if patch_value else self.run_root / "delivery" / "final.patch"
         transaction_path = self._delivery_transaction_path()
         if not self.mirror.patch_already_applied_to_source(patch_path):
+            if self.workspace is None:
+                self.workspace = self.mirror.resume_or_create(
+                    minimum_free_bytes=int(
+                        self.config.get("retention", {}).get(
+                            "minimum_free_bytes", 0
+                        )
+                    )
+                )
             atomic_write_json(
                 transaction_path,
                 {
@@ -586,6 +622,7 @@ class Orchestrator:
         packet_root: Path | None = None,
         call_name: str | None = None,
         validator: Callable[[dict], None] | None = None,
+        bind_run_intent: bool = True,
     ) -> dict:
         name = call_name or self._next_call_name(role)
         repo = cwd or self.workspace
@@ -677,7 +714,7 @@ class Orchestrator:
                 ) from exc
         instructions = _WORKER_EXTERNAL_ACTION_BOUNDARY + "\n\n" + instructions
         run_intent = self._artifact_json("intake/run-intent.json")
-        if isinstance(run_intent, dict):
+        if bind_run_intent and isinstance(run_intent, dict):
             intent_block = _render_run_intent(run_intent)
             # The controller repairs incomplete generated packets itself. This
             # is an agent-fidelity control, never an operator authorization gate.
@@ -1462,15 +1499,16 @@ class Orchestrator:
             return self._call(
                 role="repository-mapper",
                 schema="repository-map-part.schema.json",
-                capability_intent=_capability_intent(brief),
+                capability_intent=_REPOSITORY_MAPPING_CAPABILITY_INTENT,
                 instructions=(
+                    f"{_REPOSITORY_SOURCE_SCOPE_MARKER}\n\n"
                     "# Repository mapping role\n\n"
-                    "Map only the supplied repository slice. Identify modules, interfaces, "
+                    "Create a request-independent map of only the supplied repository slice. "
+                    "Identify modules, interfaces, "
                     "data flows, trust boundaries, and risks. Do not propose edits. "
                     "Do not assume omitted files are absent from the product. Media and oversized "
                     "prose may appear as generated summaries; treat those summaries as metadata, "
                     "not full OCR or vision interpretation.\n\n"
-                    f"Product brief:\n{brief}\n\n"
                     f"Chunk ID: chunk-{index}\n"
                     f"Files assigned: {[item['path'] for item in chunk]}\n\n"
                     f"Assigned file metadata:\n{_compact_json(chunk_metadata)}"
@@ -1478,6 +1516,7 @@ class Orchestrator:
                 context=requests,
                 metadata={"chunk_id": f"chunk-{index}", "paths": [item["path"] for item in chunk]},
                 call_name=names[offset],
+                bind_run_intent=False,
             )
 
         maps = self._parallel_map(
@@ -1498,10 +1537,12 @@ class Orchestrator:
                     self._call(
                         role="map-reducer",
                         schema="system-map.schema.json",
-                        capability_intent=_capability_intent(brief),
+                        capability_intent=_REPOSITORY_MAPPING_CAPABILITY_INTENT,
                         instructions=(
+                            f"{_REPOSITORY_SOURCE_SCOPE_MARKER}\n\n"
                             "# Repository map reducer\n\n"
-                            "Combine the supplied map parts into one canonical system map. "
+                            "Combine the supplied map parts into one request-independent canonical "
+                            "system map. "
                             "Resolve duplicates and contradictions conservatively. Preserve uncertainty. "
                             "Return integration order at the capability level, not implementation details. "
                             + (
@@ -1510,7 +1551,6 @@ class Orchestrator:
                                 else "This is an intermediate reduction; preserve information needed by the final reducer."
                             )
                             + "\n\n"
-                            f"Product brief:\n{brief}\n\n"
                             f"Reduction batch: level-{reduction_level}-batch-{batch_index}\n\n"
                             f"Map parts:\n{_compact_json(batch)}"
                         ),
@@ -1520,6 +1560,7 @@ class Orchestrator:
                             "batch_index": batch_index,
                             "batch_count": len(batches),
                         },
+                        bind_run_intent=False,
                     )
                 )
             if len(reduced_layer) == 1:
@@ -1750,6 +1791,37 @@ class Orchestrator:
                     # operator's work automatically in a fresh run whose
                     # artifacts are derived from the new request; never turn a
                     # stale run lock into a refusal.
+                    superseded_path = self.run_root / "controller" / "superseded.json"
+                    if superseded_path.is_file():
+                        superseded = read_json(superseded_path)
+                        if not isinstance(superseded, dict):
+                            raise SafetyError("Saved run supersession is invalid.")
+                        replacement_id = str(superseded.get("superseded_by") or "")
+                        if (
+                            str(superseded.get("new_request_sha256") or "")
+                            != current_intent["request_sha256"]
+                            or not replacement_id
+                            or Path(replacement_id).name != replacement_id
+                            or replacement_id in {".", ".."}
+                        ):
+                            raise SafetyError(
+                                "Saved run supersession does not match the current request."
+                            )
+                        replacement = Orchestrator(
+                            self.source_repo,
+                            adapter=self.adapter,
+                            run_id=replacement_id,
+                            continue_existing=True,
+                            capability_roots=list(self.capability_index.roots),
+                        )
+                        replacement_result = replacement.run(
+                            brief_path=brief_path,
+                            mode=mode,
+                            apply_on_success=apply_on_success,
+                            exact_task=exact_task,
+                        )
+                        replacement_result["supersedes_run_id"] = self.run_id
+                        return replacement_result
                     replacement = Orchestrator(
                         self.source_repo,
                         adapter=self.adapter,
@@ -1809,7 +1881,13 @@ class Orchestrator:
 
             self._transition(Phase.DISCOVERY, "Created isolated source mirror and inventory")
             if self.workspace is None:
-                self.workspace = self.mirror.create()
+                self.workspace = self.mirror.resume_or_create(
+                    minimum_free_bytes=int(
+                        self.config.get("retention", {}).get(
+                            "minimum_free_bytes", 5368709120
+                        )
+                    )
+                )
             existing_inventory = self._artifact_json("discovery/inventory.json")
             if existing_inventory is not None:
                 raw_inventory = existing_inventory
@@ -2298,15 +2376,12 @@ class Orchestrator:
             packet_paths = sorted(
                 [*self.packet_root.glob("**/prompt.md"), *(self.run_root / "review-packets").glob("**/prompt.md")]
             )
-            packets_missing_current_request = [
-                str(path)
-                for path in packet_paths
-                if _RUN_INTENT_MARKER not in path.read_text(encoding="utf-8", errors="replace")
-            ]
-            if packets_missing_current_request:
+            packet_authority = _packet_authority_audit(packet_paths)
+            if packet_authority["missing"]:
                 raise SafetyError(
-                    "Controller packet audit found workers missing the current request: "
-                    + ", ".join(packets_missing_current_request)
+                    "Controller packet audit found workers missing a request or source-map "
+                    "authority boundary: "
+                    + ", ".join(packet_authority["missing"])
                 )
             intent_conformance = {
                 "status": "passed",
@@ -2315,7 +2390,14 @@ class Orchestrator:
                     if isinstance(run_intent, dict)
                     else ""
                 ),
-                "current_request_was_in_every_worker_packet": True,
+                "current_request_was_in_every_worker_packet": (
+                    packet_authority["source_scoped"] == 0
+                ),
+                "current_request_was_in_every_request_bound_worker_packet": True,
+                "request_bound_worker_packet_count": packet_authority["request_bound"],
+                "request_independent_repository_map_packet_count": packet_authority[
+                    "source_scoped"
+                ],
                 "worker_packet_count": len(packet_paths),
                 "changed_paths": changed_paths,
                 "authorized_paths": sorted(

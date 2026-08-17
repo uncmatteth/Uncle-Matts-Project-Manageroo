@@ -12,7 +12,13 @@ from pathlib import Path
 from .errors import SafetyError
 from .inventory import git_visible_files
 from .runner import CommandRunner
-from .util import atomic_write_json, copy_file_preserving_mode, safe_repo_relative, sha256_file
+from .util import (
+    atomic_write_json,
+    copy_file_preserving_mode,
+    safe_repo_relative,
+    sha256_file,
+    utc_now,
+)
 
 
 @dataclass(frozen=True)
@@ -52,7 +58,46 @@ class WorkspaceMirror:
         atomic_write_json(self.snapshot_path, {"files": [asdict(item) for item in records]})
         return records
 
-    def create(self) -> Path:
+    def _preflight_free_space(
+        self, records: list[SourceFile], *, minimum_free_bytes: int
+    ) -> None:
+        if minimum_free_bytes < 0:
+            raise SafetyError("Workspace minimum free-space reserve cannot be negative.")
+        available = shutil.disk_usage(self.run_root).free
+        copy_bytes = sum(record.bytes for record in records)
+        if available - copy_bytes < minimum_free_bytes:
+            raise SafetyError(
+                "Manageroo stopped before copying the repository because the workspace "
+                f"would breach the free-space reserve. Available={available} "
+                f"copy_bytes={copy_bytes} reserve={minimum_free_bytes}."
+            )
+
+    def _materialize_workspace(self, records: list[SourceFile]) -> Path:
+        self.workspace.mkdir(parents=True)
+        for record in records:
+            destination = self.workspace / record.path
+            copy_file_preserving_mode(self.source_repo / record.path, destination)
+            copied_stat = destination.stat()
+            if (
+                copied_stat.st_size != record.bytes
+                or (copied_stat.st_mode & 0o777) != record.mode
+                or sha256_file(destination) != record.sha256
+            ):
+                raise SafetyError(
+                    f"Copied workspace file does not match source snapshot: {record.path}"
+                )
+        self._git(["init", "-b", "manageroo-internal"])
+        self._git(["config", "user.name", "MANAGEROO Controller"])
+        self._git(["config", "user.email", "manageroo@local.invalid"])
+        self._git(["add", "-A"])
+        self._git(["commit", "-m", "MANAGEROO isolated baseline"], hooks=False)
+        self.baseline_commit = self.head()
+        hook = self.workspace / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\necho 'Agent commits are forbidden. The MANAGEROO controller owns checkpoints.' >&2\nexit 73\n", encoding="utf-8")
+        hook.chmod(0o755)
+        return self.workspace
+
+    def create(self, *, minimum_free_bytes: int = 0) -> Path:
         if self.workspace.exists() or self.snapshot_path.exists():
             raise SafetyError("Run workspace or source snapshot already exists; creation is immutable for an existing run.")
         self.run_root.mkdir(parents=True, exist_ok=True)
@@ -61,30 +106,11 @@ class WorkspaceMirror:
         try:
             records = self.capture_source()
             snapshot_created = True
-            self.workspace.mkdir(parents=True)
+            self._preflight_free_space(
+                records, minimum_free_bytes=minimum_free_bytes
+            )
             workspace_created = True
-            for record in records:
-                destination = self.workspace / record.path
-                copy_file_preserving_mode(self.source_repo / record.path, destination)
-                copied_stat = destination.stat()
-                if (
-                    copied_stat.st_size != record.bytes
-                    or (copied_stat.st_mode & 0o777) != record.mode
-                    or sha256_file(destination) != record.sha256
-                ):
-                    raise SafetyError(
-                        f"Copied workspace file does not match source snapshot: {record.path}"
-                    )
-            self._git(["init", "-b", "manageroo-internal"])
-            self._git(["config", "user.name", "MANAGEROO Controller"])
-            self._git(["config", "user.email", "manageroo@local.invalid"])
-            self._git(["add", "-A"])
-            self._git(["commit", "-m", "MANAGEROO isolated baseline"], hooks=False)
-            self.baseline_commit = self.head()
-            hook = self.workspace / ".git" / "hooks" / "pre-commit"
-            hook.write_text("#!/bin/sh\necho 'Agent commits are forbidden. The MANAGEROO controller owns checkpoints.' >&2\nexit 73\n", encoding="utf-8")
-            hook.chmod(0o755)
-            return self.workspace
+            return self._materialize_workspace(records)
         except BaseException as exc:
             self.baseline_commit = ""
             cleanup_errors: list[str] = []
@@ -104,6 +130,72 @@ class WorkspaceMirror:
                     + "; ".join(cleanup_errors)
                 )
             raise
+
+    def _snapshot_records(self) -> list[SourceFile]:
+        try:
+            payload = json.loads(self.snapshot_path.read_text(encoding="utf-8"))
+            raw_records = payload["files"]
+            if not isinstance(raw_records, list):
+                raise TypeError("files is not a list")
+            records = [
+                SourceFile(
+                    path=safe_repo_relative(str(item["path"])),
+                    sha256=str(item["sha256"]),
+                    bytes=int(item["bytes"]),
+                    mode=int(item["mode"]),
+                )
+                for item in raw_records
+                if isinstance(item, dict)
+            ]
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise SafetyError(f"Run source snapshot is invalid: {self.snapshot_path}: {exc}") from exc
+        if len(records) != len(raw_records):
+            raise SafetyError(f"Run source snapshot contains invalid records: {self.snapshot_path}")
+        return records
+
+    def rebuild_cleaned_workspace(self, *, minimum_free_bytes: int = 0) -> Path:
+        if self.workspace.exists():
+            raise SafetyError("Cleaned workspace rebuild requires an absent workspace path.")
+        if not self.snapshot_path.is_file():
+            raise SafetyError(f"Run source snapshot is missing: {self.snapshot_path}")
+        self.assert_source_unchanged()
+        records = self._snapshot_records()
+        self._preflight_free_space(records, minimum_free_bytes=minimum_free_bytes)
+        try:
+            self._materialize_workspace(records)
+            lifecycle_path = self.run_root / "controller" / "workspace-lifecycle.json"
+            lifecycle = json.loads(lifecycle_path.read_text(encoding="utf-8"))
+            recovery_value = str(lifecycle.get("recovery_patch") or "")
+            recovery_patch = Path(recovery_value) if recovery_value else None
+            allowed = {
+                self.run_root / "controller" / "workspace-checkpoint.patch",
+                self.run_root / "delivery" / "final.patch",
+            }
+            if recovery_patch is None or recovery_patch not in allowed or not recovery_patch.is_file():
+                raise SafetyError("Cleaned workspace has no valid bounded recovery patch.")
+            expected_digest = str(lifecycle.get("recovery_patch_sha256") or "")
+            if not expected_digest or sha256_file(recovery_patch) != expected_digest:
+                raise SafetyError("Cleaned workspace recovery patch changed.")
+            if recovery_patch.stat().st_size:
+                applied = self._git(["apply", "--binary", str(recovery_patch)])
+                if not applied.passed:
+                    raise SafetyError("Could not restore the cleaned workspace checkpoint.")
+                self.checkpoint("MANAGEROO restored bounded workspace checkpoint")
+            return self.workspace
+        except BaseException:
+            self.baseline_commit = ""
+            if self.workspace.is_dir():
+                shutil.rmtree(self.workspace)
+            raise
+
+    def resume_or_create(self, *, minimum_free_bytes: int = 0) -> Path:
+        if self.workspace.is_dir():
+            return self.load_existing()
+        if self.snapshot_path.is_file():
+            return self.rebuild_cleaned_workspace(
+                minimum_free_bytes=minimum_free_bytes
+            )
+        return self.create(minimum_free_bytes=minimum_free_bytes)
 
     def _clear_pending_validation_marker(self) -> None:
         try:
@@ -292,6 +384,52 @@ class WorkspaceMirror:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(result.stdout, encoding="utf-8", newline="\n")
         return destination
+
+    def cleanup_terminal(self, *, status: str) -> dict[str, object]:
+        """Remove full run-owned checkouts while retaining bounded patch evidence."""
+
+        lifecycle_path = self.run_root / "controller" / "workspace-lifecycle.json"
+        errors: list[str] = []
+        recovery_patch = self.run_root / "delivery" / "final.patch"
+        if status != "COMPLETE" and self.workspace.is_dir() and (self.workspace / ".git").is_dir():
+            recovery_patch = self.run_root / "controller" / "workspace-checkpoint.patch"
+            try:
+                self.load_existing()
+                self.write_patch(recovery_patch)
+            except Exception as exc:
+                errors.append(f"Could not preserve workspace checkpoint: {type(exc).__name__}: {exc}")
+
+        removed: list[str] = []
+        if not errors:
+            for path in (
+                self.workspace,
+                self.run_root / "review-workspaces",
+                self.run_root / "gate-workspaces",
+            ):
+                try:
+                    if path.is_symlink() or path.is_file():
+                        path.unlink()
+                        removed.append(str(path))
+                    elif path.is_dir():
+                        shutil.rmtree(path)
+                        removed.append(str(path))
+                except OSError as exc:
+                    errors.append(f"Could not remove {path}: {exc}")
+
+        report: dict[str, object] = {
+            "schema_version": 1,
+            "status": status,
+            "cleaned_at": utc_now(),
+            "workspace_removed": not self.workspace.exists(),
+            "removed": removed,
+            "recovery_patch": str(recovery_patch) if recovery_patch.is_file() else "",
+            "recovery_patch_sha256": (
+                sha256_file(recovery_patch) if recovery_patch.is_file() else ""
+            ),
+            "errors": errors,
+        }
+        atomic_write_json(lifecycle_path, report)
+        return report
 
     def assert_source_unchanged(self) -> None:
         snapshot = json.loads(self.snapshot_path.read_text(encoding="utf-8"))

@@ -71,8 +71,17 @@ def build_report(data: dict[str, Any]) -> str:
     if isinstance(intent, dict) and intent:
         lines.append(f"- Status: **{intent.get('status', 'unknown')}**")
         lines.append(
-            "- Current request present in every worker packet: "
-            + _yes_no_unknown(intent.get("current_request_was_in_every_worker_packet"))
+            "- Current request present in every request-bound worker packet: "
+            + _yes_no_unknown(
+                intent.get(
+                    "current_request_was_in_every_request_bound_worker_packet",
+                    intent.get("current_request_was_in_every_worker_packet"),
+                )
+            )
+        )
+        lines.append(
+            "- Request-independent repository-map packets: "
+            + str(intent.get("request_independent_repository_map_packet_count", 0))
         )
         lines.append(
             "- Operator request used as an authorization gate: "

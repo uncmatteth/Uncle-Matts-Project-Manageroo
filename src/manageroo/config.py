@@ -48,6 +48,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_prompt_chars": 24000,
     },
     "budget": {"max_total_worker_calls": 80, "max_runtime_minutes": 240},
+    "retention": {
+        "minimum_free_bytes": 5368709120,
+        "max_run_count": 40,
+        "max_run_age_days": 30,
+        "max_run_evidence_bytes": 1073741824,
+    },
     "safety": {
         "allowed_programs": [
             "python", "python3", "node", "npm", "npm.cmd", "pnpm", "yarn", "bun",
@@ -259,6 +265,12 @@ def config_template(agent: str, gates: list[dict[str, Any]]) -> str:
         "[budget]",
         "max_total_worker_calls = 80",
         "max_runtime_minutes = 240",
+        "",
+        "[retention]",
+        "minimum_free_bytes = 5368709120",
+        "max_run_count = 40",
+        "max_run_age_days = 30",
+        "max_run_evidence_bytes = 1073741824",
         "",
         "[safety]",
         'allowed_programs = ["python", "python3", "node", "npm", "npm.cmd", "pnpm", "yarn", "bun", "cargo", "go", "dotnet", "mvn", "gradle", "gradlew", "make"]',

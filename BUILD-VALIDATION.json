@@ -22,7 +22,7 @@
         "-v"
       ],
       "exit_code": 0,
-      "output": "----------------------------------------------------------------------\nRan 1218 tests in <elapsed>s\n\nOK (skipped=3)\n"
+      "output": "----------------------------------------------------------------------\nRan 1240 tests in <elapsed>s\n\nOK (skipped=3)\n"
     },
     {
       "argv": [
@@ -38,7 +38,7 @@
   "ok": true,
   "python_process_safety_violations": [],
   "source_selection": "scripts/package_release.py included_files minus generated outputs",
-  "source_tree_sha256": "d10b0c96c52ba8a1fcb8e87a028a9b801a96cb2d3450d56a68cbeb2cd64c96d3",
+  "source_tree_sha256": "e7a000d65d78c4f124349c7e84853d49362eda1461931f00a5fe0d17a2a92740",
   "structural_checks": [
     {
       "name": "required:install.sh",
@@ -197,6 +197,10 @@
       "ok": true
     },
     {
+      "name": "required:src/manageroo/run_retention.py",
+      "ok": true
+    },
+    {
       "name": "required:src/manageroo/release_proof_policy.py",
       "ok": true
     },
@@ -270,6 +274,10 @@
     },
     {
       "name": "required:tests/test_remaining_audit_regressions.py",
+      "ok": true
+    },
+    {
+      "name": "required:tests/test_run_retention.py",
       "ok": true
     },
     {

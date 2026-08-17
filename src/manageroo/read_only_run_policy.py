@@ -352,22 +352,25 @@ def _run_read_only(
                 *(self.run_root / "review-packets").glob("**/prompt.md"),
             ]
         )
-        missing_request = [
-            str(path)
-            for path in packet_paths
-            if orchestrator_module._RUN_INTENT_MARKER
-            not in path.read_text(encoding="utf-8", errors="replace")
-        ]
-        if missing_request:
+        packet_authority = orchestrator_module._packet_authority_audit(packet_paths)
+        if packet_authority["missing"]:
             raise SafetyError(
-                "Read-only packet audit found workers missing the current request: "
-                + ", ".join(missing_request)
+                "Read-only packet audit found workers missing a request or source-map "
+                "authority boundary: "
+                + ", ".join(packet_authority["missing"])
             )
         conformance = {
             "status": "passed",
             "execution_intent": EXECUTION_INTENT_READ_ONLY,
             "source_mutation_authorized": False,
-            "current_request_was_in_every_worker_packet": True,
+            "current_request_was_in_every_worker_packet": (
+                packet_authority["source_scoped"] == 0
+            ),
+            "current_request_was_in_every_request_bound_worker_packet": True,
+            "request_bound_worker_packet_count": packet_authority["request_bound"],
+            "request_independent_repository_map_packet_count": packet_authority[
+                "source_scoped"
+            ],
             "worker_packet_count": len(packet_paths),
             "review_status": audit.get("status"),
             "findings_count": len(audit.get("findings", [])),

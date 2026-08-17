@@ -15,7 +15,7 @@ from .runner import platform_argv
 SUPERVISOR_EXECUTABLE = "clawpatch-supervise"
 SUPERVISOR_REPOSITORY = "https://github.com/uncmatteth/clawpatch-supervise"
 SUPERVISOR_VERSION = "0.1.34"
-SUPERVISOR_GATE_VERSION = "1.0.0"
+SUPERVISOR_GATE_VERSION = "1.1.0"
 SUPERVISOR_GATE_VERSION_ARG = "--manageroo-runtime-gate-version"
 TRANSIENT_EXIT_CODE = 75
 
@@ -177,11 +177,12 @@ def release_sweep(
         except OSError as exc:
             raise SafetyError(f"Could not start standalone clawpatch-supervise: {exc}") from exc
 
-    if supervisor_runtime_gate_ready(executable):
-        result = invoke()
-    else:
-        with supervisor_runtime_lock(executable):
-            result = invoke()
+    if not supervisor_runtime_gate_ready(executable):
+        raise SafetyError(
+            "Standalone clawpatch-supervise is missing Manageroo runtime gate "
+            f"{SUPERVISOR_GATE_VERSION}; refusing the older timeout/no-progress semantics."
+        )
+    result = invoke()
     report["exit_code"] = int(result.returncode)
     report["ok"] = result.returncode == 0
     report["transient"] = result.returncode == TRANSIENT_EXIT_CODE

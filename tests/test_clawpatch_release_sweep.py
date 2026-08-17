@@ -164,6 +164,24 @@ class StandaloneClawpatchAdapterTests(unittest.TestCase):
 
         self.assertTrue(report["ok"])
 
+    def test_apply_rejects_runtime_without_fixed_semantics_gate(self):
+        def run(*_args, **_kwargs):
+            self.fail("release command must not run without the fixed supervisor gate")
+
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "manageroo.clawpatch_release._supervisor_path",
+            return_value="/opt/clawpatch-supervise",
+        ), patch(
+            "manageroo.clawpatch_release.supervisor_runtime_gate_ready",
+            return_value=False,
+        ), self.assertRaisesRegex(SafetyError, "runtime gate"):
+            release_sweep(
+                Path(temp),
+                apply=True,
+                run=run,
+                version_run=matching_version_run,
+            )
+
     def test_apply_rejects_incompatible_supervisor_version(self):
         def run(*_args, **_kwargs):
             self.fail("release command must not run with an incompatible supervisor")

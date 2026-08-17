@@ -16,6 +16,7 @@ from manageroo.intent_lock import capture_intent_lock, read_intent_lock
 from manageroo.orchestrator import Orchestrator, _compact_json, _partition_json_artifacts
 from manageroo.project import initialize_project
 from manageroo.util import atomic_write_json, read_json, sha256_file
+from manageroo.workspace import WorkspaceMirror
 
 
 def _toml_array(items):
@@ -112,6 +113,9 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertTrue((run_root / "controller" / "phase-journal.jsonl").is_file())
             self.assertTrue(list((run_root / "jobs").glob("*.json")))
             self.assertTrue(list((run_root / "worker-attempts").glob("*/*.json")))
+            self.assertFalse((run_root / "workspace").exists())
+            self.assertFalse((run_root / "review-workspaces").exists())
+            self.assertTrue((run_root / "controller" / "workspace-lifecycle.json").is_file())
 
             stdout = io.StringIO()
             with redirect_stdout(stdout):
@@ -123,6 +127,34 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertEqual(payload["phase"], "COMPLETE")
             self.assertGreater(payload["jobs"]["completed_jobs"], 0)
             self.assertEqual(payload["jobs"]["failed_attempts"], 0)
+
+    def test_complete_result_is_blocked_when_terminal_workspace_cleanup_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+            with patch.object(
+                WorkspaceMirror,
+                "cleanup_terminal",
+                return_value={
+                    "errors": ["simulated cleanup refusal"],
+                    "workspace_removed": False,
+                },
+            ):
+                result = Orchestrator(repo, adapter=MockAdapter()).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+            run_root = Path(result["evidence_paths"]["run_root"])
+            self.assertEqual(result["status"], "BLOCKED")
+            self.assertIn("terminal cleanup", result["error"])
+            self.assertEqual(
+                read_json(run_root / "delivery" / "final-result.json")["status"],
+                "BLOCKED",
+            )
+            self.assertTrue(
+                (run_root / "controller" / "terminal-closeout-error.json").is_file()
+            )
 
     def test_blocked_status_surfaces_the_run_reason_after_jobs_complete(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -273,6 +305,62 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 self.assertNotIn(skipped, roles)
             self.assertIn("implementer", roles)
             self.assertIn("reviewer", roles)
+
+    def test_repository_map_prompts_are_source_scoped_not_request_scoped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            brief = root / "current-request.md"
+            brief.write_text(
+                "# Current request\n\nCreate the TASK-SPECIFIC-MAGENTA behavior.\n",
+                encoding="utf-8",
+            )
+            mapping_prompts: list[str] = []
+
+            class RecordingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role in {"repository-mapper", "map-reducer"}:
+                        mapping_prompts.append(
+                            request.prompt_path.read_text(encoding="utf-8")
+                        )
+                    return super().run(request)
+
+            Orchestrator(repo, adapter=RecordingAdapter()).run(
+                brief_path=brief,
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertTrue(mapping_prompts)
+            for prompt in mapping_prompts:
+                self.assertNotIn("TASK-SPECIFIC-MAGENTA", prompt)
+                self.assertNotIn("Product brief:", prompt)
+                self.assertIn("request-independent", prompt)
+
+    def test_interrupted_run_removes_its_workspace(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._repo(Path(temp))
+
+            class InterruptingAdapter(MockAdapter):
+                def run(self, request: AgentRequest) -> AgentResponse:
+                    if request.role == "product-analyst":
+                        raise KeyboardInterrupt("operator canceled")
+                    return super().run(request)
+
+            controller = Orchestrator(repo, adapter=InterruptingAdapter())
+            with self.assertRaises(KeyboardInterrupt):
+                controller.run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+
+            lifecycle = read_json(
+                controller.run_root / "controller" / "workspace-lifecycle.json"
+            )
+            self.assertEqual(lifecycle["status"], "CANCELED")
+            self.assertTrue(lifecycle["workspace_removed"])
+            self.assertFalse((controller.run_root / "workspace").exists())
 
     def test_exact_task_rejects_proof_that_does_not_match_required_outcome(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -487,14 +575,24 @@ class OrchestratorJobCliTests(unittest.TestCase):
             self.assertTrue(prompts)
             for prompt in prompts:
                 text = prompt.read_text(encoding="utf-8")
-                self.assertIn("# Manageroo current-request contract", text)
-                self.assertIn("Create the fixture file.", text)
+                if "# Manageroo request-independent repository map" in text:
+                    self.assertNotIn("# Manageroo current-request contract", text)
+                else:
+                    self.assertIn("# Manageroo current-request contract", text)
+                    self.assertIn("Create the fixture file.", text)
 
             conformance = read_json(
                 Path(result["evidence_paths"]["intent_conformance"])
             )
             self.assertEqual(conformance["status"], "passed")
-            self.assertTrue(conformance["current_request_was_in_every_worker_packet"])
+            self.assertTrue(
+                conformance[
+                    "current_request_was_in_every_request_bound_worker_packet"
+                ]
+            )
+            self.assertGreater(
+                conformance["request_independent_repository_map_packet_count"], 0
+            )
             self.assertTrue(conformance["operator_was_not_used_as_an_authorization_gate"])
 
     def test_newer_brief_automatically_supersedes_saved_run_instead_of_refusing(self):
@@ -532,6 +630,26 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 / "run-intent.json"
             )
             self.assertIn("Latest correction", replacement_intent["current_request"])
+
+            run_ids_before_retry = {
+                path.name for path in (repo / ".manageroo" / "runs").iterdir()
+            }
+            repeated = Orchestrator(
+                repo,
+                adapter=MockAdapter(),
+                run_id=first["run_id"],
+                continue_existing=True,
+            ).run(
+                brief_path=brief,
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(repeated["run_id"], replacement["run_id"])
+            self.assertEqual(
+                {path.name for path in (repo / ".manageroo" / "runs").iterdir()},
+                run_ids_before_retry,
+            )
 
     def test_changed_mode_or_exact_contract_supersedes_saved_run(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -668,19 +786,35 @@ class OrchestratorJobCliTests(unittest.TestCase):
                 def run(self, request: AgentRequest) -> AgentResponse:
                     raise AssertionError("completed run should not launch workers")
 
-            continued = Orchestrator(
-                repo,
-                adapter=ExplodingAdapter(),
-                run_id=result["run_id"],
-                continue_existing=True,
-            ).run(
-                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
-                mode="build",
-                apply_on_success=False,
-            )
+            run_root = Path(result["evidence_paths"]["run_root"])
+            retained_sizes: list[int] = []
+            for _attempt in range(4):
+                continued = Orchestrator(
+                    repo,
+                    adapter=ExplodingAdapter(),
+                    run_id=result["run_id"],
+                    continue_existing=True,
+                ).run(
+                    brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                    mode="build",
+                    apply_on_success=False,
+                )
+                retained_sizes.append(
+                    sum(
+                        path.stat().st_size
+                        for path in run_root.rglob("*")
+                        if path.is_file()
+                    )
+                )
+                self.assertFalse((run_root / "workspace").exists())
 
             self.assertEqual(continued["run_id"], result["run_id"])
             self.assertEqual(continued["status"], "COMPLETE")
+            self.assertEqual(
+                [path.name for path in (repo / ".manageroo" / "runs").iterdir()],
+                [result["run_id"]],
+            )
+            self.assertLessEqual(max(retained_sizes) - min(retained_sizes), 1024)
 
     def test_continue_allocates_call_name_after_saved_numeric_jobs(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -729,8 +863,13 @@ class OrchestratorJobCliTests(unittest.TestCase):
                     apply_on_success=False,
                 )
             run_id = failed.run_id
+            run_root = repo / ".manageroo" / "runs" / run_id
+            self.assertFalse((run_root / "workspace").exists())
+            lifecycle = read_json(run_root / "controller" / "workspace-lifecycle.json")
+            self.assertTrue(lifecycle["workspace_removed"])
+            self.assertTrue(Path(lifecycle["recovery_patch"]).is_file())
             failed_attempts = list(
-                (repo / ".manageroo" / "runs" / run_id / "worker-attempts").glob("*/*.json")
+                (run_root / "worker-attempts").glob("*/*.json")
             )
             self.assertEqual(len(failed_attempts), 1)
 
@@ -938,14 +1077,11 @@ class OrchestratorJobCliTests(unittest.TestCase):
             )
 
             self.assertEqual(result["status"], "COMPLETE")
-            self.assertTrue(stale.is_dir())
-            self.assertTrue(
-                (
-                    orchestrator.run_root
-                    / "review-workspaces"
-                    / "review-000-retry-001"
-                ).is_dir()
+            self.assertFalse((orchestrator.run_root / "review-workspaces").exists())
+            lifecycle = read_json(
+                orchestrator.run_root / "controller" / "workspace-lifecycle.json"
             )
+            self.assertTrue(lifecycle["workspace_removed"])
 
     def test_continue_waiting_for_product_decisions_does_not_proceed(self):
         with tempfile.TemporaryDirectory() as temp:

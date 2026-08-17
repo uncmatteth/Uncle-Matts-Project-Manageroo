@@ -19,6 +19,7 @@ from .managed_contract_common import (
     _verify_signed_payload,
 )
 from .release_proof_policy import source_tree_digest
+from .run_retention import enforce_run_retention
 from .runner import CommandRunner
 from .util import atomic_write_json, read_json, sha256_file, sha256_text, utc_now
 
@@ -289,23 +290,95 @@ def install_managed_completion_policy(
                 start_source_tree_sha256 = source_tree_digest(
                     self.source_repo, self.runner
                 )
-        result = original_run(self, *args, **kwargs)
-        if (
-            request_metadata is not None
-            and state_root is not None
-            and isinstance(result, dict)
-            and result.get("status") == "COMPLETE"
-        ):
-            _write_completion_receipt(
-                orchestrator=self,
-                request_metadata=request_metadata,
-                state_root=state_root,
-                result=result,
-                start_git_head=start_git_head,
-                start_source_tree_sha256=start_source_tree_sha256,
-                continuity_module=continuity_module,
+        def close_terminal(status: str) -> tuple[bool, str]:
+            mirror = getattr(self, "mirror", None)
+            if mirror is None:
+                return True, ""
+            failures: list[str] = []
+            try:
+                cleanup = mirror.cleanup_terminal(status=status)
+                cleanup_errors = cleanup.get("errors", [])
+                if isinstance(cleanup_errors, list):
+                    failures.extend(str(item) for item in cleanup_errors if item)
+                if cleanup.get("workspace_removed") is not True:
+                    failures.append("The run-owned workspace was not removed.")
+            except Exception as exc:
+                failures.append(
+                    f"Workspace cleanup failed: {type(exc).__name__}: {exc}"
+                )
+            try:
+                enforce_run_retention(
+                    self.source_repo,
+                    current_run_id=self.run_id,
+                    config=dict(self.config.get("retention", {})),
+                )
+            except Exception as exc:
+                failures.append(
+                    f"Run retention failed: {type(exc).__name__}: {exc}"
+                )
+            if failures:
+                try:
+                    atomic_write_json(
+                        self.run_root / "controller" / "terminal-closeout-error.json",
+                        {
+                            "status": status,
+                            "errors": failures,
+                            "recorded_at": utc_now(),
+                        },
+                    )
+                except Exception:
+                    pass
+            return not failures, "; ".join(failures)
+
+        result: dict[str, Any] | None = None
+        terminal_closed = False
+        try:
+            result = original_run(self, *args, **kwargs)
+            terminal_status = (
+                str(result.get("status") or "") if isinstance(result, dict) else ""
             )
-        return result
+            if terminal_status in {"BLOCKED", "CANCELED", "COMPLETE"}:
+                closeout_ok, closeout_error = close_terminal(terminal_status)
+                terminal_closed = True
+                if terminal_status == "COMPLETE" and not closeout_ok:
+                    result.update(
+                        {
+                            "status": "BLOCKED",
+                            "error_type": "SafetyError",
+                            "error": (
+                                "Manageroo terminal cleanup or retention did not complete: "
+                                + closeout_error
+                            ),
+                        }
+                    )
+                    atomic_write_json(
+                        self.run_root / "delivery" / "final-result.json", result
+                    )
+            if (
+                request_metadata is not None
+                and state_root is not None
+                and isinstance(result, dict)
+                and result.get("status") == "COMPLETE"
+            ):
+                _write_completion_receipt(
+                    orchestrator=self,
+                    request_metadata=request_metadata,
+                    state_root=state_root,
+                    result=result,
+                    start_git_head=start_git_head,
+                    start_source_tree_sha256=start_source_tree_sha256,
+                    continuity_module=continuity_module,
+            )
+            return result
+        except BaseException as exc:
+            interrupted_status = (
+                "CANCELED"
+                if isinstance(exc, (KeyboardInterrupt, SystemExit))
+                else "BLOCKED"
+            )
+            if not terminal_closed:
+                close_terminal(interrupted_status)
+            raise
 
     orchestrator_class.run = run_with_managed_contract
     orchestrator_class._manageroo_managed_completion_policy_installed = True

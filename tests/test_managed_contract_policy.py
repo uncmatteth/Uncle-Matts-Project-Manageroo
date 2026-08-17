@@ -216,6 +216,144 @@ class ManagedContractPolicyTests(unittest.TestCase):
             )["hookSpecificOutput"]
             self.assertIn("--apply", shlex.split(decision["updatedInput"]["cmd"]))
 
+    def test_explicit_run_repo_rebinds_the_request_and_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current = self._repo(root)
+            other_parent = root / "other-parent"
+            other_parent.mkdir()
+            selected = self._repo(other_parent)
+            state_root = root / "state"
+            self._capture(
+                state_root=state_root,
+                repo=current,
+                prompt="Fix the login flow and verify it.",
+            )
+
+            decision = continuity.process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(current),
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": f"manageroo run --repo {shlex.quote(str(selected))}"
+                    },
+                },
+                state_root=state_root,
+            )["hookSpecificOutput"]
+
+            rewritten = shlex.split(decision["updatedInput"]["cmd"])
+            self.assertEqual(Path(rewritten[rewritten.index("--repo") + 1]), selected)
+            state = continuity._read_state(state_root, "session")
+            self.assertEqual(Path(state["bound_repo"]), selected)
+            metadata, _ = _load_request_metadata(
+                Path(state["managed_request_path"]), continuity
+            )
+            self.assertEqual(Path(metadata["repository_root"]), selected)
+
+    def test_explicit_run_repo_accepts_a_real_git_worktree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current = self._repo(root, "current")
+            worktree = root / "current-worktree"
+            subprocess.run(
+                ["git", "worktree", "add", "-q", "-b", "worktree-test", str(worktree)],
+                cwd=current,
+                check=True,
+            )
+            state_root = root / "state"
+            self._capture(
+                state_root=state_root,
+                repo=current,
+                prompt="Fix the login flow and verify it.",
+            )
+
+            decision = continuity.process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(current),
+                    "tool_name": "exec_command",
+                    "tool_input": {
+                        "cmd": f"manageroo run --repo {shlex.quote(str(worktree))}"
+                    },
+                },
+                state_root=state_root,
+            )["hookSpecificOutput"]
+
+            rewritten = shlex.split(decision["updatedInput"]["cmd"])
+            self.assertEqual(
+                Path(rewritten[rewritten.index("--repo") + 1]), worktree.resolve()
+            )
+
+    def test_paused_request_does_not_block_mutating_operator_tools(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            state_root = root / "state"
+            self._capture(
+                state_root=state_root,
+                repo=repo,
+                prompt="Fix the login flow and verify it.",
+            )
+            self._capture(
+                state_root=state_root,
+                repo=repo,
+                prompt="Stop and wait until I tell you to resume.",
+                turn_id="turn-2",
+            )
+
+            result = continuity.process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-2",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "touch operator-owned.txt"},
+                },
+                state_root=state_root,
+            )
+
+            self.assertEqual(result, {})
+
+    def test_manageroo_control_and_help_commands_are_never_blocked_by_its_hook(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            state_root = root / "state"
+            self._capture(
+                state_root=state_root,
+                repo=repo,
+                prompt="Fix the login flow and verify it.",
+            )
+
+            for command in (
+                "manageroo --help",
+                "manageroo help",
+                "manageroo next . --json",
+                "manageroo status example --repo .",
+                "manageroo report example --repo .",
+                "manageroo projects --json",
+                "manageroo decisions show --repo .",
+            ):
+                with self.subTest(command=command):
+                    result = continuity.process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "session_id": "session",
+                            "turn_id": "turn-1",
+                            "cwd": str(repo),
+                            "tool_name": "exec_command",
+                            "tool_input": {"cmd": command},
+                        },
+                        state_root=state_root,
+                    )
+                    self.assertEqual(result, {})
+
     def test_named_exclusion_does_not_turn_mutating_work_into_read_only_work(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -255,6 +393,56 @@ class ManagedContractPolicyTests(unittest.TestCase):
             # not exist; binding still walks its lexical parents.
             self.assertEqual(resolution["status"], "bound")
             self.assertEqual(Path(resolution["repo"]), repo)
+
+    def test_pasted_evidence_path_does_not_remap_the_current_repository(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current = self._repo(root, "current")
+            unrelated = self._repo(root, "unrelated")
+            log_path = unrelated / "logs" / "failure.txt"
+            log_path.parent.mkdir()
+            log_path.write_text("trace\n", encoding="utf-8")
+
+            resolution = _resolve_repository_binding(
+                prompt=(
+                    "Fix this repository going forward. Pasted evidence: "
+                    f"{log_path}"
+                ),
+                cwd=str(current),
+                projects=[
+                    {"name": "current", "path": str(current)},
+                    {"name": "unrelated", "path": str(unrelated)},
+                ],
+                continuity_module=continuity,
+            )
+
+            self.assertEqual(resolution["status"], "bound")
+            self.assertEqual(resolution["source"], "current-git-root")
+            self.assertEqual(Path(resolution["repo"]), current)
+
+    def test_trailing_handoff_file_does_not_bind_to_false_parent_git_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            current = self._repo(root, "current")
+            evidence_root = root / "evidence"
+            evidence_root.mkdir()
+            (evidence_root / ".git").mkdir()
+            handoff = evidence_root / "manageroo-handoff-20260817.md"
+            handoff.write_text("diagnostic evidence\n", encoding="utf-8")
+
+            resolution = _resolve_repository_binding(
+                prompt=(
+                    "First, why are these doing this? Please fix it going forward "
+                    f"then {handoff}"
+                ),
+                cwd=str(current),
+                projects=[],
+                continuity_module=continuity,
+            )
+
+            self.assertEqual(resolution["status"], "bound")
+            self.assertEqual(resolution["source"], "current-git-root")
+            self.assertEqual(Path(resolution["repo"]), current)
 
     def test_forged_result_and_conformance_files_do_not_authorize_stop(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -467,11 +655,17 @@ class ManagedContractPolicyTests(unittest.TestCase):
             )
             self.assertEqual(rejected["decision"], "block")
 
-    def test_invalid_state_fails_closed_and_exact_reset_command_is_allowed(self):
+    def test_invalid_registered_hook_state_fails_open_for_the_operator(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = self._repo(root)
             state_root = root / "state"
+            codex_home = root / ".codex"
+            launcher = root / "bin" / "manageroo"
+            continuity.install_codex_continuity_hooks(
+                codex_home=codex_home,
+                manageroo_command=launcher,
+            )
             self._capture(
                 state_root=state_root,
                 repo=repo,
@@ -490,7 +684,10 @@ class ManagedContractPolicyTests(unittest.TestCase):
             output = io.StringIO()
             with mock.patch.dict(
                 continuity.os.environ,
-                {"MANAGEROO_CONTINUITY_STATE": str(state_root)},
+                {
+                    "CODEX_HOME": str(codex_home),
+                    "MANAGEROO_CONTINUITY_STATE": str(state_root),
+                },
                 clear=False,
             ):
                 continuity.run_codex_continuity_hook(
@@ -498,62 +695,8 @@ class ManagedContractPolicyTests(unittest.TestCase):
                     output_stream=output,
                 )
             result = json.loads(output.getvalue())
-            self.assertEqual(
-                result["hookSpecificOutput"]["permissionDecision"], "deny"
-            )
-            self.assertNotIn(
-                "continue normally",
-                result["hookSpecificOutput"]["permissionDecisionReason"].casefold(),
-            )
-
-            event["tool_input"] = {
-                "cmd": "manageroo continuity-reset --session-id session"
-            }
-            output = io.StringIO()
-            with mock.patch.dict(
-                continuity.os.environ,
-                {"MANAGEROO_CONTINUITY_STATE": str(state_root)},
-                clear=False,
-            ):
-                continuity.run_codex_continuity_hook(
-                    input_stream=io.StringIO(json.dumps(event)),
-                    output_stream=output,
-                )
-            allowed = json.loads(output.getvalue())
-            self.assertEqual(
-                allowed["hookSpecificOutput"]["permissionDecision"], "allow"
-            )
-
-            reset_command = "manageroo continuity-reset --session-id session"
-            marker = root / "injected"
-            hostile_commands = (
-                f"{reset_command} ; touch {marker}",
-                f"{reset_command} && touch {marker}",
-                f"{reset_command} || touch {marker}",
-                f"{reset_command}\ntouch {marker}",
-                f"{reset_command} > {marker}",
-                f"{reset_command} $(touch {marker})",
-                f"touch {marker} ; {reset_command}",
-                f"{reset_command} extra-command",
-            )
-            for command in hostile_commands:
-                with self.subTest(command=command):
-                    event["tool_input"] = {"cmd": command}
-                    output = io.StringIO()
-                    with mock.patch.dict(
-                        continuity.os.environ,
-                        {"MANAGEROO_CONTINUITY_STATE": str(state_root)},
-                        clear=False,
-                    ):
-                        continuity.run_codex_continuity_hook(
-                            input_stream=io.StringIO(json.dumps(event)),
-                            output_stream=output,
-                        )
-                    denied = json.loads(output.getvalue())
-                    self.assertEqual(
-                        denied["hookSpecificOutput"]["permissionDecision"], "deny"
-                    )
-                    self.assertFalse(marker.exists())
+            self.assertNotIn("hookSpecificOutput", result)
+            self.assertIn("continue", result["systemMessage"].casefold())
 
             report = reset_continuity_state(
                 session_id="session",
@@ -563,6 +706,36 @@ class ManagedContractPolicyTests(unittest.TestCase):
             self.assertTrue(report["ok"])
             self.assertFalse(state_path.exists())
             self.assertTrue(report["quarantined"])
+
+    def test_tampered_managed_request_fails_open_with_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            state_root = root / "state"
+            state = self._capture(
+                state_root=state_root,
+                repo=repo,
+                prompt="Fix and verify this repository.",
+            )
+            Path(state["managed_request_path"]).write_text(
+                "tampered\n", encoding="utf-8"
+            )
+
+            result = continuity.process_codex_continuity_hook(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": "session",
+                    "turn_id": "turn-1",
+                    "cwd": str(repo),
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": "touch operator-owned.txt"},
+                },
+                state_root=state_root,
+            )
+
+            self.assertNotIn("hookSpecificOutput", result)
+            self.assertIn("fail-open", result["systemMessage"])
+            self.assertIn("request artifact changed", result["systemMessage"])
 
     def test_delivery_recovery_wraps_run_before_normal_preflight(self):
         calls: list[str] = []

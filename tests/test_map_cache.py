@@ -10,7 +10,7 @@ from manageroo.map_cache import (
 
 
 class MapCacheTests(unittest.TestCase):
-    def test_loads_only_exact_inventory_and_brief_match(self):
+    def test_reuses_map_for_unchanged_source_when_request_changes(self):
         inventory = [
             {"path": "a.py", "sha256": "aaa", "bytes": 10},
             {"path": "b.py", "sha256": "bbb", "bytes": 20},
@@ -28,7 +28,10 @@ class MapCacheTests(unittest.TestCase):
                 load_system_map_cache(path, inventory=inventory, brief="Build X"),
                 system_map,
             )
-            self.assertIsNone(load_system_map_cache(path, inventory=inventory, brief="Build Y"))
+            self.assertEqual(
+                load_system_map_cache(path, inventory=inventory, brief="Repair finding Y"),
+                system_map,
+            )
             changed = [*inventory, {"path": "c.py", "sha256": "ccc", "bytes": 30}]
             self.assertIsNone(load_system_map_cache(path, inventory=changed, brief="Build X"))
 

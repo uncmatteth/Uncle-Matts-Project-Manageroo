@@ -83,6 +83,24 @@ class SkillPackImportTests(unittest.TestCase):
             duplicates = [item for item in report["candidates"] if item["name"] == "dupe-skill"]
             self.assertEqual([item["status"] for item in duplicates], ["importable", "duplicate-source"])
 
+    def test_scan_blocks_dangling_target_skill_entrypoint_symlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "SKILLS"
+            target = root / "target"
+            source.mkdir()
+            target.mkdir()
+            _skill(source, "example")
+            target_skill = target / "example"
+            target_skill.mkdir()
+            (target_skill / "SKILL.md").symlink_to("missing.md")
+
+            report = scan_skill_folder(source, skills_dir=target)
+
+            self.assertEqual(report["candidates"][0]["status"], "blocked")
+            self.assertEqual(report["importable_count"], 0)
+            self.assertEqual(report["next_command"], "")
+
     def test_case_colliding_skill_names_are_rejected_before_apply(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root / "SKILLS"; target = root / "target"; source.mkdir(); target.mkdir()

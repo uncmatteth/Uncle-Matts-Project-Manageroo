@@ -83,6 +83,18 @@ class WorkspaceTests(unittest.TestCase):
             mirror.apply_patch_to_source(patch)
             self.assertEqual((repo / "a.txt").read_text(encoding="utf-8"), "after\n")
 
+    def test_workspace_copy_stops_before_breaching_free_space_reserve(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo, runner = self._repo(root)
+            mirror = WorkspaceMirror(repo, root / "run", runner)
+
+            with self.assertRaisesRegex(SafetyError, "free-space reserve"):
+                mirror.create(minimum_free_bytes=10**30)
+
+            self.assertFalse(mirror.workspace.exists())
+            self.assertFalse(mirror.snapshot_path.exists())
+
     def test_apply_rejects_concurrent_source_edit_before_mutating_any_file(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

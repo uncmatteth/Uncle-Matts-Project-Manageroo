@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .util import atomic_write_json, read_json, sha256_json, sha256_text
+from .util import atomic_write_json, read_json, sha256_json
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 def inventory_fingerprint(inventory: list[dict[str, Any]]) -> str:
@@ -29,7 +29,7 @@ def _cache_payload(
     return {
         "cache_version": CACHE_VERSION,
         "inventory_fingerprint": inventory_fingerprint(inventory),
-        "brief_sha256": sha256_text(brief),
+        "scope": "repository-source",
         "system_map": system_map,
     }
 
@@ -61,8 +61,6 @@ def load_system_map_cache(
     if payload.get("cache_version") != CACHE_VERSION:
         return None
     if payload.get("inventory_fingerprint") != inventory_fingerprint(inventory):
-        return None
-    if payload.get("brief_sha256") != sha256_text(brief):
         return None
     system_map = payload.get("system_map")
     return system_map if isinstance(system_map, dict) else None

@@ -36,8 +36,10 @@ controller before implementation tools run. For actionable work the hooks:
 1. classify execution intent;
 2. resolve and bind the exact repository before tool lockdown;
 3. persist the exact operator request and ordered additions;
-4. deny freehand repository mutation;
-5. allow only the corresponding Manageroo run/status/report path;
+4. deny freehand repository mutation while leaving operator controls and safe
+   read-only inspection available;
+5. rewrite the corresponding Manageroo run path to the bound request and
+   repository;
 6. require controller-owned completion proof before Stop succeeds.
 
 A mutating request routes to the applying path only when mutation is authorized.
@@ -45,10 +47,21 @@ A read-only repository audit routes to a non-applying run. Status questions,
 acknowledgments, pause, resume, cancel, and replacement are lifecycle operations,
 not accidental implementation jobs.
 
+Hook registration is checked on every event. A cached launcher becomes a silent
+no-op as soon as the Manageroo hook group is removed from the live Codex hook
+configuration. Hook bookkeeping errors are diagnostic and fail open; they do
+not convert Manageroo's own optional controls into authority over the operator.
+
 The current repository binding wins over convenience guesses. An explicit path
-or project name outranks the current directory and project registry. Ambiguous or
-unresolved identity fails visibly instead of selecting an unrelated sole project.
-Once a request is bound, changing repositories requires explicit replacement.
+or project name outranks the current directory and project registry. Paths that
+appear only in pasted evidence, handoffs, logs, reports, traces, quotations, or
+historical examples are context rather than repository-selection instructions.
+Ambiguous or unresolved identity fails visibly instead of selecting an unrelated
+sole project. An explicit `manageroo run --repo PATH` selection rebinds the
+managed request to that valid repository instead of being rewritten back to a
+stale binding. Repository markers must describe a real Git directory; an empty
+or malformed `.git` entry cannot turn an evidence parent such as `/tmp` into the
+target. Linked worktree `gitdir` and `commondir` metadata remain supported.
 
 ## Request continuity
 
@@ -66,14 +79,16 @@ A managed request has:
 Acknowledgments such as “thanks” or “okay” do not change the canonical task or
 invalidate proof. Genuine additional requirements create a new generation and
 invalidate old completion authorization. Pause preserves the request but blocks
-new work. Resume continues the same durable generation. Cancel removes work
+new controller work while releasing hook enforcement so operator controls remain
+available. Resume continues the same durable generation. Cancel removes work
 authority and completion binding. Replacement creates a fresh generation and may
 bind a different repository.
 
 Continuity state is signed with a private local authority key. Missing state can
 represent an unmanaged session. Existing malformed, truncated, unreadable,
-unsupported, or invalidly signed state fails closed at PreToolUse and Stop. It
-never silently tells the agent to continue normally.
+unsupported, or invalidly signed state produces a repair diagnostic and fails
+open at the hook boundary. The controlled run's workspace, scope, verification,
+review, and delivery policies still fail closed once Manageroo is invoked.
 
 Controlled workers run in `structured-worker` mode so operator continuity hooks
 do not interfere with schema-bound worker output.
@@ -105,6 +120,15 @@ not change Git history, refs, repository-local Git metadata, or controller-owned
 run truth. Failed attempts restore the exact pre-attempt Git and controller
 state. Read-only worker mutation is detected and discarded.
 
+Each run owns one integration workspace. Completion, cancellation, and blocking
+remove that workspace and all run-owned review and gate workspaces after writing
+a bounded recovery patch and workspace-lifecycle record. A continuation that
+needs an unapplied verified patch reconstructs the same workspace path from the
+locked source snapshot and lifecycle-bound patch, then retires it again. New
+workspaces are refused when the configured free-space reserve would be crossed.
+Terminal evidence is bounded by per-run quota plus age and run-count retention;
+source repository files are never retention targets.
+
 ## Durable worker jobs
 
 Manageroo does not rely on a worker remembering previous chat. Each role receives
@@ -133,6 +157,17 @@ output returns the job to a retryable state instead of trusting it.
 
 `manageroo run --continue <run-id>` replays the Python controller from durable
 facts. It does not depend on the old model process.
+
+Repository maps are source-scoped artifacts. Their durable cache key is the
+Git-visible inventory fingerprint, not the wording of one request. A new request
+therefore reuses the map when the repository bytes are unchanged, while changed
+source invalidates it. Request-bound role packets retain the exact current
+request; mapper packets instead carry an explicit repository-source scope marker
+and are audited separately.
+
+When a current request supersedes an older run, the old run records one durable
+replacement pointer. Repeated attempts to continue that old run resume the same
+matching replacement instead of allocating an unbounded restart chain.
 
 ## Roles and planning
 

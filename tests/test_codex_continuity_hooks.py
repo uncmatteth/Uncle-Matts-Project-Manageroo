@@ -1,16 +1,67 @@
 from __future__ import annotations
 
+import io
 import json
+import os
 import runpy
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import manageroo.agent_continuity as continuity
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class CodexContinuityHooksTests(unittest.TestCase):
+    def test_cached_hook_invocation_is_silent_after_registration_is_removed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            state_root = root / "state"
+            codex_home = root / ".codex"
+            codex_home.mkdir()
+            (codex_home / "hooks.json").write_text(
+                json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [{"command": "gbrain prompt hook"}]}]}}),
+                encoding="utf-8",
+            )
+            continuity.capture_current_request(
+                session_id="cached-session",
+                turn_id="turn-1",
+                prompt="Fix the repository and verify it.",
+                cwd=str(repo),
+                state_root=state_root,
+            )
+            event = {
+                "hook_event_name": "PreToolUse",
+                "session_id": "cached-session",
+                "turn_id": "turn-1",
+                "cwd": str(repo),
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": "git status --short"},
+            }
+            output = io.StringIO()
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "CODEX_HOME": str(codex_home),
+                    "MANAGEROO_CONTINUITY_STATE": str(state_root),
+                },
+                clear=False,
+            ):
+                code = continuity.run_codex_continuity_hook(
+                    input_stream=io.StringIO(json.dumps(event)),
+                    output_stream=output,
+                )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(output.getvalue(), "")
+
     def test_runtime_has_no_legacy_prompt_derived_permission_firewall(self):
         forbidden = (
             "operator-receipt",

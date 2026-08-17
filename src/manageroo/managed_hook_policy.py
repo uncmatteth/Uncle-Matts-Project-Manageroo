@@ -23,10 +23,104 @@ from .managed_request_binding import (
     _effective_request_text,
     _execution_intent,
     _is_acknowledgment,
+    _repo_for_path,
     _requires_managed_run,
     _resolve_repository_binding,
 )
 from .util import sha256_file, utc_now
+
+
+_READ_ONLY_DIAGNOSTIC_PROGRAMS = frozenset(
+    {
+        "basename",
+        "cat",
+        "cut",
+        "df",
+        "dirname",
+        "du",
+        "file",
+        "grep",
+        "head",
+        "ls",
+        "lsof",
+        "pgrep",
+        "ps",
+        "pwd",
+        "readlink",
+        "realpath",
+        "rg",
+        "sed",
+        "sort",
+        "stat",
+        "tail",
+        "tree",
+        "uniq",
+        "wc",
+        "which",
+    }
+)
+_READ_ONLY_GIT_SUBCOMMANDS = frozenset(
+    {"diff", "log", "ls-files", "ls-tree", "rev-parse", "show", "status"}
+)
+
+
+def _read_only_diagnostic_allowed(tokens: list[str]) -> bool:
+    if not tokens:
+        return False
+    if any(
+        any(marker in token for marker in (";", "|", "&", ">", "<", "\n", "\r", "`", "$("))
+        for token in tokens
+    ):
+        return False
+    program = Path(tokens[0]).name.casefold()
+    if program == "git":
+        if len(tokens) < 2:
+            return False
+        subcommand = tokens[1].casefold()
+        return subcommand in _READ_ONLY_GIT_SUBCOMMANDS or (
+            subcommand == "worktree"
+            and len(tokens) >= 3
+            and tokens[2].casefold() == "list"
+        )
+    if program == "sed" and any(
+        token == "-i" or token.startswith(("-i", "--in-place")) for token in tokens[1:]
+    ):
+        return False
+    return program in _READ_ONLY_DIAGNOSTIC_PROGRAMS
+
+
+def _managed_state_diagnostic(state: dict[str, Any], reason: str) -> dict[str, Any]:
+    session_id = str(state.get("session_id") or "")
+    recovery = shlex.join(
+        ["manageroo", "continuity-reset", "--session-id", session_id]
+    )
+    return {
+        "systemMessage": (
+            "🦘⚠️ Manageroo managed-request bookkeeping is invalid, so this hook is "
+            f"fail-open. The operator request may continue normally. {reason}. "
+            f"Repair it with `{recovery}`."
+        )
+    }
+
+
+def _explicit_repo_selection(
+    tokens: list[str], *, cwd: str, continuity_module: Any
+) -> tuple[bool, Path | None]:
+    raw: str | None = None
+    for index, token in enumerate(tokens[2:], start=2):
+        if token == "--repo":
+            if index + 1 >= len(tokens):
+                return True, None
+            raw = tokens[index + 1]
+        elif token.startswith("--repo="):
+            raw = token.split("=", 1)[1]
+    if raw is None:
+        return False, None
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path(cwd or ".").expanduser() / candidate
+    selected = _repo_for_path(candidate.resolve(strict=False), continuity_module)
+    return True, selected.resolve() if selected is not None else None
 
 
 def _capture_current_request_locked(
@@ -106,6 +200,8 @@ def _capture_current_request_locked(
 def _audit_managed_execution(
     event: dict[str, Any], state: dict[str, Any], root: Path, continuity_module: Any
 ) -> dict[str, Any]:
+    if state.get("status") == "paused":
+        return {}
     if not state.get("managed_run_required"):
         return {}
     tool_name = str(event.get("tool_name") or "")
@@ -118,35 +214,37 @@ def _audit_managed_execution(
             "A controlled worker cannot be steered with new freehand instructions."
         )
     tokens, command_key = continuity_module._shell_tokens(event)
-    if not tokens or Path(tokens[0]).name.casefold() != "manageroo":
-        return continuity_module._managed_denial(
-            "This actionable repository request is automatically controller-owned."
-        )
-    subcommand = tokens[1] if len(tokens) > 1 else ""
-    if subcommand in {"status", "report", "decisions", "projects"}:
+    if _read_only_diagnostic_allowed(tokens):
         return {}
-    if subcommand != "run":
-        return continuity_module._managed_denial(
-            "Only the Manageroo run, status, report, project, and decision paths "
-            "belong to this request."
-        )
+    manageroo_command = bool(
+        tokens and Path(tokens[0]).name.casefold() == "manageroo"
+    )
+    subcommand = tokens[1] if manageroo_command and len(tokens) > 1 else ""
+    if manageroo_command and (
+        any(token in {"-h", "--help"} for token in tokens[1:])
+        or subcommand
+        in {
+            "decisions",
+            "help",
+            "next",
+            "project",
+            "projects",
+            "report",
+            "status",
+        }
+    ):
+        return {}
 
     request_path = Path(str(state.get("managed_request_path") or ""))
     expected_hash = str(state.get("managed_request_sha256") or "")
     if not request_path.is_file() or not expected_hash:
-        return continuity_module._managed_denial(
-            "The controller-owned request artifact is missing."
-        )
+        return _managed_state_diagnostic(state, "The request artifact is missing")
     try:
         if sha256_file(request_path) != expected_hash:
-            return continuity_module._managed_denial(
-                "The controller-owned request artifact changed."
-            )
+            return _managed_state_diagnostic(state, "The request artifact changed")
         metadata_loaded = _load_request_metadata(request_path, continuity_module)
         if metadata_loaded is None:
-            return continuity_module._managed_denial(
-                "The controller-owned request metadata is missing."
-            )
+            return _managed_state_diagnostic(state, "The request metadata is missing")
         metadata, _state_root = metadata_loaded
         expected_metadata_sha256 = str(
             state.get("managed_request_metadata_sha256") or ""
@@ -164,32 +262,55 @@ def _audit_managed_execution(
             or str(metadata.get("execution_intent") or "")
             != str(state.get("execution_intent") or "")
         ):
-            return continuity_module._managed_denial(
-                "The controller-owned request metadata is stale or belongs to another request."
+            return _managed_state_diagnostic(
+                state, "The request metadata is stale or belongs to another request"
             )
-    except (OSError, ConfigurationError):
-        return continuity_module._managed_denial(
-            "The controller-owned request artifact cannot be authenticated."
+    except (OSError, ConfigurationError) as exc:
+        return _managed_state_diagnostic(
+            state, f"The request artifact cannot be authenticated: {type(exc).__name__}"
         )
 
-    repo_text = str(state.get("bound_repo") or "")
-    resolution = state.get("repository_resolution")
-    if not repo_text:
-        candidates = (
-            list(resolution.get("candidates", []))
-            if isinstance(resolution, dict)
-            else []
-        )
-        detail = ""
-        if candidates:
-            detail = " Candidates: " + ", ".join(str(item) for item in candidates[:8])
+    if not manageroo_command:
         return continuity_module._managed_denial(
-            "The active request has no unambiguous repository binding." + detail
+            "This actionable repository request is automatically controller-owned."
+        )
+    if subcommand != "run":
+        return continuity_module._managed_denial(
+            "Only the Manageroo run, status, report, project, and decision paths "
+            "belong to this request."
+        )
+
+    explicit_repo, selected_repo = _explicit_repo_selection(
+        tokens,
+        cwd=str(event.get("cwd") or state.get("cwd") or ""),
+        continuity_module=continuity_module,
+    )
+    if explicit_repo:
+        if selected_repo is None:
+            return {}
+        selected_text = str(selected_repo)
+        if selected_text != str(state.get("bound_repo") or ""):
+            state["bound_repo"] = selected_text
+            state["repository_resolution"] = {
+                "status": "bound",
+                "repo": selected_text,
+                "source": "explicit-run-repo",
+                "candidates": [selected_text],
+            }
+            state["managed_run_started"] = False
+            _clear_completion_binding(state)
+            continuity_module._persist_managed_request(root, state)
+            continuity_module._save_state(root, state)
+
+    repo_text = str(state.get("bound_repo") or "")
+    if not repo_text:
+        return _managed_state_diagnostic(
+            state, "The active request has no unambiguous repository binding"
         )
     repo = Path(repo_text).expanduser().resolve(strict=False)
-    if continuity_module._git_root(repo) != repo:
-        return continuity_module._managed_denial(
-            "The bound repository is no longer a valid Git root."
+    if _repo_for_path(repo, continuity_module) != repo:
+        return _managed_state_diagnostic(
+            state, "The bound repository is no longer a valid Git root"
         )
 
     apply_flag = (
@@ -200,7 +321,7 @@ def _audit_managed_execution(
     if "--continue" in tokens:
         index = tokens.index("--continue")
         if index + 1 >= len(tokens):
-            return continuity_module._managed_denial("The continuation run id is missing.")
+            return {}
         rewritten = [
             tokens[0],
             "run",
@@ -236,64 +357,17 @@ def _audit_managed_execution(
     }
 
 
-def _recovery_command_allowed(event: dict[str, Any], session_id: str) -> bool:
-    tool_name = str(event.get("tool_name") or "")
-    if tool_name not in {"Bash", "exec_command", "shell", "functions.exec"}:
-        return False
-    payload = event.get("tool_input")
-    values = payload if isinstance(payload, dict) else {}
-    command = str(values.get("cmd") or values.get("command") or "")
-    try:
-        tokens = shlex.split(command, posix=os.name != "nt")
-    except ValueError:
-        return False
-    return (
-        len(tokens) == 4
-        and Path(tokens[0]).name.casefold() == "manageroo"
-        and tokens[1] == "continuity-reset"
-        and tokens[2] == "--session-id"
-        and tokens[3] == session_id
-    )
-
-
-def _fail_closed_hook_result(event: dict[str, Any], exc: BaseException) -> dict[str, Any]:
-    event_name = str(event.get("hook_event_name") or "")
+def _fail_open_hook_result(event: dict[str, Any], exc: BaseException) -> dict[str, Any]:
     session_id = str(event.get("session_id") or "")
     recovery = shlex.join(
         ["manageroo", "continuity-reset", "--session-id", session_id]
     )
     detail = f"{type(exc).__name__}: {exc}"
-    if event_name == "PreToolUse":
-        if session_id and _recovery_command_allowed(event, session_id):
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                }
-            }
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    "🛑🦘 Manageroo continuity state is invalid, so repository work is blocked.\n"
-                    f"Details: {detail}\n"
-                    f"Next: `{recovery}`"
-                ),
-            }
-        }
-    if event_name == "Stop":
-        return {
-            "decision": "block",
-            "reason": (
-                "Manageroo continuity state is invalid; completion cannot be authorized. "
-                f"Run `{recovery}`. Details: {detail}"
-            ),
-        }
     return {
         "systemMessage": (
-            "🦘⚠️ Manageroo continuity state is invalid. No repository authorization was "
-            f"granted. Run `{recovery}`. Details: {detail}"
+            "🦘⚠️ Manageroo continuity state is invalid, so this hook is fail-open and the "
+            f"operator request may continue normally. Repair it with `{recovery}`. "
+            f"Details: {detail}"
         )
     }
 
@@ -301,9 +375,12 @@ def _fail_closed_hook_result(event: dict[str, Any], exc: BaseException) -> dict[
 def _run_codex_continuity_hook(
     process: Any,
     *,
+    hook_is_registered: Any,
     input_stream: TextIO = sys.stdin,
     output_stream: TextIO = sys.stdout,
 ) -> int:
+    if not hook_is_registered():
+        return 0
     event: dict[str, Any] = {}
     try:
         value = json.load(input_stream)
@@ -319,7 +396,7 @@ def _run_codex_continuity_hook(
         ConfigurationError,
         SafetyError,
     ) as exc:
-        result = _fail_closed_hook_result(event, exc)
+        result = _fail_open_hook_result(event, exc)
     if result:
         print(json.dumps(result, sort_keys=True, ensure_ascii=False), file=output_stream)
     return 0
@@ -417,6 +494,7 @@ def install_managed_request_policy(continuity_module: Any) -> None:
     continuity_module.run_codex_continuity_hook = (
         lambda *, input_stream=sys.stdin, output_stream=sys.stdout: _run_codex_continuity_hook(
             continuity_module.process_codex_continuity_hook,
+            hook_is_registered=continuity_module.continuity_hook_is_registered,
             input_stream=input_stream,
             output_stream=output_stream,
         )

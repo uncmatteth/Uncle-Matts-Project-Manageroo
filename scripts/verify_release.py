@@ -315,6 +315,7 @@ def structural_checks() -> list[dict]:
         "src/manageroo/evidence_policy.py", "src/manageroo/external_repair_policy.py", "src/manageroo/jobs.py",
         "src/manageroo/learning.py", "src/manageroo/next_action.py", "src/manageroo/project_memory.py",
         "src/manageroo/install_update.py", "src/manageroo/uninstall.py",
+        "src/manageroo/run_retention.py",
         "src/manageroo/release_proof_policy.py", "src/manageroo/release_ready_policy.py", "src/manageroo/skill_pack_policy.py",
         "src/manageroo/stack_update_policy.py", "src/manageroo/solo.py", "src/manageroo/token_modes.py",
         "src/manageroo/truth_contract.py", "src/manageroo/assets/skills/skill-vetter/SKILL.md",
@@ -324,6 +325,7 @@ def structural_checks() -> list[dict]:
         "tests/test_clawpatch_remaining_regressions.py",
         "tests/test_evidence.py", "tests/test_evidence_policy.py", "tests/test_jobs.py", "tests/test_learning.py",
         "tests/test_release_hardening_contract.py", "tests/test_remaining_audit_regressions.py",
+        "tests/test_run_retention.py",
         "tests/test_codex_continuity_hooks.py",
         "tests/test_install_update.py", "tests/test_uninstall.py",
         "tests/test_transactional_adapter_hardening.py", "tests/test_transactional_history_and_pristine.py",
@@ -383,7 +385,7 @@ def structural_checks() -> list[dict]:
             "ok": contains_compact(architecture, "UserPromptSubmit` classifies actionable repository work")
             and contains_compact(skill, "The current operator request owns the work")
             and contains_compact(limitations, "Manageroo installs Codex continuity hooks")
-            and contains_compact(limitations, "Actionable repository requests deny freehand supported tools")
+            and contains_compact(limitations, "Actionable repository requests deny freehand supported mutation")
             and contains_compact(limitations, "The `Stop` hook requires an exact-request `COMPLETE`"),
         },
         {

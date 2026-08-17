@@ -25,7 +25,7 @@ class ContinuityBenchmarkTests(unittest.TestCase):
         self.assertEqual(report["routine"]["estimated_tokens"], 0)
         self.assertLessEqual(report["recovery"]["estimated_tokens"], 200)
         self.assertTrue(all(report["controls"].values()))
-        self.assertTrue(report["controls"]["paused_tools_blocked"])
+        self.assertTrue(report["controls"]["paused_tools_available"])
         self.assertTrue(report["controls"]["unproved_completion_blocked"])
         self.assertIn("does not measure model code quality", report["limits"])
 

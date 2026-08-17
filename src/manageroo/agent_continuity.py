@@ -1122,6 +1122,8 @@ def process_codex_continuity_hook(
             context = f"{_global_controller_contract()}\n\n{context}"
         return _additional_context(name, context)
     if name == "PreToolUse":
+        if state.get("status") == "paused":
+            return {}
         managed = _audit_managed_execution(event, state, root)
         return managed or audit_agent_tool(event, state)
     return {}
@@ -1159,6 +1161,38 @@ def _manageroo_hook_group(group: object) -> bool:
             for token in ("operator-" "scope-hook", HOOK_COMMAND)
         )
         for handler in handlers
+    )
+
+
+def continuity_hook_is_registered(*, hooks_path: Path | None = None) -> bool:
+    """Return whether the host still authorizes Manageroo continuity hooks.
+
+    Codex can retain an already-loaded hook command for the life of a session.
+    Re-checking the current registration makes uninstall/disable effective for
+    those cached invocations without replacing the Manageroo launcher.
+    """
+
+    if hooks_path is None:
+        explicit = os.environ.get("MANAGEROO_CODEX_HOOKS_FILE", "").strip()
+        if explicit:
+            hooks_path = Path(explicit).expanduser()
+        else:
+            codex_home = Path(
+                os.environ.get("CODEX_HOME") or Path.home() / ".codex"
+            ).expanduser()
+            hooks_path = codex_home / "hooks.json"
+    try:
+        payload = json.loads(hooks_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    hooks = payload.get("hooks") if isinstance(payload, dict) else None
+    if not isinstance(hooks, dict):
+        return False
+    return any(
+        _manageroo_hook_group(group)
+        for groups in hooks.values()
+        if isinstance(groups, list)
+        for group in groups
     )
 
 
