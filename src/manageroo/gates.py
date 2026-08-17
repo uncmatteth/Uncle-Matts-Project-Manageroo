@@ -73,6 +73,23 @@ class GateRunner:
             )
         return identity
 
+    def _unignored_changes(self, root: Path, changed: list[str]) -> list[str]:
+        if not changed:
+            return []
+        ignored = self.runner.run(
+            ["git", "check-ignore", "-z", "--stdin"],
+            cwd=root,
+            timeout_seconds=120,
+            input_text="".join(f"{path}\0" for path in changed),
+        )
+        if ignored.exit_code not in {0, 1} or ignored.timed_out:
+            raise GateFailure(
+                "Gate mutation classification failed: "
+                + (ignored.stderr or "git check-ignore failed")
+            )
+        ignored_paths = {path for path in ignored.stdout.split("\0") if path}
+        return [path for path in changed if path not in ignored_paths]
+
     def _run_disposable(self, gate: Gate, source: Path, scratch_root: Path) -> GateRun:
         if gate.timeout_seconds <= 0:
             raise GateFailure(f"Gate {gate.id} timeout_seconds must be greater than zero.")
@@ -171,20 +188,22 @@ class GateRunner:
                 ["git", "rev-parse", "HEAD"], cwd=destination, timeout_seconds=60
             )
             after_tree = self._checkout_identity(destination)
-            if (
+            head_changed = (
                 not after_head.passed
                 or after_head.stdout.strip() != before_head.stdout.strip()
-                or after_tree != before_tree
-            ):
-                changed = sorted(
-                    path
-                    for path in set(before_tree) | set(after_tree)
-                    if before_tree.get(path) != after_tree.get(path)
-                )
-                detail = ", ".join(changed[:20]) or "Git metadata/HEAD"
+            )
+            changed = sorted(
+                path
+                for path in set(before_tree) | set(after_tree)
+                if before_tree.get(path) != after_tree.get(path)
+            )
+            unignored_changes = self._unignored_changes(destination, changed)
+            if head_changed or unignored_changes:
+                detail = ", ".join(unignored_changes[:20]) or "Git metadata/HEAD"
                 raise GateFailure(
                     f"Gate {gate.id} mutated its disposable checkout: {detail}. "
-                    "Verification commands must be read-only."
+                    "Verification commands may create only Git-ignored disposable artifacts; "
+                    "HEAD and tracked or unignored changes are forbidden."
                 )
             return GateRun(gate, result)
         finally:

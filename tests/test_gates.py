@@ -98,6 +98,77 @@ class GateRunnerTests(unittest.TestCase):
                 )
             self.assertFalse((repo / "unauthorized_from_gate.py").exists())
 
+    def test_gate_ignored_artifacts_are_allowed_and_discarded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            (repo / ".gitignore").write_text(
+                "dist/\n*.egg-info/\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "ignore generated artifacts"],
+                cwd=repo,
+                check=True,
+            )
+            runner = GateRunner(
+                CommandRunner(root / "logs"),
+                CommandPolicy((sys.executable,)),
+                root / "logs",
+            )
+            command = (
+                "from pathlib import Path; "
+                "Path('dist').mkdir(); "
+                "Path('dist/index.html').write_text('built\\n', encoding='utf-8'); "
+                "Path('src/example.egg-info').mkdir(parents=True); "
+                "Path('src/example.egg-info/PKG-INFO').write_text('generated\\n', encoding='utf-8')"
+            )
+
+            outcomes = runner.run(
+                [Gate("generated", "build", [sys.executable, "-c", command])],
+                repo,
+                scratch_root=root / "scratch",
+            )
+
+            self.assertTrue(outcomes[0].result.passed)
+            self.assertFalse((repo / "dist").exists())
+            self.assertFalse((repo / "src").exists())
+
+    def test_gate_rejects_unignored_mutation_mixed_with_ignored_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            (repo / ".gitignore").write_text("dist/\n", encoding="utf-8")
+            subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "ignore build output"],
+                cwd=repo,
+                check=True,
+            )
+            runner = GateRunner(
+                CommandRunner(root / "logs"),
+                CommandPolicy((sys.executable,)),
+                root / "logs",
+            )
+            command = (
+                "from pathlib import Path; "
+                "Path('dist').mkdir(); "
+                "Path('dist/index.html').write_text('built\\n', encoding='utf-8'); "
+                "Path('unauthorized_from_gate.py').write_text('bad\\n', encoding='utf-8')"
+            )
+
+            with self.assertRaisesRegex(
+                GateFailure, "unauthorized_from_gate.py"
+            ):
+                runner.run(
+                    [Gate("mixed", "test", [sys.executable, "-c", command])],
+                    repo,
+                    scratch_root=root / "scratch",
+                )
+
+            self.assertFalse((repo / "dist").exists())
+            self.assertFalse((repo / "unauthorized_from_gate.py").exists())
+
     def test_nonpositive_gate_timeout_is_rejected_before_launch(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

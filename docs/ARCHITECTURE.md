@@ -160,9 +160,11 @@ green command.
 ## Deterministic gates
 
 Every gate runs in a disposable checkout containing the reviewed current working
-tree. Manageroo validates the executable against command policy and rejects any
-tracked, untracked, ignored, mode, symlink, HEAD, or Git-history mutation of that
-checkout. Gate output can never become the delivery patch.
+tree. Manageroo validates the executable against command policy and rejects HEAD,
+Git-history, tracked, or unignored mutation of that checkout. Git-ignored build and
+cache artifacts may exist only inside the disposable gate checkout; they are
+discarded with that checkout and can never become the delivery patch or affect a
+later gate.
 
 A required gate failure blocks completion. At least one real gate is required for
 a normal completion claim.

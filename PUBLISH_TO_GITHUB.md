@@ -21,7 +21,7 @@ If you are using the local source checkout, start inside that repository folder.
 If you are starting from a source ZIP, extract it first:
 
 ```bash
-unzip uncle-matts-project-manageroo-v2026.8.13.8-source.zip
+unzip uncle-matts-project-manageroo-v2026.8.13.9-source.zip
 cd Uncle-Matts-Project-Manageroo
 ```
 
@@ -87,7 +87,7 @@ inside the corresponding Unix-like environment. Native Windows PowerShell is
 an explicit unsupported-path check, not a supported installation lane:
 
 ```bash
-python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.8.13.8.zip
+python3 scripts/smoke_release_install.py --archive /path/to/uncle-matts-project-manageroo-v2026.8.13.9.zip
 ```
 
 A passing smoke on one operating system is proof only for that operating system.
@@ -97,15 +97,15 @@ A passing smoke on one operating system is proof only for that operating system.
 Suggested tag:
 
 ```text
-v2026.8.13.8
+v2026.8.13.9
 ```
 
 Attach every generated drop-folder file to the GitHub Release, because
 `SHA256SUMS.txt` lists the full drop set:
 
 ```text
-uncle-matts-project-manageroo-v2026.8.13.8.zip
-uncle-matts-project-manageroo-v2026.8.13.8-source.zip
+uncle-matts-project-manageroo-v2026.8.13.9.zip
+uncle-matts-project-manageroo-v2026.8.13.9-source.zip
 SHA256SUMS.txt
 SOURCE-VALIDATION.json
 FINAL-VALIDATION.json
