@@ -318,6 +318,7 @@ def _transactional_replace_skill(
 
 def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str]) -> dict[str, Any]:
     name = _skill_name(path).strip()
+    name_key = name.casefold()
     status = "importable"
     reason = "ready to import"
     skill_dir = target_root / name
@@ -327,7 +328,7 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
     if not _VALID_SKILL_NAME.fullmatch(name):
         status = "invalid"
         reason = "skill name must use letters, digits, and hyphens"
-    elif name in seen:
+    elif name_key in seen:
         status = "duplicate-source"
         reason = "another SKILL.md in this source folder uses the same skill name"
     elif skill_dir.is_symlink():
@@ -344,7 +345,7 @@ def _candidate(path: Path, source_root: Path, target_root: Path, seen: set[str])
             status = "conflict"
             reason = "different skill already exists; import will transactionally back up the complete old skill directory"
     if status != "invalid":
-        seen.add(name)
+        seen.add(name_key)
     return {
         "name": name,
         "path": str(path),

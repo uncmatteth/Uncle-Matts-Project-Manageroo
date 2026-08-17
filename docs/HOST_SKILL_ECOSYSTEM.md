@@ -125,4 +125,5 @@ Bundling a host skill into Manageroo requires an explicit reviewed import. This 
 During import, Manageroo snapshots source identity and metadata, copies from held
 file descriptors with platform no-follow protection when available, and
 revalidates the source tree before replacing the installed skill. A source
-change aborts staging and leaves the active skill unchanged.
+change aborts staging and leaves the active skill unchanged. Valid skill names
+that differ only by letter case are rejected as duplicate targets before copying.

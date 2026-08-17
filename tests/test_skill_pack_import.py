@@ -83,6 +83,28 @@ class SkillPackImportTests(unittest.TestCase):
             duplicates = [item for item in report["candidates"] if item["name"] == "dupe-skill"]
             self.assertEqual([item["status"] for item in duplicates], ["importable", "duplicate-source"])
 
+    def test_case_colliding_skill_names_are_rejected_before_apply(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); source = root / "SKILLS"; target = root / "target"; source.mkdir(); target.mkdir()
+            first = _skill(source, "first-source", "first\n")
+            second = _skill(source, "second-source", "second\n")
+            for skill_dir, name in ((first, "Foo"), (second, "foo")):
+                (skill_dir / "SKILL.md").write_text(
+                    f"---\nname: {name}\ndescription: Test skill {name}.\n---\n\n{name}\n",
+                    encoding="utf-8",
+                )
+
+            scan = scan_skill_folder(source, skills_dir=target)
+            self.assertEqual(
+                [item["status"] for item in scan["candidates"]],
+                ["importable", "duplicate-source"],
+            )
+            self.assertEqual(scan["importable_count"], 1)
+
+            applied = import_skill_folder(source, skills_dir=target, apply=True)
+            self.assertEqual([item["name"] for item in applied["imported"]], ["Foo"])
+            self.assertEqual([path.name for path in target.iterdir()], ["Foo"])
+
     def test_import_is_dry_run_until_apply_and_backs_up_conflicts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root / "SKILLS"; target = root / "target"; source.mkdir(); target.mkdir()
