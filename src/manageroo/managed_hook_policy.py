@@ -247,12 +247,13 @@ def _recovery_command_allowed(event: dict[str, Any], session_id: str) -> bool:
         tokens = shlex.split(command, posix=os.name != "nt")
     except ValueError:
         return False
-    if len(tokens) < 4 or Path(tokens[0]).name.casefold() != "manageroo":
-        return False
-    if tokens[1] != "continuity-reset" or "--session-id" not in tokens:
-        return False
-    index = tokens.index("--session-id")
-    return index + 1 < len(tokens) and tokens[index + 1] == session_id
+    return (
+        len(tokens) == 4
+        and Path(tokens[0]).name.casefold() == "manageroo"
+        and tokens[1] == "continuity-reset"
+        and tokens[2] == "--session-id"
+        and tokens[3] == session_id
+    )
 
 
 def _fail_closed_hook_result(event: dict[str, Any], exc: BaseException) -> dict[str, Any]:

@@ -170,21 +170,28 @@ class ManagedContractPolicyTests(unittest.TestCase):
             )
             self.assertEqual(state["execution_intent"], EXECUTION_INTENT_READ_ONLY)
 
-            decision = continuity.process_codex_continuity_hook(
-                {
-                    "hook_event_name": "PreToolUse",
-                    "session_id": "session",
-                    "turn_id": "turn-1",
-                    "cwd": str(repo),
-                    "tool_name": "exec_command",
-                    "tool_input": {"cmd": "manageroo run --repo ."},
-                },
-                state_root=state_root,
-            )["hookSpecificOutput"]
-            tokens = shlex.split(decision["updatedInput"]["cmd"])
-            self.assertEqual(decision["permissionDecision"], "allow")
-            self.assertIn("--no-apply", tokens)
-            self.assertNotIn("--apply", tokens)
+            for command in (
+                "manageroo run --repo .",
+                "manageroo run --repo . --apply",
+                "manageroo run --repo . --no-apply --apply",
+                "manageroo run --repo . --apply --no-apply",
+            ):
+                with self.subTest(command=command):
+                    decision = continuity.process_codex_continuity_hook(
+                        {
+                            "hook_event_name": "PreToolUse",
+                            "session_id": "session",
+                            "turn_id": "turn-1",
+                            "cwd": str(repo),
+                            "tool_name": "exec_command",
+                            "tool_input": {"cmd": command},
+                        },
+                        state_root=state_root,
+                    )["hookSpecificOutput"]
+                    tokens = shlex.split(decision["updatedInput"]["cmd"])
+                    self.assertEqual(decision["permissionDecision"], "allow")
+                    self.assertEqual(tokens.count("--no-apply"), 1)
+                    self.assertNotIn("--apply", tokens)
 
     def test_mutating_request_receives_apply_authority(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -466,6 +473,37 @@ class ManagedContractPolicyTests(unittest.TestCase):
             self.assertEqual(
                 allowed["hookSpecificOutput"]["permissionDecision"], "allow"
             )
+
+            reset_command = "manageroo continuity-reset --session-id session"
+            marker = root / "injected"
+            hostile_commands = (
+                f"{reset_command} ; touch {marker}",
+                f"{reset_command} && touch {marker}",
+                f"{reset_command} || touch {marker}",
+                f"{reset_command}\ntouch {marker}",
+                f"{reset_command} > {marker}",
+                f"{reset_command} $(touch {marker})",
+                f"touch {marker} ; {reset_command}",
+                f"{reset_command} extra-command",
+            )
+            for command in hostile_commands:
+                with self.subTest(command=command):
+                    event["tool_input"] = {"cmd": command}
+                    output = io.StringIO()
+                    with mock.patch.dict(
+                        continuity.os.environ,
+                        {"MANAGEROO_CONTINUITY_STATE": str(state_root)},
+                        clear=False,
+                    ):
+                        continuity.run_codex_continuity_hook(
+                            input_stream=io.StringIO(json.dumps(event)),
+                            output_stream=output,
+                        )
+                    denied = json.loads(output.getvalue())
+                    self.assertEqual(
+                        denied["hookSpecificOutput"]["permissionDecision"], "deny"
+                    )
+                    self.assertFalse(marker.exists())
 
             report = reset_continuity_state(
                 session_id="session",
