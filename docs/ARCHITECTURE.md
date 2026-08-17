@@ -30,7 +30,8 @@ completion authority.
 ## Automatic managed execution
 
 Codex continuity hooks provide the operator-facing automatic routing boundary.
-For actionable repository work they:
+`UserPromptSubmit` classifies actionable repository work and binds it to the
+controller before implementation tools run. For actionable work the hooks:
 
 1. classify execution intent;
 2. resolve and bind the exact repository before tool lockdown;
@@ -108,6 +109,9 @@ state. Read-only worker mutation is detected and discarded.
 
 Manageroo does not rely on a worker remembering previous chat. Each role receives
 one complete bounded packet. Durable truth lives on disk:
+
+Manageroo makes remembering unnecessary: the controller saves the request,
+repository binding, job state, artifacts, checks, and completion evidence.
 
 ```text
 .manageroo/runs/<run-id>/
@@ -194,6 +198,10 @@ Direct current repository evidence outranks stale or semantic external context.
 Evidence can inform planning; it cannot authorize edits, pass gates, approve
 review, apply a patch, or mark a run complete.
 
+Ignored GitNexus index state is discarded from the disposable mirror after its
+evidence is captured and before any worker launches; tracked or untracked
+discovery mutations still fail the normal pristine-workspace check.
+
 ## Portable core and enhanced capabilities
 
 The portable core requires Python, Git, a supported isolated coding-agent
@@ -208,6 +216,9 @@ Enhanced capabilities are optional unless explicitly required:
 - Clawpatch;
 - Obsidian Markdown search/export;
 - bounded document/media analysis when the request actually requires it.
+
+These systems are capabilities, not completion authorities. Core acceptance
+still belongs to Manageroo's state, scope, gates, and evidence.
 
 Readiness, setup, installer output, and runtime consume the same capability
 contract. Optional absence is reported but does not produce a false blocker.
@@ -278,10 +289,15 @@ A completion claim therefore means:
 
 ## Concurrency
 
-Implementation tasks remain dependency ordered and exclusive when they share a
+Tasks are dependency ordered and executed sequentially when they share a
 writable integration workspace. Read-only mapping and review can use isolated
 per-worker checkouts and bounded parallel calls. Parallel result collection is
 deterministic, while any attempted mutation of a read-only checkout is rejected.
+Manageroo does not run parallel implementation branches against the same files.
+
+Operator and worker boundaries are request-scoped. A locked run constrains the
+agent and workers serving that request. It does not become repository-wide
+authority and does not block a later current request.
 
 ## Installation and updates
 
@@ -295,5 +311,14 @@ reports whether the portable core is usable. It distinguishes:
 - optional enhanced lanes unavailable;
 - precise required next action.
 
+Updates prefer the current token-mode state referenced by the owned install
+record, so a later `manageroo token-mode set caveman` choice is not reverted by
+an older installation snapshot.
+
 Updates and uninstall act only on Manageroo-owned unchanged resources. Existing
 user-owned tools and edited skill trees are preserved.
+
+Release packaging writes one replaceable, ignored drop at `dist/release/` in the
+owning checkout. The installer ZIP, source ZIP, checksums, and helper documents
+live only in that drop; packaging does not create sibling ZIPs or versioned
+release folders beside the repository.

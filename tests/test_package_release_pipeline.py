@@ -94,20 +94,50 @@ class PackageReleasePipelineTests(unittest.TestCase):
             events.append("write-installer" if path.name == package_release.INSTALLER_ZIP else "write-source")
             path.write_bytes(b"candidate")
 
-        with tempfile.TemporaryDirectory() as temp, patch.object(
-            package_release,
-            "_release_lock_target",
-            return_value=Path(temp) / "release-publication",
-        ), patch.object(package_release.subprocess, "run", side_effect=fake_run), patch.object(
-            package_release, "generate_manifest", side_effect=lambda: events.append("manifest")
-        ), patch.object(package_release, "included_files", side_effect=minimum_snapshot_files), patch.object(
-            package_release, "end_user_files", return_value=[]
-        ), patch.object(package_release, "write_archive", side_effect=fake_write), patch.object(
-            package_release, "_publish_archive_pair", side_effect=lambda *_args: events.append("publish")
-        ), patch.object(
-            package_release, "refresh_drop_folder", side_effect=lambda *_args: events.append("drop")
-        ):
-            code = package_release.main()
+        with tempfile.TemporaryDirectory() as temp:
+            release_drop = Path(temp) / "release"
+            with (
+                patch.object(package_release, "DEFAULT_DROP_DIR", release_drop),
+                patch.object(
+                    package_release,
+                    "OUTPUT",
+                    release_drop / package_release.INSTALLER_ZIP,
+                ),
+                patch.object(
+                    package_release,
+                    "SOURCE_OUTPUT",
+                    release_drop / package_release.SOURCE_ZIP,
+                ),
+                patch.object(
+                    package_release,
+                    "_release_lock_target",
+                    return_value=Path(temp) / "release-publication",
+                ),
+                patch.object(package_release.subprocess, "run", side_effect=fake_run),
+                patch.object(
+                    package_release,
+                    "generate_manifest",
+                    side_effect=lambda: events.append("manifest"),
+                ),
+                patch.object(
+                    package_release,
+                    "included_files",
+                    side_effect=minimum_snapshot_files,
+                ),
+                patch.object(package_release, "end_user_files", return_value=[]),
+                patch.object(package_release, "write_archive", side_effect=fake_write),
+                patch.object(
+                    package_release,
+                    "_publish_archive_pair",
+                    side_effect=lambda *_args: events.append("publish"),
+                ),
+                patch.object(
+                    package_release,
+                    "refresh_drop_folder",
+                    side_effect=lambda *_args: events.append("drop"),
+                ),
+            ):
+                code = package_release.main()
 
         self.assertEqual(code, 0)
         self.assertEqual(

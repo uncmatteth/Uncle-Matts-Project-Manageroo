@@ -131,6 +131,53 @@ class ExternalIntelligenceTests(unittest.TestCase):
             )
             self.assertEqual(result["status"], "COMPLETE")
 
+    def test_gitnexus_ignored_index_is_removed_before_first_worker(self):
+        class PristineCheckingMockAdapter(MockAdapter):
+            def run(self, request):
+                status = subprocess.run(
+                    ["git", "status", "--porcelain", "--ignored"],
+                    cwd=request.cwd,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout.strip()
+                if status:
+                    raise AssertionError(f"worker received dirty workspace: {status}")
+                return super().run(request)
+
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self._fixture_repo(Path(temp))
+            config = repo / ".manageroo" / "config.toml"
+            text = config.read_text(encoding="utf-8")
+            text = text.replace(
+                "gitnexus_analyze_command = []",
+                "gitnexus_analyze_command = "
+                + _toml_array(
+                    [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import sys; from pathlib import Path; "
+                            "index = Path(sys.argv[1]) / '.gitnexus'; "
+                            "index.mkdir(exist_ok=True); "
+                            "(index / 'index').write_text('generated')"
+                        ),
+                        "{workspace}",
+                    ]
+                ),
+            )
+            config.write_text(text, encoding="utf-8")
+
+            result = Orchestrator(repo, adapter=PristineCheckingMockAdapter()).run(
+                brief_path=repo / ".manageroo" / "PRODUCT-BRIEF.md",
+                mode="build",
+                apply_on_success=False,
+            )
+
+            self.assertEqual(result["status"], "COMPLETE", result)
+            workspace = Path(result["evidence_paths"]["run_root"]) / "workspace"
+            self.assertFalse((workspace / ".gitnexus").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1853,6 +1853,10 @@ class Orchestrator:
                     memory = obsidian.search(brief)
                     self.artifacts.write_json("discovery/obsidian-context.json", memory, lock=True)
                 external_intelligence = self._external_intelligence(brief, raw_inventory)
+                # GitNexus stores its disposable index under ``.gitnexus`` in the
+                # isolated repository. Evidence is captured above; workers must
+                # still receive a pristine workspace with no inherited ignored state.
+                self.mirror.discard_ignored_integration_state()
 
             product = self._artifact_json("planning/product-model.json")
             unresolved: list[dict] = []

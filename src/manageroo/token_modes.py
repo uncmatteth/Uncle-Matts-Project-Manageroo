@@ -35,9 +35,11 @@ TOKEN_MODES = {
         skill_name="caveman",
         asset="skills/caveman/SKILL.md",
         prompt=(
-            "Token mode: Caveman. Be terse. Drop filler, pleasantries, hedging, "
-            "and needless connector words. Keep exact technical meaning, code, "
-            "commands, JSON keys, quoted errors, paths, and safety warnings intact."
+            "Token mode: Caveman. Compress internal worker prose: drop filler, "
+            "pleasantries, hedging, and needless connector words. Keep exact technical "
+            "meaning, code, commands, JSON keys, quoted errors, and paths intact. "
+            "Use clear normal language for important user-facing status, blockers, "
+            "safety warnings, irreversible-action confirmations, and required actions."
         ),
     ),
     "curse": TokenMode(

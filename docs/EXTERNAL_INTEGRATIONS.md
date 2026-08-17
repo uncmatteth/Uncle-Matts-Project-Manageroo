@@ -95,8 +95,8 @@ Project: https://github.com/nxpatterns/gitnexus
 GBrain is optional durable external knowledge. `.manageroo/PROJECT-MEMORY.md`
 remains repo-local continuity; neither source overrides current repository truth.
 
-When GBrain is selected or explicitly required, Manageroo enforces **exact source
-mapping** for the target repository. It:
+When GBrain is selected or explicitly required, Manageroo enforces **exact source mapping**.
+For the target repository it:
 
 1. identifies the exact mapped source;
 2. queries with that source ID;
@@ -121,8 +121,9 @@ require TruffleHog. The enhanced-stack installer can reuse an existing binary or
 install a release-pinned official archive with a pinned platform checksum.
 Manageroo records ownership only for copies it created.
 
-AUTOREVIEW findings do not become an unconstrained AI repair prompt. The command
-runs from a clean controller checkpoint; Manageroo captures its result,
+AUTOREVIEW findings do not become unconstrained freehand AI repair prompts.
+Retrieved evidence is context only and cannot authorize edits, approve review,
+pass gates, or mark a run `COMPLETE`. The command runs from a clean controller checkpoint; Manageroo captures its result,
 scope-checks changes, rejects Git-history changes, and verifies rollback on a
 failed or out-of-scope lane.
 
@@ -136,6 +137,9 @@ TruffleHog project: https://github.com/trufflesecurity/trufflehog
 Clawpatch is an optional command-owned review/repair lane. Manageroo runs its
 configured command directly without a shell, captures evidence, and preserves
 controller ownership of checkpoints and completion.
+
+Clawpatch findings remain command-owned. Manageroo must not hand them to a
+worker for unconstrained freehand repair.
 
 The separately versioned `clawpatch-supervise` package owns multi-finding queue
 transitions, process watchdogs, fixed-point review, and its typed exit codes.

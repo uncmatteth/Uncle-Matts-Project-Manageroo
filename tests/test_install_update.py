@@ -73,6 +73,26 @@ class InstallUpdateTests(unittest.TestCase):
             self.assertIn("--stack", report["argv"])
             self.assertIn("skip", report["argv"])
 
+    def test_update_prefers_current_token_mode_over_stale_install_record(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix, _source, _launcher = self._fixture(root)
+            state = root / "token-mode.json"
+            state.write_text(json.dumps({"mode": "caveman"}), encoding="utf-8")
+            lock_path = prefix / "install-lock.json"
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            lock["token_mode"]["state_path"] = str(state)
+            lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+            with patch(
+                "manageroo.install_update.installation_is_manageroo_owned",
+                return_value=True,
+            ):
+                report = update_install(prefix=prefix, apply=False)
+
+            token_index = report["argv"].index("--token-mode")
+            self.assertEqual(report["argv"][token_index + 1], "caveman")
+
     def test_update_apply_runs_the_verified_source_installer_through_sh_without_shell_mode(self):
         with tempfile.TemporaryDirectory() as temp:
             prefix, source, _launcher = self._fixture(Path(temp))

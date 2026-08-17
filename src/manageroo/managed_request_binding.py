@@ -16,8 +16,13 @@ _ACKNOWLEDGMENT_RE = re.compile(
     re.IGNORECASE,
 )
 _EXPLICIT_READ_ONLY_RE = re.compile(
-    r"\b(?:do\s+not|don't|never)\s+(?:change|edit|modify|write|touch|apply)\b|"
-    r"\b(?:no\s+edits?|without\s+(?:changing|editing|modifying)|read[- ]only|"
+    r"\b(?:do\s+not|don't|never)\s+(?:change|edit|modify|write|touch|apply)"
+    r"(?:\s+(?:anything|it|the\s+(?:code|files?|project|repo(?:sitory)?|source|workspace)|"
+    r"this\s+(?:project|repo(?:sitory)?|workspace)))?\s*(?=[.!?]|$)|"
+    r"\bwithout\s+(?:changing|editing|modifying)\s+"
+    r"(?:anything|it|the\s+(?:code|files?|project|repo(?:sitory)?|source|workspace)|"
+    r"this\s+(?:project|repo(?:sitory)?|workspace))\b|"
+    r"\b(?:no\s+edits?|read[- ]only|"
     r"review\s+only|audit\s+only|just\s+(?:review|audit|inspect|analy[sz]e|tell\s+me)|"
     r"tell\s+me\s+(?:what(?:'s|\s+is)?\s+wrong|the\s+issues?))\b",
     re.IGNORECASE,
@@ -96,7 +101,12 @@ def _explicit_path_repositories(
     return repositories
 
 
-def _project_matches(prompt: str, projects: list[dict[str, Any]]) -> list[Path]:
+def _project_matches(
+    prompt: str,
+    projects: list[dict[str, Any]],
+    *,
+    allow_fuzzy: bool = False,
+) -> list[Path]:
     text = prompt.casefold()
     request_words = _project_words(prompt)
     exact: list[Path] = []
@@ -112,6 +122,8 @@ def _project_matches(prompt: str, projects: list[dict[str, Any]]) -> list[Path]:
         scored.append((len(request_words & _project_words(name)), path))
     if exact:
         return sorted(set(exact), key=str)
+    if not allow_fuzzy:
+        return []
     best = max((score for score, _ in scored), default=0)
     if best <= 0:
         return []
@@ -161,13 +173,17 @@ def _resolve_repository_binding(
         if current.exists()
         else []
     )
-    named_matches = _project_matches(prompt, discovered)
     named_repo_token = _REPOSITORY_NAME_RE.search(prompt)
     if (
         named_repo_token
         and named_repo_token.group(1).casefold() in _REPOSITORY_NAME_STOPWORDS
     ):
         named_repo_token = None
+    named_matches = _project_matches(
+        prompt,
+        discovered,
+        allow_fuzzy=named_repo_token is not None,
+    )
     explicit_project_identity = bool(named_matches or named_repo_token)
     if len(named_matches) == 1:
         selected = named_matches[0]

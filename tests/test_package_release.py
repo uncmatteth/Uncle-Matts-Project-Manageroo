@@ -403,6 +403,12 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertEqual(package_release.INSTALLER_ZIP, f"uncle-matts-project-manageroo-v{version}.zip")
         self.assertEqual(package_release.SOURCE_ZIP, f"uncle-matts-project-manageroo-v{version}-source.zip")
 
+    def test_default_release_output_is_one_repository_owned_drop(self):
+        expected = ROOT / "dist" / "release"
+        self.assertEqual(package_release.DEFAULT_DROP_DIR, expected)
+        self.assertEqual(package_release.OUTPUT.parent, expected)
+        self.assertEqual(package_release.SOURCE_OUTPUT.parent, expected)
+
     def test_end_user_and_source_archives_use_different_file_sets(self):
         source = {path.relative_to(ROOT).as_posix() for path in package_release.included_files()}
         end_user = {path.relative_to(ROOT).as_posix() for path in package_release.end_user_files()}
@@ -883,7 +889,7 @@ class PackageReleaseTests(unittest.TestCase):
                 captured["published_source_name"],
                 "uncle-matts-project-manageroo-v1-source.zip",
             )
-            self.assertEqual(captured["drop_name"], "uncle-matts-project-manageroo-v1")
+            self.assertEqual(captured["drop_name"], "drop")
             self.assertEqual(captured["installer_readme"], expected)
             self.assertEqual(captured["source_readme"], expected)
             self.assertIn(f"{expected_hash}  README.md\n", captured["checksums"])
@@ -991,6 +997,37 @@ class PackageReleaseTests(unittest.TestCase):
                 },
                 drop_before,
             )
+
+    def test_publish_release_can_publish_archives_directly_into_the_drop(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            drop = root / "drop"
+            output = drop / package_release.INSTALLER_ZIP
+            source_output = drop / package_release.SOURCE_ZIP
+            candidate_output = root / "candidate-release.zip"
+            candidate_source = root / "candidate-source.zip"
+            candidate_output.write_bytes(b"new-end-user")
+            candidate_source.write_bytes(b"new-source")
+
+            def drop_copies(end_user_archive, source_archive):
+                return {
+                    package_release.INSTALLER_ZIP: end_user_archive,
+                    package_release.SOURCE_ZIP: source_archive,
+                }
+
+            with (
+                patch.object(package_release, "OUTPUT", output),
+                patch.object(package_release, "SOURCE_OUTPUT", source_output),
+                patch.object(package_release, "_drop_copies", side_effect=drop_copies),
+            ):
+                result = package_release._publish_release(
+                    candidate_output, candidate_source, drop
+                )
+
+            self.assertTrue(result["release_created"])
+            self.assertEqual(output.read_bytes(), b"new-end-user")
+            self.assertEqual(source_output.read_bytes(), b"new-source")
+            self.assertEqual(list(root.glob("*.zip")), [])
 
     def test_post_publication_cleanup_failure_warns_and_retry_reconciles_backups(self):
         with tempfile.TemporaryDirectory() as temp:

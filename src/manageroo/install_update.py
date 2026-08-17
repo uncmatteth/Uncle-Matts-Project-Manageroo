@@ -14,6 +14,7 @@ from .install_status import (
     installation_is_manageroo_owned,
     read_install_lock,
 )
+from .token_modes import read_token_mode
 
 
 _VERSION = re.compile(r"\b\d{4}\.\d+\.\d+\.\d+\b")
@@ -32,6 +33,24 @@ def _source_version(source: Path) -> str:
 def _installed_version(lock: dict[str, Any]) -> str:
     match = _VERSION.search(str(lock.get("manageroo_version_output") or ""))
     return match.group(0) if match else "unknown"
+
+
+def _selected_token_mode(lock: dict[str, Any]) -> str:
+    token_record = lock.get("token_mode")
+    recorded = str(
+        token_record.get("mode") if isinstance(token_record, dict) else token_record or "off"
+    )
+    current = recorded
+    if isinstance(token_record, dict):
+        state_value = token_record.get("state_path")
+        if isinstance(state_value, str) and state_value.strip():
+            state_path = Path(state_value).expanduser()
+            if state_path.is_file() and not state_path.is_symlink():
+                try:
+                    current = str(read_token_mode(state_path).get("mode") or recorded)
+                except (OSError, ValueError, TypeError):
+                    current = recorded
+    return current if current in {"off", "caveman", "curse"} else "off"
 
 
 def update_install(
@@ -105,10 +124,7 @@ def update_install(
     agent = str(lock.get("agent_preference") or "auto")
     if agent not in {"ask", "auto", "codex", "claude-code", "gemini"}:
         agent = "auto"
-    token_record = lock.get("token_mode")
-    token_mode = str(token_record.get("mode") if isinstance(token_record, dict) else token_record or "off")
-    if token_mode not in {"off", "caveman", "curse"}:
-        token_mode = "off"
+    token_mode = _selected_token_mode(lock)
     shell = shutil.which("sh")
     if shell is None:
         return {

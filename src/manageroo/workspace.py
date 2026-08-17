@@ -124,6 +124,15 @@ class WorkspaceMirror:
                 + ", ".join(line[3:] for line in ignored)
             )
 
+    def discard_ignored_integration_state(self) -> None:
+        """Remove disposable discovery indexes before workers run."""
+        # GitNexus creates this path even when the target repository does not
+        # ignore it. ``git clean`` never removes tracked files, so a repository-
+        # owned .gitnexus path remains protected and the later pristine check
+        # detects any mutation.
+        self._git(["clean", "-ffdx", "--", ".gitnexus"])
+        self._discard_ignored_state()
+
     def _discard_uncheckpointed_state(self) -> None:
         self._discard_ignored_state()
         status = self._git(["status", "--porcelain"])

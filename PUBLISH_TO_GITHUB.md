@@ -57,6 +57,10 @@ That one command performs the required sequence:
 4. clean-install end-user ZIP smoke testing, including the hardware-agnostic host-profile contract;
 5. drop-folder assembly.
 
+The generated files are replaced in the single ignored `dist/release/` folder
+inside this checkout. Packaging does not place extra ZIPs or versioned folders
+beside the repository. Publish or copy files from that one drop only.
+
 The command refuses to package unless product proof reports `COMPLETE`.
 
 To force a particular installed live worker:

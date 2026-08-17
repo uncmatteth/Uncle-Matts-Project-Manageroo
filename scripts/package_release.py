@@ -45,9 +45,9 @@ ARCHIVE_ROOT = "Uncle-Matts-Project-Manageroo"
     INSTALLER_ZIP,
     SOURCE_ZIP,
 ) = _release_artifact_values(ROOT)
-DEFAULT_DROP_DIR = ROOT.parent / DROP_ROOT
-OUTPUT = ROOT.parent / INSTALLER_ZIP
-SOURCE_OUTPUT = ROOT.parent / SOURCE_ZIP
+DEFAULT_DROP_DIR = ROOT / "dist" / "release"
+OUTPUT = DEFAULT_DROP_DIR / INSTALLER_ZIP
+SOURCE_OUTPUT = DEFAULT_DROP_DIR / SOURCE_ZIP
 EXCLUDED_PARTS = {
     ".git", ".manageroo", ".venv", ".clawpatch", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", "__pycache__", "dist", "build",
@@ -272,9 +272,7 @@ def _use_release_snapshot(snapshot_root: Path, file_list: Path):
         OUTPUT,
         SOURCE_OUTPUT,
     )
-    output_parent = OUTPUT.parent
-    source_output_parent = SOURCE_OUTPUT.parent
-    drop_parent = DEFAULT_DROP_DIR.parent
+    publication_dir = DEFAULT_DROP_DIR
     snapshot_artifacts = _release_artifact_values(snapshot_root)
     ROOT = snapshot_root
     (
@@ -285,9 +283,13 @@ def _use_release_snapshot(snapshot_root: Path, file_list: Path):
         INSTALLER_ZIP,
         SOURCE_ZIP,
     ) = snapshot_artifacts
-    DEFAULT_DROP_DIR = drop_parent / DROP_ROOT
-    OUTPUT = output_parent / INSTALLER_ZIP
-    SOURCE_OUTPUT = source_output_parent / SOURCE_ZIP
+    # Candidate validation runs against the staged snapshot, but publication has
+    # one stable repository-owned destination. A release replaces the contents
+    # of that drop instead of creating sibling archives and another versioned
+    # folder beside the source checkout.
+    DEFAULT_DROP_DIR = publication_dir
+    OUTPUT = publication_dir / INSTALLER_ZIP
+    SOURCE_OUTPUT = publication_dir / SOURCE_ZIP
     os.environ[RELEASE_FILE_LIST_ENV] = str(file_list)
     try:
         yield
@@ -512,10 +514,10 @@ def _rollback_archive_pair(
     return rollback_errors
 
 
-def _release_lock_target() -> Path:
-    """Use one publication lock for every checkout sharing the output archive."""
-    output_parent = OUTPUT.parent.resolve()
-    return output_parent / ".manageroo-release-locks" / OUTPUT.name
+def _release_lock_target(drop_dir: Path | None = None) -> Path:
+    """Use one publication lock for the selected repository-owned release drop."""
+    destination = (drop_dir or DEFAULT_DROP_DIR).resolve()
+    return destination.parent / ".manageroo-release-locks" / destination.name
 
 
 def _files_match(first: Path, second: Path) -> bool:
@@ -589,11 +591,14 @@ def _reconcile_publication_backups(
 
 
 def _publish_release(candidate_output: Path, candidate_source: Path, drop_dir: Path) -> dict:
-    release_lock_target = _release_lock_target()
+    release_lock_target = _release_lock_target(drop_dir)
     release_lock_target.parent.mkdir(mode=0o700, exist_ok=True)
     if release_lock_target.parent.is_symlink() or not release_lock_target.parent.is_dir():
         raise RuntimeError(f"Release lock directory is unsafe: {release_lock_target.parent}")
     with config_mutation_lock(release_lock_target, timeout_seconds=600.0):
+        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        if OUTPUT.parent.is_symlink() or not OUTPUT.parent.is_dir():
+            raise RuntimeError(f"Release output directory is unsafe: {OUTPUT.parent}")
         _reconcile_publication_backups(candidate_output, candidate_source, drop_dir)
         _publish_archive_pair(
             candidate_output,

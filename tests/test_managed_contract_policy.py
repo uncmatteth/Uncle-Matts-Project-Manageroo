@@ -13,6 +13,7 @@ from unittest import mock
 import manageroo.agent_continuity as continuity
 
 from manageroo.managed_contract_policy import (
+    EXECUTION_INTENT_MUTATING,
     EXECUTION_INTENT_READ_ONLY,
     _load_request_metadata,
     _resolve_repository_binding,
@@ -208,6 +209,17 @@ class ManagedContractPolicyTests(unittest.TestCase):
             )["hookSpecificOutput"]
             self.assertIn("--apply", shlex.split(decision["updatedInput"]["cmd"]))
 
+    def test_named_exclusion_does_not_turn_mutating_work_into_read_only_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            state = self._capture(
+                state_root=root / "state",
+                repo=repo,
+                prompt="Fix login, do not change payments, and prove login works.",
+            )
+            self.assertEqual(state["execution_intent"], EXECUTION_INTENT_MUTATING)
+
     def test_explicit_unknown_repository_is_not_replaced_by_sole_project(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -225,13 +237,15 @@ class ManagedContractPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = self._repo(root)
+            unrelated = self._repo(root, "fix-login-helper")
             resolution = _resolve_repository_binding(
                 prompt="Fix this repository.",
                 cwd=str(repo / "nested"),
-                projects=[],
+                projects=[{"name": "fix-login-helper", "path": str(unrelated)}],
                 continuity_module=continuity,
             )
-            # The nested path need not exist; binding still walks its lexical parents.
+            # Generic work words are not project identities. The nested path need
+            # not exist; binding still walks its lexical parents.
             self.assertEqual(resolution["status"], "bound")
             self.assertEqual(Path(resolution["repo"]), repo)
 
