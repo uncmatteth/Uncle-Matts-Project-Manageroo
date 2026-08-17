@@ -339,6 +339,8 @@ class ManagedContractPolicyTests(unittest.TestCase):
             ).stdout
             patch_path = delivery / "final.patch"
             patch_path.write_text(patch_text, encoding="utf-8")
+            untracked_source = repo / "runtime_config.py"
+            untracked_source.write_text("SETTING = 'verified'\n", encoding="utf-8")
             current_tree = source_tree_digest(repo, runner)
             result = {
                 "run_id": "proved",
@@ -399,6 +401,54 @@ class ManagedContractPolicyTests(unittest.TestCase):
                 state_root=state_root,
             )
             self.assertEqual(accepted, {})
+
+            def reactivate_and_stop() -> dict:
+                active = continuity._read_state(state_root, "session")
+                self.assertIsNotNone(active)
+                active["status"] = "active"
+                continuity._save_state(state_root, active)
+                return continuity.process_codex_continuity_hook(
+                    {
+                        "hook_event_name": "Stop",
+                        "session_id": "session",
+                        "turn_id": "turn-1",
+                        "cwd": str(repo),
+                        "stop_hook_active": False,
+                    },
+                    state_root=state_root,
+                )
+
+            ignored_evidence = run_root / "artifacts" / "generated-evidence.log"
+            ignored_evidence.write_text("generated after verification\n", encoding="utf-8")
+            self.assertEqual(reactivate_and_stop(), {})
+
+            created_source = repo / "new_plugin.py"
+            source_mutations = (
+                ("create", created_source, "ENABLED = True\n", None),
+                (
+                    "modify",
+                    untracked_source,
+                    "SETTING = 'changed'\n",
+                    "SETTING = 'verified'\n",
+                ),
+                (
+                    "delete",
+                    untracked_source,
+                    None,
+                    "SETTING = 'verified'\n",
+                ),
+            )
+            for mutation, path, changed_content, original_content in source_mutations:
+                with self.subTest(untracked_source_mutation=mutation):
+                    if changed_content is None:
+                        path.unlink()
+                    else:
+                        path.write_text(changed_content, encoding="utf-8")
+                    self.assertEqual(reactivate_and_stop()["decision"], "block")
+                    if original_content is None:
+                        path.unlink()
+                    else:
+                        path.write_text(original_content, encoding="utf-8")
 
             (repo / "README.md").write_text("tampered\n", encoding="utf-8")
             # Re-open the same active state to test stale proof rather than the completed marker.
