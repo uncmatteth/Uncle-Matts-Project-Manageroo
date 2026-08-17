@@ -417,6 +417,43 @@ class JobStoreTests(unittest.TestCase):
 
             self.assertEqual(target.read_text(encoding="utf-8"), '{\n  "ok": true\n}\n')
 
+    def test_completed_job_rejects_lexical_escapes_and_mismatched_artifact_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_root = root / "run"
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            outside = root / "outside.json"
+            atomic_write_json(outside, {"ok": True})
+            cases = (
+                (str(outside.resolve()), outside),
+                ("../outside.json", outside),
+                ("agent/../../outside.json", outside),
+                ("agent/../agent/001-product-analyst.json", outside),
+                ("agent/001-product-analyst.json", outside),
+            )
+
+            for output_artifact, artifact_path in cases:
+                with self.subTest(output_artifact=output_artifact):
+                    with self.assertRaises(SafetyError):
+                        store.complete_job(
+                            job.id,
+                            output_artifact=output_artifact,
+                            data={"ok": True},
+                            artifact_path=artifact_path,
+                        )
+                    self.assertEqual(
+                        store.load_job(job.id).status,
+                        JobStatus.PENDING.value,
+                    )
+
+            self.assertEqual(outside.read_text(encoding="utf-8"), '{\n  "ok": true\n}\n')
+
     def test_completed_data_rejects_symlinked_artifact_entry(self):
         with tempfile.TemporaryDirectory() as temp:
             run_root = Path(temp)
@@ -481,6 +518,77 @@ class JobStoreTests(unittest.TestCase):
             self.assertEqual(reloaded.status, JobStatus.PENDING.value)
             self.assertEqual(reloaded.failure_type, "MissingArtifact")
             self.assertEqual(target.read_text(encoding="utf-8"), '{\n  "ok": true\n}\n')
+
+    def test_completed_data_rejects_mismatched_artifacts_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_root = root / "run"
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            relative = "agent/001-product-analyst.json"
+            artifact = run_root / "artifacts" / relative
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_job(
+                job.id,
+                output_artifact=relative,
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+            alternate_root = root / "alternate-artifacts"
+            atomic_write_json(alternate_root / relative, {"ok": True})
+
+            self.assertIsNone(store.completed_data(job.id, alternate_root))
+            reloaded = store.load_job(job.id)
+            self.assertEqual(reloaded.status, JobStatus.PENDING.value)
+            self.assertEqual(reloaded.failure_type, "MissingArtifact")
+
+    def test_completed_data_rejects_unsafe_recorded_artifact_references(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_root = root / "run"
+            store = JobStore(run_root)
+            job = store.create_or_load_job(
+                "001-product-analyst",
+                role="product-analyst",
+                schema="product-model.schema.json",
+                instructions="Analyze this.",
+            )
+            relative = "agent/001-product-analyst.json"
+            artifact = run_root / "artifacts" / relative
+            atomic_write_json(artifact, {"ok": True})
+            store.complete_job(
+                job.id,
+                output_artifact=relative,
+                data={"ok": True},
+                artifact_path=artifact,
+            )
+            outside = root / "outside.json"
+            atomic_write_json(outside, {"ok": True})
+            unsafe_references = (
+                str(outside.resolve()),
+                "../outside.json",
+                "agent/../../outside.json",
+                "agent/../agent/001-product-analyst.json",
+            )
+
+            for output_artifact in unsafe_references:
+                with self.subTest(output_artifact=output_artifact):
+                    completed = store.load_job(job.id)
+                    completed.status = JobStatus.COMPLETE.value
+                    completed.output_artifact = output_artifact
+                    store.save_job(completed)
+
+                    self.assertIsNone(
+                        store.completed_data(job.id, run_root / "artifacts")
+                    )
+                    reloaded = store.load_job(job.id)
+                    self.assertEqual(reloaded.status, JobStatus.PENDING.value)
+                    self.assertEqual(reloaded.failure_type, "MissingArtifact")
 
     def test_completed_data_rejects_artifact_that_conflicts_with_recorded_result(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -589,17 +589,24 @@ class JobStore:
                 job.failure = f"Completed job artifact hash is missing: {job.output_artifact}"
                 self.save_job(job)
                 return None
-            relative, path = self._artifact_path(job.output_artifact, artifacts_root)
+            artifact_reference = job.output_artifact
             try:
+                requested_root = artifacts_root.expanduser().resolve()
+                if requested_root != self.artifacts_root:
+                    raise SafetyError(
+                        "Completed job artifact root does not match its run-owned root."
+                    )
+                relative, path = self._artifact_path(job.output_artifact)
+                artifact_reference = relative
                 data, artifact_hash = self._read_artifact_json(
                     path,
-                    artifacts_root.expanduser().resolve(),
+                    self.artifacts_root,
                     relative,
                 )
             except SafetyError:
                 job.status = JobStatus.PENDING.value
                 job.failure_type = "MissingArtifact"
-                job.failure = f"Completed job artifact is missing: {relative}"
+                job.failure = f"Completed job artifact is missing: {artifact_reference}"
                 self.save_job(job)
                 return None
             if artifact_hash != job.output_artifact_sha256:

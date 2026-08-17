@@ -127,8 +127,9 @@ repository binding, job state, artifacts, checks, and completion evidence.
 
 A completed job is reusable only when its immutable specification, output
 artifact, artifact digest, parsed result digest, and latest completed attempt
-still agree. Missing, replaced, symlinked, or stale output returns the job to a
-retryable state instead of trusting it.
+still agree. The artifact reference must be lexical, relative, and bound to the
+run-owned artifact root. Missing, replaced, symlinked, mismatched, or stale
+output returns the job to a retryable state instead of trusting it.
 
 `manageroo run --continue <run-id>` replays the Python controller from durable
 facts. It does not depend on the old model process.
