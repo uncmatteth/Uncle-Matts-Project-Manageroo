@@ -479,6 +479,62 @@ class ProjectInitializationTests(unittest.TestCase):
             self.assertFalse((manageroo / "config.toml").exists())
             self.assertFalse((manageroo / "PRODUCT-BRIEF.md").exists())
 
+    def test_initialization_rejects_reserved_directory_file_before_mutating_repo(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+            manageroo = repo / ".manageroo"
+            manageroo.mkdir()
+            (manageroo / "runs").write_text("not a directory\n", encoding="utf-8")
+            before = {
+                path.relative_to(repo).as_posix()
+                for path in repo.rglob("*")
+                if ".git" not in path.relative_to(repo).parts
+            }
+
+            with self.assertRaisesRegex(ValueError, "unsafe Manageroo directory"):
+                initialize_project(repo, agent="mock")
+
+            after = {
+                path.relative_to(repo).as_posix()
+                for path in repo.rglob("*")
+                if ".git" not in path.relative_to(repo).parts
+            }
+            self.assertEqual(after, before)
+
+    def test_initialization_rejects_reserved_directory_symlinks_before_mutating_repo(self):
+        if os.name == "nt":
+            self.skipTest("symlink semantics vary on Windows")
+        for name in ("ideas", "runs"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                repo = root / "repo"
+                outside = root / f"outside-{name}"
+                repo.mkdir()
+                outside.mkdir()
+                subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+                (repo / "README.md").write_text("fixture\n", encoding="utf-8")
+                manageroo = repo / ".manageroo"
+                manageroo.mkdir()
+                (manageroo / name).symlink_to(outside, target_is_directory=True)
+                before = {
+                    path.relative_to(repo).as_posix()
+                    for path in repo.rglob("*")
+                    if ".git" not in path.relative_to(repo).parts
+                }
+
+                with self.assertRaisesRegex(ValueError, "unsafe Manageroo directory"):
+                    initialize_project(repo, agent="mock")
+
+                after = {
+                    path.relative_to(repo).as_posix()
+                    for path in repo.rglob("*")
+                    if ".git" not in path.relative_to(repo).parts
+                }
+                self.assertEqual(after, before)
+                self.assertEqual(list(outside.iterdir()), [])
+
     def test_initialization_rejects_unsafe_product_brief_before_mutating_repo(self):
         unsafe_kinds = ("directory",) if os.name == "nt" else ("dangling-symlink", "directory")
         for unsafe_kind in unsafe_kinds:

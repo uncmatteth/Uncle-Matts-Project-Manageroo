@@ -343,6 +343,9 @@ def _preflight_initialize_project(repo: Path) -> None:
     manageroo = repo / ".manageroo"
     if manageroo.exists() and (manageroo.is_symlink() or not manageroo.is_dir()):
         raise ValueError(f"Refusing to initialize through unsafe Manageroo directory: {manageroo}")
+    for directory in (manageroo / "ideas", manageroo / "runs"):
+        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+            raise ValueError(f"Refusing to initialize through unsafe Manageroo directory: {directory}")
     brief_path = manageroo / "PRODUCT-BRIEF.md"
     if brief_path.is_symlink() or (brief_path.exists() and not brief_path.is_file()):
         raise ValueError(f"Refusing to initialize through unsafe product brief file: {brief_path}")

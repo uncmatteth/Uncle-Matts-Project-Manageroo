@@ -46,6 +46,7 @@ Not every control is equally strong. This document distinguishes prevention from
 | Stack update mutates the supervisor virtual environment while its queue is active | Cross-platform advisory lock keyed to the resolved supervisor executable and held across the complete queue or update lifetime; process inspection is supplemental only | Preventive for Manageroo-managed execution and updates |
 | Push begins from an unsynchronized branch | Compare local HEAD with live `origin/<branch>` before creating a repair branch or starting queue work | Preventive |
 | Project memory creation escapes the repository | Resolve the destination parent and reject symlinked memory paths before writing | Preventive |
+| Project initialization partially mutates a repository before finding an unsafe reserved directory | Preflight `.manageroo/ideas` and `.manageroo/runs` before the first mutation; reject symlinks and existing non-directories | Preventive |
 | Concurrent project-memory updates discard one writer's entries | Cross-platform interprocess lock held across destination revalidation, existence detection, read, merge, atomic replacement, and final read | Preventive |
 | Codex reviewer cannot write normally | `read-only` Codex sandbox | Provider enforcement |
 | A caller requests unrestricted or unknown Codex sandbox access directly | `CodexAdapter.run` accepts only `read-only` and `workspace-write`; the exact-error, operator-opted-in unrestricted retry remains internal | Preventive before provider launch |
